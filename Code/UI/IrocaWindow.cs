@@ -86,6 +86,24 @@ namespace Iroca {
             _maskView?.DeactivateBrush();
         }
 
+        /// <summary>
+        /// プレビューをクリックするモード(スポイト・シード指定・ブラシ)に入ったとき、クリックできるプレビューが画面に無ければ出す。
+        /// 狭い窓(縦並び)では本体にプレビューを描かないので、別窓を閉じたままだと押した後にクリックする先が無かった。
+        /// 別窓が開いていても裏のタブにあれば前に出す。ボタンの押下から呼ぶ(<see cref="ArmEyedropper"/> 自体は
+        /// テストや自動化からも呼ばれるので、そこでは窓を開かない)。
+        /// </summary>
+        internal void EnsureClickablePreview() {
+            if (IrocaPreviewWindow.IsOpen) {
+                if (!IrocaPreviewWindow.IsShown) {
+                    IrocaPreviewWindow.FocusIfOpen();
+                }
+                return;
+            }
+            if (position.width < IrocaUiConsts.Layout.SideBySideMinWidth) {
+                IrocaPreviewWindow.Open(this);
+            }
+        }
+
         /// <summary>シード指定を武装する(null で解除)。排他は <see cref="ArmEyedropper"/> と同じ。</summary>
         internal void ArmSeedPick(string zoneId) {
             SeedPickZoneId = zoneId;

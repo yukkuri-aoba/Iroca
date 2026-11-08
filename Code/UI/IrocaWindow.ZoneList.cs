@@ -281,6 +281,9 @@ namespace Iroca {
                 if (ArmedToggleButton(content, armed, height, GUILayout.MinWidth(0), GUILayout.ExpandWidth(true))) {
                     // トグル: 武装↔解除。
                     ArmEyedropper(armed ? null : NewZoneEyedropperId);
+                    if (!armed) {
+                        EnsureClickablePreview();
+                    }
                     Repaint();
                 }
             }
@@ -510,6 +513,9 @@ namespace Iroca {
                         // （クリックで一発取得→自動解除）。
                         zone.EnsureId();
                         ArmEyedropper(armed ? null : zone.id);
+                        if (!armed) {
+                            EnsureClickablePreview();
+                        }
                         Repaint();
                     }
                 }
@@ -587,6 +593,9 @@ namespace Iroca {
                                 GUILayout.MinWidth(0))) {
                             zone.EnsureId();
                             ArmSeedPick(seedArmed ? null : zone.id);
+                            if (!seedArmed) {
+                                EnsureClickablePreview();
+                            }
                             Repaint();
                         }
                     }

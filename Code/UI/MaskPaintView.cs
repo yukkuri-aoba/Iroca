@@ -149,6 +149,8 @@ namespace Iroca {
                 if (!maskPaintActive) {
                     ActivateBrush(erase: false);
                 }
+                // 塗る先のプレビューが画面に無ければ先に出す(狭い窓。パレットを後に開いて前に置く)。
+                _host.EnsureClickablePreview();
                 MaskBrushWindow.Open(_host);
             }
             GUI.backgroundColor = prevBg;
@@ -273,6 +275,7 @@ namespace Iroca {
                     DeactivateBrush();
                 } else {
                     ActivateBrush(erase: false);
+                    _host.EnsureClickablePreview();
                 }
                 stateChanged = true;
             }
@@ -283,6 +286,7 @@ namespace Iroca {
                     DeactivateBrush();
                 } else {
                     ActivateBrush(erase: true);
+                    _host.EnsureClickablePreview();
                 }
                 stateChanged = true;
             }
