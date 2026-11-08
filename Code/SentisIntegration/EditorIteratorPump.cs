@@ -5,6 +5,7 @@ using System;
 using System.Collections;
 using System.Diagnostics;
 using UnityEditor;
+using UnityEditorInternal;
 
 namespace Iroca.SentisIntegration
 {
@@ -16,6 +17,10 @@ namespace Iroca.SentisIntegration
     internal sealed class EditorIteratorPump
     {
         const int BudgetMs = 8;
+        // Unity が前面に無いとき。背面では update の回る間隔が延びるので、前面と同じ予算では埋め込みの計算が
+        // 何倍も遅れる(MCP から頼んだ自動調整など、利用者が別のアプリにいる間に走る)。背面では誰もエディタを
+        // 操作していないので、1 回に長く進める。推論の中身・順は同じで、1 回にいくつ進めるかだけが変わる。
+        const int BackgroundBudgetMs = 50;
 
         IEnumerator _iterator;
         Action _onDone;
@@ -68,10 +73,11 @@ namespace Iroca.SentisIntegration
         {
             _ticks++;
             var sw = Stopwatch.StartNew();
+            int budgetMs = InternalEditorUtility.isApplicationActive ? BudgetMs : BackgroundBudgetMs;
             Action done = null;
             try
             {
-                while (sw.ElapsedMilliseconds < BudgetMs)
+                while (sw.ElapsedMilliseconds < budgetMs)
                 {
                     if (!_iterator.MoveNext())
                     {
