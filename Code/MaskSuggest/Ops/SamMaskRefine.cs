@@ -1482,7 +1482,7 @@ namespace Iroca
 
         /// <summary>帯内画素を 3x3 多数決(5/9 以上)で平滑化する。読みはスナップ結果の
         /// スナップショット、書きは mask(決定的・順序非依存)。</summary>
-        static void MajoritySmoothBand(WorkScratch scratch, bool* mask, bool* mask0, int* distIn, int* distOut,
+        static void MajoritySmoothBand(WorkScratch scratch, bool* mask, bool* mask0, ushort* distIn, ushort* distOut,
                                        int d, int w, int h,
                                        System.Threading.CancellationToken token = default)
         {
@@ -1583,12 +1583,15 @@ namespace Iroca
         /// 旧 2 パスチャンファー(左下前進/右上後退)と厳密に同値(どちらも正確な L1)だが、
         /// 行パスは行単位・列パスは列レンジ単位で並列化できる(いずれも決定的)。
         /// </summary>
-        /// <remarks>mask は w*h 個(提案のマスクか作業配列)。結果は scratch から借りる(全画素に書く)。</remarks>
-        internal static int* DistanceToOpposite(WorkScratch scratch, bool* mask, int w, int h, bool inside,
+        /// <remarks>mask は w*h 個(提案のマスクか作業配列)。結果は scratch から借りる(全画素に書く)。
+        /// 距離は ushort で持つ(int の半分。精密化は 1 回に最大 13 本作るので、作業配列の山に効く)。本当の距離は
+        /// 画像の辺の和(16384² でも 32766)を超えないので、反対側が無いことを表す Inf = 65535 とは混ざらない。
+        /// 呼び出し側の判定(&gt; d・&lt;= d、d は数百まで)は、以前の Inf = 2^28 と同じ答えになる。</remarks>
+        internal static ushort* DistanceToOpposite(WorkScratch scratch, bool* mask, int w, int h, bool inside,
                                                 System.Threading.CancellationToken token = default)
         {
-            const int Inf = 1 << 28;
-            int* dist = scratch.Int(w * h, clear: false);
+            const int Inf = ushort.MaxValue;
+            ushort* dist = (ushort*)scratch.Byte(w * h * sizeof(ushort), clear: false);
             var po = MakeParallelOptions(token);
 
             // 行パス: 各行の左右走査で「同じ行内の最近接反対側画素」までの距離(無ければ Inf)
@@ -1602,7 +1605,7 @@ namespace Iroca
                     if (mask[i] == inside)
                     {
                         if (run < Inf) run++;
-                        dist[i] = run;
+                        dist[i] = (ushort)run;
                     }
                     else
                     {
@@ -1616,7 +1619,7 @@ namespace Iroca
                     int i = row + x;
                     if (dist[i] == 0) { run = 0; continue; }
                     if (run < Inf) run++;
-                    if (run < dist[i]) dist[i] = run;
+                    if (run < dist[i]) dist[i] = (ushort)run;
                 }
             });
 
@@ -1634,7 +1637,7 @@ namespace Iroca
                     for (int x = x0; x < x1; x++)
                     {
                         int v = dist[prev + x] + 1;
-                        if (v < dist[row + x]) dist[row + x] = v;
+                        if (v < dist[row + x]) dist[row + x] = (ushort)v;
                     }
                 }
                 for (int y = h - 2; y >= 0; y--)
@@ -1643,7 +1646,7 @@ namespace Iroca
                     for (int x = x0; x < x1; x++)
                     {
                         int v = dist[next + x] + 1;
-                        if (v < dist[row + x]) dist[row + x] = v;
+                        if (v < dist[row + x]) dist[row + x] = (ushort)v;
                     }
                 }
             });
