@@ -41,10 +41,17 @@ namespace Iroca.SentisIntegration
         public static bool ModelsPresent() =>
             File.Exists(EncoderOnnxPath) && File.Exists(DecoderOnnxPath);
 
+        // パッケージの版はドメインの間は変わらない(版を替えるとスクリプトの読み直しになる)ので、1 回だけ引く。
+        // 以前はモデル 1 本ごと(エンコーダとデコーダで 2 回)に、パッケージの一覧を引き直していた。
+        static string s_sentisVersion;
+
         static string SentisVersion()
         {
+            if (s_sentisVersion != null) return s_sentisVersion;
             var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(Worker).Assembly);
-            return info != null ? info.version : "unknown";
+            // 引けなかったときは覚えない(次に引けたら正しい名前のキャッシュを使う)。
+            if (info == null) return "unknown";
+            return s_sentisVersion = info.version;
         }
 
         static string CachePathFor(string onnxPath) =>
