@@ -748,6 +748,7 @@ namespace Iroca
         // 管理配列にすると 1 枚ごと(4K の BC7 で 21MB、非圧縮なら 85MB)の一時配列で Mono のヒープが広がる。
         private static unsafe Texture2D TryLoadCache(string key, Texture2D like)
         {
+            WaitForPendingStore(key);
             string path = CachePath(key);
             if (!File.Exists(path)) return null;
             Texture2D tex = null;
@@ -799,38 +800,132 @@ namespace Iroca
             }
         }
 
+        // ───────────── キャッシュの書き込み(背景) ─────────────
+        // 1 枚(4K の BC7 で 21MB)を書いてデバイスまで書き切る(AtomicFile の Flush(true))のは、メインスレッドで
+        // 数十 ms 以上かかる(シーンのプレビューでは仕上げの tick がそのぶん止まる)。テクスチャの生データをヒープの外へ
+        // 写したら(数 ms)、書き込みは背景で 1 本ずつ順に行う(同じ一時ファイル .tmp と TrimCache を取り合わない)。
+        // ファイルは AtomicFile が書き切ってから置き換えるので、書きかけが見えることはない。書き終える前に同じ鍵を
+        // 読みに来たら(TryLoadCache)、書き終えるのを待ってから読む(作り直さない)。リロードの前・エディタを
+        // 閉じる前も書き終えるのを待つ。
+
+        // 最後に投げた書き込みと、書いている途中の鍵(どちらもメインスレッドからしか触らない)。
+        private static Task s_lastStore = Task.CompletedTask;
+        private static readonly Dictionary<string, Task> s_pendingStores = new Dictionary<string, Task>();
+        // リロード・終了の前に書き終えるのを待つ上限(ミリ秒)。
+        private const int StoreDrainMilliseconds = 10_000;
+
+        [InitializeOnLoadMethod]
+        private static void InstallStoreDrain()
+        {
+            AssemblyReloadEvents.beforeAssemblyReload -= DrainStores;
+            AssemblyReloadEvents.beforeAssemblyReload += DrainStores;
+            EditorApplication.quitting -= DrainStores;
+            EditorApplication.quitting += DrainStores;
+        }
+
+        // リロード・終了の前に呼ばれる。ここで投げると他ツールの後始末が呼ばれないので止める。
+        private static void DrainStores()
+        {
+            try { WaitForCacheWrites(StoreDrainMilliseconds); }
+            catch (Exception e) { Debug.LogException(e); }
+        }
+
+        /// <summary>背景のキャッシュの書き込みが全部終わるまで待つ(メインスレッド。テストも使う)。終われば true。</summary>
+        internal static bool WaitForCacheWrites(int milliseconds = Timeout.Infinite)
+        {
+            bool done = s_lastStore.Wait(milliseconds);
+            if (done) s_pendingStores.Clear();
+            return done;
+        }
+
+        // その鍵を書いている途中なら、書き終えるまで待つ(メインスレッド)。
+        private static void WaitForPendingStore(string key)
+        {
+            if (!s_pendingStores.TryGetValue(key, out var pending)) return;
+            pending.Wait();   // 書き込みの例外は中で受けるので、ここへは出ない
+            s_pendingStores.Remove(key);
+        }
+
         private static unsafe void TryStoreCache(string key, Texture2D tex)
         {
+            NativeBuffer data = null;
             try
             {
-                Directory.CreateDirectory(CacheDir);
-                var raw = tex.GetRawTextureData<byte>();
-                AtomicFile.WriteAll(CachePath(key), fs =>
+                // 書き終えた分を一覧から外す(ここと読むときにしか見ないので、溜めない)。
+                if (s_pendingStores.Count > 0)
                 {
-                    using (var bw = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true))
-                    {
-                        bw.Write(CacheFormatVersion);
-                        bw.Write(tex.width); bw.Write(tex.height); bw.Write((int)tex.format);
-                        bw.Write(tex.mipmapCount);
-                        bw.Write(!GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat));
-                        bw.Write(raw.Length);
-                    }
-                    using (var src = new UnmanagedMemoryStream((byte*)NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(raw), raw.Length))
-                        CopyExactly(src, fs, raw.Length);
-                });
-                TrimCache();
+                    var done = new List<string>();
+                    foreach (var kv in s_pendingStores) if (kv.Value.IsCompleted) done.Add(kv.Key);
+                    foreach (var k in done) s_pendingStores.Remove(k);
+                }
+                // FinishLike で読み書き不可にすると CPU 側のデータが消えるので、ここで写す。
+                var raw = tex.GetRawTextureData<byte>();
+                int len = raw.Length;
+                data = new NativeBuffer(Math.Max(1, len), NativeUsage.Other);
+                Buffer.MemoryCopy(NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(raw), (void*)data.Ptr, len, len);
+                var header = new CacheHeader
+                {
+                    width = tex.width, height = tex.height, format = (int)tex.format, mipCount = tex.mipmapCount,
+                    linear = !GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat), length = len,
+                };
+                string dir = CacheDir, path = CachePath(key);
+                var buffer = data;
+                data = null;
+                var store = s_lastStore.ContinueWith(_ => WriteCacheFile(dir, path, buffer, header),
+                    CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default);
+                s_lastStore = store;
+                s_pendingStores[key] = store;
             }
             catch (Exception ex)
             {
+                data?.Release();
                 // キャッシュは速さのためだけ。書けなくても出来上がりは正しい。
                 Debug.LogWarning($"[Iroca] テクスチャのキャッシュを書けませんでした: {ex.Message}");
             }
         }
 
-        // 合計が上限を超えたら、最後に使った時刻が古いものから消す。
-        private static void TrimCache()
+        private struct CacheHeader
         {
-            var files = new List<FileInfo>(new DirectoryInfo(CacheDir).GetFiles("*.tex"));
+            public int width, height, format, mipCount, length;
+            public bool linear;
+        }
+
+        // 背景のスレッド。中身(buffer)は書き終えたら手放す。失敗は警告に残すだけ(Debug.Log はどのスレッドからでもよい)。
+        private static unsafe void WriteCacheFile(string dir, string path, NativeBuffer buffer, CacheHeader h)
+        {
+            try
+            {
+                Directory.CreateDirectory(dir);
+                AtomicFile.WriteAll(path, fs =>
+                {
+                    using (var bw = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true))
+                    {
+                        bw.Write(CacheFormatVersion);
+                        bw.Write(h.width); bw.Write(h.height); bw.Write(h.format);
+                        bw.Write(h.mipCount);
+                        bw.Write(h.linear);
+                        bw.Write(h.length);
+                    }
+                    using (var src = new UnmanagedMemoryStream((byte*)buffer.Ptr, h.length))
+                        CopyExactly(src, fs, h.length);
+                });
+                TrimCache(dir);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Iroca] テクスチャのキャッシュを書けませんでした: {ex.Message}");
+            }
+            finally
+            {
+                buffer.Release();
+            }
+        }
+
+        // 合計が上限を超えたら、最後に使った時刻が古いものから消す(背景の書き込みのスレッドで呼ぶ。
+        // メインスレッドが同時に読んでいるファイルは消せずに残るか、読む側が読めなかったものとして作り直す)。
+        private static void TrimCache(string dir)
+        {
+            var files = new List<FileInfo>(new DirectoryInfo(dir).GetFiles("*.tex"));
             long total = 0;
             foreach (var f in files) total += f.Length;
             if (total <= CacheMaxBytes) return;

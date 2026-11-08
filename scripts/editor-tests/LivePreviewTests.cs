@@ -326,6 +326,7 @@ namespace Iroca.EditorTests
         [TearDown]
         public void TearDown()
         {
+            RecipeTextureBuilder.WaitForCacheWrites();   // 背景の書き込みが後から書いて残らないように
             foreach (var f in _cacheFiles)
                 if (System.IO.File.Exists(f)) System.IO.File.Delete(f);
             _cacheFiles.Clear();

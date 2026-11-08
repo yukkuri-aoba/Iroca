@@ -267,6 +267,7 @@ namespace Iroca.EditorTests
             {
                 var first = Track(RecipeTextureBuilder.Build(recipe, out var f1));
                 Assert.IsNotNull(first, f1.ToString());
+                RecipeTextureBuilder.WaitForCacheWrites();   // キャッシュは背景で書く
                 Assert.IsTrue(File.Exists(cacheFile), "キャッシュが書かれていない");
                 var second = Track(RecipeTextureBuilder.Build(recipe, out var f2));
                 Assert.IsNotNull(second, f2.ToString());
@@ -282,7 +283,7 @@ namespace Iroca.EditorTests
             }
             finally
             {
-                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+                DeleteCache(cacheFile);
             }
         }
 
@@ -304,7 +305,7 @@ namespace Iroca.EditorTests
             }
             finally
             {
-                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+                DeleteCache(cacheFile);
             }
         }
 
@@ -333,7 +334,7 @@ namespace Iroca.EditorTests
             }
             finally
             {
-                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+                DeleteCache(cacheFile);
             }
         }
 
@@ -379,7 +380,7 @@ namespace Iroca.EditorTests
             }
             finally
             {
-                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+                DeleteCache(cacheFile);
             }
         }
 
@@ -400,8 +401,15 @@ namespace Iroca.EditorTests
             finally
             {
                 Object.DestroyImmediate(win);
-                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+                DeleteCache(cacheFile);
             }
+        }
+
+        // キャッシュを消す(背景の書き込みが終わってから。先に消すと、後から書かれて残る)。
+        private static void DeleteCache(string cacheFile)
+        {
+            RecipeTextureBuilder.WaitForCacheWrites();
+            if (File.Exists(cacheFile)) File.Delete(cacheFile);
         }
 
         // キャッシュの無いレシピ(色替えの計算が走る)。
@@ -410,7 +418,7 @@ namespace Iroca.EditorTests
             var src = ImportSource(readable: true);
             var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
             string cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
-            if (File.Exists(cacheFile)) File.Delete(cacheFile);
+            DeleteCache(cacheFile);
             return (recipe, cacheFile);
         }
 
@@ -480,7 +488,7 @@ namespace Iroca.EditorTests
             }
             finally
             {
-                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+                DeleteCache(cacheFile);
             }
         }
 

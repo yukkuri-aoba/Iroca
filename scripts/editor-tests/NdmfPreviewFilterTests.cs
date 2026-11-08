@@ -42,6 +42,7 @@ namespace Iroca.EditorTests
             foreach (var o in _created)
                 if (o != null) Object.DestroyImmediate(o);
             _created.Clear();
+            RecipeTextureBuilder.WaitForCacheWrites();   // 背景の書き込みが後から書いて残らないように
             foreach (var f in _cacheFiles)
                 if (System.IO.File.Exists(f)) System.IO.File.Delete(f);
             _cacheFiles.Clear();
