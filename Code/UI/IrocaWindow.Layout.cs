@@ -130,8 +130,8 @@ namespace Iroca
                     _jobOverlayHeight = overlayRect.height;
                     Repaint();
                 }
-                // 進捗バーを次フレームで更新するため、ジョブ中は継続的に再描画を要求する。
-                Repaint();
+                // 進捗バーの描き直しは、値が変わったとき・ジョブが終わったときだけ(書き出しと始まり・終わりは
+                // TickRepaintWatch、自動調整の進みは TickAutoTune)。以前はジョブ中ずっと毎フレーム描き直していた。
             }
             else
             {

@@ -62,6 +62,9 @@ namespace Iroca
         /// <summary>エクスポート処理中。true の間はウィンドウ全体を Disabled に。</summary>
         public bool IsExporting => _exportJob.IsRunning;
 
+        /// <summary>進捗バーに出している進み(%)。ウィンドウはこれが変わったときだけ描き直す(IrocaWindow.TickRepaintWatch)。</summary>
+        internal int ProgressPercent => Mathf.RoundToInt(_exportProgress.Value * 100f);
+
         public void Initialize(IrocaWindow host)
         {
             _host = host;

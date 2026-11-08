@@ -959,7 +959,16 @@ namespace Iroca
             }
             else if (dv.lastDetailDirtyTime > 0 || dv.detailJob.IsRunning)
             {
-                _host.RequestRepaint();
+                // 作り直しは Repaint のときにしか始めないので、それ以外の入力のイベント(スクロール・ドラッグ)なら
+                // 次の Repaint を頼む。Layout は後に続くイベントがあるので頼まない(Layout は毎回の描き直しの頭にも来るので、
+                // ここで頼むと描き直しが途切れなくなる)。保険の見回りだけ置く。
+                // 走っている間・Repaint でも始められない間(確定段の出力待ち)は、終わり(切り出し・確定段の apply)が
+                // 描き直しを頼むので、毎フレームは描き直さずに間をあけて見に来るだけにする。
+                var type = Event.current.type;
+                if (!dv.detailJob.IsRunning && type != EventType.Repaint && type != EventType.Layout)
+                    _host.RequestRepaint();
+                else
+                    _host.RequestRepaintAfter(PreviewPipeline.BackgroundPollSeconds);
             }
         }
 

@@ -17,6 +17,7 @@ namespace Iroca
     //                               シーンのライブプレビューへの通知
     //   IrocaWindow.SceneClick.cs … Scene でモデルをクリックした場所をプレビューで示す
     //   IrocaWindow.Autosave.cs   … 編集内容の自動保存
+    //   IrocaWindow.Repaint.cs    … 再描画の予約と、ジョブの進み具合の見張り(毎フレーム描き直さない)
     public partial class IrocaWindow : EditorWindow, IHasCustomMenu, ISerializationCallbackReceiver, IPreviewPipelineHost
     {
         // パイプライン透明化機能（Code.Debug/ asmdef がある場合のみ実体が入る）。
@@ -435,6 +436,8 @@ namespace Iroca
             // Scene でモデルをクリックした場所をプレビューで示す(クリックは横から見るだけで消費しない)。
             InstallSceneClick();
             InstallGlobalEscape();
+            // ジョブの進み具合と、予約した描き直しの見張り(IrocaWindow.Repaint)。
+            InstallRepaintWatch();
 
             // AI(Sentis + 配布モデル)の準備は、ウィンドウ上部の非モーダルな帯で案内する
             // (MaskSuggestSection.DrawSetupBanner)。以前はここで delayCall からモーダルを
@@ -453,6 +456,7 @@ namespace Iroca
             UnsubscribeEditChanges();   // ここで保存するので自動保存の予定は消す
             UninstallSceneClick();
             UninstallGlobalEscape();
+            UninstallRepaintWatch();
             // ウィンドウを閉じたら、シーンのアバターへの編集中の表示もやめる(登録済みならレシピの表示に戻る)。
             LivePreview.SetTarget(null, null);
             // 自動調整は EditorApplication.update に張っているので、ドメインリロード・

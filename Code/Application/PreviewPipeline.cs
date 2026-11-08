@@ -20,6 +20,11 @@ namespace Iroca
         /// <summary>今あるゾーンの id(削除されたゾーンの、自動調整の入力を刈る)。</summary>
         void RetainZoneInputs(ICollection<string> liveZoneIds);
         void RequestRepaint();
+        /// <summary>
+        /// seconds 秒後に描き直す(0 以下なら次の更新で)。続けて呼んだときは早い方の時刻で 1 回描く。毎フレーム描き直さずに
+        /// 待ちの明け(ドラッグの手を止めたときの待ち)や計算の見回りをするためのもの。
+        /// </summary>
+        void RequestRepaintAfter(double seconds);
         /// <summary>確定段の色替えで記録したデバッグの記録(記録していなければ null)。</summary>
         void PublishDebugCapture(IDebugCapture capture);
     }
@@ -666,11 +671,26 @@ namespace Iroca
                 // 絵を操作に追従させる。フル段は手を止めるか離してから。
                 GeneratePreviewAsync(dragOnly: true);
             }
-            else if (_lastDirtyTime > 0 || _proxyJob.IsRunning || _previewJob.IsRunning)
+            else if (_proxyJob.IsRunning || _previewJob.IsRunning)
             {
-                _host.RequestRepaint();
+                // 計算の終わり(apply)は RequestRepaint で知らせるので、走っている間は毎フレーム描き直さない。
+                // 結果を当てずに終わる道(計算の例外)の「生成中」の表示が残らないよう、間をあけて見に来るだけにする。
+                _host.RequestRepaintAfter(BackgroundPollSeconds);
+            }
+            else if (_lastDirtyTime > 0)
+            {
+                // ボタンを押したまま手を止めている: 待ちが明ける時刻に描き直して確定段を始める
+                // (離したときは、その入力の描き直しで上の分岐へ入る)。
+                double waited = EditorApplication.timeSinceStartup - _lastDirtyTime;
+                _host.RequestRepaintAfter(PreviewDebounceSeconds - waited);
             }
         }
+
+        /// <summary>
+        /// 計算が走っている間に見に来る間隔。計算の終わりは apply が描き直しを頼むので、これは結果を当てずに
+        /// 終わった計算(例外)の表示を戻すための保険。
+        /// </summary>
+        internal const double BackgroundPollSeconds = 0.25;
 
         /// <summary>
         /// 表示へまだ渡していない結果を取り出す(無ければ false)。表示はこれをテクスチャへ上げ、上げ終えたら
