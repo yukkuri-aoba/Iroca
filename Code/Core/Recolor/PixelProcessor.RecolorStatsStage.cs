@@ -79,7 +79,7 @@ namespace Iroca
                     TryComputeRecolorAnchor(originalPixels, strength, w,
                         ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC,
                         zSL, zSa, zSb, sampS > ColorZone.ChromaGateActivateSat,
-                        includedPx, cancellationToken, palette))
+                        includedPx, run.Buf.Claimed, cancellationToken, palette))
                 {
                     float zSC0 = zSC;
                     zSL = anchorL;
@@ -89,7 +89,7 @@ namespace Iroca
                     // 大半を占める素材(明るい髪など)では中央値が基準以下なので、これまでどおり面が塗り先の彩度に届く。
                     // クリックの位置では決めない(濃い筋をクリックした髪が地味になり、結果がクリックに左右される)。
                     zSC = Mathf.Max(anchorC, ComputeCoreChromaMedian(originalPixels, strength, w,
-                        ppMinX, ppMinY, ppMaxX, ppMaxY, includedPx, cancellationToken, palette));
+                        ppMinX, ppMinY, ppMaxX, ppMaxY, includedPx, run.Buf.Claimed, cancellationToken, palette));
                     // 暗部脱彩の領域相対化(アンカー採用時のみ): 絶対 V 閾値のままだと暗い
                     // パーツは全体が閾値未満になり一律最大50%脱彩される(=入力明度で出力彩度
                     // が変わる)。閾値に地色アンカーの V(地色の代表明度)を乗じ「パーツ内の

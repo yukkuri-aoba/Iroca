@@ -192,26 +192,37 @@ namespace Iroca
             out float anchorL, out float anchorC,
             float sampleL, float sampleA, float sampleB, bool sampleHasHue,
             bool* statsExclude = null,
+            float* claimed = null,
             CancellationToken ct = default,
             ColorPalette palette = null)
         {
             bool ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
-                out anchorL, out anchorC, default, statsExclude, ct, palette);
+                out anchorL, out anchorC, default, statsExclude, claimed, ct, palette);
             // 白・灰のサンプルは色で素材を見分けられないので、推定し直さない(従来どおり)。
             if (!sampleHasHue) return ok;
             float sampleSatr = Mathf.Sqrt(sampleA * sampleA + sampleB * sampleB) / Mathf.Max(sampleL, 1e-4f);
             float minSatr = AnchorRetrySatrFrac * sampleSatr;
             if (ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr) return true;
             ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
-                out anchorL, out anchorC, new AnchorMaterial(sampleA, sampleB, sampleSatr), statsExclude, ct, palette);
+                out anchorL, out anchorC, new AnchorMaterial(sampleA, sampleB, sampleSatr), statsExclude, claimed, ct, palette);
             return ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr;
         }
+
+        // 基準色の統計に入れるコア画素か。選択の強さが AnchorStrengthMin 以上・不透明・含めるマスクで足した画素でない
+        // (statsExclude)ことに加えて、上位のゾーンが先に塗った分(claimed、占有率)を差し引いた実効の強さ
+        // min(strength, 1 − claimed) でも AnchorStrengthMin 以上であること。基準はこのゾーンが実際に塗る画素から取る。
+        // 濃い部品のゾーンが同じ色相の淡い布まで選び、布は上のゾーンが塗っているとき、布の明るさが基準になって部品が
+        // 指定色の明るさに届かなかった(2026-11-02)。ゾーンが 1 つ・重ならない画素では claimed は 0 で、従来と同じ。
+        private static bool IsAnchorCore(Color32* px, float* strength, float* claimed, bool* statsExclude, int i)
+            => strength[i] >= AnchorStrengthMin && px[i].a >= OpaqueAlphaMin
+               && (claimed == null || 1f - claimed[i] >= AnchorStrengthMin)
+               && (statsExclude == null || !statsExclude[i]);
 
         // コア画素(地色の推定と同じ条件)の彩度の中央値。無ければ 0。色の表があれば彩度は表から読む(同じ色に同じ変換なので値は同じ)。
         private static float ComputeCoreChromaMedian(
             Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
-            bool* statsExclude, CancellationToken ct, ColorPalette palette)
+            bool* statsExclude, float* claimed, CancellationToken ct, ColorPalette palette)
         {
             if (palette != null)
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
@@ -227,8 +238,7 @@ namespace Iroca
                     for (int x = bbMinX; x <= bbMaxX; x++)
                     {
                         int i = rowOff + x;
-                        if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
-                        if (statsExclude != null && statsExclude[i]) continue;
+                        if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) continue;
                         float c;
                         if (palC != null) c = palC[palIdx[i]];
                         else
@@ -301,6 +311,7 @@ namespace Iroca
             out float anchorL, out float anchorC,
             AnchorMaterial material,
             bool* statsExclude,
+            float* claimed,
             CancellationToken ct,
             ColorPalette palette)
         {
@@ -315,7 +326,7 @@ namespace Iroca
             {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
                 return TryComputeRecolorAnchorByColor(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
-                    out anchorL, out anchorC, material, statsExclude, ct,
+                    out anchorL, out anchorC, material, statsExclude, claimed, ct,
                     palette.Index, palette.OkL, palette.OkC, palette.Colors, palette.Count);
             }
 
@@ -343,8 +354,7 @@ namespace Iroca
                         for (int x = bbMinX; x <= bbMaxX; x++)
                         {
                             int i = rowOff + x;
-                            if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
-                            if (statsExclude != null && statsExclude[i]) continue;
+                            if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) continue;
                             OkLab.RgbToOklab(px[i].r, px[i].g, px[i].b,
                                 out float L, out float a, out float b);
                             float C = Mathf.Sqrt(a * a + b * b);
@@ -384,8 +394,7 @@ namespace Iroca
                         for (int x = bbMinX; x <= bbMaxX; x++)
                         {
                             int i = rowOff + x;
-                            if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
-                            if (statsExclude != null && statsExclude[i]) continue;
+                            if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) continue;
                             float L = candL[i], C = candC[i];
                             if (C / Mathf.Max(L, 1e-4f) < satrFloor) continue;
                             hist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
@@ -417,8 +426,7 @@ namespace Iroca
                         for (int x = bbMinX; x <= bbMaxX; x++)
                         {
                             int i = rowOff + x;
-                            if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
-                            if (statsExclude != null && statsExclude[i]) continue;
+                            if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) continue;
                             float L = candL[i], c = candC[i];
                             if (usePeak)
                             {
@@ -461,7 +469,7 @@ namespace Iroca
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float anchorL, out float anchorC,
             AnchorMaterial material,
-            bool* statsExclude, CancellationToken ct,
+            bool* statsExclude, float* claimed, CancellationToken ct,
             int* pIdx, float* pL, float* pC, Color32* pCol, int colorCount)
         {
             anchorL = 0f;
@@ -482,8 +490,7 @@ namespace Iroca
                     for (int x = bbMinX; x <= bbMaxX; x++)
                     {
                         int i = rowOff + x;
-                        if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
-                        if (statsExclude != null && statsExclude[i]) continue;
+                        if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) continue;
                         local[pIdx[i]]++;
                         n++;
                     }
