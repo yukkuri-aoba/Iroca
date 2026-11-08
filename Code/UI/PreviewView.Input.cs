@@ -246,13 +246,36 @@ namespace Iroca {
                             : (maskView.editIncludeLayer
                                 ? IrocaColors.BrushCursorInclude
                                 : IrocaColors.BrushCursorExclude);
-                        float r = brushPixels * 0.5f;
-                        EditorGUI.DrawRect(
-                            new Rect(e.mousePosition.x - r, e.mousePosition.y - r, r * 2f, r * 2f),
-                            cursorColor);
+                        DrawBrushCursor(e.mousePosition, brushPixels * 0.5f, cursorColor);
                     }
                     break;
             }
+        }
+
+        // ブラシのカーソルの円周の点(使い回し。始点を終点にも入れて閉じる)。
+        private const int BrushCursorSegments = 48;
+        private static readonly Vector3[] s_brushCursorPoints = new Vector3[BrushCursorSegments + 1];
+        // 小さいブラシでも輪が潰れて見えなくならない最小の半径(画面 px)。
+        private const float BrushCursorMinRadius = 3f;
+
+        /// <summary>
+        /// ブラシのカーソルを、実際に塗る円と同じ形の輪で描く。以前は半透明の四角の塗りで、円で塗るのに形が違い、
+        /// カーソルの下の画素も隠れて、どこを塗るのか確かめにくかった。どんな生地の上でも見えるよう、暗い縁を下に敷く
+        /// (UV の島の輪郭と同じやり方。IrocaColors.MeshIslandLineShadow)。
+        /// </summary>
+        private static void DrawBrushCursor(Vector2 center, float radius, Color color) {
+            radius = Mathf.Max(BrushCursorMinRadius, radius);
+            for (int i = 0; i <= BrushCursorSegments; i++) {
+                float a = i * (Mathf.PI * 2f / BrushCursorSegments);
+                s_brushCursorPoints[i] = new Vector3(center.x + Mathf.Cos(a) * radius, center.y + Mathf.Sin(a) * radius, 0f);
+            }
+            var prev = Handles.color;
+            Handles.color = IrocaColors.MeshIslandLineShadow;
+            Handles.DrawAAPolyLine(4f, s_brushCursorPoints);
+            color.a = 1f;
+            Handles.color = color;
+            Handles.DrawAAPolyLine(2f, s_brushCursorPoints);
+            Handles.color = prev;
         }
 
         /// <param name="armed">
