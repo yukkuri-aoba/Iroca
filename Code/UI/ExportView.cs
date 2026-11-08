@@ -715,6 +715,13 @@ namespace Iroca
             // 1 つ作って各テクスチャの入力が参照を 1 つずつ持つ。
             bool anyZones = RecolorInput.CountEnabled(session.zones) > 0;
             var masks = anyZones ? _host.BuildMaskSnapshot() : null;
+            // 書き出した寸法がどれも編集の作業解像度と同じなら、作業配列はプレビューが温めていたものと同じ大きさなので
+            // 手放さない(単体の書き出しと同じ規則。次の 1 手が作業配列を作り直さずに済む)。
+            int workW = 0, workH = 0;
+            bool haveWorkSize = _host?.Preview != null && _host.Preview.TryGetWorkingSize(out workW, out workH);
+            bool otherSize = false;
+            // 作業配列を借りる計算の区間(手を止めて 10 秒で空きを返す予約は、この区間が終わったときに入る)。
+            NativeMemoryLifecycle.WorkStarted();
             try
             {
                 AssetDatabase.StartAssetEditing();
@@ -753,6 +760,7 @@ namespace Iroca
                                 + $"using the imported texture ({pixels.Width}x{pixels.Height}).");
                         }
 
+                        if (!haveWorkSize || pixels.Width != workW || pixels.Height != workH) otherSize = true;
                         // リスト先頭のゾーンほど先に処理され、重なった領域を占有する(単体の書き出しと同じ組み立て)。
                         if (anyZones)
                         {
@@ -780,14 +788,16 @@ namespace Iroca
             finally
             {
                 masks?.Release();
+                NativeMemoryLifecycle.WorkEnded();
                 AssetDatabase.StopAssetEditing();
                 EditorUtility.ClearProgressBar();
             }
 
             if (previewSourceOverwritten) _host?.InvalidateSourceAndRepaint();
             // 書き出しは元の解像度で処理するので、作業解像度で編集しているとその解像度の作業配列が丸ごと残る
-            // (8K で約 3GB)。使っていない分を OS へ返す(次のプレビューは新しく確保し直す)。
-            PixelProcessor.ReleaseWorkBuffersInBackground();
+            // (8K で約 3GB)。違う寸法を書き出したときは、使っていない分を OS へ返す(次のプレビューは新しく確保し直す)。
+            // 同じ寸法だけなら残す(10 秒手を止めれば、空きは NativeMemoryLifecycle が返す)。
+            if (otherSize) PixelProcessor.ReleaseWorkBuffersInBackground();
 
             EditorUtility.DisplayDialog(Localization.Complete,
                 Localization.BatchComplete(success), Localization.OK);
