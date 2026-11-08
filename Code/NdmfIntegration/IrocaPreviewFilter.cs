@@ -75,6 +75,8 @@ namespace Iroca.NdmfIntegration
         // 監視の読み出しで使い回す入れ物(メインスレッドからしか使わない。毎フレーム配列を作らないため)。
         private static readonly List<Material> s_materials = new List<Material>();
         private static readonly List<int> s_textureIds = new List<int>();
+        // 描画のたびの差し替え(Node.Replace)で使い回す入れ物。
+        private static readonly List<Material> s_proxyMaterials = new List<Material>();
 
         [InitializeOnLoadMethod]
         private static void Install()
@@ -618,15 +620,18 @@ namespace Iroca.NdmfIntegration
             private void Replace(Renderer proxy)
             {
                 if (_clones.Count == 0 || proxy == null) return;
-                var mats = proxy.sharedMaterials;
+                // 描画のたびに呼ばれるので、素材の配列を作らずに使い回しの入れ物で読み書きする。
+                var mats = s_proxyMaterials;
+                proxy.GetSharedMaterials(mats);
                 bool changed = false;
-                for (int i = 0; i < mats.Length; i++)
+                for (int i = 0; i < mats.Count; i++)
                 {
                     if (mats[i] == null || !_clones.TryGetValue(mats[i], out var clone) || clone == null) continue;
                     mats[i] = clone;
                     changed = true;
                 }
-                if (changed) proxy.sharedMaterials = mats;
+                if (changed) proxy.SetSharedMaterials(mats);
+                mats.Clear();   // 素材への参照を持ち続けない
             }
 
             public void Dispose()
