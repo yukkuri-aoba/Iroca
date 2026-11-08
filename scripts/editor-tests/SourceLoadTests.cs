@@ -173,6 +173,35 @@ namespace Iroca.EditorTests
             finally { sources.Clear(); }
         }
 
+        // 書き出し・自動化が読み直さずに使えるのは、同じテクスチャの元ファイルを読んだ画素で、ファイルが読んだ後に
+        // 変わっていないときだけ。変わったら(更新時刻が違う)使わせない。
+        [Test]
+        public void ShareIfCurrent_OnlyWhileTheFileIsUnchanged()
+        {
+            var tex = Png("share", SmallSide, 11, out var expected);
+            var other = Png("other", SmallSide, 12, out _);
+            string path = AssetDatabase.GetAssetPath(tex);
+            var sources = new SourcePixelCache();
+            try
+            {
+                Assert.IsNull(sources.ShareIfCurrent(tex, path), "読む前に画素を渡した");
+                Assert.AreEqual(SourceState.Ready, PollUntilSettled(sources, tex, () => { }));
+                var shared = sources.ShareIfCurrent(tex, path);
+                Assert.IsNotNull(shared, "読んだばかりの画素を渡さない");
+                try
+                {
+                    Assert.AreSame(sources.Pixels, shared);
+                    CollectionAssert.AreEqual(expected, shared.ToArray());
+                }
+                finally { shared.Release(); }
+                Assert.IsNull(sources.ShareIfCurrent(other, AssetDatabase.GetAssetPath(other)), "別のテクスチャに渡した");
+
+                File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddSeconds(5));
+                Assert.IsNull(sources.ShareIfCurrent(tex, path), "読んだ後に変わったファイルの画素を渡した");
+            }
+            finally { sources.Clear(); }
+        }
+
         // ファイルを開けないときは、読み直しを繰り返さず 1 回で取り込み済みテクスチャへ落ちる(Read/Write が無ければ読めないと覚える)。
         [Test]
         public void LockedFile_DoesNotRetryForever()

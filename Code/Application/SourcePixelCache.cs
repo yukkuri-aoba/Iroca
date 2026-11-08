@@ -46,6 +46,9 @@ namespace Iroca
         private bool _fromFile;
         // 直近に画素を取れなかったテクスチャ(毎フレームの可否判定で読み直さないための負のキャッシュ)。
         private Texture2D _failedFor;
+        // 元ファイルを読み始める前に見たファイルの印(大きさと更新時刻)。書き出し・自動化が、同じ中身のファイルを
+        // 読み直さずにこの画素を使えるかの判断に使う(ShareIfCurrent)。取り込み済みテクスチャの画素なら default。
+        private FileStamp _stamp;
 
         // 別スレッドで読んでいる途中のもの。別スレッドとは lock(load) の中の値だけで受け渡す。
         private sealed class PendingLoad
@@ -53,6 +56,7 @@ namespace Iroca
             public Texture2D Texture;
             public string Path;
             public int BasisW, BasisH;
+            public FileStamp Stamp;
             public Action Finished;
             // CancellationTokenSource は待ちハンドルを作らない使い方なので Dispose しない(読み手が取り消しを見るのと競合する)。
             public readonly CancellationTokenSource Cancel = new CancellationTokenSource();
@@ -136,6 +140,8 @@ namespace Iroca
                 Path = path,
                 BasisW = tex.width,
                 BasisH = tex.height,
+                // 読む前に見る(読んでいる間に書き換わったら、後で見る印と食い違うので使い回さない)。
+                Stamp = FileStamp.Of(path),
                 Finished = finished,
             };
             _pending = load;
@@ -197,7 +203,7 @@ namespace Iroca
                 pixels.Release();
                 return false;
             }
-            Set(load.Texture, pixels, fromFile: true);
+            Set(load.Texture, pixels, fromFile: true, load.Stamp);
             return true;
         }
 
@@ -248,10 +254,11 @@ namespace Iroca
             {
                 try
                 {
+                    var stamp = FileStamp.Of(path);
                     var decoded = TextureIO.DecodeSourceFile(path, tex);
                     if (decoded != null)
                     {
-                        Set(tex, decoded, fromFile: true);
+                        Set(tex, decoded, fromFile: true, stamp);
                         return true;
                     }
                 }
@@ -267,12 +274,12 @@ namespace Iroca
                 _failedFor = tex;
                 return false;
             }
-            Set(tex, WorkingResolution.NativePixelsOf(tex, null), fromFile: false);
+            Set(tex, WorkingResolution.NativePixelsOf(tex, null), fromFile: false, default);
             return true;
         }
 
         // 画素を差し替える(前の画素の参照を返し、新しい画素の参照を持つ)。取り込み後の寸法も覚える。
-        private void Set(Texture2D tex, NativePixels pixels, bool fromFile)
+        private void Set(Texture2D tex, NativePixels pixels, bool fromFile, FileStamp stamp)
         {
             Release();
             _pixels = pixels;
@@ -283,6 +290,51 @@ namespace Iroca
             _basisW = tex.width;
             _basisH = tex.height;
             _fromFile = fromFile;
+            _stamp = fromFile ? stamp : default;
+        }
+
+        /// <summary>
+        /// 持っている画素が、いま <paramref name="path"/>(<paramref name="tex"/> の元ファイル)を作業解像度で読み直したものと
+        /// 同じと確かめられるなら、参照を 1 つ足して返す(呼んだ側が Release する)。確かめられなければ null(読み直す)。
+        /// 確かめること: 同じテクスチャの元ファイルをデコードした画素で、取り込み後の寸法(作業解像度の前提)が今と同じ、
+        /// ファイルの大きさと更新時刻が読む前に見たものと同じ。返す画素はプレビューと共有なので書き換えないこと
+        /// (色替えするなら写してから)。メインスレッド専用。
+        /// </summary>
+        internal NativePixels ShareIfCurrent(Texture2D tex, string path)
+        {
+            if (tex == null || _for != tex || _pixels == null || !_fromFile || !_stamp.IsValid) return null;
+            if (_basisW != tex.width || _basisH != tex.height) return null;
+            if (string.IsNullOrEmpty(path) || !_stamp.Equals(FileStamp.Of(path))) return null;
+            return _pixels.AddRef();
+        }
+
+        /// <summary>ファイルの大きさと更新時刻(読めなければ無効)。</summary>
+        internal readonly struct FileStamp : IEquatable<FileStamp>
+        {
+            public readonly long Length;
+            public readonly long WriteTicks;
+
+            private FileStamp(long length, long writeTicks)
+            {
+                Length = length;
+                WriteTicks = writeTicks;
+            }
+
+            public bool IsValid => WriteTicks != 0;
+
+            public static FileStamp Of(string path)
+            {
+                try
+                {
+                    var info = new System.IO.FileInfo(path);
+                    return info.Exists ? new FileStamp(info.Length, info.LastWriteTimeUtc.Ticks) : default;
+                }
+                catch (Exception) { return default; }
+            }
+
+            public bool Equals(FileStamp other) => IsValid && Length == other.Length && WriteTicks == other.WriteTicks;
+            public override bool Equals(object obj) => obj is FileStamp o && Equals(o);
+            public override int GetHashCode() => (Length.GetHashCode() * 397) ^ WriteTicks.GetHashCode();
         }
 
         // 画素の参照を返す。読んでいる途中のジョブは自分の参照を持っているので、ここで返しても消えない。

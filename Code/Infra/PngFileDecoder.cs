@@ -59,6 +59,29 @@ namespace Iroca
             }
         }
 
+        /// <summary>
+        /// PNG の寸法を先頭の IHDR から読む(画素は読まない。どのスレッドからでもよい)。PNG でない・IHDR が先頭に無い・
+        /// 短いファイルは false。開けないときは IOException を投げる。
+        /// </summary>
+        public static bool TryReadSize(string path, out int width, out int height)
+        {
+            width = height = 0;
+            using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64))
+            {
+                // 署名 8 バイト + 長さ 4 + "IHDR" 4 + 幅 4 + 高さ 4。
+                var head = new byte[24];
+                try { ReadExactly(file, head, head.Length); }
+                catch (EndOfStreamException) { return false; }
+                if (!TextureIO.IsPngSignature(head) || BigEndian(head, 8) != 13 || FourCc(head, 12) != FourCc("IHDR"))
+                    return false;
+                uint w = BigEndian(head, 16), h = BigEndian(head, 20);
+                if (w == 0 || h == 0 || w > int.MaxValue || h > int.MaxValue) return false;
+                width = (int)w;
+                height = (int)h;
+                return true;
+            }
+        }
+
         private static NativePixels Decode(Stream file, CancellationToken cancel, bool headerOnly, out bool supportedHeader)
         {
             supportedHeader = false;

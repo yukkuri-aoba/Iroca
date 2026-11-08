@@ -392,11 +392,14 @@ namespace Iroca
             // それ以外と扱わない PNG は LoadImage・GPU の展開が要るのでここで読む。
             ExportPipeline.SourceKind source = ExportPipeline.SourceKind.File;
             NativePixels pixels = null;
+            // プレビューが同じ元ファイルを元の解像度のまま読んで持っていれば、読み直さずにそれを写して使う(ジョブの中で)。
+            NativePixels shared = null;
             int texW = 0, texH = 0;
             bool readInJob;
             try
             {
                 readInJob = PngFileDecoder.CanDecode(srcPath);
+                if (readInJob) shared = ShareFullResolutionSource(sourceTexture, srcPath);
                 if (!readInJob) source = ExportService.ReadSource(srcPath, sourceTexture, out pixels);
             }
             catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException)
@@ -415,6 +418,11 @@ namespace Iroca
             {
                 texW = pixels.Width;
                 texH = pixels.Height;
+            }
+            else if (shared != null)
+            {
+                texW = shared.Width;
+                texH = shared.Height;
             }
 
             if (source == ExportPipeline.SourceKind.ImportedTexture)
@@ -451,7 +459,16 @@ namespace Iroca
             _exportJob.Schedule(
                 work: ct =>
                 {
-                    if (readInJob)
+                    if (shared != null)
+                    {
+                        // 色替えはその場で書き換えるので、プレビューと共有の画素を写してから使う(デコードより速い)。
+                        ct.ThrowIfCancellationRequested();
+                        pixels = NativePixels.Allocate(shared.Width, shared.Height);
+                        pixels.CopyFrom(shared);
+                        shared.Release();
+                        shared = null;
+                    }
+                    else if (readInJob)
                     {
                         try
                         {
@@ -539,10 +556,35 @@ namespace Iroca
                 cleanup: () =>
                 {
                     pixels?.Release();
+                    shared?.Release();   // 取り消されて写さなかったとき
                     input.ReleaseMasks();
                 },
                 // エンコードまで済んだが書き込まなかった(取り消し・破棄)PNG を手放す。
                 discard: payload => payload.png.Dispose());
+        }
+
+        /// <summary>
+        /// プレビューが持つ原本(<see cref="SourcePixelCache"/>)が、書き出しがいま元ファイルを元の解像度で読み直すのと
+        /// 同じ画素なら、参照を 1 つ足して返す(呼んだ側が Release する。共有なので書き換えない)。同じと言えるのは、
+        /// 同じ元ファイルを読む前と今とでファイルの大きさと更新時刻が同じで(<see cref="SourcePixelCache.ShareIfCurrent"/>)、
+        /// 作業解像度が元ファイルの寸法のまま(縮めていない)のとき。PNG はどちらも同じデコーダで読むので同じ画素になる。
+        /// 確かめられなければ null(今までどおり読み直す)。
+        /// </summary>
+        private NativePixels ShareFullResolutionSource(Texture2D tex, string srcPath)
+        {
+            var sources = _host?.Editing?.Sources;
+            if (sources == null || sources.Texture != tex || sources.Pixels == null) return null;
+            int fileW, fileH;
+            try
+            {
+                if (!PngFileDecoder.TryReadSize(srcPath, out fileW, out fileH)) return null;
+            }
+            catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException)
+            {
+                return null;
+            }
+            if (sources.Width != fileW || sources.Height != fileH) return null;
+            return sources.ShareIfCurrent(tex, srcPath);
         }
 
         /// <summary>
