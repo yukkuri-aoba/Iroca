@@ -450,11 +450,45 @@ namespace Iroca
         /// </summary>
         private static void MarkOpenFromBorder(bool* free, bool* open, int w, int h, CancellationToken ct)
         {
+            var enc = LabelFreeComponents(free, open, null, w, h, ct);
+            enc.Dispose();
+        }
+
+        /// <summary>
+        /// <see cref="LabelFreeComponents"/> が返す閉領域(画像端に触れない free の連結成分)の一覧。
+        /// 並びは成分の最初の画素(ラスタ順)の順で、ラスタ順に画素を走査して未訪問の閉領域を見つけるたびに辿った
+        /// 旧実装の順と同じ。Seed はその最初の画素のパック座標 (y&lt;&lt;16)|x、Opaque は成分の不透明画素の数
+        /// (pixels を渡したときだけ)。プールから借りているので Dispose で返す。
+        /// </summary>
+        private struct EnclosedComponents : IDisposable
+        {
+            public int Count;
+            public int* Seed;
+            public int* Opaque;
+            public void Dispose()
+            {
+                if (Seed != null) { s_intPool.Return(Seed); Seed = null; }
+                if (Opaque != null) { s_intPool.Return(Opaque); Opaque = null; }
+            }
+        }
+
+        /// <summary>
+        /// free の連結成分(4 近傍)を行 run + union-find で求め、画像端に触れる成分の画素を open に立てる
+        /// (<see cref="MarkOpenFromBorder"/> と同じ)。あわせて、端に触れない成分(閉領域)を最初の画素のラスタ順に並べ、
+        /// その最初の画素と不透明画素の数を返す。閉領域を 1 つずつ扱う呼び出し側(RecoverEnclosedHighlight・
+        /// RecoverNearWhitePass)は、大きさの条件で落ちる成分を辿らずに済む(以前は全画素をラスタ順に 1 スレッドで
+        /// なめ、落ちる成分も全部辿っていた)。
+        /// </summary>
+        private static EnclosedComponents LabelFreeComponents(bool* free, bool* open, Color32* pixels,
+            int w, int h, CancellationToken ct)
+        {
             // 画像端の free 画素から 4 近傍で辿れる free 画素の集合は、辿る順序に依存しない。行 run +
             // union-find の連結成分で「画像端に触れる成分」を求め、その run を塗る(旧: 単一スレッドの
             // 深さ優先探索で背景全体=数百万画素を辿っていた)。
             // run は行内の左右連結そのもの、上下に x 範囲が重なる run の結合は縦の 4 近傍連結そのもの
             // なので、成分の分割は探索と厳密に同じ=open の集合はビット単位で同じ。
+            // 結合では小さい方の根を親にするので、成分の根はその成分で最も小さい run(= 最初の画素を含む run)になる。
+            var result = new EnclosedComponents();
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             var runCount = new int[h];
             Parallel.For(0, h, po, y =>
@@ -471,8 +505,9 @@ namespace Iroca
             var rowOff = new int[h + 1];
             for (int y = 0; y < h; y++) rowOff[y + 1] = rowOff[y] + runCount[y];
             int R = rowOff[h];
-            if (R == 0) return;
+            if (R == 0) return result;
             int* runX0 = s_intPool.Rent(R), runX1 = s_intPool.Rent(R), parent = s_intPool.Rent(R);
+            int* encOf = null;
             try
             {
                 Parallel.For(0, h, po, y =>
@@ -502,7 +537,7 @@ namespace Iroca
                         if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i])
                         {
                             int a = Find(i), b = Find(j);
-                            if (a != b) parent[a] = b;
+                            if (a != b) { if (b < a) { int t = a; a = b; b = t; } parent[b] = a; }
                         }
                         if (runX1[i] < runX1[j]) i++; else j++;
                     }
@@ -528,9 +563,64 @@ namespace Iroca
                         for (int x = runX0[k]; x <= runX1[k]; x++) open[rb + x] = true;
                     }
                 });
+
+                // 閉領域に、根(= 最初の画素を含む run)の順に番号を振る。根は成分の中で最も小さい run なので、
+                // run を順に見て根に出会った順が、成分の最初の画素のラスタ順になる。
+                int nEnc = 0;
+                for (int r = 0; r < R; r++)
+                    if (parent[r] == r && !touches[r]) nEnc++;
+                result.Count = nEnc;
+                if (nEnc == 0) return result;
+                result.Seed = s_intPool.Rent(nEnc);
+                encOf = s_intPool.Rent(R);
+                int e = 0;
+                for (int y = 0; y < h; y++)
+                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
+                    {
+                        int root = parent[k];
+                        if (touches[root]) { encOf[k] = -1; continue; }
+                        if (root == k) { result.Seed[e] = (y << 16) | runX0[k]; encOf[k] = e++; }
+                        else encOf[k] = encOf[root];
+                    }
+                if (pixels != null)
+                {
+                    // 不透明画素の数: run ごとに行並列で数えて成分へ足す(整数の和なので足す順に依らない)。
+                    int* runOpq = s_intPool.Rent(R);
+                    try
+                    {
+                        var encOfL = encOf;
+                        Parallel.For(0, h, po, y =>
+                        {
+                            int rb = y * w;
+                            for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
+                            {
+                                int n = 0;
+                                if (encOfL[k] >= 0)
+                                    for (int x = runX0[k]; x <= runX1[k]; x++)
+                                        if (pixels[rb + x].a >= OpaqueAlphaMin) n++;
+                                runOpq[k] = n;
+                            }
+                        });
+                        result.Opaque = s_intPool.Rent(nEnc);
+                        for (int q = 0; q < nEnc; q++) result.Opaque[q] = 0;
+                        for (int r = 0; r < R; r++)
+                            if (encOf[r] >= 0) result.Opaque[encOf[r]] += runOpq[r];
+                    }
+                    finally
+                    {
+                        s_intPool.Return(runOpq);
+                    }
+                }
+                return result;
+            }
+            catch
+            {
+                result.Dispose();
+                throw;
             }
             finally
             {
+                if (encOf != null) s_intPool.Return(encOf);
                 s_intPool.Return(runX0);
                 s_intPool.Return(runX1);
                 s_intPool.Return(parent);

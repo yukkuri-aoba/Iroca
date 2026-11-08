@@ -637,55 +637,22 @@ namespace Iroca
                         stamp[i] = 0;
                     }
                 });
-                MarkOpenFromBorder(free, open, w, h, ct);
-
-                // 閉領域の画素(free ∧ !open)を含む行。下の成分の走査はラスタ順の逐次なので、閉領域の無い行
-                // (普通はほとんどの行)を読み飛ばす。行の中の辿る順は変わらない。
-                var rowHasEnclosed = new bool[h];
-                Parallel.For(0, h, po, y =>
-                {
-                    int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
-                        int i = rowOff + x;
-                        if (free[i] && !open[i]) { rowHasEnclosed[y] = true; return; }
-                    }
-                });
-
+                // 閉領域(free ∧ !open)の連結成分を、最初の画素のラスタ順に並べる(不透明画素の数つき)。大きさの条件で
+                // 落ちる成分は辿らない。残る成分は、旧実装(ラスタ順に走査して見つけるたびに辿る)と同じ最初の画素から
+                // 同じ順で辿るので、キューの並び(リングの和の順)も同じ。成分の番号は等しいかどうかにしか使わない。
+                using var enc = LabelFreeComponents(free, open, pixels, w, h, ct);
                 var hS = new int[256];
                 var hHd = new int[256];   // 色相距離 0..0.5 を 256 bin
-                int compId = 0;
-                for (int y0 = 0; y0 < h; y0++)
+                for (int e = 0; e < enc.Count; e++)
                 {
-                    if (!rowHasEnclosed[y0]) continue;
-                    int row0 = y0 * w;
-                    for (int x0 = 0; x0 < w; x0++)
                     {
-                        int i0 = row0 + x0;
-                        if (!free[i0] || open[i0]) continue;
+                        int nOpaque = enc.Opaque[e];
+                        if (nOpaque < EnclosedHlMinPixels || nOpaque > maxPixels) continue;
                         ct.ThrowIfCancellationRequested();
 
                         // 2) 閉領域成分を 4 近傍 flood で集める(free ∧ !open)。open を訪問済みに流用。
-                        compId++;
-                        int qHead = 0, qTail = 0;
-                        open[i0] = true; stamp[i0] = compId; queue[qTail++] = (y0 << 16) | x0;
-                        int nOpaque = 0;
-                        while (qHead < qTail)
-                        {
-                            int packed = queue[qHead++];
-                            int x = packed & 0xFFFF, y = packed >> 16;
-                            int i = y * w + x;
-                            if (pixels[i].a >= OpaqueAlphaMin) nOpaque++;
-                            if (x > 0 && free[i - 1] && !open[i - 1])
-                            { open[i - 1] = true; stamp[i - 1] = compId; queue[qTail++] = (y << 16) | (x - 1); }
-                            if (x < w - 1 && free[i + 1] && !open[i + 1])
-                            { open[i + 1] = true; stamp[i + 1] = compId; queue[qTail++] = (y << 16) | (x + 1); }
-                            if (y > 0 && free[i - w] && !open[i - w])
-                            { open[i - w] = true; stamp[i - w] = compId; queue[qTail++] = ((y - 1) << 16) | x; }
-                            if (y < h - 1 && free[i + w] && !open[i + w])
-                            { open[i + w] = true; stamp[i + w] = compId; queue[qTail++] = ((y + 1) << 16) | x; }
-                        }
-                        if (nOpaque < EnclosedHlMinPixels || nOpaque > maxPixels) continue;
+                        int compId = e + 1;
+                        int qTail = FloodEnclosed(enc.Seed[e], compId, free, open, stamp, queue, w, h);
 
                         // 3) 成分の色ゲート(中央値): 同色相帯・脱彩した有彩。ヒストグラムは大きさの条件を
                         //    通った成分でだけ作る(1px の穴など、ほとんどの成分はここまで来ない)。
@@ -797,15 +764,19 @@ namespace Iroca
             Parallel.For(0, h, po, () => 0, (y, _, sel) =>
             {
                 int rowOff = y * w;
+                bool cand = false;
                 for (int x = 0; x < w; x++)
                 {
                     int i = rowOff + x;
                     if (pixels[i].a < OpaqueAlphaMin) continue;
                     if (strength[i] > ColorZone.MatchStrengthFloor) { sel++; continue; }
+                    if (cand) continue;
                     float pS = pixS[HsvSlot(pixIdx, i)];
                     if (pS > 0f && pS < ringSatMax && pixV[HsvSlot(pixIdx, i)] >= ColorZone.HighlightValueMin)
-                        Volatile.Write(ref anyCand, 1);
+                        cand = true;
                 }
+                // 共有の印は行ごとに 1 回だけ書く(候補の画素ごとに書くと全コアで同じキャッシュ行を取り合う)。
+                if (cand) Volatile.Write(ref anyCand, 1);
                 return sel;
             }, sel => Interlocked.Add(ref selCount, sel));
             if (anyCand == 0 || selCount == 0) return 0;
@@ -908,44 +879,25 @@ namespace Iroca
                     stamp[i] = 0;
                 }
             });
-            MarkOpenFromBorder(free, open, w, h, ct);
+            // 閉領域の成分を最初の画素のラスタ順に並べ、大きさで落ちる成分は辿らない(RecoverEnclosedHighlight と同じ)。
+            using var enc = LabelFreeComponents(free, open, pixels, w, h, ct);
 
             var hS = new int[256];
             var hV = new int[256];
             var hHd = new int[256];   // 色味のある画素の色相距離 0..0.5(ビンの幅は hS と同じ)
-            int recovered = 0, compId = 0;
-            for (int y0 = 0; y0 < h; y0++)
+            int recovered = 0;
+            for (int e = 0; e < enc.Count; e++)
             {
-                int row0 = y0 * w;
-                for (int x0 = 0; x0 < w; x0++)
                 {
-                    int i0 = row0 + x0;
-                    if (!free[i0] || open[i0]) continue;
-                    ct.ThrowIfCancellationRequested();
-
-                    // 成分を 4 近傍 flood で集める。
-                    compId++;
-                    int qHead = 0, qTail = 0;
-                    open[i0] = true; stamp[i0] = compId; queue[qTail++] = (y0 << 16) | x0;
-                    int nOpaque = 0;
-                    while (qHead < qTail)
-                    {
-                        int packed = queue[qHead++];
-                        int x = packed & 0xFFFF, y = packed >> 16;
-                        int i = y * w + x;
-                        if (pixels[i].a >= OpaqueAlphaMin) nOpaque++;
-                        if (x > 0 && free[i - 1] && !open[i - 1])
-                        { open[i - 1] = true; stamp[i - 1] = compId; queue[qTail++] = (y << 16) | (x - 1); }
-                        if (x < w - 1 && free[i + 1] && !open[i + 1])
-                        { open[i + 1] = true; stamp[i + 1] = compId; queue[qTail++] = (y << 16) | (x + 1); }
-                        if (y > 0 && free[i - w] && !open[i - w])
-                        { open[i - w] = true; stamp[i - w] = compId; queue[qTail++] = ((y - 1) << 16) | x; }
-                        if (y < h - 1 && free[i + w] && !open[i + w])
-                        { open[i + w] = true; stamp[i + w] = compId; queue[qTail++] = ((y + 1) << 16) | x; }
-                    }
+                    int nOpaque = enc.Opaque[e];
                     // 大きさの上限は閉領域だけ(囲まれた別の部品)。2 回目は周りの接し方で絞れていて、1 つの部品だけを塗るときは
                     // ほぼ白の帯が選択の数 % を超える。
                     if (nOpaque < EnclosedHlMinPixels || (!tintedOnly && nOpaque > maxPixels)) continue;
+                    ct.ThrowIfCancellationRequested();
+
+                    // 成分を 4 近傍 flood で集める。
+                    int compId = e + 1;
+                    int qTail = FloodEnclosed(enc.Seed[e], compId, free, open, stamp, queue, w, h);
 
                     // 成分の色(中央値): 明るく、色味があるなら同じ色相(純白の色相は意味が無いので数えない)。
                     Array.Clear(hS, 0, 256); Array.Clear(hV, 0, 256); Array.Clear(hHd, 0, 256);
@@ -1020,6 +972,30 @@ namespace Iroca
                 }
             }
             return recovered;
+        }
+
+        // 閉領域の 1 成分を、最初の画素 seed から 4 近傍の幅優先で辿り、画素を queue(パック座標)に並べて数を返す。
+        // open を訪問済みに流用し、stamp に compId を書く。近傍を見る順は旧実装(成分の走査の中の flood)と同じ。
+        private static int FloodEnclosed(int seed, int compId, bool* free, bool* open, int* stamp, int* queue, int w, int h)
+        {
+            int qHead = 0, qTail = 0;
+            int i0 = (seed >> 16) * w + (seed & 0xFFFF);
+            open[i0] = true; stamp[i0] = compId; queue[qTail++] = seed;
+            while (qHead < qTail)
+            {
+                int packed = queue[qHead++];
+                int x = packed & 0xFFFF, y = packed >> 16;
+                int i = y * w + x;
+                if (x > 0 && free[i - 1] && !open[i - 1])
+                { open[i - 1] = true; stamp[i - 1] = compId; queue[qTail++] = (y << 16) | (x - 1); }
+                if (x < w - 1 && free[i + 1] && !open[i + 1])
+                { open[i + 1] = true; stamp[i + 1] = compId; queue[qTail++] = (y << 16) | (x + 1); }
+                if (y > 0 && free[i - w] && !open[i - w])
+                { open[i - w] = true; stamp[i - w] = compId; queue[qTail++] = ((y - 1) << 16) | x; }
+                if (y < h - 1 && free[i + w] && !open[i + w])
+                { open[i + w] = true; stamp[i + w] = compId; queue[qTail++] = ((y + 1) << 16) | x; }
+            }
+            return qTail;
         }
 
         // 画素 (x,y) の 8 近傍に stamp==id の画素があるか(成分に隣接する AA 混色帯の除外用)。
