@@ -311,7 +311,7 @@ namespace Iroca
                     _pending.Release();
                     _pending = result;
                     _pendingDetailLatency = latency;
-                    _host.RequestRepaint();
+                    _host.RequestPreviewRepaint();
                     SchedulePrefetch(range, result.Raw != null);
                 },
                 cleanup: () =>

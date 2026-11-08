@@ -30,6 +30,27 @@ namespace Iroca
 
         void IPreviewPipelineHost.RequestRepaintAfter(double seconds) => RequestRepaintAfter(seconds);
 
+        /// <summary>
+        /// プレビューの中だけが変わったときの描き直し(計算の見回り・拡大表示の切り出しやマスクの重ね表示が届いた・
+        /// 枠の実測の追い描き・押している間の「元を表示」)。プレビューを描いている窓だけを描き、本体の状態の版は
+        /// 進めない(マスク編集の窓は描き直さない)。<see cref="RequestRepaint"/> は 1 回で本体・切り出したプレビュー・
+        /// マスク編集の窓(版の番号を見て描く)をすべて描き直す。
+        /// </summary>
+        internal void RequestPreviewRepaint()
+        {
+            if (IrocaPreviewWindow.IsOpen)
+            {
+                // 切り出している間、本体はプレビューを描かない。ただし切り出した窓が裏のタブで描かれない間は、
+                // 本体が計算だけを進める(PreviewView.TickWithoutDrawing)ので本体を描く。
+                IrocaPreviewWindow.RepaintIfOpen();
+                if (!IrocaPreviewWindow.IsShown) Repaint();
+            }
+            else
+            {
+                Repaint();
+            }
+        }
+
         private void InstallRepaintWatch()
         {
             _repaintDueAt = 0;
@@ -64,10 +85,11 @@ namespace Iroca
                 _exportShownPct = exportPct;
                 Repaint();
             }
+            // 予約はプレビューの計算・拡大表示の見回りと待ちの明けなので、プレビューを描いている窓だけを描く。
             if (_repaintDueAt > 0 && EditorApplication.timeSinceStartup >= _repaintDueAt)
             {
                 _repaintDueAt = 0;
-                RequestRepaint();
+                RequestPreviewRepaint();
             }
         }
     }

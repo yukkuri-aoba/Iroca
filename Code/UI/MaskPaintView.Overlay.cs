@@ -189,7 +189,7 @@ namespace Iroca
                 {
                     _pendingOverlayResult?.Release();
                     _pendingOverlayResult = result;
-                    _host.RequestRepaint();
+                    _host.RequestPreviewRepaint();
                 },
                 cleanup: () => ReleaseOverlayLayers(commonSnap, zoneInfos),
                 discard: result => result.Release());
@@ -483,7 +483,7 @@ namespace Iroca
                 {
                     _pendingDetailOverlay?.overlay.Release();
                     _pendingDetailOverlay = result;
-                    _host.RequestRepaint();
+                    _host.RequestPreviewRepaint();
                 },
                 cleanup: () => ReleaseOverlayLayers(commonSnap, zoneInfos),
                 discard: result => result.overlay.Release());

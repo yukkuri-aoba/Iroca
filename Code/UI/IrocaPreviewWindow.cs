@@ -166,7 +166,7 @@ namespace Iroca
         // プレビュー状態は本体ウィンドウ側の操作（色・設定・マスク変更）で変わるため、
         // 低頻度ポーリング（OnInspectorUpdate は約 10 回/秒）で、本体の状態が最後に描いたときから
         // 変わっていたら描き直す（IrocaWindow.DrawStamp）。操作していない間は描き直さない。
-        // 生成ジョブの進行やパン/ズームの追い再描画は RequestRepaint 経由で即時に届く。
+        // 生成ジョブの進行やパン/ズームの追い再描画は RequestRepaint・RequestPreviewRepaint 経由で即時に届く。
         private void OnInspectorUpdate()
         {
             if (_host == null && EditorApplication.timeSinceStartup >= _nextHostSearchAt)

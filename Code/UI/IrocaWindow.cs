@@ -170,6 +170,7 @@ namespace Iroca
         // プレビューが別ウィンドウ(IrocaPreviewWindow)へ切り出されているときは、そちらも
         // 再描画する。PreviewView は自分の実測値の収束・生成ジョブのポーリング・パン/ズームの
         // 反映をこの要求に頼っているため、描画先の窓に届かないと表示が旧フレームで固まる。
+        // プレビューの中だけが変わったときは RequestPreviewRepaint(IrocaWindow.Repaint。描いている窓だけ・版は進めない)。
         internal void RequestRepaint() { BumpUiState(); Repaint(); IrocaPreviewWindow.RepaintIfOpen(); }
 
         // 別ウィンドウ(プレビュー・マスク編集)が「本体の状態が変わったか」を見る版番号。別ウィンドウは

@@ -508,7 +508,7 @@ namespace Iroca
             peekOriginal &= !comparisonMode && rawPreviewTexture != null;
             // RepeatButton は押されている間 true を返し続けるが、Editor は要求が無いと
             // 再描画しない。押下中は継続的に再描画を要求しないと 1 フレームで戻って見える。
-            if (peekOriginal) _host.RequestRepaint();
+            if (peekOriginal) _host.RequestPreviewRepaint();
             DrawAppearanceToggle();
 
             GUILayout.FlexibleSpace();
@@ -603,7 +603,7 @@ namespace Iroca
                 if (chrome > 1f && Mathf.Abs(chrome - _chromeAboveViewportH) > 0.5f)
                 {
                     _chromeAboveViewportH = chrome;
-                    _host.RequestRepaint();
+                    _host.RequestPreviewRepaint();
                 }
             }
 
@@ -786,7 +786,7 @@ namespace Iroca
                 if (vw > 1f && Mathf.Abs(vw - _viewportWidth) > 0.5f)
                 {
                     _viewportWidth = vw;
-                    _host.RequestRepaint();
+                    _host.RequestPreviewRepaint();
                 }
             }
 
@@ -966,7 +966,7 @@ namespace Iroca
                 // 描き直しを頼むので、毎フレームは描き直さずに間をあけて見に来るだけにする。
                 var type = Event.current.type;
                 if (!dv.detailJob.IsRunning && type != EventType.Repaint && type != EventType.Layout)
-                    _host.RequestRepaint();
+                    _host.RequestPreviewRepaint();
                 else
                     _host.RequestRepaintAfter(PreviewPipeline.BackgroundPollSeconds);
             }
