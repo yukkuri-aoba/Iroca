@@ -87,6 +87,12 @@ namespace Iroca
                 Parallel.For(rcMinY, rcMaxY + 1, po, y =>
                 {
                     int rowOff = y * w;
+                    // メモは行の初めに 1 回だけ取り出す。直前の画素と同じ(色番号, 地色基準 L)なら、その結果をそのまま使う
+                    // (隣り合う画素は同じ色・同じ成分であることが多い。どちらも同じ入力で RecolorPixel を呼んだ結果)。
+                    RecolorMemo memo = recolorMemoEpoch != 0 ? RecolorMemoOfThread() : null;
+                    int lastId = -1;
+                    float lastMid = float.NaN, lastUp = float.NaN;
+                    Color32 lastOut = default;
                     for (int x = rcMinX; x <= rcMaxX; x++)
                     {
                         int i = rowOff + x;
@@ -144,16 +150,27 @@ namespace Iroca
                         bool hasMapMid = zRegMidMap != null && zRegMidMap[i] > 0f;
                         float regMid = hasMapMid ? zRegMidMap[i] : zRegLmid;
                         float regUp = hasMapMid && zRegUpMap != null ? zRegUpMap[i] : AchromaFormOffset;
-                        Color32 recolored = palRecolored != null
-                            ? palRecolored[palIdxRecolor[i]]
-                            : recolorMemoEpoch != 0
-                                ? RecolorPixelMemo(recolorMemoEpoch, palIdxRecolor[i], regMid, regUp,
-                                    op, pixV[HsvSlot(pixIdx, i)], alpha, in rcParams)
-                                : RecolorPixel(
-                                    op.r, op.g, op.b,
-                                    pixV[HsvSlot(pixIdx, i)], alpha,
-                                    in rcParams,
-                                    regMid, regUp);
+                        Color32 recolored;
+                        if (palRecolored != null)
+                            recolored = palRecolored[palIdxRecolor[i]];
+                        else if (memo != null)
+                        {
+                            int cid = palIdxRecolor[i];
+                            if (cid == lastId && regMid == lastMid && regUp == lastUp)
+                                recolored = lastOut;
+                            else
+                            {
+                                recolored = RecolorPixelMemo(memo, recolorMemoEpoch, cid, regMid, regUp,
+                                    op, pixV[HsvSlot(pixIdx, i)], alpha, in rcParams);
+                                lastId = cid; lastMid = regMid; lastUp = regUp; lastOut = recolored;
+                            }
+                        }
+                        else
+                            recolored = RecolorPixel(
+                                op.r, op.g, op.b,
+                                pixV[HsvSlot(pixIdx, i)], alpha,
+                                in rcParams,
+                                regMid, regUp);
                         if (topMost)
                         {
                             // 最上位の寄与(claimed≈0)。es=s なので従来挙動と完全一致し、

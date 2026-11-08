@@ -869,12 +869,20 @@ namespace Iroca
         // 行も処理するので、世代が違う項目は外れとして扱う(色番号は呼び出しごとに振り直されるため)。
         // 当たった値は同じ入力で RecolorPixel を呼んだ結果そのものなので、出力はビット単位で同じ。
         private const int RecolorMemoSize = 8192;   // 2 のべき
-        [ThreadStatic] private static int[] t_memoEpoch;
-        [ThreadStatic] private static int[] t_memoColor;
-        [ThreadStatic] private static float[] t_memoMid;
-        [ThreadStatic] private static float[] t_memoUp;
-        [ThreadStatic] private static Color32[] t_memoOut;
+        // スレッドごとのメモ。[ThreadStatic] の読み出しは遅いので、呼び出し側が行の初めに 1 回だけ RecolorMemoOfThread で
+        // 取り出して、画素ごとには渡すだけにする。
+        private sealed class RecolorMemo
+        {
+            internal readonly int[] Epoch = new int[RecolorMemoSize];
+            internal readonly int[] Color = new int[RecolorMemoSize];
+            internal readonly float[] Mid = new float[RecolorMemoSize];
+            internal readonly float[] Up = new float[RecolorMemoSize];
+            internal readonly Color32[] Out = new Color32[RecolorMemoSize];
+        }
+        [ThreadStatic] private static RecolorMemo t_recolorMemo;
         private static int s_recolorMemoEpoch;
+
+        private static RecolorMemo RecolorMemoOfThread() => t_recolorMemo ?? (t_recolorMemo = new RecolorMemo());
 
         private static int NextRecolorMemoEpoch()
         {
@@ -883,28 +891,19 @@ namespace Iroca
             return e != 0 ? e : Interlocked.Increment(ref s_recolorMemoEpoch);
         }
 
-        private static Color32 RecolorPixelMemo(int epoch, int colorId, float regLmid, float regUp,
+        private static Color32 RecolorPixelMemo(RecolorMemo m, int epoch, int colorId, float regLmid, float regUp,
             Color32 op, float oV, float alpha, in RecolorParams p)
         {
-            int[] ep = t_memoEpoch;
-            if (ep == null)
-            {
-                ep = t_memoEpoch = new int[RecolorMemoSize];
-                t_memoColor = new int[RecolorMemoSize];
-                t_memoMid = new float[RecolorMemoSize];
-                t_memoUp = new float[RecolorMemoSize];
-                t_memoOut = new Color32[RecolorMemoSize];
-            }
             int slot = (int)(((uint)colorId * 2654435761u) ^ (uint)(int)(regLmid * 1048576f) ^ ((uint)(int)(regUp * 1048576f) * 40503u))
                        & (RecolorMemoSize - 1);
-            if (ep[slot] == epoch && t_memoColor[slot] == colorId && t_memoMid[slot] == regLmid && t_memoUp[slot] == regUp)
-                return t_memoOut[slot];
+            if (m.Epoch[slot] == epoch && m.Color[slot] == colorId && m.Mid[slot] == regLmid && m.Up[slot] == regUp)
+                return m.Out[slot];
             Color32 r = RecolorPixel(op.r, op.g, op.b, oV, alpha, in p, regLmid, regUp);
-            ep[slot] = epoch;
-            t_memoColor[slot] = colorId;
-            t_memoMid[slot] = regLmid;
-            t_memoUp[slot] = regUp;
-            t_memoOut[slot] = r;
+            m.Epoch[slot] = epoch;
+            m.Color[slot] = colorId;
+            m.Mid[slot] = regLmid;
+            m.Up[slot] = regUp;
+            m.Out[slot] = r;
             return r;
         }
     }
