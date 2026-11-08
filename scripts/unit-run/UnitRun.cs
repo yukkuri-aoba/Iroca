@@ -416,6 +416,21 @@ namespace Iroca.UnitRun
             Check.True(r.Segments.All(s => s.EndMs >= s.StartMs), "segments are not reversed");
         }
 
+        public static void Latency_ApplyWork_IsMainThreadBeforeRepaintWait()
+        {
+            // フル段の受け取り(シーンへの反映など)が 355..358。再描画待ちはその終わりから数える。
+            var c = ProxyAndFullCycle();
+            c.Full.ApplyEnd = 358;
+            var r = PreviewLatencyReport.Build(c, Hz);
+            var apply = r.Segments.Single(s => s.Lane == PreviewLatencyReport.LaneFull && s.Name.StartsWith("受け取り"));
+            Check.True(apply.Kind == LatencyKind.Main && Near(255, apply.StartMs) && Near(258, apply.EndMs),
+                $"apply 255..258 on the main thread, was {apply.Kind} {apply.StartMs}..{apply.EndMs}");
+            var wait = r.Segments.Single(s => s.Lane == PreviewLatencyReport.LaneFull && s.Name == "再描画待ち");
+            Check.True(Near(258, wait.StartMs) && Near(260, wait.EndMs), $"repaint wait 258..260, was {wait.StartMs}..{wait.EndMs}");
+            Check.True(Near(7 + 3, r.MainThreadMs), $"main thread adds the apply work, was {r.MainThreadMs}");
+            Check.Equal(17, r.Segments.Length, "one more segment than without the apply mark");
+        }
+
         public static void Latency_WaitIsInputToGenerationStart()
         {
             var r = PreviewLatencyReport.Build(ProxyAndFullCycle(), Hz);

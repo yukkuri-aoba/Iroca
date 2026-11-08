@@ -26,6 +26,7 @@ namespace Iroca
         internal long CoreEnd;     // ProcessPixelsArray 終了
         internal long WorkEnd;     // ワーカースレッドで完了
         internal long Applied;     // メインスレッドで結果を受け取った(apply)
+        internal long ApplyEnd;    // 受け取りの処理(シーンへの反映・拡大表示の土台の縮小など)の終わり。0 = 打たない段(Applied と同じ扱い)
         internal long UploadStart; // テクスチャ転送の開始(次の OnGUI)
         internal long UploadEnd;   // テクスチャ転送の終了 = 画面に出た
         internal PerfReport CoreReport; // この段の ProcessPixelsArray の計測(フェーズ・ゾーン別)。コアの無い段は null
@@ -228,7 +229,10 @@ namespace Iroca
                 add(lane, LatencyKind.Job, "表示寸法へ縮小", m.CoreEnd, m.WorkEnd);
             }
             add(lane, LatencyKind.Wait, "受け渡し(update 待ち)", m.WorkEnd, m.Applied);
-            add(lane, LatencyKind.Wait, "再描画待ち", m.Applied, m.UploadStart);
+            // 受け取り(apply)の中のメインスレッドの処理。シーンのアバターへの反映(中継テクスチャへの転送と GPU の縮小)・
+            // 拡大表示の土台の縮小など。打っていない段(拡大表示)は再描画待ちに含めたまま。
+            add(lane, LatencyKind.Main, "受け取り(シーンへの反映など)", m.Applied, m.ApplyEnd);
+            add(lane, LatencyKind.Wait, "再描画待ち", m.ApplyEnd != 0 ? m.ApplyEnd : m.Applied, m.UploadStart);
             add(lane, LatencyKind.Main, "反映(テクスチャ転送など)", m.UploadStart, m.UploadEnd);
         }
     }

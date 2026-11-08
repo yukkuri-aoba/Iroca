@@ -1012,6 +1012,7 @@ namespace Iroca
                     // (映している間は LivePreview が自分の参照を持つ)
                     if (!chainFull) LivePreview.Push(req.source, result.processed);
                     _host.RequestRepaint();
+                    marks.ApplyEnd = PreviewLatencyCycle.Now;
                     // 続けてフル解像度で確定(同一スナップショット)。
                     if (chainFull) ScheduleFullPreview(req);
                     if (masksHandedOver) jobMasks?.Release();
@@ -1163,6 +1164,8 @@ namespace Iroca
                     if (req.debugCap != null)
                         DebugCaptureHooks.RaiseCaptureComplete(req.debugCap);
                     _host.RequestRepaint();
+                    // ここまでが受け取りのメインスレッドの処理(拡大表示の土台の縮小・シーンへの反映・デバッグの記録の公開)。
+                    marks.ApplyEnd = PreviewLatencyCycle.Now;
                 },
                 cleanup: () =>
                 {
