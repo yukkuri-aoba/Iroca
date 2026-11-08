@@ -407,7 +407,7 @@ namespace Iroca
             Color32* pixels, Color32* originalPixels, float* strength, float* claimed,
             int w, int h, Color sampleColor, Color targetColor,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY, CancellationToken ct = default,
-            bool* maskExcluded = null)
+            bool* maskExcluded = null, bool* claimedFlag = null)
         {
             float sR = sampleColor.r * 255f, sG = sampleColor.g * 255f, sB = sampleColor.b * 255f;
             float tR = targetColor.r * 255f, tG = targetColor.g * 255f, tB = targetColor.b * 255f;
@@ -454,7 +454,8 @@ namespace Iroca
                         int i = row + x;
                         if (strength[i] > 1e-4f) continue;            // マッチ済みは既存処理が担当
                         if (maskExcluded != null && maskExcluded[i]) continue; // 除外マスクは不可侵
-                        if (claimed != null && claimed[i] > 0.001f) continue; // 上位ゾーン占有は不可侵
+                        // 上位ゾーン占有は不可侵(ゾーンが 1 つのときは claimed の代わりに claimedFlag。RunBuffers.ClaimedFlag)
+                        if (claimed != null ? claimed[i] > ClaimedFlagThreshold : claimedFlag != null && claimedFlag[i]) continue;
                         if (CountInWindow(satML, fw, fx0, fy0, fx1, fy1, x, y, AchromaFringeMatchRadius) < 1)
                             continue;                                 // マッチ境界の近傍のみ
                         // 背景候補(非マッチ かつ α>0。除外マスク画素はドナーから隠す=マスク中立化。
@@ -493,7 +494,7 @@ namespace Iroca
                             (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tG + om * bG), 0, 255),
                             (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tB + om * bB), 0, 255),
                             originalPixels[i].a);
-                        if (claimed != null) claimed[i] = 1f;
+                        SetClaimed(claimed, claimedFlag, i, 1f);
                     }
                     }
                 });

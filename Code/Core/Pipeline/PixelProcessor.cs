@@ -267,8 +267,17 @@ namespace Iroca
             ColorPalette palette = null;
             try
             {
-            rb.Claimed = s_floatPool.Rent(len);
-            ClearWork(rb.Claimed, 0, len);
+            if (sortedZones.Count > 1)
+            {
+                rb.Claimed = s_floatPool.Rent(len);
+                ClearWork(rb.Claimed, 0, len);
+            }
+            else
+            {
+                // ゾーンが 1 つ: 占有率は読むといつも 0 なので借りず、フチ消しが見る「占有したか」だけを持つ(RunBuffers)
+                rb.ClaimedFlag = s_boolPool.Rent(len);
+                new Span<bool>(rb.ClaimedFlag, len).Clear();
+            }
 
             // po を HSV 計算 + foreach 内の全 Parallel.For で共用。
             // MaxDegreeOfParallelism で Unity Editor のスレッドプール圧迫を防ぐ。
@@ -308,17 +317,11 @@ namespace Iroca
 
             debug?.BeginCapture(w, h);
 
-            // decontamination 用バッファはゾーン間で再利用し、プールから借りる(旧: 処理ごとに new bool[len]+
-            // new Color32[len]=4K で 17MB+67MB。Mono では大きな new が GC の停止を招く)。借りた配列は
+            // デコンタミの 2 つのバッファはゾーンごとにプールから借りる(DecontamStage・ZoneBuffers)。借りた配列は
             // ゼロ初期化されないが、どれも書いた位置しか読まない: aaMask は各ゾーン頭(DecontaminateAaBoundary)
             // で全域クリア、decontaminatedPixels は aaMask=true / 混色帯の対象の位置だけ書いて読む、
-            // 除外フラグは各ゾーンが自分の読む範囲を埋める(ゾーン間で使い回すので、もともと前のゾーンの
+            // 除外フラグ(RunBuffers)は各ゾーンが自分の読む範囲を埋める(ゾーン間で使い回すので、もともと前のゾーンの
             // 値が残っていても壊れない作り)。
-            if (useDecontamination)
-            {
-                rb.DecontamAaMask = s_boolPool.Rent(len);
-                rb.DecontamPixels = s_color32Pool.Rent(len);
-            }
 
             // ゾーンをまたいで変わらない入力。選択・マスクの契約へ渡す(RunLegacySelection・ApplyMaskContract)。
             var run = new RunContext

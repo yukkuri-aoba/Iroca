@@ -117,7 +117,7 @@
 | `Code/Core/Recolor/PixelProcessor.AchromaFringeStage.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.AchromaSolidifyStage.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.ComposeStage.cs` | 3 |
-| `Code/Core/Recolor/PixelProcessor.Decontam.cs` | 1 |
+| `Code/Core/Recolor/PixelProcessor.Decontam.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.DecontamStage.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.MixtureBand.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.MixtureBandStage.cs` | 0 |
@@ -387,6 +387,12 @@
 | `EdgeFeatherBlurMin` | `0.01f` | 量子化 | — | これ以下の σ では核がほぼ単位元になるので、ぼかし 0 とみなす境目 |
 | `RecolorMinStrength` | `0.001f` | 量子化 | — | 8bit で 1 階調未満の変化しか生まない強度を読み飛ばす境目 |
 | `AchromaWeightActiveMin` | `1e-4f` | 量子化 | — | 無彩パスの重みを 0 とみなす ε |
+
+## `Code/Core/Recolor/PixelProcessor.ComposeStage.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `ClaimedFlagThreshold` | `0.001f` | 量子化 | — | 無彩のフチ消しが「上位ゾーン（と同じゾーンの合成）が占有した」とみなす占有率。もとは CleanAchromaFringe の直書きの 0.001f（2026-11-08 に、ゾーンが 1 つのときの占有の印と共有するため名前を付けた）。RecolorMinStrength と同じく 8bit で 1 階調未満の境目 |
 
 ## `Code/Core/Recolor/PixelProcessor.AchromaFringeStage.cs`
 

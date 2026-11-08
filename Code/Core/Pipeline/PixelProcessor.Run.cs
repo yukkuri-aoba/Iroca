@@ -52,16 +52,18 @@ namespace Iroca
 
         /// <summary>
         /// 1 回の処理で、ゾーンをまたいで使い回す作業配列の持ち主(0.4.0 の計画の 3-7b)。占有率は最初に借り、
-        /// デコンタミの 2 つは設定が有効なときに借り、除外フラグと混色帯の被覆率は初めて要るゾーンで借りる。
+        /// 除外フラグと混色帯の被覆率は初めて要るゾーンで借りる(デコンタミの 2 つはゾーンごと。ZoneBuffers)。
         /// 処理の終わり(例外・取り消しのときも)に <see cref="ReturnAll"/> が返す。どれもゼロ初期化されないので、
         /// 書いた位置しか読まない(占有率だけは借りた直後に 0 で埋める)。
         /// </summary>
         private sealed class RunBuffers
         {
             // 占有率: 優先度の高い(リスト上位の)ゾーンが書き込んだカバレッジをピクセル単位で累積する。
+            // ゾーンが 1 つのときは借りない(null)。上位のゾーンが無いので読む値はいつも 0 で、同じゾーンの後の段
+            // (無彩のフチ消し)が見るのは「占有が 0.001 を超えたか」だけなので、それを ClaimedFlag に持つ
+            // (4096² で 64MB → 16MB。2026-11-08)。
             public float* Claimed;
-            public bool* DecontamAaMask;       // デコンタミで AA 縁とした画素
-            public Color32* DecontamPixels;    // デコンタミ・混色帯で塗る色
+            public bool* ClaimedFlag;
             // 除外マスクの画素の位置(デコンタミ・混色帯・無彩のフチ消しが、それぞれ自分の読む範囲だけを埋める)。
             public bool* MaskExcluded;
             public float* MixAlpha;            // 混色帯の被覆率(AnalyzeMixtureBand の出力)
@@ -75,12 +77,10 @@ namespace Iroca
             public void ReturnAll()
             {
                 if (MaskExcluded != null) s_boolPool.Return(MaskExcluded);
-                if (DecontamPixels != null) s_color32Pool.Return(DecontamPixels);
-                if (DecontamAaMask != null) s_boolPool.Return(DecontamAaMask);
                 if (MixAlpha != null) s_floatPool.Return(MixAlpha);
                 if (Claimed != null) s_floatPool.Return(Claimed);
-                MaskExcluded = DecontamAaMask = null;
-                DecontamPixels = null;
+                if (ClaimedFlag != null) s_boolPool.Return(ClaimedFlag);
+                MaskExcluded = ClaimedFlag = null;
                 MixAlpha = Claimed = null;
             }
         }
@@ -98,6 +98,11 @@ namespace Iroca
             public float* RegMidMap;       // 成分中央値の地図(再着色の統計がプールから借りたとき)
             public float* RegUpMap;        // 同、白側の余白の地図
             public Color32* PalRecolored;  // 合成の段の色ごとの再着色の表(色の数の長さ。使うゾーンだけ)
+            // デコンタミで AA 縁とした画素と、デコンタミ・混色帯で塗る色(設定が有効なとき。デコンタミの段が借りる)。
+            // どちらもゾーンの中で書いてから読むので、ゾーンの終わりに返す(2026-11-08 まで 1 回の処理の初めに借りて
+            // 最後まで持っていたので、次のゾーンの選択の間も 4096² で 80MB 寝ていた)。
+            public bool* DecontamAaMask;
+            public Color32* DecontamPixels;
 
             public void ReturnAll()
             {
@@ -108,9 +113,11 @@ namespace Iroca
                 if (MatchConf != null) s_floatPool.Return(MatchConf);
                 if (IncludedPx != null) s_boolPool.Return(IncludedPx);
                 if (PalRecolored != null) s_color32Pool.Return(PalRecolored);
+                if (DecontamPixels != null) s_color32Pool.Return(DecontamPixels);
+                if (DecontamAaMask != null) s_boolPool.Return(DecontamAaMask);
                 RegMidMap = RegUpMap = HighlightPot = Strength = MatchConf = null;
-                IncludedPx = null;
-                PalRecolored = null;
+                IncludedPx = DecontamAaMask = null;
+                PalRecolored = DecontamPixels = null;
             }
         }
 

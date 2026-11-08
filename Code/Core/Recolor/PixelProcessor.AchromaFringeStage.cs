@@ -61,7 +61,7 @@ namespace Iroca
                     }
                     CleanAchromaFringe(pixels, originalPixels, strengthForRecolor, claimedLocal,
                         w, h, zone.sampleColor, zone.targetColor, rcMinX, rcMinY, rcMaxX, rcMaxY,
-                        cancellationToken, fringeExcluded);
+                        cancellationToken, fringeExcluded, rb.ClaimedFlag);
                 }
 
                 _sub.Mark(SpAchromaFringe);

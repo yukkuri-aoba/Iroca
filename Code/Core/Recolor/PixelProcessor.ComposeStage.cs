@@ -7,6 +7,17 @@ namespace Iroca
 {
     internal static unsafe partial class PixelProcessor
     {
+        // 占有率を書く(ゾーンが 1 つのときは、フチ消しが見る「0.001 を超えたか」だけを書く。RunBuffers.ClaimedFlag)。
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static void SetClaimed(float* claimed, bool* claimedFlag, int i, float v)
+        {
+            if (claimed != null) claimed[i] = v;
+            else if (claimedFlag != null) claimedFlag[i] = v > ClaimedFlagThreshold;
+        }
+
+        // 無彩のフチ消しが「上位ゾーン(と同じゾーンの合成)が占有した」とみなす占有率(CleanAchromaFringe)。
+        private const float ClaimedFlagThreshold = 0.001f;
+
         /// <summary>
         /// 再着色の段の 5 つ目「合成」(0.4.0 の計画の 3-7b で ProcessPixelsArrayCore から中身を書き換えずに
         /// 切り出した)。再着色の範囲の画素ごとに、再着色の核(<see cref="RecolorPixel"/>。色の表があれば色ごとの表か
@@ -31,7 +42,10 @@ namespace Iroca
                 var strengthForRecolor = strength;
                 var aaMaskLocal = z.AaMask;
                 var decontaminatedLocal = z.Decontaminated;
+                // 占有率(ゾーンが 1 つなら null で、読む値はいつも 0。そのときは「占有が 0.001 を超えたか」だけを
+                // claimedFlag へ書く。どちらも書く値・判定は同じ式。RunBuffers.ClaimedFlag)
                 var claimedLocal = run.Buf.Claimed;
+                var claimedFlag = run.Buf.ClaimedFlag;
                 var rcParams = z.Params;
                 float zRegLmid = z.RegLmid;
                 float* zRegMidMap = z.RegMidMap;
@@ -84,7 +98,8 @@ namespace Iroca
                         if (s <= RecolorMinStrength && !mix) continue;
                         // 上位(リスト上位)ゾーンが既に占有した分を差し引いた実効強度 es。
                         // 残り(room)が無ければこのゾーンは適用しない(= 上位が排他)。
-                        float room = 1f - claimedLocal[i];
+                        float claimedNow = claimedLocal != null ? claimedLocal[i] : 0f;
+                        float room = 1f - claimedNow;
                         if (room <= 0.001f) continue;
                         if (mix)
                         {
@@ -95,7 +110,7 @@ namespace Iroca
                             if (a > 0f)
                             {
                                 Color32 mo = originalPixels[i], mt = decontaminatedLocal[i];
-                                if (a >= ma && claimedLocal[i] <= 0.0001f)
+                                if (a >= ma && claimedNow <= 0.0001f)
                                     pixels[i] = mt;
                                 else
                                 {
@@ -107,12 +122,12 @@ namespace Iroca
                                         (byte)Mathf.Clamp(Mathf.RoundToInt(cur.b + (mt.b - mo.b) * k), 0, 255),
                                         cur.a);
                                 }
-                                claimedLocal[i] = Mathf.Min(1f, claimedLocal[i] + a);
+                                SetClaimed(claimedLocal, claimedFlag, i, Mathf.Min(1f, claimedNow + a));
                             }
                             continue;
                         }
                         float es = s < room ? s : room;
-                        bool topMost = claimedLocal[i] <= 0.0001f;
+                        bool topMost = claimedNow <= 0.0001f;
                         if (aaMaskLocal != null && aaMaskLocal[i])
                         {
                             // AA pixel: use decontaminated value (overrides standard mix)。
@@ -121,7 +136,7 @@ namespace Iroca
                             pixels[i] = room >= 0.999f
                                 ? decontaminatedLocal[i]
                                 : Color32.Lerp(pixels[i], decontaminatedLocal[i], room);
-                            claimedLocal[i] = 1f;
+                            SetClaimed(claimedLocal, claimedFlag, i, 1f);
                             continue;
                         }
                         Color32 op = originalPixels[i];
@@ -156,7 +171,7 @@ namespace Iroca
                                 (byte)Mathf.Clamp(Mathf.RoundToInt(cur.b + (recolored.b - op.b) * es), 0, 255),
                                 (byte)Mathf.Clamp(Mathf.RoundToInt(cur.a + (recolored.a - op.a) * es), 0, 255));
                         }
-                        claimedLocal[i] = es >= 1f ? 1f : Mathf.Min(1f, claimedLocal[i] + es);
+                        SetClaimed(claimedLocal, claimedFlag, i, es >= 1f ? 1f : Mathf.Min(1f, claimedNow + es));
                     }
                 });
                 _sub.Mark(SpRecolorLoop);

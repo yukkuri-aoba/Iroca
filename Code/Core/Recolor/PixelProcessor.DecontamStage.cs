@@ -44,8 +44,10 @@ namespace Iroca
                 Color32* decontaminatedPixels = null;
                 if (useDecontamination)
                 {
-                    aaMask = rb.DecontamAaMask;
-                    decontaminatedPixels = rb.DecontamPixels;
+                    // ゾーンの作業配列として借りる(ゾーンの終わりに返す。ZoneBuffers)。中身は不定で、AA 縁の印は
+                    // DecontaminateAaBoundary が全域を書き、塗る色は印を付けた画素と混色帯の対象にだけ書いてから読む。
+                    aaMask = z.Buffers.DecontamAaMask = s_boolPool.Rent(len);
+                    decontaminatedPixels = z.Buffers.DecontamPixels = s_color32Pool.Rent(len);
                     // 内部固め(上)が無彩ターゲットの内部を均一化したので、旧 AA フィデリティ修正の
                     // interior_threshold=1.01(全画素 α 再合成)は不要(むしろ内部を背景色で再合成して
                     // 段差を復活させる)。常に通常閾値で AA 縁だけをデコンタミする。
