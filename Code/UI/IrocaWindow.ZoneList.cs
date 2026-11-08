@@ -59,6 +59,8 @@ namespace Iroca {
         // ウィンドウ外リリースでも MouseUp が届く＝_dragZoneIndex が残留して次の無関係な MouseUp で
         // 誤並べ替え（＝優先度変更＝出力変化）が確定する事故を防ぐ。
         private int _dragControlId;
+        // ドラッグを始めたときに hotControl に据えた ID(離すときの照合に使う)。
+        private int _dragCapturedId;
 
         // 設定列のスクロールの見えている範囲(画面座標。前の Repaint のもの)。スクロールの外のクリックでも座標はスクロールの中へ
         // 写されるので、これを見ないと、書き出し欄を押したのに隠れたカードが選ばれる。
@@ -227,7 +229,10 @@ namespace Iroca {
 
             // 開いておくカードは Layout のときだけ決める。押したイベントの途中で畳む/開くを変えると、Layout で
             // 並べた要素と食い違って IMGUI がエラーを出す。押した結果は次の Layout(Repaint の前)で開く。
-            if (ev.type == EventType.Layout) {
+            // ドラッグ中は変えない。☰ を押すとカードを押したことにもなり、たたんだカードなら次の Layout で開く。
+            // ドラッグの途中で並びが変わると、ドラッグ用の control ID(HandleZoneReorderDrag)が押したときと
+            // ずれて、離してもドラッグが終わらなかった。開くのは離した後の Layout。
+            if (ev.type == EventType.Layout && _dragZoneIndex < 0) {
                 int cur = _maskView != null ? _maskView.activeMaskTarget : -1;
                 _expandedZoneIndex = zones.Count >= 2 && cur >= 0 && cur < zones.Count ? cur : -1;
             }
@@ -437,7 +442,9 @@ namespace Iroca {
                 _dragZoneIndex = index;
                 _dragGrabOffsetY = Event.current.mousePosition.y - handleRect.y;
                 // マウスキャプチャを取得（ウィンドウ外リリースでも MouseUp を確実に受け取るため）。
-                // _dragControlId は前フレームの HandleZoneReorderDrag が確保した安定 ID。
+                // _dragControlId は前フレームの HandleZoneReorderDrag が確保した ID。押したときの値を控え、
+                // 離すときはそれで照合する(並びが変わって次のフレームの ID がずれても離せるように)。
+                _dragCapturedId = _dragControlId;
                 GUIUtility.hotControl = _dragControlId;
                 Event.current.Use();
             }
@@ -893,23 +900,25 @@ namespace Iroca {
                 GUI.Label(new Rect(swatch.xMax + 6f, ghost.y + 3f, ghost.width - 64f, EditorGUIUtility.singleLineHeight),
                     TempContent.Of("☰  " + gname), EditorStyles.boldLabel);
             } else if (evt.type == EventType.MouseDrag) {
-                if (GUIUtility.hotControl == _dragControlId) {
+                if (GUIUtility.hotControl == _dragCapturedId) {
                     evt.Use();
                     Repaint();
                 }
-            } else if (evt.type == EventType.MouseUp) {
+            } else if (evt.rawType == EventType.MouseUp) {
                 // 自分がキャプチャした MouseUp のときだけ確定する（ウィンドウ外リリースでも hotControl
-                // 経由で必ずここに届く）。hotControl が自分のものでない無関係な MouseUp では並べ替えない。
-                if (GUIUtility.hotControl == _dragControlId) {
+                // 経由で必ずここに届く）。hotControl が自分のものでない MouseUp(ほかの操作がマウスを取った・
+                // キャプチャが外れた)では並べ替えずにドラッグだけ終える。残すと、離した後もゴーストが
+                // マウスに付いて回る。
+                if (GUIUtility.hotControl == _dragCapturedId) {
                     GUIUtility.hotControl = 0;
                     if (insertAt != _dragZoneIndex) {
                         _pendingReorderFrom = _dragZoneIndex;
                         _pendingReorderTo = insertAt;
                     }
-                    _dragZoneIndex = -1;
                     evt.Use();
-                    Repaint();
                 }
+                _dragZoneIndex = -1;
+                Repaint();
             }
         }
 
