@@ -38,6 +38,8 @@ def state() -> dict:
         "dev_safe/scripts/measure_sam_e2e.py", "dev_safe/scripts/measure_operating_curve.py",
         "dev_safe/measure_click_position.py", "dev_safe/Tests/regression/fixtures.py",
         "dev_safe/Tests/regression/headless_io.py",
+        # 出力にだけある線の物差し(パネルの 3 段目と cases の phantom)
+        "dev_safe/Tests/regression/phantom_edges.py",
         # GT 許容(同色の別部位)の規則と理由つき上書き。変われば design 採点が変わる
         "dev_safe/Tests/regression/gt_tolerance.py", "dev_safe/Tests/regression/colorspace.py",
         "dev_safe/Tests/Baselines/gt_tolerance_overrides.json",
@@ -167,16 +169,24 @@ def generate(snapshot: bool = False) -> None:
             cy, cx = vr._densest_change_window(focus, vr.CROP_SIZE)
             crop = vr._add_label(vr._crop(output, cy, cx, vr.CROP_SIZE),
                                  f"等倍出力 @({cx},{cy})", (40, 65, 95))
+            # 元に無い線が増えた所(変更前があり、出力が変わったときだけ数える)
+            phantom = ph_row = None
+            if before is not None and focus.any():
+                ph = vr.phantom_change(rgba, before, output)
+                phantom = {k: v for k, v in ph.items() if not k.startswith("_")}
+                ph_row = vr.phantom_crop_row(rgba, before, output, ph)
+                del ph
             bottom = vr._hstack_with_sep([tile(evidence, f"AI証拠 / include={mode == 'assisted_include' and r['include_applied']}"),
                                          tile(overlay, f"GT採点: 緑=一致 赤=過検出 灰=許容(同色) 青=見逃し  "
                                                        f"適合 {metrics['precision']:.3f}→設計 {metrics['precision_design']:.3f}"), crop])
-            panel = vr._vstack_with_sep([top, bottom])
+            panel = vr._vstack_with_sep([top, bottom] + ([ph_row] if ph_row is not None else []))
             Image.fromarray(panel).save(folder / name)
             cases[cid] = {"workflow": r[workflow_key], "metrics": {k: metrics[k] for k in SELECTION_METRICS},
                           "satisfied": mea.satisfied(metrics), "satisfied_strict": mea.satisfied_strict(metrics),
                           "tolerance_gt": r["tolerance_gt"], "regressions": regressions,
                           "panel": name, "panel_sha256": sha256(folder / name),
-                          "changed_from_snapshot": int((before != output).any(axis=-1).sum()) if before is not None else None}
+                          "changed_from_snapshot": int((before != output).any(axis=-1).sum()) if before is not None else None,
+                          "phantom": phantom}
             print(f"[workflow] {cid}: regression={regressions} satisfied={mea.satisfied(metrics)} "
                   f"(strict {mea.satisfied_strict(metrics)}; 適合 {metrics['precision']:.3f}→設計 "
                   f"{metrics['precision_design']:.3f}, 許容 {metrics['tolerated_frac']*100:.0f}%)", flush=True)
@@ -191,8 +201,15 @@ def generate(snapshot: bool = False) -> None:
         (REVIEW / "review.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
         validate_review()
         # 変更前とビット一致のパネルは目視しなくてよい。変更前が無い(None)パネルは目視に回す。
-        to_review = [c["panel"] for c in cases.values() if c["changed_from_snapshot"] != 0]
-        print(f"[workflow] 変化があったパネル {len(to_review)}/{len(cases)} 枚を目視: {folder}")
+        # 元に無い線が増えた順(次に変化の大きい順)。増えたパネルは 3 段目(赤紫の印)を見る。
+        changed_rows = [c for c in cases.values() if c["changed_from_snapshot"] != 0]
+        changed_rows.sort(key=lambda c: (-((c["phantom"] or {}).get("after", 0) - (c["phantom"] or {}).get("before", 0)),
+                                         -(c["changed_from_snapshot"] or 0)))
+        to_review = [c["panel"] for c in changed_rows]
+        print(f"[workflow] 変化があったパネル {len(to_review)}/{len(cases)} 枚を目視(元に無い線が増えた順): {folder}")
+        for c in changed_rows:
+            if c["phantom"] and c["phantom"]["after"] > c["phantom"]["before"]:
+                print(f"  線の組 {c['phantom']['before']:,} → {c['phantom']['after']:,}: {c['panel']}")
         for name in to_review:
             print(f"  {folder / name}")
 
