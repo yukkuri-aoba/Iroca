@@ -241,6 +241,44 @@ def _densest_change_window(changed: np.ndarray, size: int) -> tuple[int, int]:
     return by, bx
 
 
+def phantom_change(orig: np.ndarray, before: np.ndarray, after: np.ndarray) -> dict:
+    """出力にだけある線(元では同じ色の隣が出力で分かれた所。dev_safe の regression/phantom_edges.py)の変化。
+
+    変化画素の数では、塗る範囲が広がった・狭まったのと、元に無い線が増えたのとを見分けられない。
+    線の組の数を変更前後で数え、変更後にだけある線の画素(new)を返す。等倍クロップはそこを中心にする。
+    """
+    from regression import phantom_edges as pe
+    pb = pe.analyze(orig, before, want_marks=True)
+    pa = pe.analyze(orig, after, want_marks=True)
+    new = pa["marks"] & ~pb["marks"]
+    return {"before": pb["pairs"], "after": pa["pairs"],
+            "same_before": pb["same_color_split"], "same_after": pa["same_color_split"],
+            "new_px": int(new.sum()), "_new": new, "_marks_after": pa["marks"]}
+
+
+def _mark_lines(rgba: np.ndarray, marks: np.ndarray, new: np.ndarray) -> np.ndarray:
+    """線の画素に印を付けた複製(変更後にだけある線 = 赤紫、前からある線 = 黄)。"""
+    out = rgba.copy()
+    out[marks & ~new, :3] = (255, 220, 0)
+    out[new, :3] = (255, 0, 200)
+    return out
+
+
+def phantom_crop_row(orig: np.ndarray, before: np.ndarray, after: np.ndarray, ph: dict) -> np.ndarray | None:
+    """変更後にだけある線がいちばん密な所の等倍クロップ(元・変更前・変更後・印つき)。無ければ None。"""
+    from regression import phantom_edges as pe
+    if ph["new_px"] == 0:
+        return None
+    cy, cx = pe.densest_window(ph["_new"], CROP_SIZE)
+    marked = _mark_lines(after, ph["_marks_after"], ph["_new"])
+    return _hstack_with_sep([
+        _add_label(_crop(orig, cy, cx, CROP_SIZE), f"等倍 元 @({cx},{cy}) 元に無い線が増えた所", (120, 40, 120)),
+        _add_label(_crop(before, cy, cx, CROP_SIZE), "等倍 変更前", (160, 80, 30)),
+        _add_label(_crop(after, cy, cx, CROP_SIZE), "等倍 変更後", (30, 140, 60)),
+        _add_label(_crop(marked, cy, cx, CROP_SIZE), "印: 赤紫=増えた線 黄=前からの線", (120, 40, 120)),
+    ])
+
+
 def _crop(rgba: np.ndarray, y: int, x: int, size: int) -> np.ndarray:
     size = min(size, rgba.shape[0], rgba.shape[1])
     return rgba[y:y + size, x:x + size]
@@ -440,7 +478,15 @@ def cmd_compare(engine: str = "csharp") -> None:
                     _add_label(_crop(after_rgba, cy, cx, CROP_SIZE),
                                f"等倍 変更後 (最大差 {stats['max_delta']})", (30, 140, 60)),
                 ])
-                panel = _vstack_with_sep([panel, crop_row])
+                rows = [panel, crop_row]
+                # 3 段目: 元に無い線が増えた所(変化の密な所とは別の場所のことが多い)
+                ph = phantom_change(input_rgba, before_rgba, after_rgba)
+                stats["phantom"] = {k: v for k, v in ph.items() if not k.startswith("_")}
+                ph_row = phantom_crop_row(input_rgba, before_rgba, after_rgba, ph)
+                if ph_row is not None:
+                    rows.append(ph_row)
+                del ph
+                panel = _vstack_with_sep(rows)
 
         out_path = COMPARE_DIR / f"{case_id}_comparison.png"
         Image.fromarray(panel).save(out_path)
@@ -481,6 +527,7 @@ def cmd_compare(engine: str = "csharp") -> None:
                 print(f"  {cid:32}{v['changed']:>12,}{v['toward_original']:>12,}"
                       f"{v['away_from_original']:>14,}{v['max_delta']:>7}")
             print("  ※ 変化の大きいケースから等倍クロップ(パネル 2 段目)を確認すること。")
+            _print_phantom_table(changed_cases)
         else:
             print("  すべてのケースが変更前とビット一致（出力に影響しない変更）。")
         print()
@@ -494,9 +541,16 @@ def cmd_compare(engine: str = "csharp") -> None:
         print()
     # 変更前とビット一致のケースは目視しなくてよい（2026-10-18 ユーザー決定）。
     # 変更前が無いケースは変化の有無が分からないので目視に回す。
+    # 元に無い線が増えた順(次に変化の大きい順)に並べる。線の増えは IoU にも変化画素の数にも出ない。
+    def _review_order(p: Path):
+        st = change_summary.get(p.name[:-len("_comparison.png")], {})
+        ph = st.get("phantom") or {}
+        return (-(ph.get("after", 0) - ph.get("before", 0)), -st.get("changed", 0))
+    to_review.sort(key=_review_order)
     print("=" * 60)
     print(f"【エージェントへ】変化があったケース {len(to_review)}/{len(generated)} 枚を "
-          "Read ツールで 1 枚ずつ確認してください（変更前とビット一致のケースは読まなくてよい）。")
+          "Read ツールで 1 枚ずつ確認してください（変更前とビット一致のケースは読まなくてよい）。"
+          "元に無い線が増えた順に並べています。3 段目があるパネルは、増えた線の所を必ず見ること。")
     print("=" * 60)
     for p in to_review:
         print(f"  {p}")
@@ -512,6 +566,21 @@ def cmd_compare(engine: str = "csharp") -> None:
     print('  python tools/visual_review.py approve --note "<目視した範囲と根拠>"')
     import workflow_review
     workflow_review.generate()
+
+
+def _print_phantom_table(changed_cases: dict) -> None:
+    """変化したケースの、出力にだけある線の組の増減(増えた順)。"""
+    rows = [(cid, v["phantom"]) for cid, v in changed_cases.items() if v.get("phantom")]
+    if not rows:
+        return
+    rows.sort(key=lambda kv: -(kv[1]["after"] - kv[1]["before"]))
+    up = sum(1 for _, p in rows if p["after"] > p["before"])
+    tb, ta = sum(p["before"] for _, p in rows), sum(p["after"] for _, p in rows)
+    print(f"[元に無い線] 変化ケースの線の組 {tb:,} → {ta:,}(増えた {up} / {len(rows)} ケース)")
+    print(f"  {'case':32}{'変更前':>10}{'変更後':>10}{'増えた線の画素':>14}")
+    for cid, p in rows[:20]:
+        print(f"  {cid:32}{p['before']:>10,}{p['after']:>10,}{p['new_px']:>14,}")
+    print("  ※ 増えたケースはパネル 3 段目(赤紫の印)を確認すること。")
 
 
 # ---------------------------------------------------------------------------
