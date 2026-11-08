@@ -2,6 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Iroca
@@ -304,6 +305,8 @@ namespace Iroca
         private static unsafe void RenderMaskCoverage(
             NativeBitMask mask, Color32 color, NativePixels target, int w, int h, int mw, int mh)
         {
+            // 何も塗っていない層は描くものが無い(結果は同じ)。全体を数えずに、最初の 1 画素で止める。
+            if (!mask.Any()) return;
             Color32* pixels = target.Ptr;
             ulong* bits = mask.Bits;
             // 列のマスク範囲は行に依らないので前計算する(オーバーレイは表示倍率に応じて
@@ -315,7 +318,10 @@ namespace Iroca
                 cx0[x] = Mathf.Clamp((int)((long)x * mw / w), 0, mw - 1);
                 cx1[x] = Mathf.Clamp((int)((long)(x + 1) * mw / w), cx0[x] + 1, mw);
             }
-            for (int y = 0; y < h; y++)
+            // 行ごとに並列にする(各行は自分の行だけを書くので、結果は 1 本で回したときと同じ)。層の重ね順は
+            // 呼び出し側が層ごとに順に呼ぶので変わらない。並列度は Core の決まり(メインスレッドの分をあける)。
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
+            Parallel.For(0, h, po, y =>
             {
                 int my0 = Mathf.Clamp((int)((long)y * mh / h), 0, mh - 1);
                 int my1 = Mathf.Clamp((int)((long)(y + 1) * mh / h), my0 + 1, mh);
@@ -347,7 +353,7 @@ namespace Iroca
                         pixels[rowBase + x] = c;
                     }
                 }
-            }
+            });
         }
 
         /// <summary>
@@ -516,10 +522,13 @@ namespace Iroca
                                                         int[] cx0, int[] cx1, int[] cy0, int[] cy1,
                                                         int w, int h, Color32 color, NativePixels target)
         {
+            if (!mask.Any()) return;   // 何も塗っていない層(結果は同じ)
             Color32* pixels = target.Ptr;
             ulong* bits = mask.Bits;
             int stride = mask.Width;
-            for (int y = 0; y < h; y++)
+            // 行ごとに並列(RenderMaskCoverage と同じ)。
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
+            Parallel.For(0, h, po, y =>
             {
                 int my0 = cy0[y], my1 = cy1[y];
                 int rowBase = y * w;
@@ -549,7 +558,7 @@ namespace Iroca
                         pixels[rowBase + x] = c;
                     }
                 }
-            }
+            });
         }
 
         /// <summary>
