@@ -725,6 +725,11 @@ namespace Iroca {
             bool seedPickArmed = !string.IsNullOrEmpty(_host.SeedPickZoneId)
                                  && !maskView.maskPaintActive && !eyedropperArmed;
 
+            // スポイトの見本・ブラシのカーソルをマウスに付いて動かす(押していないときも)。
+            if (eyedropperArmed || maskView.maskPaintActive) {
+                HandleHoverRepaint(activePreviewRect);
+            }
+
             // スポイト武装中はプレビュークリックを横取りして実画素からサンプル取得に充てる
             // （シード設定・パンより優先。取得すると one-shot で自動解除）。
             if (eyedropperArmed) {

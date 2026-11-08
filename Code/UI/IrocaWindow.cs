@@ -251,13 +251,20 @@ namespace Iroca {
             if (!deferred) {
                 _resumeDeferredPreview = false;
             }
-            if (from.wantsMouseMove != deferred) {
-                from.wantsMouseMove = deferred;
+            // スポイト・ブラシの間も、マウスの移動と出入りを受け取る(見本とカーソルをマウスに付いて動かす。
+            // PreviewView.HandleHoverRepaint)。ほかのときは受け取らない(動かすたびに OnGUI が走るため)。
+            bool track = deferred || WantsPreviewHover;
+            if (from.wantsMouseMove != track) {
+                from.wantsMouseMove = track;
             }
-            if (from.wantsMouseEnterLeaveWindow != deferred) {
-                from.wantsMouseEnterLeaveWindow = deferred;
+            if (from.wantsMouseEnterLeaveWindow != track) {
+                from.wantsMouseEnterLeaveWindow = track;
             }
         }
+
+        /// <summary>プレビューの上でマウスの位置に付いて動くものを出しているか(スポイトの見本・ブラシのカーソル)。</summary>
+        private bool WantsPreviewHover =>
+            !string.IsNullOrEmpty(_eyedropperZoneId) || (_maskView != null && _maskView.maskPaintActive);
 
         private static bool IsDeferredPreviewTrigger(EventType t) =>
             t == EventType.MouseEnterWindow || t == EventType.MouseMove || t == EventType.MouseDown

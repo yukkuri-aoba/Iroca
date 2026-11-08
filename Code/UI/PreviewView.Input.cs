@@ -231,7 +231,9 @@ namespace Iroca {
                     break;
 
                 case EventType.Repaint:
-                    if (maskView.isPainting && isInRect) {
+                    // 押す前(マウスを乗せただけ)も出す。塗り始める前に、どこまで塗るかを確かめられるように。
+                    // マウスに付いて動くのは HandleHoverRepaint が描き直しを頼むから。
+                    if (isInRect) {
                         // 実際に塗られる円の直径は、全体表示で (2*brushSize+1) 格子セル。拡大するとその倍率だけ
                         // 小さく塗る(MaskPaintView.BrushRadiusPx)ので、画面上の大きさは拡大率に関係なく一定:
                         // 1 セルの画面上のサイズ(EffectiveZoom)÷ 拡大率(previewZoom)。
@@ -424,8 +426,66 @@ namespace Iroca {
                 case EventType.Repaint:
                     if (isInRect) {
                         EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Link);
+                        // クリックしたら取れる色の見本。スポイトは 1 画素だけを取るので、縁のなじませた画素や
+                        // 線の上を踏むと狙いと違う色になる。押す前に確かめられるようにする。
+                        var hoverUv = PreviewCoords.ScreenToUv(e.mousePosition, previewRect);
+                        if (SampleTrueSourceColor(hoverUv.x, hoverUv.y, srcW, srcH, out Color hover)) {
+                            DrawEyedropperSwatch(e.mousePosition, hover);
+                        }
                     }
                     break;
+            }
+        }
+
+        // スポイトの見本の大きさと、カーソルからの離れ(画面 px)。
+        private const float EyedropperSwatchSize = 28f;
+        private const float EyedropperSwatchOffset = 16f;
+
+        /// <summary>
+        /// スポイトのカーソルの右下に、クリックしたら取れる色の見本を描く。枠の右・下の端からはみ出すときは
+        /// カーソルの反対側へ置く(拡大中は画像が枠より大きく、枠の外は見えない)。どの色の上でも見えるよう
+        /// 黒と白の二重の縁を付ける。
+        /// </summary>
+        private void DrawEyedropperSwatch(Vector2 mouse, Color color) {
+            float s = EyedropperSwatchSize, off = EyedropperSwatchOffset;
+            var r = new Rect(mouse.x + off, mouse.y + off, s, s);
+            if (_previewFrameScreenRect.width > 0f) {
+                Vector2 screenMax = GUIUtility.GUIToScreenPoint(new Vector2(r.xMax, r.yMax));
+                if (screenMax.x > _previewFrameScreenRect.xMax) {
+                    r.x = mouse.x - off - s;
+                }
+                if (screenMax.y > _previewFrameScreenRect.yMax) {
+                    r.y = mouse.y - off - s;
+                }
+            }
+            EditorGUI.DrawRect(new Rect(r.x - 2f, r.y - 2f, r.width + 4f, r.height + 4f), Color.black);
+            EditorGUI.DrawRect(new Rect(r.x - 1f, r.y - 1f, r.width + 2f, r.height + 2f), Color.white);
+            color.a = 1f;
+            EditorGUI.DrawRect(r, color);
+        }
+
+        // カーソルが前の描画でプレビューの上にあったか(出たときに 1 回だけ描き直して、見本・カーソルを消す)。
+        [System.NonSerialized] private bool _hoverInside;
+
+        /// <summary>
+        /// スポイトの見本とブラシのカーソルを、ボタンを押していないときもマウスに付いて動かす。
+        /// エディタの窓はマウスの移動だけでは描き直さないので、プレビューの上で動いたときと出たときに描き直しを頼む。
+        /// 移動のイベントを受け取る設定は、このモードの間だけ窓が立てる(IrocaWindow.TrackDeferredPreview)。
+        /// </summary>
+        private void HandleHoverRepaint(Rect previewRect) {
+            var e = Event.current;
+            if (e == null) {
+                return;
+            }
+            if (e.type == EventType.MouseMove) {
+                bool inside = previewRect.Contains(e.mousePosition);
+                if (inside || _hoverInside) {
+                    _host.RequestPreviewRepaint();
+                }
+                _hoverInside = inside;
+            } else if (e.type == EventType.MouseLeaveWindow && _hoverInside) {
+                _hoverInside = false;
+                _host.RequestPreviewRepaint();
             }
         }
 
