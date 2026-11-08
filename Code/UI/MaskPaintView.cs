@@ -260,7 +260,13 @@ namespace Iroca {
             bool paintActive = maskPaintActive && !brushEraseMode;
             bool eraseActive = maskPaintActive && brushEraseMode;
             EditorGUILayout.BeginHorizontal();
-            GUI.backgroundColor = paintActive ? IrocaColors.ExcludeButton : Color.white;
+            // 押している側の色は、ブラシのカーソル(PreviewView.HandlePreviewPaintInput)と同じ意味にそろえる。
+            // 塗るは「いま塗るマスクの種類」の色(赤=除外 / 緑=含める)、消すは種類に関係なく取り除く操作なので
+            // 種類の色を使わず、武装中のボタンと同じ強調色にする。以前は塗る=赤・消す=緑で固定で、含めるマスクを
+            // 塗っている間も赤く、消している間は「含める」の緑が出て意味が食い違っていた。
+            GUI.backgroundColor = paintActive
+                ? (editIncludeLayer ? IrocaColors.IncludeButton : IrocaColors.ExcludeButton)
+                : Color.white;
             if (GUILayout.Button(TempContent.Of(Localization.BrushPaint, Localization.BrushPaintTooltip),
                     EditorStyles.miniButtonLeft)) {
                 if (paintActive) {
@@ -270,7 +276,7 @@ namespace Iroca {
                 }
                 stateChanged = true;
             }
-            GUI.backgroundColor = eraseActive ? IrocaColors.IncludeButton : Color.white;
+            GUI.backgroundColor = eraseActive ? IrocaColors.ActiveMaskTarget : Color.white;
             if (GUILayout.Button(TempContent.Of(Localization.BrushErase, Localization.BrushEraseTooltip),
                     EditorStyles.miniButtonRight)) {
                 if (eraseActive) {
