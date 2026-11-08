@@ -187,33 +187,46 @@ namespace Iroca
                 }
             }
 
+            // 成分番号: 結合では小さい方の根を親にするので、成分の根はその成分で最も小さい run の番号になる。
+            // r の小さい順に見れば、根に出会うのは成分の中で最初(Find(r) == r)で、残りの run は根より後に来る。
+            // 根に出会った順に番号を振るのは、以前の辞書(根 → 番号を初出の順に)と同じ番号になる。
             comp = s_intPool.Rent(R);
-            var rootToComp = new Dictionary<int, int>();
             int compCount = 0;
             for (int r = 0; r < R; r++)
             {
                 int root = Find(r);
-                if (!rootToComp.TryGetValue(root, out int c)) { c = compCount++; rootToComp[root] = c; }
-                comp[r] = c;
+                comp[r] = root == r ? compCount++ : comp[root];
             }
 
+            // コアの有無と包絡の内側の画素数は、run ごとに行並列で数えてから成分へ足す(整数の和なので
+            // 足す順に依らない)。以前は全 run の画素を 1 スレッドでなめていた(肌のような大きい成分で律速)。
             var hasCore = new bool[compCount];
-            for (int ly = 0; ly < bh; ly++)
+            byte* runCore = s_bytePool.Rent(R);
+            try
             {
-                if ((ly & 63) == 0) ct.ThrowIfCancellationRequested();
-                int grb = (ly + minY) * w + minX;
-                for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
+                var runCoreL = runCore; var runX0C = runX0; var runX1C = runX1;
+                float coreThr = coreThreshold;
+                Parallel.For(0, bh, ccPo, ly =>
                 {
-                    int c = comp[k];
-                    if (hasCore[c]) continue;   // 既に確定した成分は走査不要
-                    int x1 = runX1[k];
-                    for (int lx = runX0[k]; lx <= x1; lx++)
+                    int grb = (ly + minY) * w + minX;
+                    for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
                     {
-                        int gi = grb + lx;
-                        if (useConf ? matchConf[gi] > 0f : strength[gi] >= coreThreshold)
-                        { hasCore[c] = true; break; }
+                        byte found = 0;
+                        int x1 = runX1C[k];
+                        for (int lx = runX0C[k]; lx <= x1; lx++)
+                        {
+                            int gi = grb + lx;
+                            if (useConf ? matchConf[gi] > 0f : strength[gi] >= coreThr) { found = 1; break; }
+                        }
+                        runCoreL[k] = found;
                     }
-                }
+                });
+                for (int r = 0; r < R; r++)
+                    if (runCore[r] != 0) hasCore[comp[r]] = true;
+            }
+            finally
+            {
+                s_bytePool.Return(runCore);
             }
 
             // 陰影の明度下限: 成分ごとに「下限に達する画素の割合」を集計する(全 run 走査)。
@@ -229,43 +242,63 @@ namespace Iroca
                 var reach = useValueFloor ? new int[compCount] : null;
                 var within = useSatCeil ? new int[compCount] : null;
                 var inBand = useHueBand ? new int[compCount] : null;
-                for (int ly = 0; ly < bh; ly++)
+                // run ごとの数を行並列で数える(run の画素数は x1 - x0 + 1 なので数え直さない)。
+                int* runReach = useValueFloor ? s_intPool.Rent(R) : null;
+                int* runWithin = useSatCeil ? s_intPool.Rent(R) : null;
+                int* runInBand = useHueBand ? s_intPool.Rent(R) : null;
+                try
                 {
-                    if ((ly & 63) == 0) ct.ThrowIfCancellationRequested();
-                    int grb = (ly + minY) * w + minX;
-                    for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
+                    var runX0C = runX0; var runX1C = runX1;
+                    var rReach = runReach; var rWithin = runWithin; var rInBand = runInBand;
+                    Parallel.For(0, bh, ccPo, ly =>
                     {
-                        int c = comp[k];
-                        int x1 = runX1[k];
-                        total[c] += x1 - runX0[k] + 1;
-                        if (useValueFloor)
+                        int grb = (ly + minY) * w + minX;
+                        for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
                         {
-                            int n = 0;
-                            for (int lx = runX0[k]; lx <= x1; lx++)
-                                if (pixV[HsvSlot(pixIdx, grb + lx)] >= shadowValueFloor) n++;
-                            reach[c] += n;
-                        }
-                        if (useSatCeil)
-                        {
-                            int n = 0;
-                            for (int lx = runX0[k]; lx <= x1; lx++)
-                                if (pixS[HsvSlot(pixIdx, grb + lx)] <= partSatCeiling) n++;
-                            within[c] += n;
-                        }
-                        if (useHueBand)
-                        {
-                            int n = 0;
-                            for (int lx = runX0[k]; lx <= x1; lx++)
+                            int x0 = runX0C[k], x1 = runX1C[k];
+                            if (useValueFloor)
                             {
-                                int gi = grb + lx;
-                                if (pixS[HsvSlot(pixIdx, gi)] < hueMinSat) { n++; continue; }   // 色相が不安定 = 反証にしない
-                                float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, gi)] - sampleH);
-                                if (hd > 0.5f) hd = 1f - hd;
-                                if (hd < partHueBand) n++;
+                                int n = 0;
+                                for (int lx = x0; lx <= x1; lx++)
+                                    if (pixV[HsvSlot(pixIdx, grb + lx)] >= shadowValueFloor) n++;
+                                rReach[k] = n;
                             }
-                            inBand[c] += n;
+                            if (useSatCeil)
+                            {
+                                int n = 0;
+                                for (int lx = x0; lx <= x1; lx++)
+                                    if (pixS[HsvSlot(pixIdx, grb + lx)] <= partSatCeiling) n++;
+                                rWithin[k] = n;
+                            }
+                            if (useHueBand)
+                            {
+                                int n = 0;
+                                for (int lx = x0; lx <= x1; lx++)
+                                {
+                                    int gi = grb + lx;
+                                    if (pixS[HsvSlot(pixIdx, gi)] < hueMinSat) { n++; continue; }   // 色相が不安定 = 反証にしない
+                                    float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, gi)] - sampleH);
+                                    if (hd > 0.5f) hd = 1f - hd;
+                                    if (hd < partHueBand) n++;
+                                }
+                                rInBand[k] = n;
+                            }
                         }
+                    });
+                    for (int r = 0; r < R; r++)
+                    {
+                        int c = comp[r];
+                        total[c] += runX1[r] - runX0[r] + 1;
+                        if (useValueFloor) reach[c] += runReach[r];
+                        if (useSatCeil) within[c] += runWithin[r];
+                        if (useHueBand) inBand[c] += runInBand[r];
                     }
+                }
+                finally
+                {
+                    if (runInBand != null) s_intPool.Return(runInBand);
+                    if (runWithin != null) s_intPool.Return(runWithin);
+                    if (runReach != null) s_intPool.Return(runReach);
                 }
                 reachesFloor = new bool[compCount];
                 for (int c = 0; c < compCount; c++)
@@ -345,35 +378,58 @@ namespace Iroca
             int keepX, int keepY, CancellationToken ct)
         {
             int len = w * h;
-            int nT = 0;
-            for (int i = 0; i < len; i++)
-                if (strength[i] > 0f && px[i].a < OpaqueAlphaMin) nT++;
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            // 半透明の選択画素を行並列で数え、番地の一覧にする。以降の段(種・広げる・外す)はこの一覧と
+            // その 4 近傍だけを見る(以前は全画素を 1 スレッドで 3〜4 回なめていた)。
+            var rowT = new int[h + 1];
+            Parallel.For(0, h, po, y =>
+            {
+                int rb = y * w, n = 0;
+                for (int x = 0; x < w; x++)
+                    if (strength[rb + x] > 0f && px[rb + x].a < OpaqueAlphaMin) n++;
+                rowT[y + 1] = n;
+            });
+            for (int y = 0; y < h; y++) rowT[y + 1] += rowT[y];
+            int nT = rowT[h];
             if (nT == 0) return;
-            bool* reached = s_boolPool.Rent(len);
-            int* stack = s_intPool.Rent(nT);
+            int* tIdx = s_intPool.Rent(nT);
+            int* stack = null;
+            bool* reached = null;
             try
             {
-                for (int i = 0; i < len; i++) reached[i] = false;
-                int sp = 0;
-                bool IsT(int i) => strength[i] > 0f && px[i].a < OpaqueAlphaMin;
-                void Push(int i) { if (!reached[i]) { reached[i] = true; stack[sp++] = i; } }
-                // 種: 残った不透明な選択に 4 近傍で接する半透明の選択画素と、指定位置の半透明の選択画素。
-                for (int y = 0; y < h; y++)
+                var tIdxL = tIdx;
+                Parallel.For(0, h, po, y =>
                 {
-                    if ((y & 255) == 0) ct.ThrowIfCancellationRequested();
-                    int rb = y * w;
+                    int rb = y * w, k = rowT[y];
                     for (int x = 0; x < w; x++)
+                        if (strength[rb + x] > 0f && px[rb + x].a < OpaqueAlphaMin) tIdxL[k++] = rb + x;
+                });
+                // reached は半透明の選択画素の番地でしか読まない(Push は IsT を確かめてから呼ぶ)ので、
+                // その番地だけを書けばよい。
+                reached = s_boolPool.Rent(len);
+                stack = s_intPool.Rent(nT);
+                var reachedL = reached;
+                // 種: 残った不透明な選択に 4 近傍で接する半透明の選択画素。種の判定は不透明な画素しか
+                // 読まないので、行の順に依らない。
+                Parallel.For(0, h, po, y =>
+                {
+                    for (int k = rowT[y], kEnd = rowT[y + 1]; k < kEnd; k++)
                     {
-                        int i = rb + x;
-                        if (!IsT(i)) continue;
-                        bool touch =
+                        int i = tIdxL[k];
+                        int x = i - y * w;
+                        reachedL[i] =
                                (x > 0 && strength[i - 1] > 0f && px[i - 1].a >= OpaqueAlphaMin)
                             || (x + 1 < w && strength[i + 1] > 0f && px[i + 1].a >= OpaqueAlphaMin)
                             || (y > 0 && strength[i - w] > 0f && px[i - w].a >= OpaqueAlphaMin)
                             || (y + 1 < h && strength[i + w] > 0f && px[i + w].a >= OpaqueAlphaMin);
-                        if (touch) Push(i);
                     }
-                }
+                });
+                int sp = 0;
+                for (int k = 0; k < nT; k++)
+                    if (reached[tIdx[k]]) stack[sp++] = tIdx[k];
+                bool IsT(int i) => strength[i] > 0f && px[i].a < OpaqueAlphaMin;
+                void Push(int i) { if (!reached[i]) { reached[i] = true; stack[sp++] = i; } }
+                // 指定位置の半透明の選択画素も種にする。届く集合は広げる順に依らない。
                 if (keepX >= 0 && keepX < w && keepY >= 0 && keepY < h && IsT(keepY * w + keepX))
                     Push(keepY * w + keepX);
                 while (sp > 0)
@@ -385,13 +441,20 @@ namespace Iroca
                     if (y > 0 && IsT(i - w)) Push(i - w);
                     if (y + 1 < h && IsT(i + w)) Push(i + w);
                 }
-                for (int i = 0; i < len; i++)
-                    if (!reached[i] && strength[i] > 0f && px[i].a < OpaqueAlphaMin) strength[i] = 0f;
+                Parallel.For(0, h, po, y =>
+                {
+                    for (int k = rowT[y], kEnd = rowT[y + 1]; k < kEnd; k++)
+                    {
+                        int i = tIdxL[k];
+                        if (!reachedL[i]) strength[i] = 0f;
+                    }
+                });
             }
             finally
             {
-                s_intPool.Return(stack);
-                s_boolPool.Return(reached);
+                if (stack != null) s_intPool.Return(stack);
+                if (reached != null) s_boolPool.Return(reached);
+                s_intPool.Return(tIdx);
             }
         }
     }
