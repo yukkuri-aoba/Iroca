@@ -3,6 +3,7 @@
 #if IROCA_SENTIS_PRESENT
 using System;
 using System.Collections.Generic;
+using Unity.Collections;
 #if IROCA_INFERENCE_ENGINE
 using Unity.InferenceEngine;
 #else
@@ -20,7 +21,8 @@ namespace Iroca.SentisIntegration
     ///   - 前処理(リサイズ/正規化)と後処理(拡大/二値化)は PreviewJob で BG スレッド実行
     ///   - エンコーダ推論は Worker.ScheduleIterable を EditorApplication.update から
     ///     時間予算で pump(GPU ディスパッチはメインスレッド必須のため)
-    ///   - デコーダ推論は数十 ms なのでメインスレッド同期実行
+    ///   - デコーダ推論はメインスレッドで投げ、出力の読み出しを EditorReadbackPoller で待つ
+    ///     (同期の読み出しは GPU の実行が終わるまで 14〜50ms 止まっていた)
     ///   - 埋め込み(4.2MB。ヒープの外の float の並び)はテクスチャキー単位で LRU キャッシュ
     ///   - GPUCompute で失敗したら CPU バックエンドへ自動フォールバック(1 回)
     /// </summary>
@@ -60,6 +62,14 @@ namespace Iroca.SentisIntegration
 
         readonly EditorIteratorPump _pump = new EditorIteratorPump();
         readonly EditorReadbackPoller _readback = new EditorReadbackPoller();
+        // デコーダの出力の読み出し(エンコーダの読み出しとは重ならないが、取り消しで止める所を分けておく)。
+        readonly EditorReadbackPoller _decodeReadback = new EditorReadbackPoller();
+        // デコーダの入力の点とラベル。読み出しが済むまで持つ(CPU では、走っているジョブが読む入力を捨てると
+        // そのジョブの終わりを待ってしまう)。
+        Tensor<float> _decPoints, _decLabels;
+        // デコーダの出力を受ける並び(使い回す。1MB をクリックごとに Mono のヒープに作っていた)。読むのは後処理の
+        // ジョブで、次のデコードは後処理が済んでから始まる(取り消したジョブの結果は使わない)。
+        float[] _logits, _scores;
         PreviewJob<NativeBuffer> _prepJob;
         PreviewJob<PostOutcome> _postJob;
         Tensor<float> _encInput;                    // pump 中だけ保持
@@ -537,8 +547,22 @@ namespace Iroca.SentisIntegration
             {
                 if (_phase != MaskSuggestPhase.Decoding || _embedding == null) return;
                 long t0 = MaskSuggestPerf.Now;
-                TryRunDecoderCore(0.5f, 0.5f, cropRect: null, out _, out _, out _);
-                MaskSuggestPerf.Log($"デコーダ暖機: {MaskSuggestPerf.MsSince(t0):F0}ms");
+                // 結果は使わず、失敗も無視する。読み出しを待つ間も Decoding のままなので、来たクリックは積まれる。
+                StartDecoder(0.5f, 0.5f, cropRect: null,
+                    (_, __) => FinishDecoderWarmup(t0),
+                    _ => FinishDecoderWarmup(t0));
+            }
+            catch (Exception e)
+            {
+                FailFromEditorCallback(e, Localization.AiErrDecodeFormat);
+            }
+        }
+
+        void FinishDecoderWarmup(long startedAt)
+        {
+            try
+            {
+                MaskSuggestPerf.Log($"デコーダ暖機: {MaskSuggestPerf.MsSince(startedAt):F0}ms");
                 if (_phase != MaskSuggestPhase.Decoding) return;
                 if (_clickQueue.Count > 0)
                 {
@@ -628,7 +652,7 @@ namespace Iroca.SentisIntegration
         /// <summary>
         /// クリック 1 件の完了後、待ちがあれば次を予約し、なければ Idle へ戻す。
         /// 次のデコードは次の tick へ逃がす: 取り出した提案のマスク反映・再描画を
-        /// 先に済ませ、StateChanged ハンドラ内からの深い再入(同期デコード数十 ms)も避ける。
+        /// 先に済ませ、StateChanged ハンドラ内からの深い再入(デコーダを投げる処理)も避ける。
         /// </summary>
         void ScheduleNextClickOrIdle()
         {
@@ -670,14 +694,26 @@ namespace Iroca.SentisIntegration
             _clickDecodeMs = _clickPostMs = _clickRefineMs = _clickZoomDecodeMs = _clickZoomPostMs = 0;
             _clickZoomRan = false;
             long tDec = MaskSuggestPerf.Now;
-            if (!TryRunDecoderCore(u, v, cropRect: null, out float[] logits, out float[] scores,
-                                   out Exception decErr))
-            {
-                SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrDecodeFormat, decErr.Message));
-                return;
-            }
-            _clickDecodeMs = MaskSuggestPerf.MsSince(tDec);
+            StartDecoder(u, v, cropRect: null,
+                (logits, scores) =>
+                {
+                    try
+                    {
+                        if (_phase != MaskSuggestPhase.Decoding) return;
+                        _clickDecodeMs = MaskSuggestPerf.MsSince(tDec);
+                        StartStage1Post(u, v, granularity, logits, scores);
+                    }
+                    catch (Exception e)
+                    {
+                        FailFromEditorCallback(e, Localization.AiErrProposalFormat);
+                    }
+                },
+                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrDecodeFormat, e.Message)));
+        }
 
+        // 第 1 段(全体)の後処理: 粗マスク → ズームの判定 → (ズームしなければ)精密化。
+        void StartStage1Post(float u, float v, MaskSuggestGranularity granularity, float[] logits, float[] scores)
+        {
             int w = _texW, h = _texH;
             var px = _sourcePixels?.AddRef();   // 読む間の参照(後始末で返す)
             _postJob ??= new PreviewJob<PostOutcome>();
@@ -755,13 +791,19 @@ namespace Iroca.SentisIntegration
                 discard: o => o.Release());
         }
 
-        /// <summary>デコーダ同期実行(数十 ms)。cropRect が null なら全体埋め込み+全体座標系、
-        /// 指定ありなら渡されたクロップ埋め込み+クロップ座標系で推論する。</summary>
-        bool TryRunDecoderCore(float u, float v, (int x0, int y0, int side, NativeBuffer emb)? cropRect,
-                               out float[] logits, out float[] scores, out Exception error)
+        /// <summary>
+        /// デコーダを投げ、出力の読み出しを待って onDone(logits, scores) をメインスレッドで呼ぶ(待つ間はエディタを
+        /// 止めない)。cropRect が null なら全体埋め込み+全体座標系、指定ありなら渡されたクロップ埋め込み+クロップ座標系で
+        /// 推論する。失敗は onError(投げる前の失敗は、この中で同期に呼ぶ)。
+        /// 読み出しを待つ間もフェーズは Decoding のままなので、クリックは待ち行列に積まれ、同じワーカーへ次の推論は
+        /// 入らない(読み出し中に Schedule すると出力のテンソルが無効になる)。取り消し(CancelOps)は読み出しを止め、
+        /// どちらの通知も呼ばない。
+        /// logits・scores は使い回す並びで、次のデコードで上書きされる。
+        /// </summary>
+        void StartDecoder(float u, float v, (int x0, int y0, int side, NativeBuffer emb)? cropRect,
+                          Action<float[], float[]> onDone, Action<Exception> onError)
         {
-            logits = scores = null;
-            error = null;
+            Tensor<float> lo, sc;
             try
             {
                 float x, y;
@@ -780,20 +822,56 @@ namespace Iroca.SentisIntegration
                 if (embedding == null) throw new InvalidOperationException(Localization.AiErrEmptyResult);
                 // 埋め込みのテンソルは同じ埋め込みの間は使い回す(EmbeddingTensorSlot。写した後は元を手放してよい)。
                 var emb = (cropRect.HasValue ? _cropEmbTensor : _fullEmbTensor).For(embedding);
-                using var pts = new Tensor<float>(new TensorShape(1, 2, 2), new[] { x, y, 0f, 0f });
-                using var lbl = new Tensor<float>(new TensorShape(1, 2), new[] { 1f, -1f });
-                _decoder.Schedule(emb, pts, lbl);
-                using var lo = (_decoder.PeekOutput("low_res_logits") as Tensor<float>).ReadbackAndClone();
-                using var sc = (_decoder.PeekOutput("iou_predictions") as Tensor<float>).ReadbackAndClone();
-                logits = lo.DownloadToArray();
-                scores = sc.DownloadToArray();
-                return true;
+                DisposeDecoderPrompt();
+                _decPoints = new Tensor<float>(new TensorShape(1, 2, 2), new[] { x, y, 0f, 0f });
+                _decLabels = new Tensor<float>(new TensorShape(1, 2), new[] { 1f, -1f });
+                _decoder.Schedule(emb, _decPoints, _decLabels);
+                lo = _decoder.PeekOutput("low_res_logits") as Tensor<float>;
+                sc = _decoder.PeekOutput("iou_predictions") as Tensor<float>;
+                if (lo == null || sc == null) throw new InvalidOperationException(Localization.AiErrEmptyResult);
             }
             catch (Exception e)
             {
-                error = e;
-                return false;
+                DisposeDecoderPrompt();
+                onError(e);
+                return;
             }
+            _decodeReadback.Start(new Tensor[] { lo, sc },
+                () =>
+                {
+                    _logits = ReadInto(lo, _logits);
+                    _scores = ReadInto(sc, _scores);
+                    DisposeDecoderPrompt();
+                    var logits = _logits;
+                    var scores = _scores;
+                    return () => onDone(logits, scores);
+                },
+                e =>
+                {
+                    DisposeDecoderPrompt();
+                    onError(e);
+                });
+        }
+
+        /// <summary>
+        /// 読み出し済みのテンソルの中身を dst へ写す(要素数が違えば作り直す)。値は以前の DownloadToArray と同じ
+        /// (どちらも形の要素数だけを先頭から読む)。
+        /// </summary>
+        static float[] ReadInto(Tensor<float> tensor, float[] dst)
+        {
+            using var clone = tensor.ReadbackAndClone();   // 読み出し済みなので待たない
+            var src = clone.DownloadToNativeArray();
+            if (dst == null || dst.Length != src.Length) dst = new float[src.Length];
+            NativeArray<float>.Copy(src, dst, src.Length);
+            return dst;
+        }
+
+        void DisposeDecoderPrompt()
+        {
+            _decPoints?.Dispose();
+            _decPoints = null;
+            _decLabels?.Dispose();
+            _decLabels = null;
         }
 
         /// <summary>提案を確定する(Undo 割り込み済みなら捨てて次の待ちクリックへ)。</summary>
@@ -957,13 +1035,27 @@ namespace Iroca.SentisIntegration
         {
             if (_phase != MaskSuggestPhase.Decoding) return;
             long tDec = MaskSuggestPerf.Now;
-            if (!TryRunDecoderCore(u, v, (plan.cropX0, plan.cropY0, plan.cropSide, cropEmbedding),
-                                   out float[] logits, out float[] scores, out Exception decErr))
-            {
-                FallbackToStage1(plan, decErr);
-                return;
-            }
-            _clickZoomDecodeMs = MaskSuggestPerf.MsSince(tDec);
+            // 切り出しの埋め込みはテンソルへ写すまでだけ使う(写すのは投げる前。呼び出し側はこの後で返してよい)。
+            StartDecoder(u, v, (plan.cropX0, plan.cropY0, plan.cropSide, cropEmbedding),
+                (logits, scores) =>
+                {
+                    try
+                    {
+                        if (_phase != MaskSuggestPhase.Decoding) return;
+                        _clickZoomDecodeMs = MaskSuggestPerf.MsSince(tDec);
+                        StartZoomPost(plan, granularity, logits, scores);
+                    }
+                    catch (Exception e)
+                    {
+                        FailFromEditorCallback(e, Localization.AiErrProposalFormat);
+                    }
+                },
+                e => FallbackToStage1(plan, e));
+        }
+
+        // ズームの第 2 段の後処理: 切り出しの提案 → 全体へ貼り戻す。
+        void StartZoomPost(PostOutcome plan, MaskSuggestGranularity granularity, float[] logits, float[] scores)
+        {
             int w = _texW, h = _texH;
             int x0 = plan.cropX0, y0 = plan.cropY0, side = plan.cropSide;
             var cropPx = plan.cropPixels.AddRef();   // 読む間の参照(後始末で返す)
@@ -1128,6 +1220,8 @@ namespace Iroca.SentisIntegration
             CancelNextTick(ProcessNextQueuedClick);
             _pump.Stop();
             _readback.Stop();
+            _decodeReadback.Stop();
+            DisposeDecoderPrompt();
             _prepJob?.Cancel();
             _postJob?.Cancel();
             DisposeEncInput();
