@@ -56,7 +56,12 @@ namespace Iroca
             public Color32[] pixels;
             public NativePixels native;
             public int width, height;
+            // 画素を GPU へ上げる中継(RGBA32・ミップなし)。ドラッグの追従(表示寸法。長辺 384 以下)と確定(作業解像度)で
+            // 寸法が替わるので、直近の 2 つの寸法を 1 枚ずつ持って使い回す(staging が直近に使った方、stagingSpare がもう片方)。
+            // 1 枚だけだと、ドラッグを始めるたび・離すたびに確定の寸法(4K で 64MB)を作り直していた。
+            // 中身は次に上げるときに CPU から書き直す(LoadRawTextureData・Alpha Source)ので、CPU 側の写しは手放せない。
             public Texture2D staging;
+            public Texture2D stagingSpare;
             // Alpha Source を当てるときの取り込み設定(最後に届いた画素のテクスチャのもの)。
             public TextureImporter importer;
 
@@ -298,17 +303,7 @@ namespace Iroca
         {
             if (slot.rt == null || !slot.HasPixels) return;
             bool srgb = slot.rt.sRGB;
-            if (slot.staging == null || slot.staging.width != slot.width || slot.staging.height != slot.height
-                || GraphicsFormatUtility.IsSRGBFormat(slot.staging.graphicsFormat) != srgb)
-            {
-                if (slot.staging != null) UnityEngine.Object.DestroyImmediate(slot.staging);
-                slot.staging = new Texture2D(slot.width, slot.height, TextureFormat.RGBA32, false, !srgb)
-                {
-                    hideFlags = HideFlags.HideAndDontSave,
-                    filterMode = FilterMode.Bilinear,
-                    wrapMode = TextureWrapMode.Clamp,
-                };
-            }
+            SelectStaging(slot, srgb);
             if (slot.native != null)
                 // RGBA32 でミップなしなので、Color32 の並びがそのままテクスチャのデータになる(管理配列へ写さない)。
                 slot.staging.LoadRawTextureData((IntPtr)slot.native.Ptr, slot.native.Length * 4);
@@ -341,6 +336,34 @@ namespace Iroca
             SceneView.RepaintAll();
         }
 
+        // 今の画素の寸法と色空間に合う中継を slot.staging に置く。控えに合うものがあれば入れ替えて使い、無ければ作る
+        // (直近に使った方を控えへ回し、合わない控えは捨てる。持つのは 2 枚まで)。
+        private static void SelectStaging(Slot slot, bool srgb)
+        {
+            if (StagingFits(slot.staging, slot.width, slot.height, srgb)) return;
+            if (StagingFits(slot.stagingSpare, slot.width, slot.height, srgb))
+            {
+                (slot.staging, slot.stagingSpare) = (slot.stagingSpare, slot.staging);
+                return;
+            }
+            if (slot.stagingSpare != null) UnityEngine.Object.DestroyImmediate(slot.stagingSpare);
+            slot.stagingSpare = null;
+            // 色空間が替わった(別の元テクスチャの読み方)中継は、もう使わないので控えにも残さない。
+            if (slot.staging != null && GraphicsFormatUtility.IsSRGBFormat(slot.staging.graphicsFormat) != srgb)
+                UnityEngine.Object.DestroyImmediate(slot.staging);
+            else
+                slot.stagingSpare = slot.staging;
+            slot.staging = new Texture2D(slot.width, slot.height, TextureFormat.RGBA32, false, !srgb)
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
+            };
+        }
+
+        private static bool StagingFits(Texture2D t, int w, int h, bool srgb)
+            => t != null && t.width == w && t.height == h && GraphicsFormatUtility.IsSRGBFormat(t.graphicsFormat) == srgb;
+
         // Graphics.Blit は描画先を RenderTexture.active に残す。そのままだと他の処理の描画先を奪い、
         // 後で捨てるときに「active のまま解放した」警告も出るので、元に戻す。
         private static void BlitKeepingActive(Texture from, RenderTexture to)
@@ -362,6 +385,11 @@ namespace Iroca
             {
                 UnityEngine.Object.DestroyImmediate(slot.staging);
                 slot.staging = null;
+            }
+            if (slot.stagingSpare != null)
+            {
+                UnityEngine.Object.DestroyImmediate(slot.stagingSpare);
+                slot.stagingSpare = null;
             }
         }
     }
