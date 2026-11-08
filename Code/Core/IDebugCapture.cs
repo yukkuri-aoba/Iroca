@@ -1,7 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// パイプライン透明化（診断/デバッグ）機能の本体側インターフェース。
     /// 実装は独立 asmdef（Code/Debug/、asmdef 名 com.yukkuri-aoba.iroca.Editor.Debug）側にあり、
@@ -9,8 +8,7 @@ namespace Iroca
     /// <see cref="DebugCaptureHooks.Factory"/> が null（= Code/Debug/ 未導入 or トグル OFF）の
     /// とき、本体パイプラインは何もキャプチャしないし、何も呼び出さない。
     /// </summary>
-    internal interface IDebugCapture
-    {
+    internal interface IDebugCapture {
         /// <summary>
         /// ピクセル幅・高さを最初に通知する（capture 対象の解像度を確定）。
         /// </summary>
@@ -38,8 +36,7 @@ namespace Iroca
     /// パイプラインの段階識別子。マジック文字列散在を防ぐ。
     /// Debug ウィンドウの表示順は記録順（PixelProcessor が RecordStage を呼んだ順）。
     /// </summary>
-    internal static class DebugStages
-    {
+    internal static class DebugStages {
         public const string Match = "Match";
         public const string HighlightPropagate = "HighlightPropagate";
         public const string FloodFill = "FloodFill";
@@ -54,8 +51,7 @@ namespace Iroca
     /// <summary>
     /// Recolor 段でピクセルに適用されたサブブランチ。byte 値として byte[] に格納する。
     /// </summary>
-    internal enum DebugBranch : byte
-    {
+    internal enum DebugBranch : byte {
         None = 0,
         Base = 1,
         Highlight = 2,

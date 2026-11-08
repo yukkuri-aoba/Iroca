@@ -3,8 +3,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 「AI マスク提案」の UI。置き場は役割で 2 つに分かれる:
     ///
@@ -19,17 +18,14 @@ namespace Iroca
     /// (対象ゾーン・マスクの種類・ツール・粒度が別ウィンドウに散っていると取り違えが起きる。
     ///  2026-08-22 のユーザー指摘)。
     /// </summary>
-    internal static class MaskSuggestSection
-    {
+    internal static class MaskSuggestSection {
         /// <summary>
         /// AI 提案が今すぐ使えるか(エラー中は true = 選べば再試行する。モデルを置いてあってまだ読み込んでいない
         /// ときも true = 選んだときに読み込む)。false なら右クリックメニューの
         /// 項目を無効表示にし、有効化はメインウィンドウ上部のバナー(<see cref="DrawSetupBanner"/>)へ誘導する。
         /// </summary>
-        public static bool ToolReady
-        {
-            get
-            {
+        public static bool ToolReady {
+            get {
                 var svc = MaskSuggestBridge.Service;
                 return svc != null && svc.Phase != MaskSuggestPhase.NoModel;
             }
@@ -50,8 +46,7 @@ namespace Iroca
         /// マスク欄の中にも導線はあったが、欄を畳んでいると見えず、機能の存在にも気づけない。
         /// 常に見える非モーダルの帯へ移し、導入・ダウンロード・再起動をここへ集約している。
         /// </summary>
-        public static void DrawSetupBanner()
-        {
+        public static void DrawSetupBanner() {
             // 導入直後の「Unity 再起動」案内は、サービスが載ったか(Burst 失敗で載らない場合も含む)に
             // かかわらず出したいので、サービス分岐より前に描く。
             DrawPostInstallRestartNoticeIfNeeded();
@@ -61,7 +56,9 @@ namespace Iroca
             // 見える。クリックを試す前に気づけるよう、右クリックメニューを使う前から知らせる。
             // ★これと再起動案内は「閉じる」で隠さない★ — AI が動かない状態そのものであり、
             // 隠すと原因不明の不調として残るため。
-            if (svc != null) DrawBurstFailureNoticeIfNeeded(svc);
+            if (svc != null) {
+                DrawBurstFailureNoticeIfNeeded(svc);
+            }
 
             // 手で置いたモデルを拾う。バナーを描くかを決める前に、Layout のときだけ呼ぶ
             // （状態をその場で書き換えるので、描いた後に呼ぶと同じフレームの
@@ -69,62 +66,70 @@ namespace Iroca
             // 見るのはファイルがあるかだけで、読み込みは使うときまでしない。以前はここで読み込んでいたので、
             // ウィンドウが見えているだけで、コンパイルや Play の開始のたびに進捗バーが出て一瞬止まっていた。
             if (svc != null && svc.Phase == MaskSuggestPhase.NoModel && !MaskSuggestModelDownload.InProgress
-                && Event.current.type == EventType.Layout)
+                && Event.current.type == EventType.Layout) {
                 svc.RefreshModelFiles();
+            }
 
             bool needsSentis = svc == null;
             bool needsModel = svc != null && svc.Phase == MaskSuggestPhase.NoModel;
-            if (!needsSentis && !needsModel) return;
-            if (SessionState.GetBool(BannerDismissedKey, false)) return;
+            if (!needsSentis && !needsModel) {
+                return;
+            }
+            if (SessionState.GetBool(BannerDismissedKey, false)) {
+                return;
+            }
 
             EditorGUILayout.Space(2);
             EditorGUILayout.HelpBox(
                 needsSentis ? Localization.AiBannerSentis : Localization.AiBannerModel,
                 MessageType.Info);
 
-            if (needsSentis)
+            if (needsSentis) {
                 DrawSentisSetup();
-            else
+            } else {
                 DrawModelDownload(svc);
+            }
 
-            if (GUILayout.Button(TempContent.Of(Localization.AiBannerDismiss, Localization.AiBannerDismissTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.AiBannerDismiss, Localization.AiBannerDismissTooltip))) {
                 SessionState.SetBool(BannerDismissedKey, true);
+            }
         }
 
         /// <summary>
         /// マスク編集ウィンドウに常に出す AI 提案の設定・状態表示(提案そのものは右クリックメニューから)。
         /// 追加先はメニューで選ぶ時点で決まるので、ここには置かない。
         /// </summary>
-        public static void DrawToolControls(IrocaWindow host, MaskPaintView maskView)
-        {
+        public static void DrawToolControls(IrocaWindow host, MaskPaintView maskView) {
             var svc = MaskSuggestBridge.Service;
             var ctl = maskView.SuggestControllerIfCreated;
-            if (svc == null || ctl == null) return;
+            if (svc == null || ctl == null) {
+                return;
+            }
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(
                 TempContent.Of(Localization.AiSuggestGranularity, Localization.AiSuggestGranularityTooltip),
                 GUILayout.Width(70));
-            if (s_granularityOptions == null || s_granularityLang != Localization.CurrentLanguage)
-            {
+            if (s_granularityOptions == null || s_granularityLang != Localization.CurrentLanguage) {
                 s_granularityLang = Localization.CurrentLanguage;
-                s_granularityOptions = new[]
-                {
+                s_granularityOptions = new[] {
                     new GUIContent(Localization.AiSuggestGranularityAuto, Localization.AiSuggestGranularityAutoTooltip),
                     new GUIContent(Localization.AiSuggestGranularityFine, Localization.AiSuggestGranularityFineTooltip),
                     new GUIContent(Localization.AiSuggestGranularityCoarse, Localization.AiSuggestGranularityCoarseTooltip),
                 };
             }
             int gran = GUILayout.Toolbar((int)ctl.Granularity, s_granularityOptions);
-            if (gran != (int)ctl.Granularity)
+            if (gran != (int)ctl.Granularity) {
                 ctl.Granularity = (MaskSuggestGranularity)gran;
+            }
             EditorGUILayout.EndHorizontal();
 
             // 状態は Layout のときに決めて、同じフレームの Repaint もそれで描く。推論は裏で進むので、
             // 間で状態が変わると Layout と Repaint で並ぶ要素が食い違う。
-            if (Event.current.type == EventType.Layout) s_drawnPhase = svc.Phase;
-            switch (s_drawnPhase)
-            {
+            if (Event.current.type == EventType.Layout) {
+                s_drawnPhase = svc.Phase;
+            }
+            switch (s_drawnPhase) {
                 case MaskSuggestPhase.NoModel:
                     // 取得操作そのものはメインウィンドウ上部のバナー(DrawSetupBanner)が持つ。
                     // ここへ複製すると「同じボタンが 2 か所」になり、集約した意味が無くなる。
@@ -135,26 +140,23 @@ namespace Iroca
                     EditorGUILayout.HelpBox(Localization.AiSuggestLoadingModel, MessageType.Info);
                     break;
 
-                case MaskSuggestPhase.Encoding:
-                {
-                    var r = EditorGUILayout.GetControlRect(false, StatusRowHeight);
-                    EditorGUI.ProgressBar(r, Mathf.Clamp01(svc.Progress),
-                                          WithPendingClicks(Localization.AiSuggestEncoding, svc, minCount: 1));
-                    break;
-                }
+                case MaskSuggestPhase.Encoding: {
+                        var r = EditorGUILayout.GetControlRect(false, StatusRowHeight);
+                        EditorGUI.ProgressBar(r, Mathf.Clamp01(svc.Progress),
+                                              WithPendingClicks(Localization.AiSuggestEncoding, svc, minCount: 1));
+                        break;
+                    }
 
-                case MaskSuggestPhase.Decoding:
-                {
-                    var r = EditorGUILayout.GetControlRect(false, StatusRowHeight);
-                    EditorGUI.LabelField(r, WithPendingClicks(Localization.AiSuggestDecoding, svc, minCount: 2),
-                                         EditorStyles.miniLabel);
-                    break;
-                }
+                case MaskSuggestPhase.Decoding: {
+                        var r = EditorGUILayout.GetControlRect(false, StatusRowHeight);
+                        EditorGUI.LabelField(r, WithPendingClicks(Localization.AiSuggestDecoding, svc, minCount: 2),
+                                             EditorStyles.miniLabel);
+                        break;
+                    }
 
                 case MaskSuggestPhase.Error:
                     EditorGUILayout.HelpBox(svc.ErrorMessage ?? Localization.AiUnknownError, MessageType.Error);
-                    if (svc.ErrorIsModelFile)
-                    {
+                    if (svc.ErrorIsModelFile) {
                         // モデルのファイルを読めなかった(壊れている・欠けている)。再起動では直らないので、
                         // 取り直しだけを出す(取り直しで直ることは確認済み)。
                         EditorGUILayout.HelpBox(Localization.AiSuggestModelFileErrorHint, MessageType.Info);
@@ -184,24 +186,20 @@ namespace Iroca
         /// AI モデル(2 ファイル・約 45MB)の取得導線。ユーザー共通フォルダへ 1 か所だけ置くので
         /// プロジェクトごとの再取得は要らない。Sentis 導入と対で「一度きりの有効化」に属する。
         /// </summary>
-        static void DrawModelDownload(IMaskSuggestService svc)
-        {
+        static void DrawModelDownload(IMaskSuggestService svc) {
             // 何が足りないかの説明は呼び出し元のバナー（AiBannerModel）が出す。ここは操作だけ。
-            if (MaskSuggestModelDownload.InProgress)
-            {
+            if (MaskSuggestModelDownload.InProgress) {
                 DrawDownloadProgressRow();
-            }
-            else
-            {
+            } else {
                 DrawDownloadErrorIfAny();
                 EditorGUILayout.BeginHorizontal();
                 if (GUILayout.Button(TempContent.Of(Localization.AiSuggestDownload,
                         string.Format(Localization.AiSuggestDownloadTooltip,
-                                      MaskSuggestModelDownload.BaseUrl))))
+                                      MaskSuggestModelDownload.BaseUrl)))) {
                     MaskSuggestModelDownload.Start();
+                }
                 if (GUILayout.Button(TempContent.Of(Localization.AiSuggestOpenModelFolder,
-                                                    Localization.AiSuggestOpenModelFolderTooltip)))
-                {
+                                                    Localization.AiSuggestOpenModelFolderTooltip))) {
                     System.IO.Directory.CreateDirectory(MaskSuggestBridge.ModelsDirectory);
                     EditorUtility.RevealInFinder(MaskSuggestBridge.ModelsDirectory);
                 }
@@ -213,27 +211,27 @@ namespace Iroca
         /// モデルのダウンロード中の行(進捗バーと中止ボタン)。バナー(<see cref="DrawModelDownload"/>)と
         /// エラー時の取り直し欄(<see cref="DrawModelRecheck"/>)で同じ見た目にするため 1 か所に置く。
         /// </summary>
-        static void DrawDownloadProgressRow()
-        {
+        static void DrawDownloadProgressRow() {
             EditorGUILayout.BeginHorizontal();
             var pr = EditorGUILayout.GetControlRect(false, 18f);
             EditorGUI.ProgressBar(pr, MaskSuggestModelDownload.Progress,
                                   Localization.AiSuggestDownloading);
             if (GUILayout.Button(TempContent.Of(Localization.AiSuggestDownloadCancel,
                                                 Localization.AiSuggestDownloadCancelTooltip),
-                                 GUILayout.Width(IrocaWindow.FitButtonWidth(48f, Localization.AiSuggestDownloadCancel))))
+                                 GUILayout.Width(IrocaWindow.FitButtonWidth(48f, Localization.AiSuggestDownloadCancel)))) {
                 MaskSuggestModelDownload.Cancel();
+            }
             EditorGUILayout.EndHorizontal();
         }
 
         /// <summary>直前のダウンロードが失敗していれば、その理由を警告で出す。</summary>
-        static void DrawDownloadErrorIfAny()
-        {
-            if (MaskSuggestModelDownload.Error != null)
+        static void DrawDownloadErrorIfAny() {
+            if (MaskSuggestModelDownload.Error != null) {
                 EditorGUILayout.HelpBox(
                     string.Format(Localization.AiSuggestDownloadFailed,
                                   MaskSuggestModelDownload.Error),
                     MessageType.Warning);
+            }
         }
 
         /// <summary>
@@ -252,10 +250,11 @@ namespace Iroca
         /// 状態の文言に、処理待ちのクリックの件数を同じ行で添える(件数が minCount 以上のとき)。
         /// 別の行にすると、件数が出たり消えたりするたびに下の要素が上下に動く。
         /// </summary>
-        static string WithPendingClicks(string status, IMaskSuggestService svc, int minCount)
-        {
+        static string WithPendingClicks(string status, IMaskSuggestService svc, int minCount) {
             int pending = svc.PendingClickCount;
-            if (pending < minCount) return status;
+            if (pending < minCount) {
+                return status;
+            }
             return status + "  " + string.Format(Localization.AiSuggestPendingClicksFormat, pending);
         }
 
@@ -265,17 +264,19 @@ namespace Iroca
         /// Burst 初期化になるため、確実に有効化したいユーザー向けの導線。
         /// SessionState はエディタ再起動で消えるので、再起動すれば自動的に消える。
         /// </summary>
-        static void DrawPostInstallRestartNoticeIfNeeded()
-        {
-            if (!SessionState.GetBool(MaskSuggestInstall.RestartRecommendedKey, false)) return;
+        static void DrawPostInstallRestartNoticeIfNeeded() {
+            if (!SessionState.GetBool(MaskSuggestInstall.RestartRecommendedKey, false)) {
+                return;
+            }
             EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(Localization.AiSuggestRestartRecommended, MessageType.Info);
             EditorGUILayout.BeginHorizontal();
             DrawRestartButton();
             if (GUILayout.Button(TempContent.Of(Localization.AiSuggestRestartLater,
                                                 Localization.AiSuggestRestartLaterTooltip),
-                                 GUILayout.Width(80)))
+                                 GUILayout.Width(80))) {
                 SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
+            }
             EditorGUILayout.EndHorizontal();
         }
 
@@ -288,10 +289,13 @@ namespace Iroca
         /// 使わない環境でも Unity.Sentis.CPUBackend の失敗ログは出る。そこで警告すると
         /// 「正常に動いているのに再起動を促される」誤検出になる。
         /// </summary>
-        static void DrawBurstFailureNoticeIfNeeded(IMaskSuggestService svc)
-        {
-            if (!MaskSuggestBurstWatch.FailedThisSession) return;
-            if (!svc.UsesCpuBackend) return;
+        static void DrawBurstFailureNoticeIfNeeded(IMaskSuggestService svc) {
+            if (!MaskSuggestBurstWatch.FailedThisSession) {
+                return;
+            }
+            if (!svc.UsesCpuBackend) {
+                return;
+            }
             EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(Localization.AiSuggestBurstFailed, MessageType.Warning);
             DrawRestartButton();
@@ -307,10 +311,8 @@ namespace Iroca
         /// 壊れたファイルや別物を手動配置した場合に取り直す手段が UI から消えていた。
         /// 配布物と一致しなければダウンロードし直す(完了後、次に使うときに読み込み直す)。
         /// </summary>
-        static void DrawModelRecheck()
-        {
-            if (MaskSuggestModelDownload.InProgress)
-            {
+        static void DrawModelRecheck() {
+            if (MaskSuggestModelDownload.InProgress) {
                 DrawDownloadProgressRow();
                 return;
             }
@@ -318,23 +320,27 @@ namespace Iroca
             DrawDownloadErrorIfAny();
 
             string currentError = MaskSuggestBridge.Service?.ErrorMessage;
-            if (_recheckForError != null && _recheckForError == currentError && _recheckFoundOk)
+            if (_recheckForError != null && _recheckForError == currentError && _recheckFoundOk) {
                 EditorGUILayout.HelpBox(Localization.AiSuggestModelsVerifiedOk, MessageType.Info);
+            }
 
             if (!GUILayout.Button(TempContent.Of(Localization.AiSuggestRecheckModels,
-                                                 Localization.AiSuggestRecheckModelsTooltip)))
+                                                 Localization.AiSuggestRecheckModelsTooltip))) {
                 return;
+            }
             _recheckForError = currentError;
             _recheckFoundOk = MaskSuggestModelDownload.LocalModelsMatchRelease();
-            if (!_recheckFoundOk) MaskSuggestModelDownload.Start();
+            if (!_recheckFoundOk) {
+                MaskSuggestModelDownload.Start();
+            }
         }
 
         /// <summary>Unity を再起動する(現在のプロジェクトを開き直す)ボタン。</summary>
-        static void DrawRestartButton()
-        {
+        static void DrawRestartButton() {
             if (!GUILayout.Button(TempContent.Of(Localization.AiSuggestRestartNow,
-                                                 Localization.AiSuggestRestartNowTooltip)))
+                                                 Localization.AiSuggestRestartNowTooltip))) {
                 return;
+            }
             SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
             // 現在のプロジェクトを開き直す = エディタ再起動(Burst をクリーンに初期化)。
             // CWD はプロジェクトルートである保証がない（batchmode 起動やスクリプトからの
@@ -348,38 +354,39 @@ namespace Iroca
         /// Sentis 未導入時の導線。AI 機能の存在を知らせ、Package Manager 経由の
         /// ワンクリック導入ボタンを出す(導入後 Unity が再コンパイルして機能が有効になる)。
         /// </summary>
-        static void DrawSentisSetup()
-        {
+        static void DrawSentisSetup() {
             // 何が足りないかの説明は呼び出し元のバナー（AiBannerSentis）が出す。ここは操作だけ。
-            if (MaskSuggestInstall.InProgress)
-            {
+            if (MaskSuggestInstall.InProgress) {
                 EditorGUILayout.HelpBox(Localization.AiSuggestInstalling, MessageType.Info);
                 return;
             }
 
-            if (MaskSuggestInstall.Error != null)
+            if (MaskSuggestInstall.Error != null) {
                 EditorGUILayout.HelpBox(
                     string.Format(Localization.AiSuggestInstallFailed, MaskSuggestInstall.Error),
                     MessageType.Warning);
+            }
 
             // この導線は「Sentis 統合アセンブリが不在」で出るため、未導入だけでなく
             // 対応範囲外の版が既に入っている場合も含む。押すと他ツールが入れた Sentis を
             // 差し替えることになるので、黙って実行せず先に伝える。
             string replaced = MaskSuggestInstall.VersionThatWouldBeReplaced();
-            if (replaced != null)
+            if (replaced != null) {
                 EditorGUILayout.HelpBox(
                     string.Format(Localization.AiSuggestSentisVersionReplace,
                                   replaced, MaskSuggestInstall.SentisPackageVersion),
                     MessageType.Warning);
+            }
 
             // Barracuda など .onnx を取り込む別のパッケージがあると、Sentis を足した時点で両方の AI が動かなくなる。
             // 押す前から見えるように知らせ、押したときは確認画面で止める(既定は導入しない)。
             var conflicts = MaskSuggestInstall.OnnxImporterConflicts();
-            if (conflicts.Count > 0)
+            if (conflicts.Count > 0) {
                 EditorGUILayout.HelpBox(
                     string.Format(Localization.AiSuggestOnnxConflict,
                                   string.Join(Localization.AiOnnxConflictSeparator, conflicts)),
                     MessageType.Warning);
+            }
 
             string label = replaced != null
                 ? string.Format(Localization.AiSuggestReplaceSentis, MaskSuggestInstall.SentisPackageVersion)
@@ -389,8 +396,9 @@ namespace Iroca
                     string.Format(Localization.AiSuggestInstallSentisTooltip,
                                   MaskSuggestInstall.SentisPackageId,
                                   MaskSuggestInstall.SentisPackageVersion)))
-                && MaskSuggestInstall.ConfirmDespiteOnnxConflicts())
+                && MaskSuggestInstall.ConfirmDespiteOnnxConflicts()) {
                 MaskSuggestInstall.StartInstall();
+            }
         }
 
         /// <summary>
@@ -401,30 +409,28 @@ namespace Iroca
         /// 対象プルダウンと種類ボタンが現物として見えており、文字での言い直しは冗長なため
         /// (別ウィンドウに散っていた頃は取り違え防止に必要だった)。
         /// </summary>
-        static void DrawTargetAndWarnings(IrocaWindow host, MaskPaintView maskView, MaskSuggestController ctl)
-        {
+        static void DrawTargetAndWarnings(IrocaWindow host, MaskPaintView maskView, MaskSuggestController ctl) {
             var zones = host.Session?.zones;
 
             // マスクは色ゾーンの色替え範囲を制限する機能。有効な色ゾーンが無いと足しても
             // 出力は変わらない(=「反映されない」の主因の一つ)。ここで先に気づけるようにする。
             bool anyEnabledZone = zones != null && zones.Exists(z => z != null && z.enabled);
-            if (!anyEnabledZone)
+            if (!anyEnabledZone) {
                 EditorGUILayout.HelpBox(Localization.AiSuggestNoZoneWarning, MessageType.Warning);
+            }
 
             // 直近クリックが背景まで広がった可能性があれば、Ctrl+Z で戻す誘導を出す。
-            if (ctl.LastClickFloodWarning)
+            if (ctl.LastClickFloodWarning) {
                 EditorGUILayout.HelpBox(Localization.AiSuggestAreaWarning, MessageType.Warning);
+            }
 
             // 推論が完走してもマスクが変わらないと、画面上は「何も起きない」としか見えない。
             // 「AI が領域を返していない(エンジンの異常を疑う)」と「すでに追加済みだった(正常)」を
             // 区別して出し、Unity 再起動が要る状況かどうかがその場で分かるようにする。
-            if (ctl.LastProposalEmpty)
-            {
+            if (ctl.LastProposalEmpty) {
                 EditorGUILayout.HelpBox(Localization.AiSuggestEmptyProposal, MessageType.Warning);
                 DrawRestartButton();
-            }
-            else if (ctl.LastCommitEmpty)
-            {
+            } else if (ctl.LastCommitEmpty) {
                 EditorGUILayout.HelpBox(Localization.AiSuggestEmptyCommit, MessageType.Info);
             }
         }

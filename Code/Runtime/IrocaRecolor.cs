@@ -3,8 +3,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// アバターや衣装に置く「いろか 色替え」コンポーネント(非破壊)。
     /// 置いた GameObject とその子の Renderer が使うマテリアルのうち、各レシピの元テクスチャを
@@ -47,15 +46,21 @@ namespace Iroca
 
         void ISerializationCallbackReceiver.OnBeforeSerialize() { }
 
-        void ISerializationCallbackReceiver.OnAfterDeserialize()
-        {
+        void ISerializationCallbackReceiver.OnAfterDeserialize() {
             // 読み込みスレッドから呼ばれることがあるので、Unity の API(== を含む)を使わず参照で比べる。
-            if (ReferenceEquals(recipe, null)) return;
-            if (recipes == null) recipes = new List<IrocaRecipe>();
+            if (ReferenceEquals(recipe, null)) {
+                return;
+            }
+            if (recipes == null) {
+                recipes = new List<IrocaRecipe>();
+            }
             bool listed = false;
-            foreach (var r in recipes)
+            foreach (var r in recipes) {
                 if (ReferenceEquals(r, recipe)) { listed = true; break; }
-            if (!listed) recipes.Insert(0, recipe);
+            }
+            if (!listed) {
+                recipes.Insert(0, recipe);
+            }
             recipe = null;
         }
     }

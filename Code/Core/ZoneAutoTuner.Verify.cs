@@ -4,11 +4,9 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     // ZoneAutoTuner: 閉ループ検証(実マッチャーで導出パラメータの有害設定を検出し安全側へ倒す)。
-    internal static unsafe partial class ZoneAutoTuner
-    {
+    internal static unsafe partial class ZoneAutoTuner {
         // ─────────────────── 閉ループ検証（実マッチャーによる選択シミュレーション） ───────────────────
         // 導出パラメータを ColorZone.GetMatchScoresPrecomputedHSV（出荷されるマッチャーそのもの）に
         // 通して選択を模擬し、統計で有害な設定を検出して安全側へ倒す。距離分布ベースの導出
@@ -37,15 +35,14 @@ namespace Iroca
         // 髪(パーツの 4 割がツヤ)のような大きなツヤを巻き込みと区別できず、ハイライト回復を切って
         // 白へ抜ける途中に硬い継ぎ目を作っていた(2026-10-08 合成シーン tips_white)。
         private const float HighlightGrowthMaxFrac = 0.15f;
-        private const int   VerifyMinBaseSelected  = 64;
+        private const int VerifyMinBaseSelected = 64;
 
         /// <summary>
         /// 導出 tolerance での基礎選択(グリッドのセルごとに strength > 0 か。不透明・除外マスクの外だけ)。
         /// 3 つの検証はどれも導出 tolerance で同じマッチャー設定の選択を数える(strength は highlightRecovery に
         /// 依らず、変わるのは highlightPot だけ)ので、最初に数えた検証の結果を残りが使う(同じ値なので結果は同じ)。
         /// </summary>
-        private sealed class BaseSelection
-        {
+        private sealed class BaseSelection {
             public float tolerance;
             public bool* sel;   // hsv.gw * hsv.gh
             public int count;
@@ -60,17 +57,17 @@ namespace Iroca
         private static ParallelOptions MatcherLoopOptions(HsvGrid hsv) =>
             new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(), CancellationToken = hsv.ct };
 
-        private static int SumCounts(int[] counts)
-        {
+        private static int SumCounts(int[] counts) {
             int s = 0;
-            for (int i = 0; i < counts.Length; i++) s += counts[i];
+            for (int i = 0; i < counts.Length; i++) {
+                s += counts[i];
+            }
             return s;
         }
 
         private static void VerifyHighlightRecoveryGrowth(Color32* pixels, int w, int h,
             ColorZone zone, bool* excluded, int maskW, int maskH, HsvGrid hsv,
-            bool* evidence, int evW, int evH, BaseSelection baseOut, ref TuneResult result)
-        {
+            bool* evidence, int evW, int evH, BaseSelection baseOut, ref TuneResult result) {
             var sim = BuildSimZone(zone, result);
             bool* selGrid = hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true);
 
@@ -82,24 +79,28 @@ namespace Iroca
             float sR = zone.sampleColor.r, sG = zone.sampleColor.g, sB = zone.sampleColor.b;
             float dR = 1f - sR, dG = 1f - sG, dB = 1f - sB;   // sample → 白 方向
             float dsq = dR * dR + dG * dG + dB * dB;
-            if (dsq < 1e-6f) bandActive = false;
+            if (dsq < 1e-6f) {
+                bandActive = false;
+            }
             float hueCap = Mathf.Max(ColorZone.HighlightHueCapFloor, result.tolerance * ColorZone.HighlightHueCapTolFrac);
             float bandSatFloor = bSS * PixelProcessor.HlBandMinSatFrac;
 
             int stride = hsv.stride;
             var rowBase = new int[hsv.gh];
             var rowHlOnly = new int[hsv.gh];
-            Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy =>
-            {
+            Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
                 int y = gy * stride;
                 int rowStart = y * w;
                 int grow = gy * hsv.gw;
                 int nBase = 0, nHlOnly = 0;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                {
+                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
-                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                        continue;
+                    }
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                        continue;
+                    }
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                     var col = new Color(r, g, b, 1f);
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
@@ -108,12 +109,15 @@ namespace Iroca
                     if (strength > 0f) { nBase++; selGrid[grow + gx] = true; continue; }
                     // セグメントの内側の増加はパーツ自身のツヤなので数えない(上の説明)。
                     // IsMaskExcluded はマスクの値を最近傍で引くだけの関数で、ここでは「証拠の内側か」を引く。
-                    if (evidence != null && IsMaskExcluded(evidence, evW, evH, x, y, w, h)) continue;
+                    if (evidence != null && IsMaskExcluded(evidence, evW, evH, x, y, w, h)) {
+                        continue;
+                    }
                     if (hlPot > 0f) { nHlOnly++; continue; }
                     // 帯拡張の候補条件(GrowHighlightBand と同じ判定)
                     if (bandActive && PixelProcessor.IsHighlightBandCandidate(pH, pS, pV, c,
-                            bSH, bSS, bSV, sR, sG, sB, dR, dG, dB, dsq, hueCap, bandSatFloor))
+                            bSH, bSS, bSV, sR, sG, sB, dR, dG, dB, dsq, hueCap, bandSatFloor)) {
                         nHlOnly++;
+                    }
                 }
                 rowBase[gy] = nBase;
                 rowHlOnly[gy] = nHlOnly;
@@ -122,8 +126,9 @@ namespace Iroca
             baseOut.tolerance = sim.tolerance;
             baseOut.sel = selGrid;
             baseOut.count = baseSel;
-            if (baseSel >= VerifyMinBaseSelected && hlOnly > baseSel * HighlightGrowthMaxFrac)
+            if (baseSel >= VerifyMinBaseSelected && hlOnly > baseSel * HighlightGrowthMaxFrac) {
                 result.highlightRecovery = false;
+            }
         }
 
         // 明部距離免除(bright forgiveness)の過剰検出:
@@ -138,13 +143,12 @@ namespace Iroca
         // パーツ面積の数%なので発火しない。下げ幅は「サンプル近傍クラスタ(証拠)の被覆率」を
         // ガードし、パーツ本体の取りこぼしが出る手前で止める(拒否系優先・recall ガード付き)。
         private const float BrightForgiveMaxFrac = 0.15f;  // forgivenOnly/baseSel がこれ超で過剰と判定
-        private const float EvidenceKeepFrac     = 0.97f;  // tol 縮小時に維持すべき証拠被覆率(導出時比)
+        private const float EvidenceKeepFrac = 0.97f;  // tol 縮小時に維持すべき証拠被覆率(導出時比)
         private static readonly float[] TolShrinkSteps = { 0.8f, 0.65f, 0.5f };
 
         private static void VerifyBrightForgivenessOvershoot(Color32* pixels, int w, int h,
             ColorZone zone, bool* excluded, int maskW, int maskH, HsvGrid hsv, BaseSelection baseSel,
-            ref TuneResult result)
-        {
+            ref TuneResult result) {
             var sim = BuildSimZone(zone, result);
             sim.highlightRecovery = false;  // ハイライト復元は成長テスト側で扱う(基底マッチのみ測る)
             sim.simDisableBrightForgiveness = false;
@@ -160,8 +164,7 @@ namespace Iroca
 
             // (selWith, selWithout, evidenceCovered) を tolerance ごとに実マッチャーで数える。
             // 免除ありの選択は、導出 tolerance なら基礎選択(baseSel)そのもの。まだ誰も数えていなければここで数えて残す。
-            void Eval(float tol, out int selWith, out int selWithout, out int evCov)
-            {
+            void Eval(float tol, out int selWith, out int selWithout, out int evCov) {
                 sim.tolerance = tol;
                 sim.UpdateCacheIfNeeded();
                 simNoForgive.tolerance = tol;
@@ -174,42 +177,53 @@ namespace Iroca
                 var rowSw = new int[hsv.gh];
                 var rowSwo = new int[hsv.gh];
                 var rowEc = new int[hsv.gh];
-                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy =>
-                {
+                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
                     int y = gy * stride;
                     int rowStart = y * w;
                     int grow = gy * hsv.gw;
                     int sw = 0, swo = 0, ec = 0;
-                    for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                    {
+                    for (int x = 0, gx = 0; x < w; x += stride, gx++) {
                         int cell = grow + gx;
-                        if (known != null && !known[cell]) continue;   // 未選択(不透明でない・除外も含む)
+                        if (known != null && !known[cell]) {
+                            continue;   // 未選択(不透明でない・除外も含む)
+                        }
                         Color32 c = pixels[rowStart + x];
-                        if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
-                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                        if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                            continue;
+                        }
+                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                            continue;
+                        }
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                         var col = new Color(r, g, b, 1f);
                         float pH = hsv.h[cell], pS = hsv.s[cell], pV = hsv.v[cell];
 
                         bool selectedWith;
-                        if (known != null) selectedWith = true;
-                        else
-                        {
+                        if (known != null) {
+                            selectedWith = true;
+                        } else {
                             sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                                 out float sWith, out _, out _);
                             selectedWith = sWith > 0f;
                         }
-                        if (selectedWith)
-                        {
+                        if (selectedWith) {
                             sw++;
-                            if (record != null) record[cell] = true;
+                            if (record != null) {
+                                record[cell] = true;
+                            }
                             simNoForgive.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                                 out float sWithout, out _, out _);
-                            if (sWithout > 0f) swo++;
+                            if (sWithout > 0f) {
+                                swo++;
+                            }
                             // 証拠 = いずれかのサンプルの near 窓に入る有彩画素(クラスタと同一条件)。
                             // 被覆率は「証拠のうち選択された画素」で recall の代理を測る。
-                            if (nearState[cell] == 0) nearState[cell] = InAnyNearWindow(caches, pH, pS, pV) ? (byte)1 : (byte)2;
-                            if (nearState[cell] == 1) ec++;
+                            if (nearState[cell] == 0) {
+                                nearState[cell] = InAnyNearWindow(caches, pH, pS, pV) ? (byte)1 : (byte)2;
+                            }
+                            if (nearState[cell] == 1) {
+                                ec++;
+                            }
                         }
                     }
                     rowSw[gy] = sw;
@@ -217,8 +231,7 @@ namespace Iroca
                     rowEc[gy] = ec;
                 });
                 int swAll = SumCounts(rowSw);
-                if (record != null)
-                {
+                if (record != null) {
                     baseSel.tolerance = tol;
                     baseSel.sel = record;
                     baseSel.count = swAll;
@@ -228,23 +241,29 @@ namespace Iroca
 
             Eval(derived, out int selW0, out int selWo0, out int evCov0);
             int forgivenOnly = selW0 - selWo0;
-            if (selWo0 < VerifyMinBaseSelected) return;                    // 基礎選択が小さすぎる
-            if (forgivenOnly <= selWo0 * BrightForgiveMaxFrac) return;     // 免除は正常範囲
+            if (selWo0 < VerifyMinBaseSelected) {
+                return;                    // 基礎選択が小さすぎる
+            }
+            if (forgivenOnly <= selWo0 * BrightForgiveMaxFrac) {
+                return;     // 免除は正常範囲
+            }
 
             // 免除経由の巻き込みが過剰 → tolerance を段階的に下げ、証拠被覆率を守れる範囲で
             // 免除超過が閾値内に収まる最初の(=最大の) tolerance を採る。
-            foreach (float frac in TolShrinkSteps)
-            {
+            foreach (float frac in TolShrinkSteps) {
                 float t = Mathf.Max(derived * frac, ForeignLowFloor);
                 Eval(t, out int selW, out int selWo, out int evCov);
-                if (evCov < evCov0 * EvidenceKeepFrac) break;              // これ以上はパーツを削る
+                if (evCov < evCov0 * EvidenceKeepFrac) {
+                    break;              // これ以上はパーツを削る
+                }
                 if (selWo >= VerifyMinBaseSelected
-                    && (selW - selWo) <= selWo * BrightForgiveMaxFrac)
-                {
+                    && (selW - selWo) <= selWo * BrightForgiveMaxFrac) {
                     result.tolerance = t;
                     return;
                 }
-                if (t <= ForeignLowFloor) break;
+                if (t <= ForeignLowFloor) {
+                    break;
+                }
             }
         }
 
@@ -272,17 +291,18 @@ namespace Iroca
         // 検出済み) / 免除過剰で tolerance 縮小済み / hlRec 成長テストで別素材巻き込みを検出済み /
         // V 連結範囲が確定できなかった。
         private const float SheenGrowMaxAddedFrac = 0.05f;  // 追加画素/基礎選択(累積)の上限
-        private const float SheenSigMinFrac       = 0.90f;  // 追加画素中のツヤシグネチャ率の下限
-        private const int   SheenMinAddedCount    = 24;     // これ未満の追加は証拠不足として採用しない
-        private const int   SheenVConnMarginBins  = 2;      // 連結域上端から許す V 余白(連結歩行の橋渡し幅と同じ)
+        private const float SheenSigMinFrac = 0.90f;  // 追加画素中のツヤシグネチャ率の下限
+        private const int SheenMinAddedCount = 24;     // これ未満の追加は証拠不足として採用しない
+        private const int SheenVConnMarginBins = 2;      // 連結域上端から許す V 余白(連結歩行の橋渡し幅と同じ)
         private static readonly float[] SheenTolGrowSteps = { 1.15f, 1.3f, 1.5f };
 
         private static void VerifyBrightSheenRecall(Color32* pixels, int w, int h,
             ColorZone zone, bool* excluded, int maskW, int maskH, HsvGrid hsv, int vConnHiBin,
-            BaseSelection known, ref TuneResult result)
-        {
+            BaseSelection known, ref TuneResult result) {
             float derived = result.tolerance;
-            if (derived >= ChromaTolMax) return; // 既に上限=伸ばす余地なし
+            if (derived >= ChromaTolMax) {
+                return; // 既に上限=伸ばす余地なし
+            }
 
             var sim = BuildSimZone(zone, result);
             sim.highlightRecovery = false; // 基底マッチのみ測る(ハイライト系は成長テスト側の管轄)
@@ -300,20 +320,21 @@ namespace Iroca
             bool reuse = known.sel != null && known.tolerance == derived;
             bool* baseSel = reuse ? known.sel : hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true);
             int baseCount = reuse ? known.count : 0;
-            if (!reuse)
-            {
+            if (!reuse) {
                 var rowCount = new int[hsv.gh];
-                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy =>
-                {
+                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
                     int y = gy * stride;
                     int rowStart = y * w;
                     int grow = gy * hsv.gw;
                     int n = 0;
-                    for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                    {
+                    for (int x = 0, gx = 0; x < w; x += stride, gx++) {
                         Color32 c = pixels[rowStart + x];
-                        if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
-                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                        if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                            continue;
+                        }
+                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                            continue;
+                        }
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                         var col = new Color(r, g, b, 1f);
                         float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
@@ -325,71 +346,99 @@ namespace Iroca
                 });
                 baseCount = SumCounts(rowCount);
             }
-            if (baseCount < VerifyMinBaseSelected) return;
+            if (baseCount < VerifyMinBaseSelected) {
+                return;
+            }
 
             // ── 段階拡張: 追加画素の面積とシグネチャを実マッチャーで判定 ──
             float accepted = derived;
-            foreach (float mult in SheenTolGrowSteps)
-            {
+            foreach (float mult in SheenTolGrowSteps) {
                 float t = Mathf.Min(derived * mult, ChromaTolMax);
-                if (t <= accepted) break; // 上限到達でこれ以上伸ばせない
+                if (t <= accepted) {
+                    break; // 上限到達でこれ以上伸ばせない
+                }
                 sim.tolerance = t;
                 sim.UpdateCacheIfNeeded();
                 var rowAdded = new int[hsv.gh];
                 var rowSig = new int[hsv.gh];
-                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy =>
-                {
+                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
                     int y = gy * stride;
                     int rowStart = y * w;
                     int grow = gy * hsv.gw;
                     int nAdded = 0, nSig = 0;
-                    for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                    {
-                        if (baseSel[grow + gx]) continue;
+                    for (int x = 0, gx = 0; x < w; x += stride, gx++) {
+                        if (baseSel[grow + gx]) {
+                            continue;
+                        }
                         Color32 c = pixels[rowStart + x];
-                        if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
-                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                        if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                            continue;
+                        }
+                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                            continue;
+                        }
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                         var col = new Color(r, g, b, 1f);
                         float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
                         sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                             out float st, out _, out _);
-                        if (st <= 0f) continue;
+                        if (st <= 0f) {
+                            continue;
+                        }
                         nAdded++;
-                        float hd = Mathf.Abs(pH - sH); if (hd > 0.5f) hd = 1f - hd;
+                        float hd = Mathf.Abs(pH - sH);
+                        if (hd > 0.5f) {
+                            hd = 1f - hd;
+                        }
                         if (pV > sV && pV < sheenVMax
-                            && hd < ColorZone.ForgivenessHueGate && pS >= satSigFloor)
+                            && hd < ColorZone.ForgivenessHueGate && pS >= satSigFloor) {
                             nSig++;
+                        }
                     }
                     rowAdded[gy] = nAdded;
                     rowSig[gy] = nSig;
                 });
                 int added = SumCounts(rowAdded), sig = SumCounts(rowSig);
-                if (added > baseCount * SheenGrowMaxAddedFrac) break; // 面積超過(単調)→打ち切り
-                if (added >= SheenMinAddedCount && sig >= added * SheenSigMinFrac)
+                if (added > baseCount * SheenGrowMaxAddedFrac) {
+                    break; // 面積超過(単調)→打ち切り
+                }
+                if (added >= SheenMinAddedCount && sig >= added * SheenSigMinFrac) {
                     accepted = t; // このステップの累積追加集合はツヤとして合格
-                if (t >= ChromaTolMax) break; // 上限で評価済み=以降のステップは同値
+                }
+                if (t >= ChromaTolMax) {
+                    break; // 上限で評価済み=以降のステップは同値
+                }
             }
-            if (accepted > derived) result.tolerance = accepted;
+            if (accepted > derived) {
+                result.tolerance = accepted;
+            }
         }
 
         // 証拠判定用: 主サンプルと内部サンプルの HSV を前計算する(near 窓の判定は InAnyNearWindow)。
-        private static SampleHSV[] SampleWindows(ColorZone sim)
-        {
+        private static SampleHSV[] SampleWindows(ColorZone sim) {
             var extras = sim.extraSamples ?? new List<Color>();
             return BuildSampleHSVs(sim.sampleColor, extras);
         }
 
-        private static bool InAnyNearWindow(SampleHSV[] samples, float pH, float pS, float pV)
-        {
-            for (int si = 0; si < samples.Length; si++)
-            {
+        private static bool InAnyNearWindow(SampleHSV[] samples, float pH, float pS, float pV) {
+            for (int si = 0; si < samples.Length; si++) {
                 var sm = samples[si];
-                float hd = Mathf.Abs(pH - sm.h); if (hd > 0.5f) hd = 1f - hd;
-                if (hd >= NearHueDist) continue;
-                if (Mathf.Abs(pS - sm.s) >= NearSatDist) continue;
-                if (Mathf.Abs(pV - sm.v) >= NearValDist) continue;
-                if (pS < sm.s * ChromaClusterSatFrac) continue;
+                float hd = Mathf.Abs(pH - sm.h);
+                if (hd > 0.5f) {
+                    hd = 1f - hd;
+                }
+                if (hd >= NearHueDist) {
+                    continue;
+                }
+                if (Mathf.Abs(pS - sm.s) >= NearSatDist) {
+                    continue;
+                }
+                if (Mathf.Abs(pV - sm.v) >= NearValDist) {
+                    continue;
+                }
+                if (pS < sm.s * ChromaClusterSatFrac) {
+                    continue;
+                }
                 return true;
             }
             return false;
@@ -398,23 +447,22 @@ namespace Iroca
         // 導出パラメータを適用したシミュレーション用ゾーンを作る（zone 本体は変更しない）。
         // highlightRecovery は常に ON にし、呼び出し側が strength / highlightPotential を
         // 分けて集計できるようにする。
-        private static ColorZone BuildSimZone(ColorZone zone, in TuneResult result)
-        {
+        private static ColorZone BuildSimZone(ColorZone zone, in TuneResult result) {
             var sim = zone.Clone();
-            sim.enabled                 = true;
-            sim.mode                    = SelectionMode.ColorPick;
-            sim.tolerance               = result.tolerance;
-            sim.saturationStrictness    = result.saturationStrictness;
-            sim.saturationGuard         = result.saturationGuard;
-            sim.chromaThreshold         = result.chromaThreshold;
-            sim.highlightRecovery       = true;
-            sim.edgeSoftness            = result.edgeSoftness;
+            sim.enabled = true;
+            sim.mode = SelectionMode.ColorPick;
+            sim.tolerance = result.tolerance;
+            sim.saturationStrictness = result.saturationStrictness;
+            sim.saturationGuard = result.saturationGuard;
+            sim.chromaThreshold = result.chromaThreshold;
+            sim.highlightRecovery = true;
+            sim.edgeSoftness = result.edgeSoftness;
             sim.shadowForgivenessSatMin = result.shadowForgivenessSatMin;
-            sim.shadowValueFloor        = result.shadowValueFloor;
-            sim.partSatCeiling          = result.partSatCeiling;
-            sim.partHueBand             = result.partHueBand;
-            sim.chromaCeiling           = result.chromaCeiling;
-            sim.holeFillMargin          = result.holeFillMargin;
+            sim.shadowValueFloor = result.shadowValueFloor;
+            sim.partSatCeiling = result.partSatCeiling;
+            sim.partHueBand = result.partHueBand;
+            sim.chromaCeiling = result.chromaCeiling;
+            sim.holeFillMargin = result.holeFillMargin;
             sim.extraSamples = result.autoSamples ?? new List<Color>();
             sim.UpdateCacheIfNeeded();
             return sim;

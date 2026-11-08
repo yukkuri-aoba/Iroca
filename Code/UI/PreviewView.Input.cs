@@ -3,18 +3,17 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     // PreviewView: プレビュー上の入力処理(ズーム/パン/マスクペイント/FF シード/スポイト)と、
     // 真ソースの参照(スポイトの画素取得・AI 提案と自動調整が共有するキャッシュキー)。
-    internal partial class PreviewView
-    {
+    internal partial class PreviewView {
 
         /// <param name="maxZoom">ズーム(previewZoom)の上限。全体表示の倍率込みで Draw が決めたもの。</param>
-        private void HandlePreviewGlobalInput(Rect previewRect, float maxZoom)
-        {
+        private void HandlePreviewGlobalInput(Rect previewRect, float maxZoom) {
             Event e = Event.current;
-            if (e == null) return;
+            if (e == null) {
+                return;
+            }
 
             bool isInRect = previewRect.Contains(e.mousePosition);
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
@@ -27,27 +26,24 @@ namespace Iroca
             // キーイベントが Ignore に落ちるため。e.Use() 後は下の switch が Used を見て
             // 何もしない（control ID の消費順は変えないので IMGUI の整合は保たれる）。
             if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape
-                && _host.ClearPreviewInteractionModes())
-            {
+                && _host.ClearPreviewInteractionModes()) {
                 e.Use();
             }
 
-            switch (e.GetTypeForControl(controlId))
-            {
+            switch (e.GetTypeForControl(controlId)) {
                 case EventType.ScrollWheel:
-                    if (isInRect && e.control && Mathf.Abs(e.delta.y) > ZoomEpsilon)
-                    {
+                    if (isInRect && e.control && Mathf.Abs(e.delta.y) > ZoomEpsilon) {
                         // スクロール量を蓄積し、閾値ぶんたまるごとに 1 ストップだけ進める。
                         // 拡大↔縮小で向きが変わったら貯金をリセットし、逆方向の繰り越しが
                         // 残って一瞬反対に動くのを防ぐ（即応性を保つ）。
-                        if (_zoomScrollAccum != 0f && Mathf.Sign(e.delta.y) != Mathf.Sign(_zoomScrollAccum))
+                        if (_zoomScrollAccum != 0f && Mathf.Sign(e.delta.y) != Mathf.Sign(_zoomScrollAccum)) {
                             _zoomScrollAccum = 0f;
+                        }
                         _zoomScrollAccum += e.delta.y;
 
                         // 閾値を超えたぶんのストップ数。端数は次イベントへ繰り越す。
                         int steps = (int)(_zoomScrollAccum / ZoomScrollStepThreshold);
-                        if (steps != 0)
-                        {
+                        if (steps != 0) {
                             _zoomScrollAccum -= steps * ZoomScrollStepThreshold;
 
                             float oldZoom = previewZoom;
@@ -55,11 +51,11 @@ namespace Iroca
                             bool zoomIn = steps < 0;
                             int count = Mathf.Abs(steps);
                             float newZoom = oldZoom;
-                            for (int i = 0; i < count; i++)
+                            for (int i = 0; i < count; i++) {
                                 newZoom = StepZoom(newZoom, zoomIn, maxZoom);
+                            }
 
-                            if (previewTexture != null && Mathf.Abs(newZoom - oldZoom) > 0.0001f)
-                            {
+                            if (previewTexture != null && Mathf.Abs(newZoom - oldZoom) > 0.0001f) {
                                 // 全体表示(100%)以下でも、枠の下限高で止まる低いウィンドウでは
                                 // ビューポートが画像より小さいことがある。画像が収まるときだけ
                                 // スクロールを原点へ戻す(アンカー補正の残差が残ると枠からずれたまま
@@ -72,12 +68,9 @@ namespace Iroca
                                 bool fitsViewport = newZoom <= 1f + ZoomEpsilon &&
                                     dispW <= DetailView.lastViewportW + 1f &&
                                     dispH <= DetailView.lastViewportH + 1f;
-                                if (fitsViewport)
-                                {
+                                if (fitsViewport) {
                                     _previewScrollPos = Vector2.zero;
-                                }
-                                else
-                                {
+                                } else {
                                     // カーソルの下の点を動かさない。画像は枠の左右中央に置くので
                                     // (Draw 参照)、枠より狭いあいだは左の余白もズームで変わる。
                                     // その差も足さないと、全体表示から拡大した瞬間に余白の分だけ横へ飛ぶ。
@@ -117,10 +110,11 @@ namespace Iroca
         /// 使っている間は false。false でも中ボタンドラッグと Alt+左ドラッグは常にパンになる
         /// （塗っている最中でも表示を動かせるように。2026-09-11 の UX 見直し）。
         /// </param>
-        private void HandlePreviewPanInput(Rect previewRect, bool leftDragPans, Rect beforeRect = default)
-        {
+        private void HandlePreviewPanInput(Rect previewRect, bool leftDragPans, Rect beforeRect = default) {
             Event e = Event.current;
-            if (e == null) return;
+            if (e == null) {
+                return;
+            }
 
             bool isInRect = previewRect.Contains(e.mousePosition);
             // 前後比較の変更前の画像の上。ブラシ・スポイトなどのツールは変更後の画像にしか効かないので、
@@ -128,19 +122,16 @@ namespace Iroca
             bool isInBefore = beforeRect.width > 0f && beforeRect.Contains(e.mousePosition);
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
 
-            switch (e.GetTypeForControl(controlId))
-            {
+            switch (e.GetTypeForControl(controlId)) {
                 case EventType.MouseDown:
-                    if ((isInRect && IsPanButton(e, leftDragPans)) || (isInBefore && IsPanButton(e, true)))
-                    {
+                    if ((isInRect && IsPanButton(e, leftDragPans)) || (isInBefore && IsPanButton(e, true))) {
                         GUIUtility.hotControl = controlId;
                         e.Use();
                     }
                     break;
 
                 case EventType.MouseDrag:
-                    if (GUIUtility.hotControl == controlId)
-                    {
+                    if (GUIUtility.hotControl == controlId) {
                         // 「掴んで動かす」操作なので、ドラッグ量と画像の移動量を 1:1 にする。
                         // _previewScrollPos はコンテンツ座標(=ズーム後の displayW/H 空間)で持ち、
                         // この単位は画面ピクセルと等価。よって e.delta(画面 px)をそのまま引けば、
@@ -158,8 +149,7 @@ namespace Iroca
                     break;
 
                 case EventType.MouseUp:
-                    if (GUIUtility.hotControl == controlId)
-                    {
+                    if (GUIUtility.hotControl == controlId) {
                         GUIUtility.hotControl = 0;
                         e.Use();
                     }
@@ -168,10 +158,12 @@ namespace Iroca
                 case EventType.Repaint:
                     // 「掴めるカーソル」を出すのは素の左ドラッグがパンのときだけ。中ボタン・
                     // Alt は補助操作なので、ブラシのカーソル表示を上書きしない。
-                    if (isInRect && leftDragPans)
+                    if (isInRect && leftDragPans) {
                         EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Pan);
-                    if (beforeRect.width > 0f)
+                    }
+                    if (beforeRect.width > 0f) {
                         EditorGUIUtility.AddCursorRect(beforeRect, MouseCursor.Pan);
+                    }
                     break;
             }
         }
@@ -180,30 +172,34 @@ namespace Iroca
         /// このマウス押下をパンの開始として受けるか。
         /// 中ボタンと Alt+左はどのツールとも衝突しないので常に受ける。
         /// </summary>
-        private static bool IsPanButton(Event e, bool leftDragPans)
-        {
-            if (e.button == 2) return true;   // 中ボタンドラッグ
-            if (e.button != 0) return false;
-            if (e.alt) return true;           // Alt+左ドラッグ（Unity 慣習に合わせる）
+        private static bool IsPanButton(Event e, bool leftDragPans) {
+            if (e.button == 2) {
+                return true;   // 中ボタンドラッグ
+            }
+            if (e.button != 0) {
+                return false;
+            }
+            if (e.alt) {
+                return true;           // Alt+左ドラッグ（Unity 慣習に合わせる）
+            }
             return leftDragPans;
         }
 
-        private void HandlePreviewPaintInput(Rect previewRect)
-        {
+        private void HandlePreviewPaintInput(Rect previewRect) {
             Event e = Event.current;
-            if (e == null) return;
+            if (e == null) {
+                return;
+            }
 
             bool isInRect = previewRect.Contains(e.mousePosition);
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
             var maskView = _host._maskView;
 
-            switch (e.GetTypeForControl(controlId))
-            {
+            switch (e.GetTypeForControl(controlId)) {
                 case EventType.MouseDown:
                     // Alt+左ドラッグはパンに譲る（塗っている最中でも表示を動かせるように）。
                     // 譲らないと、後段のパン処理へイベントが届く前にここで塗ってしまう。
-                    if (e.button == 0 && isInRect && !e.alt)
-                    {
+                    if (e.button == 0 && isInRect && !e.alt) {
                         // マウスを離したイベントを受け取れなかった前のストロークが残っていれば、混ぜずに閉じる。
                         maskView.FinishStroke();
                         GUIUtility.hotControl = controlId;
@@ -218,8 +214,7 @@ namespace Iroca
                     break;
 
                 case EventType.MouseDrag:
-                    if (maskView.isPainting && GUIUtility.hotControl == controlId)
-                    {
+                    if (maskView.isPainting && GUIUtility.hotControl == controlId) {
                         PaintAtScreenPos(e.mousePosition, previewRect);
                         e.Use();
                         _host.RequestRepaint();
@@ -227,8 +222,7 @@ namespace Iroca
                     break;
 
                 case EventType.MouseUp:
-                    if (e.button == 0 && GUIUtility.hotControl == controlId)
-                    {
+                    if (e.button == 0 && GUIUtility.hotControl == controlId) {
                         GUIUtility.hotControl = 0;
                         maskView.FinishStroke();
                         e.Use();
@@ -237,8 +231,7 @@ namespace Iroca
                     break;
 
                 case EventType.Repaint:
-                    if (maskView.isPainting && isInRect)
-                    {
+                    if (maskView.isPainting && isInRect) {
                         // 実際に塗られる円の直径は、全体表示で (2*brushSize+1) 格子セル。拡大するとその倍率だけ
                         // 小さく塗る(MaskPaintView.BrushRadiusPx)ので、画面上の大きさは拡大率に関係なく一定:
                         // 1 セルの画面上のサイズ(EffectiveZoom)÷ 拡大率(previewZoom)。
@@ -268,10 +261,11 @@ namespace Iroca
         /// false のときは従来どおり Shift+クリックで、対象は「マスク編集対象のゾーン、
         /// 無ければ先頭の該当ゾーン」という暗黙の選び方になる。
         /// </param>
-        private void HandleFloodFillSeedInput(Rect previewRect, bool armed)
-        {
+        private void HandleFloodFillSeedInput(Rect previewRect, bool armed) {
             Event e = Event.current;
-            if (e == null) return;
+            if (e == null) {
+                return;
+            }
 
             bool isInRect = previewRect.Contains(e.mousePosition);
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
@@ -279,30 +273,28 @@ namespace Iroca
             var zones = _host.Session.zones;
             ColorZone targetZone = null;
 
-            if (armed)
-            {
+            if (armed) {
                 // 武装したゾーンへ確実に入れる（enabled は問わない。ユーザーがそのゾーンを
                 // 名指ししているので、無効でも値は記録しておき、有効化した時点で効く）。
                 var z = _host.FindZoneById(_host.SeedPickZoneId);
-                if (z != null && z.mode == SelectionMode.ColorPick && z.useFloodFill)
+                if (z != null && z.mode == SelectionMode.ColorPick && z.useFloodFill) {
                     targetZone = z;
-            }
-            else if (zones != null)
-            {
-                int activeZoneIndex = _host._maskView.activeMaskTarget;
-                if (activeZoneIndex >= 0 && activeZoneIndex < zones.Count)
-                {
-                    var activeZone = zones[activeZoneIndex];
-                    if (activeZone.enabled && activeZone.mode == SelectionMode.ColorPick && activeZone.useFloodFill)
-                        targetZone = activeZone;
                 }
-                if (targetZone == null)
-                {
-                    for (int i = 0; i < zones.Count; i++)
-                    {
+            } else if (zones != null) {
+                int activeZoneIndex = _host._maskView.activeMaskTarget;
+                if (activeZoneIndex >= 0 && activeZoneIndex < zones.Count) {
+                    var activeZone = zones[activeZoneIndex];
+                    if (activeZone.enabled && activeZone.mode == SelectionMode.ColorPick && activeZone.useFloodFill) {
+                        targetZone = activeZone;
+                    }
+                }
+                if (targetZone == null) {
+                    for (int i = 0; i < zones.Count; i++) {
                         var zone = zones[i];
                         if (zone == null || !zone.enabled
-                            || zone.mode != SelectionMode.ColorPick || !zone.useFloodFill) continue;
+                            || zone.mode != SelectionMode.ColorPick || !zone.useFloodFill) {
+                            continue;
+                        }
                         targetZone = zone;
                         break;
                     }
@@ -311,20 +303,17 @@ namespace Iroca
 
             bool hasFloodFill = targetZone != null;
 
-            switch (e.GetTypeForControl(controlId))
-            {
+            switch (e.GetTypeForControl(controlId)) {
                 case EventType.MouseDown:
                     // 武装中は素のクリック。武装していないときは、自動アンカリングが既定なので
                     // 通常クリックをパン/検分に温存し、Shift+クリックでのみシードを置く。
                     bool accept = hasFloodFill && e.button == 0 && isInRect && !e.control && !e.alt
                                   && (armed ? !e.shift : e.shift);
-                    if (accept)
-                    {
+                    if (accept) {
                         // 変わるときだけ、書く前に Undo へ記録する（EditingSession.SetFloodFillSeed）。
                         var newSeed = PreviewCoords.ScreenToUv(e.mousePosition, previewRect);
                         _host.Editing.SetFloodFillSeed(targetZone, newSeed);
-                        if (armed)
-                        {
+                        if (armed) {
                             // 一発で武装解除（同じ位置を選び直したときも解除する）。
                             // ★ここで hotControl を取ってはいけない★ — 武装が解けた次のイベントでは
                             // このハンドラが呼ばれないことがあり（AI 提案が武装していると呼ばれない）、
@@ -332,9 +321,7 @@ namespace Iroca
                             // すべて Ignore に落とすため、ウィンドウが固まったように見える。
                             // クリック 1 回で完結する操作なのでマウスを掴み続ける必要もない。
                             _host.SeedPickZoneId = null;
-                        }
-                        else
-                        {
+                        } else {
                             // Shift+クリック経路は武装が続く＝次のイベントでも必ずここへ来るので、
                             // 従来どおり掴んで MouseUp で解放する。
                             GUIUtility.hotControl = controlId;
@@ -347,51 +334,48 @@ namespace Iroca
                     break;
 
                 case EventType.MouseUp:
-                    if (GUIUtility.hotControl == controlId)
-                    {
+                    if (GUIUtility.hotControl == controlId) {
                         GUIUtility.hotControl = 0;
                         e.Use();
                     }
                     break;
 
                 case EventType.Repaint:
-                    if (hasFloodFill && isInRect && (armed || e.shift))
+                    if (hasFloodFill && isInRect && (armed || e.shift)) {
                         EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Link);
+                    }
                     break;
             }
         }
 
         // プレビュー上のクリックで、武装中ゾーンのサンプルカラーを実テクスチャ画素から取得する。
         // 一発取得したら自動で武装解除する（one-shot）。マスクペイント中は呼ばれない。
-        private void HandleEyedropperInput(Rect previewRect, int srcW, int srcH)
-        {
+        private void HandleEyedropperInput(Rect previewRect, int srcW, int srcH) {
             Event e = Event.current;
-            if (e == null) return;
+            if (e == null) {
+                return;
+            }
 
             bool isInRect = previewRect.Contains(e.mousePosition);
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
 
-            switch (e.GetTypeForControl(controlId))
-            {
+            switch (e.GetTypeForControl(controlId)) {
                 case EventType.MouseDown:
                     // 素のクリックのみ受ける（修飾キー付きは別操作なので拾わない）。
-                    if (e.button == 0 && isInRect && !e.shift && !e.control && !e.alt)
-                    {
+                    if (e.button == 0 && isInRect && !e.shift && !e.control && !e.alt) {
                         var uv = PreviewCoords.ScreenToUv(e.mousePosition, previewRect);
-                        if (SampleTrueSourceColor(uv.x, uv.y, srcW, srcH, out Color picked))
-                        {
-                            if (_host.EyedropperZoneId == IrocaWindow.NewZoneEyedropperId)
-                            {
+                        if (SampleTrueSourceColor(uv.x, uv.y, srcW, srcH, out Color picked)) {
+                            if (_host.EyedropperZoneId == IrocaWindow.NewZoneEyedropperId) {
                                 // ゾーンがまだ無いときの開始操作: ゾーンを作ってこの色を入れる。
                                 // ゾーンリストの変更は次の Layout イベントで適用する（遅延ミューテーション）。
                                 // 編集の合図はそのときに出る(EditingSession.AddZoneFromSample)。
                                 _host.RequestNewZoneFromSample(picked, uv);
-                            }
-                            else
-                            {
+                            } else {
                                 // 武装ゾーンは id で解決する（並べ替え・削除で index がずれても正しいゾーンに入る）。
                                 var zone = _host.FindZoneById(_host.EyedropperZoneId);
-                                if (zone != null) _host.Editing.ApplySample(zone, picked, uv);
+                                if (zone != null) {
+                                    _host.Editing.ApplySample(zone, picked, uv);
+                                }
                             }
                             // one-shot: 取得したら武装解除。
                             // ★hotControl は取らない★ — 武装解除後は次のイベントでこのハンドラが
@@ -408,27 +392,28 @@ namespace Iroca
                     break;
 
                 case EventType.MouseUp:
-                    if (GUIUtility.hotControl == controlId)
-                    {
+                    if (GUIUtility.hotControl == controlId) {
                         GUIUtility.hotControl = 0;
                         e.Use();
                     }
                     break;
 
                 case EventType.Repaint:
-                    if (isInRect)
+                    if (isInRect) {
                         EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Link);
+                    }
                     break;
             }
         }
 
         // u,v(0-1, v は下端=0)を実フル解像度ソース画素にマップして色を返す。
         // TrueSource は GetPixels32 と同じ並びで行 0 = 画像下端。取得不能なら false。
-        private bool SampleTrueSourceColor(float u, float v, int srcW, int srcH, out Color color)
-        {
+        private bool SampleTrueSourceColor(float u, float v, int srcW, int srcH, out Color color) {
             color = Color.white;
             var px = TrueSource;
-            if (px == null || srcW <= 0 || srcH <= 0 || px.Length < srcW * srcH) return false;
+            if (px == null || srcW <= 0 || srcH <= 0 || px.Length < srcW * srcH) {
+                return false;
+            }
             PreviewCoords.UvToPixel(u, v, srcW, srcH, out int x, out int y);
             Color32 c = px.Get(y * srcW + x);
             // サンプルカラーはマッチング基準(HSV)に使い α は無関係。スウォッチを不透明にするため a=1。
@@ -441,8 +426,7 @@ namespace Iroca
         // SetSource するために使う(別キーだとソース切替扱いになり埋め込みを捨てる)。
         internal string TrueSourceCacheKey() => _pipeline?.SourceCacheKey();
 
-        private void PaintAtScreenPos(Vector2 screenPos, Rect previewRect)
-        {
+        private void PaintAtScreenPos(Vector2 screenPos, Rect previewRect) {
             var maskView = _host._maskView;
             // ストローク開始時に1度だけ Unity Undo を登録する。
             maskView.BeginStroke();
@@ -455,18 +439,15 @@ namespace Iroca
             int gridW = previewTexture != null ? previewTexture.width : maskView.maskWidth;
             float radiusPx = maskView.BrushRadiusPx(gridW, previewZoom);
 
-            if (maskView.lastPaintUV.x >= 0f)
-            {
+            if (maskView.lastPaintUV.x >= 0f) {
                 // 補間ステップは半径の半分(最小 0.5 画素)。UV 距離は正規化空間なので、長辺の画素数で割る
                 // (短辺基準だと縦長/横長テクスチャで長辺方向のスタンプ間隔が空いて点線になる)。
                 float dist = Vector2.Distance(maskView.lastPaintUV, currentUV);
                 int maskLong = Mathf.Max(1, Mathf.Max(maskView.maskWidth, maskView.maskHeight));
                 float step = Mathf.Max(0.5f, radiusPx * 0.5f) / maskLong;
-                if (dist > step)
-                {
+                if (dist > step) {
                     int steps = Mathf.CeilToInt(dist / step);
-                    for (int i = 1; i < steps; i++)
-                    {
+                    for (int i = 1; i < steps; i++) {
                         Vector2 lerped = Vector2.Lerp(maskView.lastPaintUV, currentUV, (float)i / steps);
                         maskView.PaintMask(lerped, radiusPx);
                     }

@@ -7,26 +7,21 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 非破壊の色替え(レシピ → テクスチャ → マテリアル差し替え)のうち、NDMF に依存しない部分。
     /// NDMF を通した結合は <c>NdmfProcessAvatarTests</c>(NDMF があるホストでだけコンパイル)。
     /// </summary>
-    public class NonDestructiveTests
-    {
+    public class NonDestructiveTests {
         // 消えたレシピへの参照は、空の欄(外している)と見分ける。
         [Test]
-        public void LostRecipeReference_IsToldFromAnEmptySlot()
-        {
-            using (var assets = TestAssets.Create())
-            {
+        public void LostRecipeReference_IsToldFromAnEmptySlot() {
+            using (var assets = TestAssets.Create()) {
                 string tex = assets.WritePng("tex", TestAssets.Solid(4, 4, new Color32(200, 50, 50, 255)), 4, 4);
                 var recipe = RecipeStore.Create(AssetDatabase.LoadAssetAtPath<Texture2D>(tex), new IrocaSessionState(), assets.Folder);
                 string recipePath = AssetDatabase.GetAssetPath(recipe);
                 var go = new GameObject("lost-recipe");
-                try
-                {
+                try {
                     var component = go.AddComponent<IrocaRecolor>();
                     component.recipes = new System.Collections.Generic.List<IrocaRecipe> { recipe, null };
                     Assert.IsFalse(NonDestructiveApplier.IsLostReference(component, 0), "ある");
@@ -34,8 +29,7 @@ namespace Iroca.EditorTests
                     AssetDatabase.DeleteAsset(recipePath);
                     Assert.IsTrue(NonDestructiveApplier.IsLostReference(component, 0), "消えた");
                     Assert.IsFalse(NonDestructiveApplier.IsLostReference(component, 1), "空の欄");
-                }
-                finally { Object.DestroyImmediate(go); }
+                } finally { Object.DestroyImmediate(go); }
             }
         }
 
@@ -47,10 +41,12 @@ namespace Iroca.EditorTests
         [SetUp] public void SetUp() => _assets = TestAssets.Create();
 
         [TearDown]
-        public void TearDown()
-        {
-            foreach (var o in _created)
-                if (o != null) Object.DestroyImmediate(o);
+        public void TearDown() {
+            foreach (var o in _created) {
+                if (o != null) {
+                    Object.DestroyImmediate(o);
+                }
+            }
             _created.Clear();
             _assets.Dispose();
         }
@@ -58,14 +54,11 @@ namespace Iroca.EditorTests
         private T Track<T>(T o) where T : Object { _created.Add(o); return o; }
 
         // 上半分 = 赤、下半分 = 青。どちらも縦方向に明暗がある(再着色の明度リマップが実際に動く)。
-        private static Color32[] Bands()
-        {
+        private static Color32[] Bands() {
             var px = new Color32[W * H];
-            for (int y = 0; y < H; y++)
-            {
+            for (int y = 0; y < H; y++) {
                 float shade = 0.6f + 0.4f * y / (H - 1);
-                for (int x = 0; x < W; x++)
-                {
+                for (int x = 0; x < W; x++) {
                     bool top = y >= H / 2;   // 行 0 = 画像下端
                     px[y * W + x] = top
                         ? new Color32((byte)(200 * shade), (byte)(40 * shade), (byte)(40 * shade), 255)
@@ -76,10 +69,8 @@ namespace Iroca.EditorTests
         }
 
         // 赤 → 緑のゾーン 1 つ + 青の帯の左下を「含める」マスク。
-        private static IrocaSessionState RedToGreenWithInclude()
-        {
-            var zone = new ColorZone
-            {
+        private static IrocaSessionState RedToGreenWithInclude() {
+            var zone = new ColorZone {
                 name = "red",
                 sampleColor = new Color(0.78f, 0.16f, 0.16f),
                 sampleColorSet = true,
@@ -91,19 +82,19 @@ namespace Iroca.EditorTests
             var state = new IrocaSessionState();
             state.zones.Add(zone);
             var include = new bool[W * H];
-            for (int y = 0; y < H / 4; y++)
-                for (int x = 0; x < W / 4; x++)
+            for (int y = 0; y < H / 4; y++) {
+                for (int x = 0; x < W / 4; x++) {
                     include[y * W + x] = true;
+                }
+            }
             MaskStateCodec.Encode(state.maskState, W, H, null, null,
                 new Dictionary<string, bool[]> { [zone.id] = include });
             return state;
         }
 
-        private Texture2D ImportSource(bool readable = false, int maxSize = 0)
-        {
+        private Texture2D ImportSource(bool readable = false, int maxSize = 0) {
             string path = _assets.WritePng("src", Bands(), W, H, readable);
-            if (maxSize > 0)
-            {
+            if (maxSize > 0) {
                 var imp = (TextureImporter)AssetImporter.GetAtPath(path);
                 imp.maxTextureSize = maxSize;
                 imp.SaveAndReimport();
@@ -114,8 +105,7 @@ namespace Iroca.EditorTests
         // ───────────── レシピ → 画素 ─────────────
 
         [Test]
-        public void Recipe_RoundTrip_RecolorsExactlyLikeTheLiveSession()
-        {
+        public void Recipe_RoundTrip_RecolorsExactlyLikeTheLiveSession() {
             var src = ImportSource();
             var state = RedToGreenWithInclude();
 
@@ -129,14 +119,15 @@ namespace Iroca.EditorTests
             Assert.IsTrue(RecipeTextureBuilder.TryRecolor(recipe, out var actual, out int w, out int h,
                 out var failure), failure.ToString());
             Assert.AreEqual((W, H), (w, h));
-            for (int i = 0; i < expected.Length; i++)
-                if (!expected[i].Equals(actual[i]))
+            for (int i = 0; i < expected.Length; i++) {
+                if (!expected[i].Equals(actual[i])) {
                     Assert.Fail($"画素 {i} が編集状態の直接適用と違います: {expected[i]} vs {actual[i]}");
+                }
+            }
         }
 
         [Test]
-        public void TryRecolor_ReportsWhyItCannotRun()
-        {
+        public void TryRecolor_ReportsWhyItCannotRun() {
             var src = ImportSource();
 
             var noSource = Track(ScriptableObject.CreateInstance<IrocaRecipe>());
@@ -156,16 +147,14 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void TryRecolor_SourceFileThatCannotBeOpened_ReportsUnreadable()
-        {
+        public void TryRecolor_SourceFileThatCannotBeOpened_ReportsUnreadable() {
             // ほかのアプリが掴んでいる・同期サービスのオンライン専用ファイルなど、原本を開けないとき。
             // 例外で抜けるとビルドでは素の例外、プレビューでは作りかけが終わらなくなる。
             var src = ImportSource();
             var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
             string file = System.IO.Path.GetFullPath(AssetDatabase.GetAssetPath(src));
             using (new System.IO.FileStream(file, System.IO.FileMode.Open, System.IO.FileAccess.Read,
-                       System.IO.FileShare.None))
-            {
+                       System.IO.FileShare.None)) {
                 Assert.IsFalse(RecipeTextureBuilder.TryRecolor(recipe, out _, out _, out _, out var failure));
                 Assert.AreEqual(RecipeTextureBuilder.Failure.SourceUnreadable, failure);
             }
@@ -173,8 +162,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Recipe_Save_WritesOnlyWhenChanged()
-        {
+        public void Recipe_Save_WritesOnlyWhenChanged() {
             var src = ImportSource();
             var state = RedToGreenWithInclude();
             var recipe = RecipeStore.Create(src, state, _assets.Folder);
@@ -190,8 +178,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Recipe_FindForTexture_UsesCurrentSourceEvenIfUnsaved()
-        {
+        public void Recipe_FindForTexture_UsesCurrentSourceEvenIfUnsaved() {
             // 探すときはファイルの参照先で絞ってから読む。保存前にインスペクタで元テクスチャを替えたレシピも、
             // 今の中身(sourceTexture)で数える(全部を読んで比べていた頃と同じ結果)。
             var src = ImportSource();
@@ -206,8 +193,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Recipe_PathForNew_IsWhereCreatePutsIt()
-        {
+        public void Recipe_PathForNew_IsWhereCreatePutsIt() {
             // 別フォルダに同じ名前のテクスチャがあると、2 つ目のレシピは連番の名前になる。
             // 登録の確認に出すパス(PathForNew)が、実際にできるパスと同じであること。
             AssetDatabase.CreateFolder(_assets.Folder, "a");
@@ -231,8 +217,7 @@ namespace Iroca.EditorTests
         // ───────────── 取り込み設定へそろえる ─────────────
 
         [Test]
-        public void CreateMatching_FollowsImportedSizeFormatMipsAndColorSpace()
-        {
+        public void CreateMatching_FollowsImportedSizeFormatMipsAndColorSpace() {
             var like = ImportSource(maxSize: 32);
             Assert.AreEqual(32, like.width, "取り込み時の最大サイズが効いていない(テストの前提)");
 
@@ -246,10 +231,11 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ResizeArea_AveragesBlocksForIntegerRatios()
-        {
+        public void ResizeArea_AveragesBlocksForIntegerRatios() {
             var src = new Color32[4 * 4];
-            for (int i = 0; i < src.Length; i++) src[i] = new Color32((byte)(i * 10), 0, 0, 255);
+            for (int i = 0; i < src.Length; i++) {
+                src[i] = new Color32((byte)(i * 10), 0, 0, 255);
+            }
             var dst = WorkingResolution.ResizeArea(src, 4, 4, 2, 2);
             // 左下 2x2 = 画素 0,1,4,5 → (0+10+40+50)/4 = 25
             Assert.AreEqual(25, dst[0].r);
@@ -258,13 +244,11 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Build_SecondCallComesFromCacheWithIdenticalData()
-        {
+        public void Build_SecondCallComesFromCacheWithIdenticalData() {
             var src = ImportSource(readable: true);
             var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
             string cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
-            try
-            {
+            try {
                 var first = Track(RecipeTextureBuilder.Build(recipe, out var f1));
                 Assert.IsNotNull(first, f1.ToString());
                 RecipeTextureBuilder.WaitForCacheWrites();   // キャッシュは背景で書く
@@ -280,9 +264,7 @@ namespace Iroca.EditorTests
                 changed.zones[0].targetColor = Color.yellow;
                 RecipeStore.Save(recipe, changed);
                 Assert.AreNotEqual(cacheFile, RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src)));
-            }
-            finally
-            {
+            } finally {
                 DeleteCache(cacheFile);
             }
         }
@@ -292,48 +274,41 @@ namespace Iroca.EditorTests
         // いろかのウィンドウを閉じた後に非破壊ビルド・シーンのプレビューが色替えを計算したら、終わった後に
         // 作業配列と色の表を OS へ返す(返さないと、ウィンドウを閉じたときの解放が打ち消されて残り続ける)。
         [Test]
-        public void Build_WithoutWindow_ReturnsWorkBuffersAfterward()
-        {
+        public void Build_WithoutWindow_ReturnsWorkBuffersAfterward() {
             Assume.That(IrocaWindow.FindAnyInstance(), Is.Null, "いろかのウィンドウが開いている");
             var (recipe, cacheFile) = FreshRecipe();
-            try
-            {
+            try {
                 PixelProcessor.ReleaseWorkBuffers();
                 long before = IrocaNativeMemory.LiveBytes;
                 Assert.IsNotNull(Track(RecipeTextureBuilder.Build(recipe, out var f)), f.ToString());
                 Assert.IsTrue(WaitForNativeBytes(before), $"作業配列が残った({IrocaNativeMemory.LiveBytes - before} バイト)");
-            }
-            finally
-            {
+            } finally {
                 DeleteCache(cacheFile);
             }
         }
 
         // シーンのプレビュー(非同期で作る)も同じ。
         [Test]
-        public void BuildAsync_WithoutWindow_ReturnsWorkBuffersAfterward()
-        {
+        public void BuildAsync_WithoutWindow_ReturnsWorkBuffersAfterward() {
             Assume.That(IrocaWindow.FindAnyInstance(), Is.Null, "いろかのウィンドウが開いている");
             var (recipe, cacheFile) = FreshRecipe();
-            try
-            {
+            try {
                 PixelProcessor.ReleaseWorkBuffers();
                 long before = IrocaNativeMemory.LiveBytes;
                 bool called = false;
                 Texture2D built = null;
                 RecipeTextureBuilder.BuildAsync(recipe, t => { built = t; called = true; });
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                while (!called)
-                {
-                    if (sw.ElapsedMilliseconds > 30000) Assert.Fail("出来上がりが届かない");
+                while (!called) {
+                    if (sw.ElapsedMilliseconds > 30000) {
+                        Assert.Fail("出来上がりが届かない");
+                    }
                     PreviewJobMainThread.Drain();
                     System.Threading.Thread.Sleep(2);
                 }
                 Assert.IsNotNull(Track(built));
                 Assert.IsTrue(WaitForNativeBytes(before), $"作業配列が残った({IrocaNativeMemory.LiveBytes - before} バイト)");
-            }
-            finally
-            {
+            } finally {
                 DeleteCache(cacheFile);
             }
         }
@@ -341,45 +316,42 @@ namespace Iroca.EditorTests
         // シーンのプレビューが要らなくなった作りかけ: 取り消したら途中の結果を作らず、キャッシュにも書かず、
         // 計算の数の勘定(作業配列を手放す判断に使う)も元に戻る。
         [Test]
-        public void BuildAsync_Cancelled_FinishesWithNothing_WithoutCacheOrLeftoverWork()
-        {
+        public void BuildAsync_Cancelled_FinishesWithNothing_WithoutCacheOrLeftoverWork() {
             var (recipe, cacheFile) = FreshRecipe();
-            try
-            {
+            try {
                 int running = NativeMemoryLifecycle.RunningWork;
-                Texture2D Run(System.Threading.CancellationTokenSource cts, bool startFirst)
-                {
+                Texture2D Run(System.Threading.CancellationTokenSource cts, bool startFirst) {
                     bool called = false;
                     Texture2D built = null;
                     RecipeTextureBuilder.BuildAsync(recipe, cts.Token, t => { built = t; called = true; });
-                    if (startFirst) PreviewJobMainThread.Drain();   // 原本を読んで計算を始める
+                    if (startFirst) {
+                        PreviewJobMainThread.Drain();   // 原本を読んで計算を始める
+                    }
                     cts.Cancel();
                     var sw = System.Diagnostics.Stopwatch.StartNew();
-                    while (!called || NativeMemoryLifecycle.RunningWork != running)
-                    {
-                        if (sw.ElapsedMilliseconds > 30000) Assert.Fail("取り消した計算が終わらない");
+                    while (!called || NativeMemoryLifecycle.RunningWork != running) {
+                        if (sw.ElapsedMilliseconds > 30000) {
+                            Assert.Fail("取り消した計算が終わらない");
+                        }
                         PreviewJobMainThread.Drain();
                         System.Threading.Thread.Sleep(2);
                     }
                     return built;
                 }
 
-                using (var cts = new System.Threading.CancellationTokenSource())
+                using (var cts = new System.Threading.CancellationTokenSource()) {
                     Assert.IsNull(Run(cts, startFirst: false), "計算を始める前に取り消したのに作った");
-                using (var cts = new System.Threading.CancellationTokenSource())
-                {
+                }
+                using (var cts = new System.Threading.CancellationTokenSource()) {
                     var built = Run(cts, startFirst: true);
-                    if (built != null)
-                    {
+                    if (built != null) {
                         Track(built);
                         Assert.Inconclusive("取り消す前に出来上がった(小さい画像で計算が速すぎた)");
                     }
                 }
                 Assert.AreEqual(running, NativeMemoryLifecycle.RunningWork, "取り消した計算の勘定が戻っていない");
                 Assert.IsFalse(File.Exists(cacheFile), "取り消した計算をキャッシュに書いた");
-            }
-            finally
-            {
+            } finally {
                 DeleteCache(cacheFile);
             }
         }
@@ -387,34 +359,30 @@ namespace Iroca.EditorTests
         // ウィンドウを開いている間は手放さない(編集の次の 1 手が作業配列と色の表を作り直さないように。
         // ウィンドウを閉じたときにまとめて返る)。
         [Test]
-        public void Build_WithWindowOpen_KeepsWorkBuffers()
-        {
+        public void Build_WithWindowOpen_KeepsWorkBuffers() {
             var (recipe, cacheFile) = FreshRecipe();
             var win = ScriptableObject.CreateInstance<IrocaWindow>();
-            try
-            {
+            try {
                 PixelProcessor.ReleaseWorkBuffers();
                 long before = IrocaNativeMemory.LiveBytes;
                 Assert.IsNotNull(Track(RecipeTextureBuilder.Build(recipe, out var f)), f.ToString());
                 Assert.IsFalse(WaitForNativeBytes(before, timeoutMs: 300), "ウィンドウが開いているのに作業配列を手放した");
-            }
-            finally
-            {
+            } finally {
                 Object.DestroyImmediate(win);
                 DeleteCache(cacheFile);
             }
         }
 
         // キャッシュを消す(背景の書き込みが終わってから。先に消すと、後から書かれて残る)。
-        private static void DeleteCache(string cacheFile)
-        {
+        private static void DeleteCache(string cacheFile) {
             RecipeTextureBuilder.WaitForCacheWrites();
-            if (File.Exists(cacheFile)) File.Delete(cacheFile);
+            if (File.Exists(cacheFile)) {
+                File.Delete(cacheFile);
+            }
         }
 
         // キャッシュの無いレシピ(色替えの計算が走る)。
-        private (IrocaRecipe recipe, string cacheFile) FreshRecipe()
-        {
+        private (IrocaRecipe recipe, string cacheFile) FreshRecipe() {
             var src = ImportSource(readable: true);
             var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
             string cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
@@ -428,15 +396,13 @@ namespace Iroca.EditorTests
         // 元ファイルが取り込み後より大きくても(辺が 8192 以下なら)、元の解像度で色替えしてから取り込み後の寸法へ
         // 縮める(書き出しと同じ解像度で色替えするので、色替えの中身がそろう)。
         [Test]
-        public void Build_RecolorsAtSourceResolutionThenShrinks()
-        {
+        public void Build_RecolorsAtSourceResolutionThenShrinks() {
             var like = ImportSource(maxSize: 32);
             Assert.AreEqual(32, like.width, "取り込み時の最大サイズが効いていない(テストの前提)");
             var state = RedToGreenWithInclude();
             var recipe = RecipeStore.Create(like, state, _assets.Folder);
             string key = RecipeTextureBuilder.CacheKey(recipe, like);
-            try
-            {
+            try {
                 var built = Track(RecipeTextureBuilder.Build(recipe, out var f1));
                 Assert.IsNotNull(built, f1.ToString());
                 var full = Bands();
@@ -444,27 +410,26 @@ namespace Iroca.EditorTests
                 var expected = Track(RecipeTextureBuilder.CreateMatching(full, W, H, like));
                 CollectionAssert.AreEqual(expected.GetRawTextureData(), built.GetRawTextureData(),
                     "元の解像度で色替えして縮めたものと違う");
-            }
-            finally
-            {
+            } finally {
                 string file = RecipeTextureBuilder.CachePath(key);
-                if (File.Exists(file)) File.Delete(file);
+                if (File.Exists(file)) {
+                    File.Delete(file);
+                }
             }
         }
 
-        private static (bool on, int priority) StreamingOf(Texture2D tex)
-        {
-            using (var so = new SerializedObject(tex))
+        private static (bool on, int priority) StreamingOf(Texture2D tex) {
+            using (var so = new SerializedObject(tex)) {
                 return (so.FindProperty("m_StreamingMipmaps").boolValue,
                         so.FindProperty("m_StreamingMipmapsPriority").intValue);
+            }
         }
 
         // mip streaming は元の取り込み設定をそのまま引き継ぐ(NDMF の CheckMipStreamingPass が見る値)。
         // 元がオフなら元のアバターでも VRChat SDK が止めるので、そこで元を直せば引き継いでオンになる。
         [TestCase(false, 0)]
         [TestCase(true, 3)]
-        public void Build_InheritsMipStreamingFromSource(bool sourceStreaming, int sourcePriority)
-        {
+        public void Build_InheritsMipStreamingFromSource(bool sourceStreaming, int sourcePriority) {
             string path = _assets.WritePng("src", Bands(), W, H);
             var imp = (TextureImporter)AssetImporter.GetAtPath(path);
             imp.streamingMipmaps = sourceStreaming;
@@ -476,26 +441,21 @@ namespace Iroca.EditorTests
 
             var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
             string cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
-            try
-            {
+            try {
                 // 1 回目 = 作りたて、2 回目 = キャッシュから。どちらも同じ設定になる。
-                for (int i = 0; i < 2; i++)
-                {
+                for (int i = 0; i < 2; i++) {
                     var tex = Track(RecipeTextureBuilder.Build(recipe, out var failure));
                     Assert.IsNotNull(tex, failure.ToString());
                     Assert.AreEqual((sourceStreaming, sourcePriority), StreamingOf(tex), i == 0 ? "作りたて" : "キャッシュから");
                 }
-            }
-            finally
-            {
+            } finally {
                 DeleteCache(cacheFile);
             }
         }
 
         // ───────────── マテリアルの差し替え ─────────────
 
-        private sealed class FakeHost : NonDestructiveApplier.IHost
-        {
+        private sealed class FakeHost : NonDestructiveApplier.IHost {
             public readonly List<(NonDestructiveApplier.Problem, IrocaRecolor, IrocaRecipe, RecipeTextureBuilder.Failure)> Reports
                 = new List<(NonDestructiveApplier.Problem, IrocaRecolor, IrocaRecipe, RecipeTextureBuilder.Failure)>();
             public readonly List<Object> Saved = new List<Object>();
@@ -503,11 +463,12 @@ namespace Iroca.EditorTests
             public int Builds;
             public bool Fail;
 
-            public Texture2D BuildTexture(IrocaRecipe recipe, out RecipeTextureBuilder.Failure failure)
-            {
+            public Texture2D BuildTexture(IrocaRecipe recipe, out RecipeTextureBuilder.Failure failure) {
                 Builds++;
                 failure = Fail ? RecipeTextureBuilder.Failure.SourceUnreadable : RecipeTextureBuilder.Failure.None;
-                if (Fail) return null;
+                if (Fail) {
+                    return null;
+                }
                 var t = new Texture2D(2, 2) { name = "recolored:" + recipe.name };
                 Textures[recipe] = t;
                 return t;
@@ -518,9 +479,10 @@ namespace Iroca.EditorTests
             public readonly List<(Object original, Object replacement)> Replaced = new List<(Object, Object)>();
             public readonly List<Object> RegisteredAfterSave = new List<Object>();
 
-            public void RegisterReplaced(Object original, Object replacement)
-            {
-                if (Saved.Contains(replacement)) RegisteredAfterSave.Add(replacement);
+            public void RegisterReplaced(Object original, Object replacement) {
+                if (Saved.Contains(replacement)) {
+                    RegisteredAfterSave.Add(replacement);
+                }
                 Replaced.Add((original, replacement));
             }
             public void Report(NonDestructiveApplier.Problem p, IrocaRecolor c, IrocaRecipe r, RecipeTextureBuilder.Failure f)
@@ -529,52 +491,52 @@ namespace Iroca.EditorTests
             // アニメーションのマテリアル切り替え(切り替える先の GameObject と、キーフレームのマテリアル)。
             public readonly List<(GameObject target, Material[] keys)> Animated = new List<(GameObject, Material[])>();
 
-            public void RewriteAnimatedMaterials(System.Func<Transform, bool> inScope, System.Func<Material, Material> mapping)
-            {
-                foreach (var (target, keys) in Animated)
-                {
-                    if (!inScope(target.transform)) continue;
-                    for (int i = 0; i < keys.Length; i++)
-                        if (keys[i] != null) keys[i] = mapping(keys[i]);
+            public void RewriteAnimatedMaterials(System.Func<Transform, bool> inScope, System.Func<Material, Material> mapping) {
+                foreach (var (target, keys) in Animated) {
+                    if (!inScope(target.transform)) {
+                        continue;
+                    }
+                    for (int i = 0; i < keys.Length; i++) {
+                        if (keys[i] != null) {
+                            keys[i] = mapping(keys[i]);
+                        }
+                    }
                 }
             }
         }
 
         private Texture2D Tex(string name) => Track(new Texture2D(2, 2) { name = name });
 
-        private Material Mat(string name, Texture tex)
-        {
+        private Material Mat(string name, Texture tex) {
             var m = Track(new Material(Shader.Find("Standard")) { name = name });
             m.mainTexture = tex;
             return m;
         }
 
-        private GameObject Node(string name, Transform parent, Material mat = null)
-        {
+        private GameObject Node(string name, Transform parent, Material mat = null) {
             var go = Track(new GameObject(name));
             go.transform.SetParent(parent, false);
-            if (mat != null) go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            if (mat != null) {
+                go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            }
             return go;
         }
 
-        private IrocaRecipe Recipe(string name, Texture2D source)
-        {
+        private IrocaRecipe Recipe(string name, Texture2D source) {
             var r = Track(ScriptableObject.CreateInstance<IrocaRecipe>());
             r.name = name;
             r.sourceTexture = source;
             return r;
         }
 
-        private static IrocaRecolor AddRecolor(GameObject go, IrocaRecipe recipe)
-        {
+        private static IrocaRecolor AddRecolor(GameObject go, IrocaRecipe recipe) {
             var c = go.AddComponent<IrocaRecolor>();
             c.recipes.Add(recipe);
             return c;
         }
 
         [Test]
-        public void Applier_ReplacesOnlyMaterialsInScopeThatUseTheTexture()
-        {
+        public void Applier_ReplacesOnlyMaterialsInScopeThatUseTheTexture() {
             var src = Tex("src");
             var other = Tex("other");
             var shared = Mat("shared", src);
@@ -608,8 +570,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_SameRecipeOnSeparateObjects_SharesOneClone()
-        {
+        public void Applier_SameRecipeOnSeparateObjects_SharesOneClone() {
             // 同じレシピを衣装の部位ごとに登録しても、同じマテリアルの複製は 1 つ(別物になると AAO などが
             // 同じマテリアルのスロットをまとめられず、スロットが増える)。
             var src = Tex("src");
@@ -633,8 +594,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_DeeperComponentWinsWhereScopesOverlap()
-        {
+        public void Applier_DeeperComponentWinsWhereScopesOverlap() {
             var src = Tex("src");
             var mOuter = Mat("outer", src);
             var mInner = Mat("inner", src);
@@ -657,8 +617,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_ReportsProblemsAndStillRemovesComponents()
-        {
+        public void Applier_ReportsProblemsAndStillRemovesComponents() {
             var src = Tex("src");
             var m = Mat("m", src);
             var root = Node("avatar", null);
@@ -675,8 +634,7 @@ namespace Iroca.EditorTests
             NonDestructiveApplier.Apply(root, host);
 
             var kinds = host.Reports.ConvertAll(x => x.Item1);
-            CollectionAssert.AreEquivalent(new[]
-            {
+            CollectionAssert.AreEquivalent(new[] {
                 NonDestructiveApplier.Problem.MissingRecipe,
                 NonDestructiveApplier.Problem.TextureNotUsedInScope,
                 NonDestructiveApplier.Problem.BuildFailed,
@@ -686,8 +644,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_OneComponentRecolorsSeveralTextures()
-        {
+        public void Applier_OneComponentRecolorsSeveralTextures() {
             var texA = Tex("a");
             var texB = Tex("b");
             var both = Mat("both", texA);
@@ -715,8 +672,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_MaterialsSwitchedByAnimationAreRecoloredInScope()
-        {
+        public void Applier_MaterialsSwitchedByAnimationAreRecoloredInScope() {
             var src = Tex("src");
             var plain = Mat("plain", Tex("plain"));
             var alt = Mat("alt", src);           // トグルで切り替える先(既定では使っていない)
@@ -749,8 +705,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_TextureUsedOnlyByAnimation_IsNotReportedAsUnused_AndDeeperWins()
-        {
+        public void Applier_TextureUsedOnlyByAnimation_IsNotReportedAsUnused_AndDeeperWins() {
             var src = Tex("src");
             var alt = Mat("alt", src);
             var root = Node("avatar", null);
@@ -767,16 +722,14 @@ namespace Iroca.EditorTests
             NonDestructiveApplier.Apply(root, host);
 
             Assert.AreSame(host.Textures[innerRecipe], keys[0].mainTexture, "アニメーションでも近い(深い)コンポーネントが勝つ");
-            CollectionAssert.AreEquivalent(new[]
-            {
+            CollectionAssert.AreEquivalent(new[] {
                 (NonDestructiveApplier.Problem.TextureNotUsedInScope, outerRecipe),   // 内側が差し替え済み
             }, host.Reports.ConvertAll(x => (x.Item1, x.Item3)),
                 "アニメーションでだけ使うテクスチャを「使っていない」と報告した");
         }
 
         [Test]
-        public void Applier_TwoStages_RecolorMaterialsAddedInBetween_WithOneTexture()
-        {
+        public void Applier_TwoStages_RecolorMaterialsAddedInBetween_WithOneTexture() {
             // VRCFury のように 1 段目(NDMF の Transforming)と 2 段目(最適化段)の間に動くツールが、
             // トグルなどで元のマテリアルを入れ直す場合。
             var src = Tex("src");
@@ -812,8 +765,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_TwoStages_UnusedIsDecidedAtTheEnd()
-        {
+        public void Applier_TwoStages_UnusedIsDecidedAtTheEnd() {
             // 1 段目では使われず、間に動くツールが入れたマテリアルでだけ使われるテクスチャ。
             var src = Tex("src");
             var root = Node("avatar", null);
@@ -837,8 +789,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_SameTextureTwiceInOneComponent_FirstWins_AndEmptyListIsReported()
-        {
+        public void Applier_SameTextureTwiceInOneComponent_FirstWins_AndEmptyListIsReported() {
             var src = Tex("src");
             var root = Node("avatar", null);
             var r = Node("r", root.transform, Mat("m", src));
@@ -855,16 +806,14 @@ namespace Iroca.EditorTests
 
             Assert.AreSame(host.Textures[first], r.GetComponent<Renderer>().sharedMaterial.mainTexture,
                 "同じテクスチャは先のレシピが勝つ(並び順が優先順)");
-            CollectionAssert.AreEquivalent(new[]
-            {
+            CollectionAssert.AreEquivalent(new[] {
                 (NonDestructiveApplier.Problem.TextureNotUsedInScope, second),   // 先のレシピが差し替え済み
                 (NonDestructiveApplier.Problem.MissingRecipe, (IrocaRecipe)null), // レシピの無いコンポーネント
             }, host.Reports.ConvertAll(x => (x.Item1, x.Item3)));
         }
 
         [Test]
-        public void Applier_RegistersTheRecoloredTextureAsTheSource_OnceAndBeforeSaving()
-        {
+        public void Applier_RegistersTheRecoloredTextureAsTheSource_OnceAndBeforeSaving() {
             // TexTransTool の TextureBlender などは、指定された元テクスチャと「置き換え前が同じもの」を探す。
             // 色替え済みテクスチャを元テクスチャの置き換えとして登録しないと、見つけられずに黙って何もしない。
             var src = Tex("src");
@@ -890,8 +839,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_RendererMovedOutOfScopeDuringTheBuild_IsStillRecolored()
-        {
+        public void Applier_RendererMovedOutOfScopeDuringTheBuild_IsStillRecolored() {
             // Modular Avatar の Merge Armature・Bone Proxy や VRCFury の Armature Link は、衣装の骨の下の小物を
             // アバター本体の骨の下へ移す。範囲は移す前(Resolving 段で記録)の親子関係で決める。
             var src = Tex("src");
@@ -932,8 +880,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void CreateMatching_UncompressedRgbImport_StaysRgb24()
-        {
+        public void CreateMatching_UncompressedRgbImport_StaysRgb24() {
             // 圧縮なしで取り込んだアルファの無い画像(RGB24)を、色替え後も同じ形式にそろえる
             // (RGBA32 にするとアップロードの大きさが 1.33 倍になる)。
             string path = _assets.WritePng("rgb", Bands(), W, H);
@@ -942,7 +889,9 @@ namespace Iroca.EditorTests
             imp.alphaSource = TextureImporterAlphaSource.None;
             imp.SaveAndReimport();
             var like = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-            if (like.format != TextureFormat.RGB24) Assert.Ignore($"取り込みが RGB24 にならない({like.format})");
+            if (like.format != TextureFormat.RGB24) {
+                Assert.Ignore($"取り込みが RGB24 にならない({like.format})");
+            }
 
             var px = Bands();
             var tex = Track(RecipeTextureBuilder.CreateMatching(px, W, H, like));
@@ -951,21 +900,24 @@ namespace Iroca.EditorTests
             Assert.AreEqual(GraphicsFormatUtility.IsSRGBFormat(like.graphicsFormat),
                 GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat), "色空間(sRGB)が取り込みと違う");
             var got = tex.GetPixels32();
-            for (int i = 0; i < px.Length; i++)
-                if (got[i].r != px[i].r || got[i].g != px[i].g || got[i].b != px[i].b)
+            for (int i = 0; i < px.Length; i++) {
+                if (got[i].r != px[i].r || got[i].g != px[i].g || got[i].b != px[i].b) {
                     Assert.Fail($"画素 {i} が変わった: {px[i]} → {got[i]}");
+                }
+            }
             var mip1 = tex.GetPixels32(1);
             Assert.AreEqual((W / 2) * (H / 2), mip1.Length);
             Assert.AreNotEqual(new Color32(0, 0, 0, 0), mip1[0], "ミップの中身を写していない");
         }
 
         [Test]
-        public void CreateMatching_FollowsTheAlphaSourceOfAPng()
-        {
+        public void CreateMatching_FollowsTheAlphaSourceOfAPng() {
             // 原本の PNG はファイルから直接読む(取り込み設定を通らない)ので、アルファは PNG のまま届く。差し替える
             // テクスチャのアルファは取り込みの Alpha Source にそろえる(None = 不透明、From Gray Scale = RGB の平均)。
             var px = Bands();
-            for (int i = 0; i < px.Length; i++) px[i].a = (byte)(i % 3 == 0 ? 0 : 128);
+            for (int i = 0; i < px.Length; i++) {
+                px[i].a = (byte)(i % 3 == 0 ? 0 : 128);
+            }
             string path = _assets.WritePng("alpha", px, W, H, readable: true);
             var imp = (TextureImporter)AssetImporter.GetAtPath(path);
 
@@ -976,9 +928,11 @@ namespace Iroca.EditorTests
             var like = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             var imported = like.GetPixels32();
             var gray = Track(RecipeTextureBuilder.CreateMatching(px, W, H, like)).GetPixels32();
-            for (int i = 0; i < px.Length; i++)
-                if (System.Math.Abs(gray[i].a - imported[i].a) > 2)
+            for (int i = 0; i < px.Length; i++) {
+                if (System.Math.Abs(gray[i].a - imported[i].a) > 2) {
                     Assert.Fail($"画素 {i}: From Gray Scale のアルファが取り込みと違う: {gray[i].a} (取り込み {imported[i].a})");
+                }
+            }
 
             // None: アルファを残す圧縮(BC7 など)でも不透明になる。
             imp.textureCompression = TextureImporterCompression.CompressedHQ;
@@ -987,8 +941,11 @@ namespace Iroca.EditorTests
             like = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             var none = Track(RecipeTextureBuilder.CreateMatching(px, W, H, like));
             Assert.AreEqual(like.format, none.format);
-            foreach (var c in none.GetPixels32())
-                if (c.a < 250) Assert.Fail($"Alpha Source が None なのに透けている: {c}");
+            foreach (var c in none.GetPixels32()) {
+                if (c.a < 250) {
+                    Assert.Fail($"Alpha Source が None なのに透けている: {c}");
+                }
+            }
         }
     }
 }

@@ -5,28 +5,28 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 「アバターに非破壊で登録」でコンポーネントが増えないこと: 同じオブジェクトへの登録は 1 つの
     /// <see cref="IrocaRecolor"/> にレシピを足し、同じテクスチャは置き換え、旧版で複数付いていたら
     /// 1 つにまとめる(結果は変えない・1 回の Undo で戻る)。旧版の保存形式(1 コンポーネント = 1 レシピ)の読み込み。
     /// </summary>
-    public class RecipeRegistrationTests
-    {
+    public class RecipeRegistrationTests {
         private readonly List<Object> _created = new List<Object>();
 
         [TearDown]
-        public void TearDown()
-        {
-            foreach (var o in _created)
-            {
-                if (o == null) continue;
+        public void TearDown() {
+            foreach (var o in _created) {
+                if (o == null) {
+                    continue;
+                }
                 // 登録は Undo に記録する。記録を残したまま消すと、あとで Undo を巻き戻したとき
                 // (テストランナーの後始末を含む)に空の GameObject として復活し、開いているシーンに残る。
-                if (o is GameObject go)
-                    foreach (var c in go.GetComponents<Component>())
+                if (o is GameObject go) {
+                    foreach (var c in go.GetComponents<Component>()) {
                         Undo.ClearUndo(c);
+                    }
+                }
                 Undo.ClearUndo(o);
                 Object.DestroyImmediate(o);
             }
@@ -37,9 +37,10 @@ namespace Iroca.EditorTests
 
         // 選んだオブジェクトがアバターの外(複数のアバターをまとめた親など)なら、登録先にしない。
         [Test]
-        public void SuggestTarget_SelectionOutsideAnAvatar_IsNotATarget()
-        {
-            if (DescriptorType() == null) Assert.Ignore("VRChat SDK の無いホストでは、アバターの内側かを見分けない");
+        public void SuggestTarget_SelectionOutsideAnAvatar_IsNotATarget() {
+            if (DescriptorType() == null) {
+                Assert.Ignore("VRChat SDK の無いホストでは、アバターの内側かを見分けない");
+            }
             var group = Track(new GameObject("avatars"));
             var avatar = AvatarRoot("avatar");
             avatar.transform.SetParent(group.transform, false);
@@ -53,8 +54,7 @@ namespace Iroca.EditorTests
 
         private Texture2D Tex(string name) => Track(new Texture2D(2, 2) { name = name });
 
-        private IrocaRecipe Recipe(string name, Texture2D source)
-        {
+        private IrocaRecipe Recipe(string name, Texture2D source) {
             var r = Track(ScriptableObject.CreateInstance<IrocaRecipe>());
             r.name = name;
             r.sourceTexture = source;
@@ -65,28 +65,28 @@ namespace Iroca.EditorTests
 
         // VRChat SDK のアバターの印(VRCAvatarDescriptor)。テストは SDK を参照しないので名前で探す。
         // SDK の無いホストでは null(登録先の候補は、アバターの内側かを見分けない)。
-        private static System.Type DescriptorType()
-        {
-            foreach (var a in System.AppDomain.CurrentDomain.GetAssemblies())
-            {
+        private static System.Type DescriptorType() {
+            foreach (var a in System.AppDomain.CurrentDomain.GetAssemblies()) {
                 var t = a.GetType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor", false);
-                if (t != null) return t;
+                if (t != null) {
+                    return t;
+                }
             }
             return null;
         }
 
         /// <summary>アバターのルート(SDK があれば Avatar Descriptor を付ける)。</summary>
-        private GameObject AvatarRoot(string name)
-        {
+        private GameObject AvatarRoot(string name) {
             var go = Track(new GameObject(name));
             var descriptor = DescriptorType();
-            if (descriptor != null) go.AddComponent(descriptor);
+            if (descriptor != null) {
+                go.AddComponent(descriptor);
+            }
             return go;
         }
 
         [Test]
-        public void Attach_AddsToTheExistingComponent()
-        {
+        public void Attach_AddsToTheExistingComponent() {
             var go = Avatar();
             var rA = Recipe("a", Tex("a"));
             var rB = Recipe("b", Tex("b"));
@@ -102,8 +102,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Attach_SameTextureReplacesInPlace_AndDescribeSaysSo()
-        {
+        public void Attach_SameTextureReplacesInPlace_AndDescribeSaysSo() {
             var go = Avatar();
             var texA = Tex("a");
             var rA = Recipe("a", texA);
@@ -125,8 +124,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Attach_MergesOldDuplicateComponents_InOneUndoStep()
-        {
+        public void Attach_MergesOldDuplicateComponents_InOneUndoStep() {
             var go = Avatar();
             var texA = Tex("a");
             var rA = Recipe("a", texA);
@@ -155,8 +153,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void MergeComponents_LeavesASingleComponentAlone()
-        {
+        public void MergeComponents_LeavesASingleComponentAlone() {
             var go = Avatar();
             Assert.IsNull(RecipeRegistration.MergeComponents(go));
             var c = go.AddComponent<IrocaRecolor>();
@@ -166,12 +163,10 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ExportedImage_IsFound_SuggestsTheTarget_AndSwitchesBackUndoably()
-        {
+        public void ExportedImage_IsFound_SuggestsTheTarget_AndSwitchesBackUndoably() {
             // 以前「適用して保存」で書き出した画像(元の名前_recolored.png)をマテリアルに差していた場合。
             var assets = TestAssets.Create();
-            try
-            {
+            try {
                 var px = TestAssets.Solid(4, 4, new Color32(200, 40, 40, 255));
                 var src = AssetDatabase.LoadAssetAtPath<Texture2D>(assets.WritePng("costume", px, 4, 4));
                 var exported = AssetDatabase.LoadAssetAtPath<Texture2D>(assets.WritePng("costume_recolored", px, 4, 4));
@@ -205,16 +200,13 @@ namespace Iroca.EditorTests
                 Undo.PerformUndo();
                 Assert.AreSame(exported, mat.mainTexture, "Undo で書き出した画像に戻らない");
                 Undo.ClearUndo(mat);
-            }
-            finally
-            {
+            } finally {
                 assets.Dispose();
             }
         }
 
         [Test]
-        public void OtherUsers_ListsOtherObjectsUsingTheRecipe()
-        {
+        public void OtherUsers_ListsOtherObjectsUsingTheRecipe() {
             // 登録先にレシピが無いと同じテクスチャのレシピを流用するので、そちらを使っている所を確認画面に出す。
             var a = Avatar();
             var b = Track(new GameObject("other avatar"));
@@ -231,12 +223,10 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void UsedOutside_FindsMaterialsSharedWithObjectsOutsideTheTarget()
-        {
+        public void UsedOutside_FindsMaterialsSharedWithObjectsOutsideTheTarget() {
             // 書き出した画像から元へ戻すのは .mat そのものなので、登録先の外で同じマテリアルを使う所も元の色に戻る。
             var assets = TestAssets.Create();
-            try
-            {
+            try {
                 var px = TestAssets.Solid(4, 4, new Color32(200, 40, 40, 255));
                 var exported = AssetDatabase.LoadAssetAtPath<Texture2D>(assets.WritePng("costume_recolored", px, 4, 4));
                 var sharedMat = new Material(Shader.Find("Standard")) { mainTexture = exported };
@@ -254,30 +244,27 @@ namespace Iroca.EditorTests
                 var shared = RecipeRegistration.UsedOutside(a, new[] { sharedMat, ownMat }, out int places);
                 CollectionAssert.AreEqual(new[] { sharedMat }, shared, "範囲の外でも使うマテリアルを見分けていない");
                 Assert.AreEqual(1, places);
-            }
-            finally
-            {
+            } finally {
                 assets.Dispose();
             }
         }
 
         [Test]
-        public void SuggestTarget_DoesNotPickAParentOutsideTheAvatars()
-        {
+        public void SuggestTarget_DoesNotPickAParentOutsideTheAvatars() {
             // 同じ衣装を着た 2 体を空のオブジェクトの下にまとめていると、共通の親はアバターの外になる。そこに付けると、
             // シーンのプレビューでは色が変わるのに、ビルドでは変わらない。
-            if (DescriptorType() == null) Assert.Ignore("VRChat SDK の無いホストでは、アバターの内側かを見分けない");
+            if (DescriptorType() == null) {
+                Assert.Ignore("VRChat SDK の無いホストでは、アバターの内側かを見分けない");
+            }
             var assets = TestAssets.Create();
-            try
-            {
+            try {
                 var px = TestAssets.Solid(4, 4, new Color32(200, 40, 40, 255));
                 var src = AssetDatabase.LoadAssetAtPath<Texture2D>(assets.WritePng("costume", px, 4, 4));
                 var mat = new Material(Shader.Find("Standard")) { mainTexture = src };
                 AssetDatabase.CreateAsset(mat, assets.Folder + "/costume.mat");
 
                 var group = Track(new GameObject("avatars"));
-                MeshRenderer Body(string name)
-                {
+                MeshRenderer Body(string name) {
                     var avatar = AvatarRoot(name);
                     avatar.transform.SetParent(group.transform, false);
                     var mesh = Track(new GameObject(name + "_mesh"));
@@ -293,16 +280,13 @@ namespace Iroca.EditorTests
                 // 使っているのが 1 体だけなら、そのアバターの中で決める。
                 b.sharedMaterial = null;
                 Assert.AreSame(a.gameObject, RecipeRegistration.SuggestTarget(src, null));
-            }
-            finally
-            {
+            } finally {
                 assets.Dispose();
             }
         }
 
         [Test]
-        public void OldSaveFormat_SingleRecipeMovesIntoTheList()
-        {
+        public void OldSaveFormat_SingleRecipeMovesIntoTheList() {
             var go = Avatar();
             var rOld = Recipe("old", Tex("old"));
             var rNew = Recipe("new", Tex("new"));

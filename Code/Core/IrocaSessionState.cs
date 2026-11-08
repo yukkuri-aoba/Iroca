@@ -3,8 +3,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 旧・編集 UI の表示レベル（Simple=かんたん / Normal=通常 / Advanced=上級）。
     /// モード切替 UI は 2026-09 に廃止し、既定は Normal。値はセッションとレシピの JSON に
@@ -21,8 +20,7 @@ namespace Iroca
     /// 処理パラメータの既定値は RecolorSettings の定数を参照する（プリセット・zones JSON と同じ値）。
     /// </summary>
     [Serializable]
-    internal class IrocaSessionState
-    {
+    internal class IrocaSessionState {
         public List<ColorZone> zones = new List<ColorZone>();
         public float edgeFeather = RecolorSettings.DefaultEdgeFeather;
         public int antiAliasCleanup = RecolorSettings.DefaultAntiAliasCleanup;
@@ -40,8 +38,7 @@ namespace Iroca
         public static IrocaSessionState CreateDefault() => new IrocaSessionState();
 
         /// <summary>同じゾーンと処理パラメータを指す写しで、マスクだけが <paramref name="masks"/> のもの(保存に渡す。ゾーンは写さない)。</summary>
-        public IrocaSessionState WithMasks(MaskState masks)
-        {
+        public IrocaSessionState WithMasks(MaskState masks) {
             var copy = (IrocaSessionState)MemberwiseClone();
             copy.maskState = masks;
             return copy;

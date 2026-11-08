@@ -6,15 +6,13 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// NDMF を通した結合: <c>AvatarProcessor.ProcessAvatar</c> でいろかのプラグインが走り、
     /// 元のアセットを書き換えずにマテリアルが差し替わり、コンポーネントが消えること。
     /// NDMF が入ったホスト(Iroca_Dev)でだけコンパイルされる(asmdef の IROCA_NDMF_PRESENT)。
     /// </summary>
-    public class NdmfProcessAvatarTests
-    {
+    public class NdmfProcessAvatarTests {
         private const int W = 32, H = 32;
         private TestAssets _assets;
         private readonly List<Object> _created = new List<Object>();
@@ -23,21 +21,24 @@ namespace Iroca.EditorTests
         [SetUp] public void SetUp() => _assets = TestAssets.Create();
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             // このテストが作ったテクスチャのキャッシュを残さない。
             RecipeTextureBuilder.WaitForCacheWrites();   // 背景の書き込みが後から書いて残らないように
-            if (_cacheFile != null && System.IO.File.Exists(_cacheFile)) System.IO.File.Delete(_cacheFile);
-            foreach (var o in _created)
-                if (o != null) Object.DestroyImmediate(o);
+            if (_cacheFile != null && System.IO.File.Exists(_cacheFile)) {
+                System.IO.File.Delete(_cacheFile);
+            }
+            foreach (var o in _created) {
+                if (o != null) {
+                    Object.DestroyImmediate(o);
+                }
+            }
             _created.Clear();
             nadena.dev.ndmf.AvatarProcessor.CleanTemporaryAssets();
             _assets.Dispose();
         }
 
         [Test]
-        public void StatesThatIntentionallyRecolorNothing_AreNotReportedToNdmf()
-        {
+        public void StatesThatIntentionallyRecolorNothing_AreNotReportedToNdmf() {
             // NDMF は重大度に関係なく 1 件でもあれば NDMF Console を開いて前に出す。レシピが無い・ゾーンがすべて
             // 無効は利用者が色替えを外している状態なので報告しない(インスペクタに出す)。範囲に元テクスチャが
             // 無いのは設定ミスかもしれないので警告を残す。色替えできなかったものはアップロードを止める。
@@ -53,8 +54,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ProcessAvatar_SwapsInRecoloredTextureWithoutTouchingAssets()
-        {
+        public void ProcessAvatar_SwapsInRecoloredTextureWithoutTouchingAssets() {
             var px = TestAssets.Solid(W, H, new Color32(200, 40, 40, 255));
             // 読み書き可能にしておく(差し込まれたテクスチャも元にそろって読めるので、生データを比べられる)。
             string texPath = _assets.WritePng("src", px, W, H, readable: true);
@@ -71,8 +71,7 @@ namespace Iroca.EditorTests
             byte[] matBefore = System.IO.File.ReadAllBytes(TestAssets.Abs(matPath));
             byte[] texBefore = System.IO.File.ReadAllBytes(TestAssets.Abs(texPath));
 
-            var zone = new ColorZone
-            {
+            var zone = new ColorZone {
                 sampleColor = new Color(200 / 255f, 40 / 255f, 40 / 255f),
                 sampleColorSet = true,
                 targetColor = new Color(0.1f, 0.6f, 0.2f),
@@ -115,20 +114,16 @@ namespace Iroca.EditorTests
             var center = recolored[(H / 2) * W + W / 2];
             Assert.Greater(center.g, center.r, $"色替えされていない: {center}");
             var fresh = RecipeTextureBuilder.CreateMatching(recolored, w, h, src);
-            try
-            {
+            try {
                 CollectionAssert.AreEqual(fresh.GetRawTextureData(), tex.GetRawTextureData(),
                     "差し込まれたテクスチャがレシピから作ったものと違う");
-            }
-            finally
-            {
+            } finally {
                 Object.DestroyImmediate(fresh);
             }
         }
 
         [Test]
-        public void ProcessAvatar_RecolorsMaterialsSwitchedByAnimation()
-        {
+        public void ProcessAvatar_RecolorsMaterialsSwitchedByAnimation() {
             string texPath = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
             var importer = (TextureImporter)AssetImporter.GetAtPath(texPath);
             importer.streamingMipmaps = true;   // 上のテストと同じ理由(VRChat 向けの取り込み設定にそろえる)
@@ -141,8 +136,7 @@ namespace Iroca.EditorTests
             var alt = new Material(Shader.Find("Standard")) { mainTexture = src };
             AssetDatabase.CreateAsset(alt, _assets.Folder + "/alt.mat");
 
-            var zone = new ColorZone
-            {
+            var zone = new ColorZone {
                 sampleColor = new Color(200 / 255f, 40 / 255f, 40 / 255f),
                 sampleColorSet = true,
                 targetColor = new Color(0.1f, 0.6f, 0.2f),
@@ -205,8 +199,7 @@ namespace Iroca.EditorTests
 
         // ───────────── アニメーターの拡張は要るときだけ開く ─────────────
 
-        private nadena.dev.ndmf.BuildContext NewContext()
-        {
+        private nadena.dev.ndmf.BuildContext NewContext() {
             var root = new GameObject("avatar");
             _created.Add(root);
             root.AddComponent<Animator>();
@@ -219,11 +212,9 @@ namespace Iroca.EditorTests
             => Iroca.NdmfIntegration.AnimatorServicesOnDemand.IsActive<T>(ctx);
 
         [Test]
-        public void AnimatorServices_OpenedOnlyWhenAsked_AndClosedAfterward()
-        {
+        public void AnimatorServices_OpenedOnlyWhenAsked_AndClosedAfterward() {
             var ctx = NewContext();
-            using (var animators = new Iroca.NdmfIntegration.AnimatorServicesOnDemand(ctx))
-            {
+            using (var animators = new Iroca.NdmfIntegration.AnimatorServicesOnDemand(ctx)) {
                 Assert.IsFalse(Active<nadena.dev.ndmf.animator.AnimatorServicesContext>(ctx),
                     "取り出す前に開いた(いろかを使わないアバターでも開くことになる)");
                 Assert.IsNotNull(animators.Get());
@@ -236,20 +227,17 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void AnimatorServices_AlreadyOpenByAnEarlierPass_AreLeftOpen()
-        {
+        public void AnimatorServices_AlreadyOpenByAnEarlierPass_AreLeftOpen() {
             var ctx = NewContext();
             ctx.ActivateExtensionContextRecursive<nadena.dev.ndmf.animator.AnimatorServicesContext>();
-            try
-            {
-                using (var animators = new Iroca.NdmfIntegration.AnimatorServicesOnDemand(ctx))
+            try {
+                using (var animators = new Iroca.NdmfIntegration.AnimatorServicesOnDemand(ctx)) {
                     Assert.AreSame(ctx.Extension<nadena.dev.ndmf.animator.AnimatorServicesContext>(), animators.Get());
+                }
                 // 前のパス(MA など)から開いているものは NDMF が管理しているので、閉じると後続のパスが使えなくなる。
                 Assert.IsTrue(Active<nadena.dev.ndmf.animator.AnimatorServicesContext>(ctx), "前から開いていたものを閉じた");
                 Assert.IsTrue(Active<nadena.dev.ndmf.animator.VirtualControllerContext>(ctx), "前から開いていたものを閉じた");
-            }
-            finally
-            {
+            } finally {
                 ctx.DeactivateAllExtensionContexts();
             }
         }

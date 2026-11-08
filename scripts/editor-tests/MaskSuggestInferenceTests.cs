@@ -6,8 +6,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// AI マスク提案の実推論。Unity 2022.3（Sentis 2.1）と Unity 6（Inference Engine 2.2 以降）で、
     /// 同じコードが「パッケージを読み込み、モデルを変換・ロードし、推論して、クリックした物の形を返す」
@@ -15,60 +14,57 @@ namespace Iroca.EditorTests
     /// 合成画像（灰地の赤い円）の中心をクリックし、円と提案マスクの IoU を測る。
     /// IROCA_AI_REPORT にパスがあれば、環境ごとの値を比べられるよう 1 行追記する。
     /// </summary>
-    public class MaskSuggestInferenceTests
-    {
+    public class MaskSuggestInferenceTests {
         const int Size = 256;
         const float Radius = 70f;
         const double TimeoutSeconds = 600;
 
-        static Color32[] DiscImage()
-        {
+        static Color32[] DiscImage() {
             var px = new Color32[Size * Size];
             float c = (Size - 1) * 0.5f;
-            for (int y = 0; y < Size; y++)
-                for (int x = 0; x < Size; x++)
-                {
+            for (int y = 0; y < Size; y++) {
+                for (int x = 0; x < Size; x++) {
                     bool inside = (x - c) * (x - c) + (y - c) * (y - c) <= Radius * Radius;
                     px[y * Size + x] = inside ? new Color32(200, 30, 30, 255) : new Color32(150, 150, 150, 255);
                 }
+            }
             return px;
         }
 
-        static IEnumerator WaitFor(System.Func<bool> done, string what)
-        {
+        static IEnumerator WaitFor(System.Func<bool> done, string what) {
             double end = EditorApplication.timeSinceStartup + TimeoutSeconds;
-            while (!done())
-            {
-                if (EditorApplication.timeSinceStartup > end)
+            while (!done()) {
+                if (EditorApplication.timeSinceStartup > end) {
                     Assert.Fail($"{what} が {TimeoutSeconds} 秒で終わりませんでした（Phase={MaskSuggestBridge.Service.Phase}, {MaskSuggestBridge.Service.ErrorMessage}）");
+                }
                 yield return null;
             }
         }
 
         [UnityTest, Timeout(1200000)]
-        public IEnumerator Suggestion_ForSyntheticDisc_CoversTheDisc()
-        {
+        public IEnumerator Suggestion_ForSyntheticDisc_CoversTheDisc() {
             var svc = MaskSuggestBridge.Service;
-            if (svc == null) Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
-            if (!MaskSuggestBridge.ModelFilesPresent) Assert.Ignore("AI モデルが未配置");
+            if (svc == null) {
+                Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
+            }
+            if (!MaskSuggestBridge.ModelFilesPresent) {
+                Assert.Ignore("AI モデルが未配置");
+            }
 
             // 画面を持たない batchmode（-nographics）では、GPUCompute を選んだ推論エンジンが
             // 「Kernel ... not found」を LogError で出してから Iroca が CPU へ切り替える。
             // その切り替え後に推論が通ることを見たいので、ここだけエラーログで落とさない。
             LogAssert.ignoreFailingMessages = true;
-            try
-            {
+            try {
                 yield return RunDiscSuggestion(svc, "iroca-test-disc");
                 // いろかのウィンドウを閉じたとき(推論のワーカーを手放す)の後も、作り直して同じように取れる。
                 // 別の鍵にして、エンコーダーも作り直したワーカーで走らせる。
                 svc.ReleaseGpuResources();
                 yield return RunDiscSuggestion(svc, "iroca-test-disc-after-release");
-            }
-            finally { LogAssert.ignoreFailingMessages = false; }
+            } finally { LogAssert.ignoreFailingMessages = false; }
         }
 
-        static IEnumerator RunDiscSuggestion(IMaskSuggestService svc, string sourceKey)
-        {
+        static IEnumerator RunDiscSuggestion(IMaskSuggestService svc, string sourceKey) {
             Assert.IsTrue(svc.TryEnsureModels(), $"モデルのロード失敗: {svc.ErrorMessage}");
             Assert.AreEqual(MaskSuggestPhase.Idle, svc.Phase, svc.ErrorMessage);
 
@@ -95,20 +91,25 @@ namespace Iroca.EditorTests
 
             float c = (Size - 1) * 0.5f;
             int inter = 0, union = 0;
-            for (int y = 0; y < Size; y++)
-                for (int x = 0; x < Size; x++)
-                {
+            for (int y = 0; y < Size; y++) {
+                for (int x = 0; x < Size; x++) {
                     bool truth = (x - c) * (x - c) + (y - c) * (y - c) <= Radius * Radius;
                     bool got = gotMask[y * Size + x];
-                    if (truth && got) inter++;
-                    if (truth || got) union++;
+                    if (truth && got) {
+                        inter++;
+                    }
+                    if (truth || got) {
+                        union++;
+                    }
                 }
+            }
             float iou = union == 0 ? 0f : inter / (float)union;
 
             string report = System.Environment.GetEnvironmentVariable("IROCA_AI_REPORT");
-            if (!string.IsNullOrEmpty(report))
+            if (!string.IsNullOrEmpty(report)) {
                 System.IO.File.AppendAllText(report,
                     $"{Application.unityVersion}\tcpu={svc.UsesCpuBackend}\tiou={iou:F4}\tscore={proposal.score:F4}\tarea={proposal.areaFrac:F4}\n");
+            }
 
             Assert.GreaterOrEqual(iou, 0.9f, $"円を取れていない（IoU {iou:F3}, score {proposal.score:F3}）");
         }
@@ -117,15 +118,17 @@ namespace Iroca.EditorTests
         // (TryEnsureModels)を通らずに元だけが渡される(AiSuggestBroker.Prepare)。そのときも作り直して解析し、
         // ワーカーが無いことを GPU の失敗と取り違えて CPU へ落ちない(落ちると次のリロードまで遅いまま)。
         [UnityTest, Timeout(1200000)]
-        public IEnumerator SetSource_AfterReleasingTheWorkers_RecreatesThemWithTheSameBackend()
-        {
+        public IEnumerator SetSource_AfterReleasingTheWorkers_RecreatesThemWithTheSameBackend() {
             var svc = MaskSuggestBridge.Service;
-            if (svc == null) Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
-            if (!MaskSuggestBridge.ModelFilesPresent) Assert.Ignore("AI モデルが未配置");
+            if (svc == null) {
+                Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
+            }
+            if (!MaskSuggestBridge.ModelFilesPresent) {
+                Assert.Ignore("AI モデルが未配置");
+            }
 
             LogAssert.ignoreFailingMessages = true;   // -nographics のときの GPU の失敗は上のテストと同じ
-            try
-            {
+            try {
                 // 別の鍵で 1 回解析して、この環境で動くバックエンドに落ち着かせる。
                 yield return RunDiscSuggestion(svc, "iroca-test-disc-before-release");
                 bool cpuBefore = svc.UsesCpuBackend;
@@ -139,18 +142,18 @@ namespace Iroca.EditorTests
                     "ワーカーを手放した後の解析");
                 Assert.AreEqual(MaskSuggestPhase.Idle, svc.Phase, svc.ErrorMessage);
                 Assert.AreEqual(cpuBefore, svc.UsesCpuBackend, "ワーカーが無いだけなのにバックエンドが変わった");
-            }
-            finally { LogAssert.ignoreFailingMessages = false; }
+            } finally { LogAssert.ignoreFailingMessages = false; }
         }
 
         [Test]
-        public void LeftoverModelImportFolders_OnlyIrocasOwnAreRemoved()
-        {
+        public void LeftoverModelImportFolders_OnlyIrocasOwnAreRemoved() {
             // モデルの変換の途中で Unity が落ちると Assets に一時フォルダが残る。次の変換の前に、
             // 名前が一時フォルダの形で中身がいろかのモデルだけのものに限って消す（AI 統合アセンブリの内部なので
             // 名前で呼ぶ）。
             var repo = System.Type.GetType("Iroca.SentisIntegration.SentisModelRepository, Iroca.SentisIntegration");
-            if (repo == null) Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
+            if (repo == null) {
+                Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
+            }
             var sweep = repo.GetMethod("DeleteLeftoverTempDirs",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
             Assert.IsNotNull(sweep, "片付けの関数が見つからない（名前を変えたらこのテストも直す）");
@@ -160,11 +163,9 @@ namespace Iroca.EditorTests
             string withUserFile = Dir(System.Guid.NewGuid().ToString("N"));
             string otherName = Dir("mine");
             var dirs = new[] { ours, withUserFile, otherName };
-            try
-            {
+            try {
                 // 取り込ませない（AssetDatabase を更新しない）ので、ファイルを直接置く。
-                foreach (var d in dirs)
-                {
+                foreach (var d in dirs) {
                     System.IO.Directory.CreateDirectory(d);
                     System.IO.File.WriteAllText(System.IO.Path.Combine(d, "mobile_sam_encoder.onnx"), "x");
                 }
@@ -175,11 +176,12 @@ namespace Iroca.EditorTests
                 Assert.IsFalse(System.IO.Directory.Exists(ours), "残った一時フォルダを消していない");
                 Assert.IsTrue(System.IO.Directory.Exists(withUserFile), "ほかのファイルが入ったフォルダを消した");
                 Assert.IsTrue(System.IO.Directory.Exists(otherName), "一時フォルダの形でない名前のフォルダを消した");
-            }
-            finally
-            {
-                foreach (var d in dirs)
-                    if (System.IO.Directory.Exists(d)) System.IO.Directory.Delete(d, recursive: true);
+            } finally {
+                foreach (var d in dirs) {
+                    if (System.IO.Directory.Exists(d)) {
+                        System.IO.Directory.Delete(d, recursive: true);
+                    }
+                }
             }
         }
     }

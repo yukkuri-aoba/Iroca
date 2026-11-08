@@ -5,31 +5,27 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 編集中の文書(<see cref="EditingSession"/>)のゾーンの操作。1 回の操作が Undo 1 ステップで戻ること、ゾーンを
     /// 消すとそのマスクも消えて、戻すとゾーンとマスクがそろって戻ること、新しいゾーンの名前と初期値。
     /// Undo の書き戻しは Unity のシリアライザが行うので、実機で見る(文書の中身をそのまま Undo の対象にする)。
     /// </summary>
-    public class EditingSessionZoneTests
-    {
+    public class EditingSessionZoneTests {
         private const int W = 5, H = 3;
 
         private IrocaEditingDocument _host;
         private EditingSession _editing;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _host = ScriptableObject.CreateInstance<IrocaEditingDocument>();
             _editing = new EditingSession(_host);
             Undo.ClearUndo(_host);
         }
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             Undo.ClearUndo(_host);
             _editing.Masks.Clear();
             _editing.MaskHistory.Clear();
@@ -39,8 +35,7 @@ namespace Iroca.EditorTests
         private System.Collections.Generic.List<ColorZone> Zones => _host.session.zones;
 
         // 操作ごとに Undo グループを分ける(同じグループだと 1 ステップに合流する)。
-        private T Step<T>(System.Func<T> op)
-        {
+        private T Step<T>(System.Func<T> op) {
             Undo.IncrementCurrentGroup();
             T r = op();
             Undo.IncrementCurrentGroup();
@@ -49,23 +44,24 @@ namespace Iroca.EditorTests
 
         private static string NumberedName(int n) => string.Format(Localization.NewZoneNameFormat, n);
 
-        private static bool[] Pattern(int seed)
-        {
+        private static bool[] Pattern(int seed) {
             var m = new bool[W * H];
-            for (int i = 0; i < m.Length; i++) m[i] = (i * 7 + seed) % 3 == 0;
+            for (int i = 0; i < m.Length; i++) {
+                m[i] = (i * 7 + seed) % 3 == 0;
+            }
             return m;
         }
 
-        private static bool[] ToBools(NativeBitMask m)
-        {
+        private static bool[] ToBools(NativeBitMask m) {
             var b = new bool[m.Length];
-            for (int i = 0; i < b.Length; i++) b[i] = m.Get(i);
+            for (int i = 0; i < b.Length; i++) {
+                b[i] = m.Get(i);
+            }
             return b;
         }
 
         [Test]
-        public void NewZone_TakesSmallestFreeNumberAndStartsTuned()
-        {
+        public void NewZone_TakesSmallestFreeNumberAndStartsTuned() {
             Zones.Add(new ColorZone { name = NumberedName(1) });
             Zones.Add(new ColorZone { name = NumberedName(3) });
             var z = EditingSession.NewZone(Zones);
@@ -77,8 +73,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void AddZoneFromSample_IsOneUndoStep()
-        {
+        public void AddZoneFromSample_IsOneUndoStep() {
             var c = new Color(0.8f, 0.2f, 0.2f);
             var uv = new Vector2(0.25f, 0.75f);
             int index = Step(() => _editing.AddZoneFromSample(c, uv));
@@ -95,8 +90,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void RemoveZone_DropsItsMasksAndUndoBringsBothBack()
-        {
+        public void RemoveZone_DropsItsMasksAndUndoBringsBothBack() {
             Step(() => _editing.AddZone());
             Step(() => _editing.AddZone());
             string gone = Zones[0].id, kept = Zones[1].id;
@@ -126,8 +120,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void RemoveZone_OutOfRangeDoesNothing()
-        {
+        public void RemoveZone_OutOfRangeDoesNothing() {
             Assert.IsFalse(_editing.RemoveZoneAt(0));
             Step(() => _editing.AddZone());
             Assert.IsFalse(_editing.RemoveZoneAt(1));
@@ -136,9 +129,10 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void MoveZone_ReordersAsOneUndoStep()
-        {
-            for (int i = 0; i < 3; i++) Step(() => _editing.AddZone());
+        public void MoveZone_ReordersAsOneUndoStep() {
+            for (int i = 0; i < 3; i++) {
+                Step(() => _editing.AddZone());
+            }
             string a = Zones[0].id, b = Zones[1].id, c = Zones[2].id;
             Assert.IsFalse(_editing.MoveZone(1, 1), "同じ位置");
             Assert.IsFalse(_editing.MoveZone(0, 3), "範囲外");
@@ -150,8 +144,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void FloodFillSeed_SetOnlyWhenChangedAndUndoable()
-        {
+        public void FloodFillSeed_SetOnlyWhenChangedAndUndoable() {
             Step(() => _editing.AddZone());
             var seed = new Vector2(0.4f, 0.6f);
             Assert.IsTrue(Step(() => _editing.SetFloodFillSeed(Zones[0], seed)));
@@ -166,8 +159,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Operations_NotifyContentOnceAndOnlyWhenSomethingChanged()
-        {
+        public void Operations_NotifyContentOnceAndOnlyWhenSomethingChanged() {
             var got = new System.Collections.Generic.List<EditChange>();
             _editing.Changed += got.Add;
             int Count() { int n = got.Count; got.Clear(); return n; }
@@ -194,8 +186,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Autosave_IsScheduledByChangesUntilStopped()
-        {
+        public void Autosave_IsScheduledByChangesUntilStopped() {
             var autosave = new AutosaveSchedule(() => false, () => { });
             autosave.Start(_editing);
             Assert.IsFalse(autosave.IsPending);
@@ -208,8 +199,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ResetZoneTuning_KeepsChoicesAndIsUndoable()
-        {
+        public void ResetZoneTuning_KeepsChoicesAndIsUndoable() {
             Step(() => _editing.AddZone());
             var z = Zones[0];
             z.tolerance = 0.35f;

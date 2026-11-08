@@ -3,14 +3,12 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 新しい版のお知らせ(<see cref="UpdateCheck"/>)の帯と、それを止める Preferences の項目。
     /// 更新は VCC / ALCOM で行うので、ここでは変更履歴とマニュアルの手順へ案内するだけにする。
     /// </summary>
-    internal static class UpdateNotice
-    {
+    internal static class UpdateNotice {
         public const string PreferencesPath = "Preferences/いろか";
         const string ManualAnchor = "#install-update";
 
@@ -18,39 +16,42 @@ namespace Iroca
         /// いろかのウィンドウに出す帯。頃合いなら確認も始める(ウィンドウを開いた人だけが通信する)。
         /// 新しい版が無ければ何も描かない。
         /// </summary>
-        public static void DrawBanner()
-        {
+        public static void DrawBanner() {
             UpdateCheck.CheckIfDue();
             string latest = UpdateCheck.AvailableVersion;
-            if (latest == null) return;
+            if (latest == null) {
+                return;
+            }
 
             EditorGUILayout.Space(2);
             EditorGUILayout.HelpBox(
                 string.Format(Localization.UpdateNoticeFormat, latest, UpdateCheck.CurrentVersion),
                 MessageType.Info);
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(TempContent.Of(Localization.UpdateNoticeChanges, Localization.UpdateNoticeChangesTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.UpdateNoticeChanges, Localization.UpdateNoticeChangesTooltip))) {
                 Application.OpenURL(UpdateCheck.ChangelogUrl);
-            if (GUILayout.Button(TempContent.Of(Localization.UpdateNoticeHowTo, Localization.UpdateNoticeHowToTooltip)))
+            }
+            if (GUILayout.Button(TempContent.Of(Localization.UpdateNoticeHowTo, Localization.UpdateNoticeHowToTooltip))) {
                 Application.OpenURL(IrocaManual.OnlineUrl + ManualAnchor);
-            if (GUILayout.Button(TempContent.Of(Localization.UpdateNoticeDismiss, Localization.UpdateNoticeDismissTooltip)))
+            }
+            if (GUILayout.Button(TempContent.Of(Localization.UpdateNoticeDismiss, Localization.UpdateNoticeDismissTooltip))) {
                 UpdateCheck.Dismiss(latest);
+            }
             EditorGUILayout.EndHorizontal();
         }
 
         [SettingsProvider]
-        static SettingsProvider CreatePreferences()
-        {
-            return new SettingsProvider(PreferencesPath, SettingsScope.User)
-            {
+        static SettingsProvider CreatePreferences() {
+            return new SettingsProvider(PreferencesPath, SettingsScope.User) {
                 label = Localization.PreferencesLabel,
-                guiHandler = _ =>
-                {
+                guiHandler = _ => {
                     EditorGUILayout.Space(4);
                     bool enabled = EditorGUILayout.ToggleLeft(
                         TempContent.Of(Localization.UpdateCheckToggle, Localization.UpdateCheckToggleTooltip),
                         UpdateCheck.Enabled);
-                    if (enabled != UpdateCheck.Enabled) UpdateCheck.Enabled = enabled;
+                    if (enabled != UpdateCheck.Enabled) {
+                        UpdateCheck.Enabled = enabled;
+                    }
                     EditorGUILayout.LabelField(Localization.UpdateCheckPrivacy, EditorStyles.wordWrappedMiniLabel);
                 },
                 keywords = new[] { "update", "version", "更新", "版" },

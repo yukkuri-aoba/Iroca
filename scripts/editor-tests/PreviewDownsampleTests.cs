@@ -3,29 +3,27 @@
 using NUnit.Framework;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 拡大表示のクロップは、フル解像度の配列から見えている範囲を直接縮小する
     /// (<see cref="PixelProcessor.BoxDownsampleRegion"/>)。以前の「切り出してから
     /// <see cref="PixelProcessor.BoxDownsample"/>」とビット単位で同じ絵になることを確かめる。
     /// </summary>
-    public class PreviewDownsampleTests
-    {
-        private static Color32[] Noise(int w, int h, int seed)
-        {
+    public class PreviewDownsampleTests {
+        private static Color32[] Noise(int w, int h, int seed) {
             var rng = new System.Random(seed);
             var px = new Color32[w * h];
-            for (int i = 0; i < px.Length; i++)
+            for (int i = 0; i < px.Length; i++) {
                 px[i] = new Color32((byte)rng.Next(256), (byte)rng.Next(256), (byte)rng.Next(256), (byte)rng.Next(256));
+            }
             return px;
         }
 
-        private static Color32[] Crop(Color32[] src, int srcW, int x0, int y0, int cw, int ch)
-        {
+        private static Color32[] Crop(Color32[] src, int srcW, int x0, int y0, int cw, int ch) {
             var crop = new Color32[cw * ch];
-            for (int y = 0; y < ch; y++)
+            for (int y = 0; y < ch; y++) {
                 System.Array.Copy(src, (y0 + y) * srcW + x0, crop, y * cw, cw);
+            }
             return crop;
         }
 
@@ -35,8 +33,7 @@ namespace Iroca.EditorTests
         [TestCase(120, 75, 280, 225, 0.8f)]
         [TestCase(399, 0, 1, 300, 0.3f)]
         [TestCase(5, 11, 97, 1, 0.61f)]
-        public void Region_MatchesCropThenDownsample(int x0, int y0, int cw, int ch, float pxPerSrc)
-        {
+        public void Region_MatchesCropThenDownsample(int x0, int y0, int cw, int ch, float pxPerSrc) {
             const int w = 400, h = 300;
             var src = Noise(w, h, x0 * 31 + y0);
             int outW = Mathf.Clamp(Mathf.RoundToInt(cw * pxPerSrc), 1, cw);
@@ -46,33 +43,35 @@ namespace Iroca.EditorTests
             var got = PixelProcessor.BoxDownsampleRegion(src, w, x0, y0, cw, ch, outW, outH, pxPerSrc);
 
             Assert.AreEqual(want.Length, got.Length);
-            for (int i = 0; i < want.Length; i++)
+            for (int i = 0; i < want.Length; i++) {
                 Assert.AreEqual(want[i], got[i], $"画素 {i}");
+            }
         }
 
         // 細長いテクスチャは短い辺が丸めで同じ値になる。短い辺で率を求めると比 1.0 で、下の一部だけが映って絵が崩れた。
         [Test]
-        public unsafe void ProxyToDisplay_TallTexture_CoversTheWholeHeight()
-        {
+        public unsafe void ProxyToDisplay_TallTexture_CoversTheWholeHeight() {
             const int w = 2, proxyH = 512, prevH = 384;
             float scale = PreviewPipeline.ProxyToDisplayScale(w, proxyH, w, prevH);
             Assert.AreEqual(0.75f, scale, 1e-5f);
 
             // 行の番号を色にした細長い画像を縮めると、最後の行は元の最後の方の行になる。
             var src = new Color32[w * proxyH];
-            for (int y = 0; y < proxyH; y++)
-                for (int x = 0; x < w; x++)
+            for (int y = 0; y < proxyH; y++) {
+                for (int x = 0; x < w; x++) {
                     src[y * w + x] = new Color32((byte)(y * 255 / (proxyH - 1)), 0, 0, 255);
+                }
+            }
             var dst = new Color32[w * prevH];
             fixed (Color32* s = src)
-            fixed (Color32* d = dst)
+            fixed (Color32* d = dst) {
                 PixelProcessor.BoxDownsampleInto(s, w, proxyH, d, w, prevH, scale);
+            }
             Assert.Greater(dst[(prevH - 1) * w].r, 250, "元の最後の行まで届いていない");
         }
 
         [Test]
-        public void Region_RejectsOutOfRange()
-        {
+        public void Region_RejectsOutOfRange() {
             var src = new Color32[100 * 50];
             Assert.Throws<System.ArgumentOutOfRangeException>(() =>
                 PixelProcessor.BoxDownsampleRegion(src, 100, 90, 0, 20, 10, 10, 5, 0.5f));

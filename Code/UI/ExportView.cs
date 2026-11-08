@@ -6,15 +6,13 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 単体出力 / 一括適用の UI 描画と PNG 書き出しを担当する。
     /// プレビュー生成・プリセット管理・マスク編集には関与しない。
     /// </summary>
     [System.Serializable]
-    internal class ExportView
-    {
+    internal class ExportView {
         public bool batchFoldout;
         public List<Texture2D> batchTextures = new List<Texture2D>();
 
@@ -48,8 +46,7 @@ namespace Iroca
         [System.NonSerialized] private readonly PreviewJob<ExportPayload> _exportJob = new PreviewJob<ExportPayload>();
         [System.NonSerialized] private readonly PreviewJobProgress _exportProgress = new PreviewJobProgress();
 
-        private struct ExportPayload
-        {
+        private struct ExportPayload {
             public string outputPath;
             public string srcPath;
             public bool inheritImportSettings;
@@ -65,13 +62,11 @@ namespace Iroca
         /// <summary>進捗バーに出している進み(%)。ウィンドウはこれが変わったときだけ描き直す(IrocaWindow.TickRepaintWatch)。</summary>
         internal int ProgressPercent => Mathf.RoundToInt(_exportProgress.Value * 100f);
 
-        public void Initialize(IrocaWindow host)
-        {
+        public void Initialize(IrocaWindow host) {
             _host = host;
         }
 
-        public void Dispose()
-        {
+        public void Dispose() {
             _exportJob.Dispose();
         }
 
@@ -82,9 +77,10 @@ namespace Iroca
         /// スクリプトの再読み込みが始まるときに呼ぶ。書き込みはメインスレッドへ戻ってから行うが、戻る予定は再読み込みで消えるので、
         /// 走っている書き出しは止めて知らせる(知らせないと、ファイルが書かれないまま何も出ない)。文は保存されるので再読み込みの後も残る。
         /// </summary>
-        internal void CancelForReload()
-        {
-            if (!_exportJob.IsRunning) return;
+        internal void CancelForReload() {
+            if (!_exportJob.IsRunning) {
+                return;
+            }
             _exportJob.Cancel();
             _lastError = Localization.ExportInterruptedByReload;
             Debug.LogWarning("[Iroca] " + _lastError);
@@ -93,8 +89,7 @@ namespace Iroca
         }
 
         // 並びと高さは GetSectionHeight と対で保つ(食い違うとエクスポート欄が画面外へ押し出される)。
-        public void DrawExportSection()
-        {
+        public void DrawExportSection() {
 #if IROCA_NDMF_PRESENT
             // 非破壊(NDMF)が主: 元のテクスチャを書き換えず、アバターのビルド時にだけ差し替える。
             // テクスチャへの書き出しは、配布する衣装や NDMF を使わない場面のために畳んで残す。
@@ -104,8 +99,9 @@ namespace Iroca
             EditorGUILayout.Space(4);
             textureExportFoldout = EditorGUILayout.Foldout(textureExportFoldout,
                 TempContent.Of(Localization.ExportAsTexture, Localization.ExportAsTextureTooltip), true);
-            if (textureExportFoldout)
+            if (textureExportFoldout) {
                 DrawTextureExport(primary: false);
+            }
 #else
             EditorGUILayout.LabelField(Localization.StepPrefixExport + Localization.Export, EditorStyles.boldLabel);
             // 外側の DisabledScope（IrocaWindow.OnGUI で囲まれる）を壊さないよう、
@@ -118,19 +114,18 @@ namespace Iroca
 #endif
 
             // 直近のエラー（消えない表示）。書き出し欄を畳んでも見えるよう外に置く。
-            if (!string.IsNullOrEmpty(_lastError))
-            {
+            if (!string.IsNullOrEmpty(_lastError)) {
                 EditorGUILayout.HelpBox(_lastError, MessageType.Error);
-                if (GUILayout.Button(TempContent.Of(Localization.DismissError, Localization.DismissErrorTooltip)))
+                if (GUILayout.Button(TempContent.Of(Localization.DismissError, Localization.DismissErrorTooltip))) {
                     _lastError = null;
+                }
             }
 
             EditorGUI.EndDisabledGroup();
         }
 
         /// <summary>テクスチャへの書き出し(PNG)。primary のときだけ実行ボタンを大きくする。</summary>
-        private void DrawTextureExport(bool primary)
-        {
+        private void DrawTextureExport(bool primary) {
             var saveAsNewContent = TempContent.Of(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip);
             var inheritContent = TempContent.Of(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip);
             // トグルのラベルが入りきる幅までラベル列を広げる。狭いウィンドウの既定のラベル幅（120）では
@@ -144,8 +139,7 @@ namespace Iroca
 
             inheritImportSettings = EditorGUILayout.Toggle(inheritContent, inheritImportSettings);
 
-            if (saveAsNewFile)
-            {
+            if (saveAsNewFile) {
                 newFileName = EditorGUILayout.TextField(
                     TempContent.Of(Localization.FileName, Localization.FileNameTooltip),
                     newFileName);
@@ -154,62 +148,64 @@ namespace Iroca
 
             // ソロ表示はプレビュー専用。保存すると全ゾーンが適用されるので、
             // 「見えているもの＝保存されるもの」でないことをここで明示する。
-            if (_host.SoloZone != null)
+            if (_host.SoloZone != null) {
                 EditorGUILayout.HelpBox(Localization.ExportSoloWarning, MessageType.Info);
+            }
 
             var applyContent = TempContent.Of(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip);
-            if (primary ? GUILayout.Button(applyContent, GUILayout.Height(PrimaryButtonHeight)) : GUILayout.Button(applyContent))
-            {
+            if (primary ? GUILayout.Button(applyContent, GUILayout.Height(PrimaryButtonHeight)) : GUILayout.Button(applyContent)) {
                 ApplyRecolor();
             }
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(TempContent.Of(Localization.OpenFolder, Localization.OpenFolderTooltip)))
-            {
+            if (GUILayout.Button(TempContent.Of(Localization.OpenFolder, Localization.OpenFolderTooltip))) {
                 string path = AssetDatabase.GetAssetPath(_host.SourceTexture);
-                if (!string.IsNullOrEmpty(path))
+                if (!string.IsNullOrEmpty(path)) {
                     EditorUtility.RevealInFinder(path);
+                }
             }
             // 保存後に Unity 内で書き出し先へ辿り着く導線。「フォルダを開く」は OS の
             // ファイルマネージャを開くだけで、マテリアルへ差し替える作業には使えなかった。
-            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(_lastSavedAssetPath)))
-            {
-                if (GUILayout.Button(TempContent.Of(Localization.RevealInProject, Localization.RevealInProjectTooltip)))
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(_lastSavedAssetPath))) {
+                if (GUILayout.Button(TempContent.Of(Localization.RevealInProject, Localization.RevealInProjectTooltip))) {
                     RevealLastSavedInProject();
+                }
             }
             EditorGUILayout.EndHorizontal();
         }
 
         /// <summary>非破壊(NDMF)の登録。primary のときだけボタンを大きくする。</summary>
-        private void DrawRegister(bool primary)
-        {
+        private void DrawRegister(bool primary) {
             var registerContent = TempContent.Of(Localization.RegisterNonDestructive, Localization.RegisterNonDestructiveTooltip);
-            if (primary ? GUILayout.Button(registerContent, GUILayout.Height(PrimaryButtonHeight)) : GUILayout.Button(registerContent))
+            if (primary ? GUILayout.Button(registerContent, GUILayout.Height(PrimaryButtonHeight)) : GUILayout.Button(registerContent)) {
                 _host.RegisterToAvatar();
+            }
             var bound = _host.BoundRecipe;
-            if (bound != null)
-            {
+            if (bound != null) {
                 // 表示だけ(差し替えは「いろかで開く」で行う。ここでドロップされても結び付けない)。
-                using (new EditorGUI.DisabledScope(true))
+                using (new EditorGUI.DisabledScope(true)) {
                     EditorGUILayout.ObjectField(TempContent.Of(Localization.BoundRecipe, Localization.BoundRecipeTooltip),
                         bound, typeof(IrocaRecipe), false);
+                }
                 // 読めないレシピ(新しい版のいろかで作られた・壊れた)には保存も登録もしないので、そう知らせる。
-                if (BoundRecipeUnreadable(bound))
+                if (BoundRecipeUnreadable(bound)) {
                     EditorGUILayout.HelpBox(Localization.BoundRecipeUnreadable, MessageType.Warning);
+                }
             }
             // 以前書き出した画像をマテリアルに差していると非破壊が効かないので、登録で戻せることを知らせる。
             int exportUsers = ExportUsersCount();
-            if (exportUsers > 0)
+            if (exportUsers > 0) {
                 EditorGUILayout.HelpBox(string.Format(Localization.ExportUsersHintFormat, exportUsers), MessageType.Info);
+            }
         }
 
         /// <summary>直近に書き出したテクスチャを Project ウィンドウで選択・表示する。</summary>
-        private void RevealLastSavedInProject()
-        {
-            if (string.IsNullOrEmpty(_lastSavedAssetPath)) return;
+        private void RevealLastSavedInProject() {
+            if (string.IsNullOrEmpty(_lastSavedAssetPath)) {
+                return;
+            }
             var asset = AssetDatabase.LoadAssetAtPath<Texture2D>(_lastSavedAssetPath);
-            if (asset == null)
-            {
+            if (asset == null) {
                 // 保存後に消された／移動された。導線を残しておくと押しても無反応になるので畳む。
                 _lastSavedAssetPath = null;
                 return;
@@ -218,8 +214,7 @@ namespace Iroca
             EditorGUIUtility.PingObject(asset);
         }
 
-        public void SetSourceTextureBaseName(string baseNameWithoutExtension)
-        {
+        public void SetSourceTextureBaseName(string baseNameWithoutExtension) {
             newFileName = baseNameWithoutExtension + PathUtils.RecoloredSuffix;
         }
 
@@ -230,8 +225,7 @@ namespace Iroca
         /// IrocaWindow の横並びレイアウトで「上部 + プレビュー領域」の高さ計算に使う。
         /// DrawExportSection と同じ並び・同じ条件で足し合わせる。
         /// </summary>
-        public float GetSectionHeight()
-        {
+        public float GetSectionHeight() {
             float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
 
             float h = lineH;          // 見出しラベル
@@ -239,49 +233,52 @@ namespace Iroca
             h += RegisterHeight(primary: true);
             h += 4f;                  // Space(4)
             h += lineH;               // 「テクスチャとして書き出す」の折りたたみ
-            if (textureExportFoldout)
+            if (textureExportFoldout) {
                 h += TextureExportHeight(primary: false);
+            }
 #else
             h += TextureExportHeight(primary: true);
             h += 4f;                  // Space(4)
             h += NdmfUnavailableHelpBoxHeight();
             h += RegisterHeight(primary: false);
 #endif
-            if (!string.IsNullOrEmpty(_lastError))
+            if (!string.IsNullOrEmpty(_lastError)) {
                 h += 40f + lineH;     // エラー HelpBox +「閉じる」ボタン
+            }
             return h;
         }
 
-        private float TextureExportHeight(bool primary)
-        {
+        private float TextureExportHeight(bool primary) {
             float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
             float h = lineH;          // saveAsNewFile トグル
-            if (saveAsNewFile)
+            if (saveAsNewFile) {
                 h += lineH;           // ファイル名フィールド
+            }
             h += lineH;               // inheritImportSettings トグル
             // HelpBox は内容と幅で高さが変わるため固定では測れない。狭い設定列で 2 行に
             // 折り返す想定の概算を置く。過小だとエクスポートが画面外へ押し出されるので、
             // 切り上げ側（安全側）に取る。
-            if (_host != null && _host.SoloZone != null)
+            if (_host != null && _host.SoloZone != null) {
                 h += 40f;             // ソロ表示中の注意
+            }
             h += primary ? PrimaryButtonHeight + EditorGUIUtility.standardVerticalSpacing : lineH; // ApplyAndSave ボタン
             h += lineH;               // OpenFolder / Project で表示（1 行に横並び）
             return h;
         }
 
-        private float RegisterHeight(bool primary)
-        {
+        private float RegisterHeight(bool primary) {
             float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
             float h = primary ? PrimaryButtonHeight + EditorGUIUtility.standardVerticalSpacing : lineH; // アバターに非破壊で登録
-            if (_host != null && _host.BoundRecipe != null)
-            {
+            if (_host != null && _host.BoundRecipe != null) {
                 h += lineH;           // 保存先のレシピ
-                if (BoundRecipeUnreadable(_host.BoundRecipe))
+                if (BoundRecipeUnreadable(_host.BoundRecipe)) {
                     h += HelpBoxHeight(Localization.BoundRecipeUnreadable);
+                }
             }
             int exportUsers = ExportUsersCount();
-            if (exportUsers > 0)      // 書き出した画像を使うマテリアルの案内
+            if (exportUsers > 0) {      // 書き出した画像を使うマテリアルの案内
                 h += HelpBoxHeight(string.Format(Localization.ExportUsersHintFormat, exportUsers));
+            }
             return h;
         }
 
@@ -291,8 +288,7 @@ namespace Iroca
 
         // 長い HelpBox は縦並び(狭幅)では 3 行以上に折り返すので固定の 40 では足りない。
         // ウィンドウ幅からアイコンと余白ぶんを引いた幅で実測し、40 を下限にする。
-        private static float HelpBoxHeight(string text)
-        {
+        private static float HelpBoxHeight(string text) {
             float textW = Mathf.Max(100f, EditorGUIUtility.currentViewWidth - 60f);
             float measured = EditorStyles.helpBox.CalcHeight(TempContent.Of(text), textW);
             return Mathf.Max(40f, measured) + EditorGUIUtility.standardVerticalSpacing;
@@ -304,14 +300,12 @@ namespace Iroca
         private bool BoundRecipeUnreadable(IrocaRecipe bound)
             => bound != null && !string.IsNullOrEmpty(bound.sessionJson) && !_boundSummary.Readable(bound);
 
-        private int ExportUsersCount()
-        {
+        private int ExportUsersCount() {
             var source = _host != null ? _host.SourceTexture : null;
             var e = Event.current;
             bool layout = e == null || e.type == EventType.Layout;
             double now = EditorApplication.timeSinceStartup;
-            if (layout && (source != _exportUsersFor || now - _exportUsersAt > 2.0))
-            {
+            if (layout && (source != _exportUsersFor || now - _exportUsersAt > 2.0)) {
                 _exportUsersFor = source;
                 _exportUsersAt = now;
                 _exportUsersCount = source != null
@@ -322,17 +316,17 @@ namespace Iroca
         }
 
         // internal は WindowOutputParityTests がボタンを押さずに書き出すため。
-        internal void ApplyRecolor()
-        {
-            if (_exportJob.IsRunning) return;
+        internal void ApplyRecolor() {
+            if (_exportJob.IsRunning) {
+                return;
+            }
 
             // 前回のエラー表示は新しい試行の開始で畳む（成功したのに古い赤が残らないように）。
             _lastError = null;
 
             // 有効なゾーンが無いと無変更ファイルを書き出して「完了」表示になり誤解を生むため、
             // 処理に入る前に止めてユーザーへ誘導する。
-            if (_host.Session == null || !_host.Session.zones.Any(z => z.enabled))
-            {
+            if (_host.Session == null || !_host.Session.zones.Any(z => z.enabled)) {
                 _host?.ShowNotification(new GUIContent(Localization.NoEnabledZones));
                 return;
             }
@@ -340,15 +334,13 @@ namespace Iroca
             // Read/Write は事前条件にしない。原本が PNG/JPG なら直接読めるし、読めない形式は
             // 下のフォールバックが取り込み済みテクスチャを使う（そこで初めて Read/Write が要る）。
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null)
-            {
+            if (sourceTexture == null) {
                 NotifyError(Localization.TextureReadError);
                 return;
             }
 
             string srcPath = AssetDatabase.GetAssetPath(sourceTexture);
-            if (string.IsNullOrEmpty(srcPath))
-            {
+            if (string.IsNullOrEmpty(srcPath)) {
                 NotifyError(Localization.PathNotFound);
                 return;
             }
@@ -356,28 +348,21 @@ namespace Iroca
             // 重い処理のあとでキャンセルされると計算が全て無駄になるので、
             // 確認はユーザー入力の時点（＝処理前）に行う。
             // パッケージの中へは書かない(取り込まれず、パッケージの更新で消える)。
-            if (!saveAsNewFile && !ExportPipeline.CanOverwriteInPlace(srcPath))
-            {
+            if (!saveAsNewFile && !ExportPipeline.CanOverwriteInPlace(srcPath)) {
                 NotifyError(Localization.ExportCannotOverwritePackage);
                 return;
             }
             string outputPath = ExportPipeline.SingleOutputPath(srcPath, saveAsNewFile, newFileName);
-            if (saveAsNewFile)
-            {
-                if (File.Exists(outputPath))
-                {
+            if (saveAsNewFile) {
+                if (File.Exists(outputPath)) {
                     if (!EditorUtility.DisplayDialog(Localization.Confirm,
-                        Localization.FileExistsConfirm(outputPath), Localization.Overwrite, Localization.Cancel))
-                    {
+                        Localization.FileExistsConfirm(outputPath), Localization.Overwrite, Localization.Cancel)) {
                         return;
                     }
                 }
-            }
-            else
-            {
+            } else {
                 var (confirmMessage, confirmOk) = InPlaceSaveConfirm(srcPath, outputPath, File.Exists(outputPath));
-                if (!EditorUtility.DisplayDialog(Localization.Confirm, confirmMessage, confirmOk, Localization.Cancel))
-                {
+                if (!EditorUtility.DisplayDialog(Localization.Confirm, confirmMessage, confirmOk, Localization.Cancel)) {
                     return;
                 }
             }
@@ -396,37 +381,33 @@ namespace Iroca
             NativePixels shared = null;
             int texW = 0, texH = 0;
             bool readInJob;
-            try
-            {
+            try {
                 readInJob = PngFileDecoder.CanDecode(srcPath);
-                if (readInJob) shared = ShareFullResolutionSource(sourceTexture, srcPath);
-                if (!readInJob) source = ExportService.ReadSource(srcPath, sourceTexture, out pixels);
-            }
-            catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException)
-            {
+                if (readInJob) {
+                    shared = ShareFullResolutionSource(sourceTexture, srcPath);
+                }
+                if (!readInJob) {
+                    source = ExportService.ReadSource(srcPath, sourceTexture, out pixels);
+                }
+            } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) {
                 // ほかのソフトが開いている・オンライン専用のファイルなど。例外のままだと欄に理由が出ない。
                 NotifyError(string.Format(Localization.ExportSourceReadFailedFormat, e.Message));
                 return;
             }
-            if (source == ExportPipeline.SourceKind.Unavailable)
-            {
+            if (source == ExportPipeline.SourceKind.Unavailable) {
                 // 原本も取り込み側も読めない。Read/Write を有効にすれば後者が使える。
                 NotifyError(Localization.ExportSourceUnavailable);
                 return;
             }
-            if (pixels != null)
-            {
+            if (pixels != null) {
                 texW = pixels.Width;
                 texH = pixels.Height;
-            }
-            else if (shared != null)
-            {
+            } else if (shared != null) {
                 texW = shared.Width;
                 texH = shared.Height;
             }
 
-            if (source == ExportPipeline.SourceKind.ImportedTexture)
-            {
+            if (source == ExportPipeline.SourceKind.ImportedTexture) {
                 // 取り込み済みテクスチャは maxTextureSize の縮小・圧縮を受けている。出力が原本と
                 // 同じ解像度・画質になるとは限らないので、書き出す前に知らせる。
                 Debug.LogWarning($"[Iroca] Source file could not be decoded ({Path.GetExtension(srcPath)}); "
@@ -457,29 +438,24 @@ namespace Iroca
             _exportProgress.Report(0.05f);
 
             _exportJob.Schedule(
-                work: ct =>
-                {
-                    if (shared != null)
-                    {
+                work: ct => {
+                    if (shared != null) {
                         // 色替えはその場で書き換えるので、プレビューと共有の画素を写してから使う(デコードより速い)。
                         ct.ThrowIfCancellationRequested();
                         pixels = NativePixels.Allocate(shared.Width, shared.Height);
                         pixels.CopyFrom(shared);
                         shared.Release();
                         shared = null;
-                    }
-                    else if (readInJob)
-                    {
-                        try
-                        {
+                    } else if (readInJob) {
+                        try {
                             pixels = TextureIO.TryDecodePngOffMainThread(srcPath, 0, 0, ct);
-                        }
-                        catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException)
-                        {
+                        } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) {
                             throw new System.Exception(string.Format(Localization.ExportSourceReadFailedFormat, e.Message), e);
                         }
                         // 見出しは読めたが画素の途中で壊れている。
-                        if (pixels == null) throw new System.Exception(Localization.ExportSourceUnavailable);
+                        if (pixels == null) {
+                            throw new System.Exception(Localization.ExportSourceUnavailable);
+                        }
                         texW = pixels.Width;
                         texH = pixels.Height;
                     }
@@ -500,24 +476,21 @@ namespace Iroca
                     // InvalidateSourceAndRepaint も走っていない」状態が残る。上書きモードでは
                     // A-2 で塞いだ二重適用経路(プレビューが古い原本画素を握り続ける)が復活する。
                     // 重いのはエンコードでありファイル書き込みではないので、書き込みは apply で行う。
-                    return new ExportPayload
-                    {
+                    return new ExportPayload {
                         outputPath = outputPath,
                         srcPath = srcPath,
                         inheritImportSettings = inheritFlag,
                         png = png,
                     };
                 },
-                apply: payload =>
-                {
+                apply: payload => {
                     // メインスレッド: 書き込み + AssetDatabase 操作(重いエンコードは BG で完了済み)。
                     // ここまで来たらキャンセルされないので、書き込みと取り込みは必ず対で走る。
                     //
                     // PreviewJob は apply で投げた例外を onError へ回さない(BG の例外だけを拾う)。
                     // 書き込みは権限不足・ディスクフル等で普通に失敗し得るので、ここで受けて
                     // BG 失敗時と同じ経路へ流す。放置すると失敗が UI に一切出ない。
-                    try
-                    {
+                    try {
                         // 書き込みはアトミック(書き潰す相手が元テクスチャそのものであり得るため)。
                         string relativePath = ExportService.WriteAndImport(
                             payload.outputPath, payload.png, payload.srcPath, payload.inheritImportSettings);
@@ -528,33 +501,32 @@ namespace Iroca
                         // ソース自身を書き換えたなら、プレビューが握っている「ディスク原本の画素」は
                         // もう古い。捨てないと、次のエクスポートが再着色済みファイルを読み直して
                         // 二重適用になる（プレビューは旧画素を表示し続けるので画面では気づけない）。
-                        if (ExportPipeline.IsSameFile(payload.outputPath, payload.srcPath))
+                        if (ExportPipeline.IsSameFile(payload.outputPath, payload.srcPath)) {
                             _host?.InvalidateSourceAndRepaint();
+                        }
 
                         _exportProgress.Report(1.0f);
                         Debug.Log($"[Iroca] Saved: {payload.outputPath}");
                         // 非モーダル通知: ファイル名のみウィンドウ右下に短時間表示。詳細パスは Debug.Log。
                         _host?.ShowNotification(new GUIContent($"{Localization.Complete}: {Path.GetFileName(payload.outputPath)}"));
-                    }
-                    catch (System.Exception ex)
-                    {
+                    } catch (System.Exception ex) {
                         ReportExportFailure(ex);
-                    }
-                    finally
-                    {
+                    } finally {
                         payload.png.Dispose();
                         // 書き出しの解像度の作業配列を OS へ返す(一括書き出しの末尾と同じ理由)。
-                        if (ReleaseAfterExport()) PixelProcessor.ReleaseWorkBuffersInBackground();
+                        if (ReleaseAfterExport()) {
+                            PixelProcessor.ReleaseWorkBuffersInBackground();
+                        }
                     }
                 },
-                onError: ex =>
-                {
+                onError: ex => {
                     ReportExportFailure(ex);
-                    if (ReleaseAfterExport()) PixelProcessor.ReleaseWorkBuffersInBackground();
+                    if (ReleaseAfterExport()) {
+                        PixelProcessor.ReleaseWorkBuffersInBackground();
+                    }
                 },
                 // 原本の画素は計算の後で(取り消されて計算しなかったときも)返す。
-                cleanup: () =>
-                {
+                cleanup: () => {
                     pixels?.Release();
                     shared?.Release();   // 取り消されて写さなかったとき
                     input.ReleaseMasks();
@@ -570,20 +542,22 @@ namespace Iroca
         /// 作業解像度が元ファイルの寸法のまま(縮めていない)のとき。PNG はどちらも同じデコーダで読むので同じ画素になる。
         /// 確かめられなければ null(今までどおり読み直す)。
         /// </summary>
-        private NativePixels ShareFullResolutionSource(Texture2D tex, string srcPath)
-        {
+        private NativePixels ShareFullResolutionSource(Texture2D tex, string srcPath) {
             var sources = _host?.Editing?.Sources;
-            if (sources == null || sources.Texture != tex || sources.Pixels == null) return null;
-            int fileW, fileH;
-            try
-            {
-                if (!PngFileDecoder.TryReadSize(srcPath, out fileW, out fileH)) return null;
-            }
-            catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException)
-            {
+            if (sources == null || sources.Texture != tex || sources.Pixels == null) {
                 return null;
             }
-            if (sources.Width != fileW || sources.Height != fileH) return null;
+            int fileW, fileH;
+            try {
+                if (!PngFileDecoder.TryReadSize(srcPath, out fileW, out fileH)) {
+                    return null;
+                }
+            } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) {
+                return null;
+            }
+            if (sources.Width != fileW || sources.Height != fileH) {
+                return null;
+            }
             return sources.ShareIfCurrent(tex, srcPath);
         }
 
@@ -595,18 +569,18 @@ namespace Iroca
         /// (PSD と書き出した PNG を並べて置いている素材は多く、黙って失っていた)。
         /// internal は ExportPipelineTests が確かめるため(ダイアログはテストで押せない)。
         /// </summary>
-        internal static (string message, string ok) InPlaceSaveConfirm(string srcPath, string outputPath, bool outputExists)
-        {
-            if (string.Equals(Path.GetExtension(srcPath), ".png", System.StringComparison.OrdinalIgnoreCase))
+        internal static (string message, string ok) InPlaceSaveConfirm(string srcPath, string outputPath, bool outputExists) {
+            if (string.Equals(Path.GetExtension(srcPath), ".png", System.StringComparison.OrdinalIgnoreCase)) {
                 return (Localization.OverwriteConfirm, Localization.Overwrite);
-            if (outputExists)
+            }
+            if (outputExists) {
                 return (Localization.FileExistsConfirm(outputPath), Localization.Overwrite);
+            }
             return (Localization.OverwriteNonPngConfirm(Path.GetFileName(outputPath)), Localization.OK);
         }
 
         /// <summary>エクスポート失敗をログ＋UI 通知へ流す（BG 側と apply 側で共有）。</summary>
-        private void ReportExportFailure(System.Exception ex)
-        {
+        private void ReportExportFailure(System.Exception ex) {
             Debug.LogError($"[Iroca] Export failed: {ex.Message}\n{ex.StackTrace}");
             NotifyError(ex.Message);
         }
@@ -615,8 +589,7 @@ namespace Iroca
         /// エラーを Console に出しつつ Iroca ウィンドウ内に非モーダル通知を表示する。
         /// EditorUtility.DisplayDialog は Editor 全体をブロックするため避ける。
         /// </summary>
-        private void NotifyError(string message)
-        {
+        private void NotifyError(string message) {
             Debug.LogError($"[Iroca] {message}");
             _host?.ShowNotification(new GUIContent($"{Localization.Error}: {message}"));
             // 通知は数秒で消えるので、欄内にも残す（「閉じる」まで消えない）。
@@ -628,23 +601,21 @@ namespace Iroca
         /// IrocaWindow.OnGUI の DisabledScope の外で呼び出すことで、ウィンドウ全体が
         /// 無効化されている状況でもキャンセルだけは押せるようにする。
         /// </summary>
-        public void DrawJobOverlay()
-        {
-            if (!_exportJob.IsRunning) return;
+        public void DrawJobOverlay() {
+            if (!_exportJob.IsRunning) {
+                return;
+            }
 
             float pct = _exportProgress.Value;
             string label = $"{Localization.ApplyAndSave}  {Mathf.RoundToInt(pct * 100f)}%";
-            if (IrocaWindow.DrawJobProgressRow(pct, label))
-            {
+            if (IrocaWindow.DrawJobProgressRow(pct, label)) {
                 _exportJob.Cancel();
             }
         }
 
-        public void DrawBatchSection()
-        {
+        public void DrawBatchSection() {
             batchFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(batchFoldout, Localization.BatchApply);
-            if (!batchFoldout)
-            {
+            if (!batchFoldout) {
                 EditorGUILayout.EndFoldoutHeaderGroup();
                 return;
             }
@@ -653,54 +624,58 @@ namespace Iroca
 
             _batchScrollPos = EditorGUILayout.BeginScrollView(_batchScrollPos, GUILayout.MaxHeight(120));
             int removeIdx = -1;
-            for (int i = 0; i < batchTextures.Count; i++)
-            {
+            for (int i = 0; i < batchTextures.Count; i++) {
                 EditorGUILayout.BeginHorizontal();
                 batchTextures[i] = (Texture2D)EditorGUILayout.ObjectField(
                     batchTextures[i], typeof(Texture2D), false);
                 if (GUILayout.Button(TempContent.Of("×", Localization.RemoveBatchTextureTooltip),
-                        GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth)))
+                        GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth))) {
                     removeIdx = i;
+                }
                 EditorGUILayout.EndHorizontal();
             }
             EditorGUILayout.EndScrollView();
 
-            if (removeIdx >= 0) batchTextures.RemoveAt(removeIdx);
+            if (removeIdx >= 0) {
+                batchTextures.RemoveAt(removeIdx);
+            }
 
-            if (GUILayout.Button(TempContent.Of(Localization.AddBatchTexture, Localization.AddBatchTextureTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.AddBatchTexture, Localization.AddBatchTextureTooltip))) {
                 batchTextures.Add(null);
+            }
 
             var session = _host.Session;
             EditorGUI.BeginDisabledGroup(batchTextures.Count == 0 || session.zones.Count == 0);
-            if (GUILayout.Button(TempContent.Of(Localization.BatchApplyAndSave, Localization.BatchApplyAndSaveTooltip), GUILayout.Height(28)))
+            if (GUILayout.Button(TempContent.Of(Localization.BatchApplyAndSave, Localization.BatchApplyAndSaveTooltip), GUILayout.Height(28))) {
                 RunBatchApply();
+            }
             EditorGUI.EndDisabledGroup();
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
         }
 
-        private void RunBatchApply()
-        {
+        private void RunBatchApply() {
             var session = _host.Session;
             var plannedOutputs = new List<string>();
-            foreach (var tex in batchTextures)
-            {
-                if (tex == null) continue;
+            foreach (var tex in batchTextures) {
+                if (tex == null) {
+                    continue;
+                }
                 string srcPath = AssetDatabase.GetAssetPath(tex);
-                if (string.IsNullOrEmpty(srcPath)) continue;
+                if (string.IsNullOrEmpty(srcPath)) {
+                    continue;
+                }
                 plannedOutputs.Add(ExportPipeline.BatchOutputPath(srcPath));
             }
 
             bool anyExists = plannedOutputs.Any(File.Exists);
-            if (anyExists)
-            {
+            if (anyExists) {
                 if (!EditorUtility.DisplayDialog(
                         Localization.Confirm,
                         Localization.OverwriteConfirm,
                         Localization.Overwrite,
-                        Localization.Cancel))
-                {
+                        Localization.Cancel)) {
                     return;
                 }
             }
@@ -722,19 +697,18 @@ namespace Iroca
             bool otherSize = false;
             // 作業配列を借りる計算の区間(手を止めて 10 秒で空きを返す予約は、この区間が終わったときに入る)。
             NativeMemoryLifecycle.WorkStarted();
-            try
-            {
+            try {
                 AssetDatabase.StartAssetEditing();
-                for (int i = 0; i < batchTextures.Count; i++)
-                {
+                for (int i = 0; i < batchTextures.Count; i++) {
                     var tex = batchTextures[i];
-                    if (tex == null) continue;
+                    if (tex == null) {
+                        continue;
+                    }
 
                     if (EditorUtility.DisplayCancelableProgressBar(
                             Localization.BatchProgress,
                             tex.name,
-                            (float)i / Mathf.Max(1, batchTextures.Count)))
-                    {
+                            (float)i / Mathf.Max(1, batchTextures.Count))) {
                         break;
                     }
 
@@ -742,62 +716,65 @@ namespace Iroca
                     // 1 枚ごとに「Undo できません」のモーダルを出す必要はなかった
                     // （読めない形式は下のフォールバックが取り込み済みテクスチャを使う）。
                     string srcPath = AssetDatabase.GetAssetPath(tex);
-                    if (string.IsNullOrEmpty(srcPath)) continue;
+                    if (string.IsNullOrEmpty(srcPath)) {
+                        continue;
+                    }
 
                     NativePixels pixels = null;
-                    try
-                    {
+                    try {
                         // 読み込み・PNG 化・書き込みは単体書き出しと同じ ExportService を通す
                         // （以前は一括だけ書き込みがアトミックでなかった）。画素も PNG もヒープの外。
                         var source = ExportService.ReadSource(srcPath, tex, out pixels);
                         // 原本も取り込み側も読めない（PSD/TGA 等で Read/Write 無効）。
-                        if (source == ExportPipeline.SourceKind.Unavailable) continue;
-                        if (source == ExportPipeline.SourceKind.ImportedTexture)
-                        {
+                        if (source == ExportPipeline.SourceKind.Unavailable) {
+                            continue;
+                        }
+                        if (source == ExportPipeline.SourceKind.ImportedTexture) {
                             // 取り込み済みテクスチャで代替する（縮小・圧縮の影響を受ける）。以前は黙って
                             // スキップしていたので、完了件数だけを見たユーザーには理由が残らなかった。
                             Debug.LogWarning($"[Iroca] Batch: source file could not be decoded for {tex.name}; "
                                 + $"using the imported texture ({pixels.Width}x{pixels.Height}).");
                         }
 
-                        if (!haveWorkSize || pixels.Width != workW || pixels.Height != workH) otherSize = true;
+                        if (!haveWorkSize || pixels.Width != workW || pixels.Height != workH) {
+                            otherSize = true;
+                        }
                         // リスト先頭のゾーンほど先に処理され、重なった領域を占有する(単体の書き出しと同じ組み立て)。
-                        if (anyZones)
-                        {
+                        if (anyZones) {
                             var batchInput = RecolorInput.FromEditing(session, masks?.AddRef());
-                            try { ExportService.Recolor(pixels, batchInput); }
-                            finally { batchInput.ReleaseMasks(); }
+                            try { ExportService.Recolor(pixels, batchInput); } finally { batchInput.ReleaseMasks(); }
                         }
 
                         string outPath = ExportPipeline.BatchOutputPath(srcPath);
-                        using (var png = ExportService.EncodePng(pixels))
+                        using (var png = ExportService.EncodePng(pixels)) {
                             ExportService.WriteAndImport(outPath, png, srcPath, inheritImportSettings);
-                        if (ExportPipeline.IsSameFile(outPath, previewSrcPath)) previewSourceOverwritten = true;
+                        }
+                        if (ExportPipeline.IsSameFile(outPath, previewSrcPath)) {
+                            previewSourceOverwritten = true;
+                        }
                         success++;
-                    }
-                    catch (System.Exception ex)
-                    {
+                    } catch (System.Exception ex) {
                         Debug.LogWarning($"[Iroca] Batch apply failed for {tex.name}: {ex.Message}");
-                    }
-                    finally
-                    {
+                    } finally {
                         pixels?.Release();
                     }
                 }
-            }
-            finally
-            {
+            } finally {
                 masks?.Release();
                 NativeMemoryLifecycle.WorkEnded();
                 AssetDatabase.StopAssetEditing();
                 EditorUtility.ClearProgressBar();
             }
 
-            if (previewSourceOverwritten) _host?.InvalidateSourceAndRepaint();
+            if (previewSourceOverwritten) {
+                _host?.InvalidateSourceAndRepaint();
+            }
             // 書き出しは元の解像度で処理するので、作業解像度で編集しているとその解像度の作業配列が丸ごと残る
             // (8K で約 3GB)。違う寸法を書き出したときは、使っていない分を OS へ返す(次のプレビューは新しく確保し直す)。
             // 同じ寸法だけなら残す(10 秒手を止めれば、空きは NativeMemoryLifecycle が返す)。
-            if (otherSize) PixelProcessor.ReleaseWorkBuffersInBackground();
+            if (otherSize) {
+                PixelProcessor.ReleaseWorkBuffersInBackground();
+            }
 
             EditorUtility.DisplayDialog(Localization.Complete,
                 Localization.BatchComplete(success), Localization.OK);

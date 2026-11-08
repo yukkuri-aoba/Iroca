@@ -4,8 +4,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine.Networking;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// AI マスク提案モデル(ONNX ペア)のモデル専用リポジトリ(raw ブランチ取得)からのダウンロード。
     /// ユーザーの明示ボタン操作でのみ開始し、sha256 検証後に
@@ -13,8 +12,7 @@ namespace Iroca
     /// ネットワーク不可・検証失敗時は部分ファイルを残さない(手動配置のフォールバックは
     /// フォルダを開くボタンと マニュアルの手順で案内する)。
     /// </summary>
-    internal static class MaskSuggestModelDownload
-    {
+    internal static class MaskSuggestModelDownload {
         // AI モデルは本体と分離した「モデル専用リポジトリ」の main ブランチ直下に置き、
         // raw で取得する。GitHub Release の儀式(タグ/資産アップロード)が不要で、main へ
         // push した時点で即配布される。
@@ -33,8 +31,7 @@ namespace Iroca
         // 検証できないため、それだけだと配布元異常や経路上の改竄で無制限に書き込まれ得る
         // (ストール検知は「止まる」側にしか効かず、「流れ続ける」側は素通りする)。
         // 正しいファイルはこのサイズちょうどなので、超過した時点で異常と判断してよい。
-        static readonly (string file, string sha256, long size)[] Files =
-        {
+        static readonly (string file, string sha256, long size)[] Files = {
             ("mobile_sam_encoder.onnx", "25fb1f619027c2e81a7e54425c148e16e99990c8f0d83eefd29a0f4495a75865", 27969755L),
             ("mobile_sam_decoder.onnx", "2196a2a4b153528d00383c7c6a363dd765725c10097bb06233917b171d8ceda4", 16353451L),
         };
@@ -52,11 +49,11 @@ namespace Iroca
         public static string Error { get; private set; }
 
         /// <summary>全体進捗 0..1(ファイル数で均等割り)。</summary>
-        public static float Progress
-        {
-            get
-            {
-                if (!InProgress) return 0f;
+        public static float Progress {
+            get {
+                if (!InProgress) {
+                    return 0f;
+                }
                 float cur = _request != null ? _request.downloadProgress : 0f;
                 return (_fileIndex + UnityEngine.Mathf.Clamp01(cur)) / Files.Length;
             }
@@ -68,36 +65,32 @@ namespace Iroca
         /// では、壊れたファイルや別物を手動配置した場合も「揃っている」扱いになり、取り直しの
         /// 導線が出なかった。44 MB を読むので、描画のたびではなくボタン操作時だけ呼ぶこと。
         /// </summary>
-        public static bool LocalModelsMatchRelease()
-        {
-            try
-            {
-                foreach (var (file, sha256, size) in Files)
-                {
+        public static bool LocalModelsMatchRelease() {
+            try {
+                foreach (var (file, sha256, size) in Files) {
                     string path = Path.Combine(MaskSuggestBridge.ModelsDirectory, file);
-                    if (!File.Exists(path) || new FileInfo(path).Length != size) return false;
-                    if (!string.Equals(Sha256Of(path), sha256, System.StringComparison.OrdinalIgnoreCase))
+                    if (!File.Exists(path) || new FileInfo(path).Length != size) {
                         return false;
+                    }
+                    if (!string.Equals(Sha256Of(path), sha256, System.StringComparison.OrdinalIgnoreCase)) {
+                        return false;
+                    }
                 }
                 return true;
-            }
-            catch
-            {
+            } catch {
                 return false;
             }
         }
 
         /// <summary>ダウンロードを開始する(進行中なら no-op)。完了/失敗は状態プロパティで観測する。</summary>
-        public static void Start()
-        {
-            if (InProgress) return;
-            Error = null;
-            try
-            {
-                Directory.CreateDirectory(MaskSuggestBridge.ModelsDirectory);
+        public static void Start() {
+            if (InProgress) {
+                return;
             }
-            catch (System.Exception e)
-            {
+            Error = null;
+            try {
+                Directory.CreateDirectory(MaskSuggestBridge.ModelsDirectory);
+            } catch (System.Exception e) {
                 // ここで例外を投げると UI のボタンハンドラへ素通しになり、Error にも載らないため
                 // 画面には何も出ない（押しても無反応に見える）。Error に載せて表示させる。
                 Error = string.Format(Localization.AiErrModelDirFormat, e.Message);
@@ -116,53 +109,51 @@ namespace Iroca
         }
 
         /// <summary>進行中のダウンロードを中止する(部分ファイルは削除・エラー表示なし)。</summary>
-        public static void Cancel()
-        {
-            if (!InProgress) return;
+        public static void Cancel() {
+            if (!InProgress) {
+                return;
+            }
             string tmp = _fileIndex < Files.Length ? TempPath(Files[_fileIndex].file) : null;
             AbortRequest();
             Error = null;
-            try { if (tmp != null && File.Exists(tmp)) File.Delete(tmp); } catch { }
+            try {
+                if (tmp != null && File.Exists(tmp)) {
+                    File.Delete(tmp);
+                }
+            } catch { }
             Finish();
         }
 
-        static void BeginCurrentFile()
-        {
+        static void BeginCurrentFile() {
             var (file, sha, _) = Files[_fileIndex];
 
             // 既に検証済みのファイルが置いてあるなら取り直さない。再試行は常に file 0 から
             // 始まるため、2 個目で失敗するたびに 1 個目(約 20MB)を落とし直していた
             // （レビュー §5 低）。ハッシュ計算は再取得に比べれば桁違いに安い。
-            try
-            {
+            try {
                 string existing = Path.Combine(MaskSuggestBridge.ModelsDirectory, file);
                 if (File.Exists(existing) &&
-                    string.Equals(Sha256Of(existing), sha, System.StringComparison.OrdinalIgnoreCase))
-                {
+                    string.Equals(Sha256Of(existing), sha, System.StringComparison.OrdinalIgnoreCase)) {
                     AdvanceToNextFile();
                     return;
                 }
-            }
-            catch (System.Exception)
-            {
+            } catch (System.Exception) {
                 // 既存ファイルを検証できない場合は再ダウンロードへ進む。
             }
 
             string tmp = TempPath(file);
-            try
-            {
-                if (File.Exists(tmp)) File.Delete(tmp);
-                _request = new UnityWebRequest(BaseUrl + file, UnityWebRequest.kHttpVerbGET)
-                {
+            try {
+                if (File.Exists(tmp)) {
+                    File.Delete(tmp);
+                }
+                _request = new UnityWebRequest(BaseUrl + file, UnityWebRequest.kHttpVerbGET) {
                     // 中止したときは Unity が途中までのファイルを消す(既定では残る)。
                     downloadHandler = new DownloadHandlerFile(tmp) { removeFileOnAbort = true },
                 };
                 _request.SendWebRequest();
                 _lastProgressBytes = 0;
                 _lastProgressTime = EditorApplication.timeSinceStartup;
-            }
-            catch (System.Exception e)
-            {
+            } catch (System.Exception e) {
                 // .download が別プロセス/AV にロックされている等。例外を漏らすと
                 // InProgress=true のままリクエスト無しで固まるため、必ず Fail に落とす。
                 Fail($"{file}: {e.Message}", tmp);
@@ -171,50 +162,40 @@ namespace Iroca
 
         // update から呼ばれる入口。例外を漏らすと同じフレームに並んだ他ツールの update が飛ばされ、
         // しかも毎フレーム繰り返す。ログに出してダウンロードを失敗として止める。
-        static void Tick()
-        {
-            try
-            {
+        static void Tick() {
+            try {
                 TickCore();
-            }
-            catch (System.Exception e)
-            {
+            } catch (System.Exception e) {
                 UnityEngine.Debug.LogException(e);
-                try
-                {
+                try {
                     string tmp = _fileIndex >= 0 && _fileIndex < Files.Length ? TempPath(Files[_fileIndex].file) : null;
                     AbortRequest();
                     Fail(e.Message, tmp);
-                }
-                catch (System.Exception inner) { UnityEngine.Debug.LogException(inner); }
+                } catch (System.Exception inner) { UnityEngine.Debug.LogException(inner); }
             }
         }
 
-        static void TickCore()
-        {
-            if (_request == null) return;
+        static void TickCore() {
+            if (_request == null) {
+                return;
+            }
 
-            if (!_request.isDone)
-            {
+            if (!_request.isDone) {
                 ulong got = _request.downloadedBytes;
                 // サイズ超過検知。sha256 は全量取得後にしか効かないので、その前にここで止める。
                 // 放置すると異常な応答でディスクを埋め尽くされる。
                 long expected = Files[_fileIndex].size;
-                if (expected > 0 && got > (ulong)expected)
-                {
+                if (expected > 0 && got > (ulong)expected) {
                     var (oversized, _, _) = Files[_fileIndex];
                     string oversizedTmp = TempPath(oversized);
                     AbortRequest();
                     Fail(string.Format(Localization.AiErrDownloadOversizedFormat, oversized, expected), oversizedTmp);
                     return;
                 }
-                if (got != _lastProgressBytes)
-                {
+                if (got != _lastProgressBytes) {
                     _lastProgressBytes = got;
                     _lastProgressTime = EditorApplication.timeSinceStartup;
-                }
-                else if (EditorApplication.timeSinceStartup - _lastProgressTime > StallTimeoutSeconds)
-                {
+                } else if (EditorApplication.timeSinceStartup - _lastProgressTime > StallTimeoutSeconds) {
                     var (stalled, _, _) = Files[_fileIndex];
                     string stalledTmp = TempPath(stalled);
                     AbortRequest();
@@ -230,19 +211,16 @@ namespace Iroca
             _request.Dispose();
             _request = null;
 
-            if (!ok)
-            {
+            if (!ok) {
                 Fail($"{file}: {netError}", tmp);
                 return;
             }
             // ハッシュ検証〜配置は IO 例外(AV の一時ロック・別インスタンスとの競合等)が現実的に
             // 起きる区間。例外が Tick から漏れると _request=null のまま InProgress=true が永続し、
             // 進捗バーが出続けたままエラーも出ない詰み状態になるため、必ず Fail に落とす。
-            try
-            {
+            try {
                 string actual = Sha256Of(tmp);
-                if (!string.Equals(actual, sha, System.StringComparison.OrdinalIgnoreCase))
-                {
+                if (!string.Equals(actual, sha, System.StringComparison.OrdinalIgnoreCase)) {
                     Fail(string.Format(Localization.AiErrDownloadHashFormat, file, actual), tmp);
                     return;
                 }
@@ -251,11 +229,12 @@ namespace Iroca
                 // 「一瞬ファイルが存在しない」窓ができ、読み込み中のファイルを消すことにもなる。
                 // Replace は原子的に差し替えるので、読み手は旧か新のどちらかを必ず見る
                 // （ロックされていれば例外 → Fail に落ちる。黙って壊すより良い）。
-                if (File.Exists(dst)) File.Replace(tmp, dst, null);
-                else File.Move(tmp, dst);
-            }
-            catch (System.Exception e)
-            {
+                if (File.Exists(dst)) {
+                    File.Replace(tmp, dst, null);
+                } else {
+                    File.Move(tmp, dst);
+                }
+            } catch (System.Exception e) {
                 Fail($"{file}: {e.Message}", tmp);
                 return;
             }
@@ -264,58 +243,54 @@ namespace Iroca
         }
 
         /// <summary>次のファイルへ進む。全部終わっていれば完了処理。</summary>
-        static void AdvanceToNextFile()
-        {
+        static void AdvanceToNextFile() {
             _fileIndex++;
-            if (_fileIndex >= Files.Length)
-            {
+            if (_fileIndex >= Files.Length) {
                 Finish();
                 // 読み込みは使うときに行う(ここで読み込むと、ダウンロードが終わった瞬間にエディタが止まる)。
                 // 失敗していた状態も解いて、次に使うときに置き直したモデルを読み込ませる。
                 MaskSuggestBridge.Service?.RefreshModelFiles();
-            }
-            else
-            {
+            } else {
                 BeginCurrentFile();
             }
         }
 
-        static void Fail(string message, string tmpToDelete)
-        {
+        static void Fail(string message, string tmpToDelete) {
             Error = message;
-            try { if (tmpToDelete != null && File.Exists(tmpToDelete)) File.Delete(tmpToDelete); } catch { }
+            try {
+                if (tmpToDelete != null && File.Exists(tmpToDelete)) {
+                    File.Delete(tmpToDelete);
+                }
+            } catch { }
             Finish();
         }
 
-        static void Finish()
-        {
+        static void Finish() {
             _fileIndex = -1;
             EditorApplication.update -= Tick;
             AssemblyReloadEvents.beforeAssemblyReload -= CleanupOnUnload;
             EditorApplication.quitting -= CleanupOnUnload;
         }
 
-        static void AbortRequest()
-        {
-            if (_request == null) return;
+        static void AbortRequest() {
+            if (_request == null) {
+                return;
+            }
             try { _request.Abort(); } catch { }
             _request.Dispose();
             _request = null;
         }
 
         // リロード前・終了時に呼ばれる入口。例外を漏らすと、同じタイミングの他ツールの後始末が飛ばされる。
-        static void CleanupOnUnload()
-        {
-            try { AbortRequest(); }
-            catch (System.Exception e) { UnityEngine.Debug.LogException(e); }
-            if (_fileIndex >= 0 && _fileIndex < Files.Length)
-            {
-                try
-                {
+        static void CleanupOnUnload() {
+            try { AbortRequest(); } catch (System.Exception e) { UnityEngine.Debug.LogException(e); }
+            if (_fileIndex >= 0 && _fileIndex < Files.Length) {
+                try {
                     string tmp = TempPath(Files[_fileIndex].file);
-                    if (File.Exists(tmp)) File.Delete(tmp);
-                }
-                catch { }
+                    if (File.Exists(tmp)) {
+                        File.Delete(tmp);
+                    }
+                } catch { }
             }
         }
 
@@ -337,48 +312,47 @@ namespace Iroca
         /// 使い回されることがあるので、1 日以上前のものは消す(ダウンロードは長くても数分で終わる)。
         /// 自分のプロセスの分は <see cref="BeginCurrentFile"/> が消す。失敗は無視する。
         /// </summary>
-        internal static void DeleteLeftoverDownloads()
-        {
-            try
-            {
+        internal static void DeleteLeftoverDownloads() {
+            try {
                 string dir = MaskSuggestBridge.ModelsDirectory;
-                if (!Directory.Exists(dir)) return;
-                foreach (var (file, _, _) in Files)
-                {
+                if (!Directory.Exists(dir)) {
+                    return;
+                }
+                foreach (var (file, _, _) in Files) {
                     string prefix = file + TempMarker;
-                    foreach (string path in Directory.GetFiles(dir, prefix + "*"))
-                    {
+                    foreach (string path in Directory.GetFiles(dir, prefix + "*")) {
                         string name = Path.GetFileName(path);
                         if (name.Length <= prefix.Length ||
-                            !int.TryParse(name.Substring(prefix.Length), out int pid) || pid == CurrentProcessId)
+                            !int.TryParse(name.Substring(prefix.Length), out int pid) || pid == CurrentProcessId) {
                             continue;
+                        }
                         bool old = System.DateTime.UtcNow - File.GetLastWriteTimeUtc(path) > System.TimeSpan.FromDays(1);
-                        if (!old && ProcessAlive(pid)) continue;
+                        if (!old && ProcessAlive(pid)) {
+                            continue;
+                        }
                         try { File.Delete(path); } catch { /* 次に始めるときにまた試す */ }
                     }
                 }
-            }
-            catch { /* 置き場を読めないだけ。ダウンロードは続ける */ }
+            } catch { /* 置き場を読めないだけ。ダウンロードは続ける */ }
         }
 
-        static bool ProcessAlive(int pid)
-        {
-            try
-            {
-                using (var p = System.Diagnostics.Process.GetProcessById(pid))
+        static bool ProcessAlive(int pid) {
+            try {
+                using (var p = System.Diagnostics.Process.GetProcessById(pid)) {
                     return !p.HasExited;
-            }
-            catch (System.ArgumentException) { return false; }   // そのプロセスはもう無い
+                }
+            } catch (System.ArgumentException) { return false; }   // そのプロセスはもう無い
             catch { return true; }                               // 確かめられないときは消さない(1 日たてば消える)
         }
 
-        static string Sha256Of(string path)
-        {
+        static string Sha256Of(string path) {
             using var sha = System.Security.Cryptography.SHA256.Create();
             using var fs = File.OpenRead(path);
             var hash = sha.ComputeHash(fs);
             var sb = new System.Text.StringBuilder(hash.Length * 2);
-            foreach (byte b in hash) sb.Append(b.ToString("x2"));
+            foreach (byte b in hash) {
+                sb.Append(b.ToString("x2"));
+            }
             return sb.ToString();
         }
     }

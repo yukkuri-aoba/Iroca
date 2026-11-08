@@ -3,11 +3,9 @@
 using System;
 using System.Collections.Generic;
 
-namespace Iroca
-{
+namespace Iroca {
     [Serializable]
-    public class IrocaPresetData
-    {
+    public class IrocaPresetData {
         // スキーマバージョン。保存時に CurrentSchemaVersion を刻む。JsonUtility は欠落フィールドを
         // 型既定(0)にするため、本フィールド導入前の旧 JSON は schemaVersion=0 として読める。
         // 将来「旧版検出 → 警告/移行」の分岐点にできる(今回は刻印のみで分岐は未実装)。
@@ -46,12 +44,12 @@ namespace Iroca
         /// そのテクスチャ上の位置で、別のテクスチャへ読み込むと無関係な場所を指すので外す。
         /// 編集中のゾーンの位置は消さないよう、複製にだけ手を入れる。
         /// </summary>
-        internal static List<ColorZone> WithoutSamplePositions(IEnumerable<ColorZone> source)
-        {
+        internal static List<ColorZone> WithoutSamplePositions(IEnumerable<ColorZone> source) {
             var copies = new List<ColorZone>();
-            if (source == null) return copies;
-            foreach (var z in source)
-            {
+            if (source == null) {
+                return copies;
+            }
+            foreach (var z in source) {
                 if (z == null) { copies.Add(null); continue; }
                 var c = z.Clone();
                 c.ClearSampleUV();
@@ -64,16 +62,18 @@ namespace Iroca
         /// 読み込んだゾーンからスポイト位置を外す。位置を外さずに書かれたプリセット
         /// （手書き・他ツール）でも、別のテクスチャの位置を引き継がないようにする。
         /// </summary>
-        internal void DropSamplePositions()
-        {
-            if (zones == null) return;
-            foreach (var z in zones) z?.ClearSampleUV();
+        internal void DropSamplePositions() {
+            if (zones == null) {
+                return;
+            }
+            foreach (var z in zones) {
+                z?.ClearSampleUV();
+            }
         }
     }
 
     [Serializable]
-    public class ZoneMaskEntry
-    {
+    public class ZoneMaskEntry {
         public string zoneId = "";
         public string maskBase64 = "";
     }

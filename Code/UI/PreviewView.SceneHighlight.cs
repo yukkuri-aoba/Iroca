@@ -5,14 +5,12 @@ using Unity.Collections.LowLevel.Unsafe;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// Scene でモデルをクリックした場所(テクスチャ上の位置と、その UV の島)。
     /// <see cref="IrocaWindow"/> が作り、<see cref="PreviewView"/> がプレビューに重ねて描く。
     /// </summary>
-    internal sealed class SceneClickHighlight
-    {
+    internal sealed class SceneClickHighlight {
         /// <summary>この位置を求めたテクスチャ(別のテクスチャを開いたら描かない)。</summary>
         public Texture2D texture;
         /// <summary>クリックした位置の UV(下原点、0..1)。</summary>
@@ -28,12 +26,10 @@ namespace Iroca
         /// 当たりから作る。scale / offset は当たったマテリアルのメインテクスチャの Tiling / Offset。
         /// 島は右クリックの「この島」と同じまとまり(<see cref="IslandTriangles"/>)。
         /// </summary>
-        public static SceneClickHighlight Build(Texture2D texture, SceneMeshPicker.Hit hit, Vector2 scale, Vector2 offset)
-        {
+        public static SceneClickHighlight Build(Texture2D texture, SceneMeshPicker.Hit hit, Vector2 scale, Vector2 offset) {
             var tiled = new Vector2(hit.hitUv.x * scale.x + offset.x, hit.hitUv.y * scale.y + offset.y);
             Vector2 point = MeshRaycast.WrapToTexture(tiled, out Vector2 shift);
-            var island = new UvChartSource
-            {
+            var island = new UvChartSource {
                 name = hit.renderer != null ? hit.renderer.name : null,
                 uv = hit.uv,
                 triangles = IslandTriangles(hit.uv, hit.submeshTriangles, hit.triangle),
@@ -41,8 +37,7 @@ namespace Iroca
                 // 繰り返しで戻した分(shift)だけ島もずらし、クリック位置と同じ場所に描く。
                 offset = offset - shift,
             };
-            return new SceneClickHighlight
-            {
+            return new SceneClickHighlight {
                 texture = texture,
                 point = point,
                 island = island,
@@ -55,15 +50,17 @@ namespace Iroca
         /// 三角形 hitTriangle と同じ UV の島(<see cref="UvChartMap.ComputeCharts"/> と同じ分け方)に属する
         /// 三角形を、triangles と同じ形式(頂点番号 ×3)で返す。右クリックの「この島」と同じまとまりになる。
         /// </summary>
-        internal static int[] IslandTriangles(Vector2[] uv, int[] triangles, int hitTriangle)
-        {
+        internal static int[] IslandTriangles(Vector2[] uv, int[] triangles, int hitTriangle) {
             int[] charts = UvChartMap.ComputeCharts(uv, triangles, out _);
-            if ((uint)hitTriangle >= (uint)charts.Length) return new int[0];
+            if ((uint)hitTriangle >= (uint)charts.Length) {
+                return new int[0];
+            }
             int chart = charts[hitTriangle];
             var list = new List<int>();
-            for (int t = 0; t < charts.Length; t++)
-            {
-                if (charts[t] != chart) continue;
+            for (int t = 0; t < charts.Length; t++) {
+                if (charts[t] != chart) {
+                    continue;
+                }
                 list.Add(triangles[t * 3]);
                 list.Add(triangles[t * 3 + 1]);
                 list.Add(triangles[t * 3 + 2]);
@@ -72,8 +69,7 @@ namespace Iroca
         }
     }
 
-    internal partial class PreviewView
-    {
+    internal partial class PreviewView {
         // 塗りは最初だけ濃く出して目を引き、その後は消して輪郭と目印だけを残す(色の確認の邪魔をしない)。
         private const double SceneFillHoldSeconds = 1.0;
         private const double SceneFillFadeSeconds = 1.0;
@@ -93,41 +89,41 @@ namespace Iroca
         [System.NonSerialized] private SceneClickHighlight _sceneFillFor;
 
         /// <summary>Scene でクリックした場所を表示する(拡大中ならそこへスクロールする)。</summary>
-        internal void ShowSceneHighlight(SceneClickHighlight highlight)
-        {
+        internal void ShowSceneHighlight(SceneClickHighlight highlight) {
             _sceneHighlight = highlight;
             _pendingFocusUv = highlight?.point;
         }
 
-        internal void ClearSceneHighlight()
-        {
+        internal void ClearSceneHighlight() {
             _sceneHighlight = null;
             _pendingFocusUv = null;
             ReleaseSceneFill();
         }
 
-        private void ReleaseSceneFill()
-        {
-            if (_sceneFillTexture != null) Object.DestroyImmediate(_sceneFillTexture);
+        private void ReleaseSceneFill() {
+            if (_sceneFillTexture != null) {
+                Object.DestroyImmediate(_sceneFillTexture);
+            }
             _sceneFillTexture = null;
             _sceneFillFor = null;
         }
 
         /// <summary>島の塗りのテクスチャ(w×h、島の内側だけ色付き)。作れなければ null。</summary>
-        private unsafe Texture2D SceneFillTexture(SceneClickHighlight h, int w, int hgt)
-        {
-            if (h.island?.triangles == null || h.island.triangles.Length < 3 || w <= 0 || hgt <= 0) return null;
+        private unsafe Texture2D SceneFillTexture(SceneClickHighlight h, int w, int hgt) {
+            if (h.island?.triangles == null || h.island.triangles.Length < 3 || w <= 0 || hgt <= 0) {
+                return null;
+            }
             if (_sceneFillFor == h && _sceneFillTexture != null
-                && _sceneFillTexture.width == w && _sceneFillTexture.height == hgt)
+                && _sceneFillTexture.width == w && _sceneFillTexture.height == hgt) {
                 return _sceneFillTexture;
+            }
             ReleaseSceneFill();
             // 島の内側の判定は右クリックの「この島」と同じラスタライズ(画素中心が三角形の内側か)
             using var map = UvChartMap.Build(w, hgt, new[] { h.island });
             int* raster = map.Raster;
             var c = IrocaColors.SceneHighlight;
             var on = new Color32((byte)(c.r * 255f), (byte)(c.g * 255f), (byte)(c.b * 255f), 255);
-            _sceneFillTexture = new Texture2D(w, hgt, TextureFormat.RGBA32, false)
-            {
+            _sceneFillTexture = new Texture2D(w, hgt, TextureFormat.RGBA32, false) {
                 hideFlags = HideFlags.HideAndDontSave,
                 wrapMode = TextureWrapMode.Clamp,
                 filterMode = FilterMode.Bilinear,
@@ -135,8 +131,9 @@ namespace Iroca
             // テクスチャの生データへ直接書く(プレビューの寸法の管理配列を作らない)。
             var pixels = (Color32*)NativeArrayUnsafeUtility.GetUnsafePtr(_sceneFillTexture.GetRawTextureData<Color32>());
             int count = w * hgt;
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < count; i++) {
                 pixels[i] = raster[i] >= 0 ? on : default;
+            }
             _sceneFillTexture.Apply(false, true);
             _sceneFillFor = h;
             return _sceneFillTexture;
@@ -146,15 +143,17 @@ namespace Iroca
         /// 拡大中で、クリック位置が枠の中に見えていなければ、そこが枠の中央に来るようにスクロールする。
         /// BeginScrollView の前に呼ぶ。画像の矩形は前の描画のもの(スクロール内容の座標)。
         /// </summary>
-        private void ApplyPendingSceneFocus(bool overflowsFrame, float viewW, float viewH)
-        {
-            if (!_pendingFocusUv.HasValue) return;
+        private void ApplyPendingSceneFocus(bool overflowsFrame, float viewW, float viewH) {
+            if (!_pendingFocusUv.HasValue) {
+                return;
+            }
             var uv = _pendingFocusUv.Value;
             var r = DetailView.lastPreviewRect;
-            if (!overflowsFrame || r.width <= 0f || viewW <= 1f || viewH <= 1f)
-            {
+            if (!overflowsFrame || r.width <= 0f || viewW <= 1f || viewH <= 1f) {
                 // 全体が見えている(動かす必要が無い)か、まだ一度も描いていない。後者は次の描画で寄せる。
-                if (r.width > 0f) _pendingFocusUv = null;
+                if (r.width > 0f) {
+                    _pendingFocusUv = null;
+                }
                 return;
             }
             _pendingFocusUv = null;
@@ -162,7 +161,9 @@ namespace Iroca
             float mx = viewW * SceneFocusMargin, my = viewH * SceneFocusMargin;
             bool visible = p.x >= _previewScrollPos.x + mx && p.x <= _previewScrollPos.x + viewW - mx
                         && p.y >= _previewScrollPos.y + my && p.y <= _previewScrollPos.y + viewH - my;
-            if (visible) return;
+            if (visible) {
+                return;
+            }
             _previewScrollPos = new Vector2(Mathf.Max(0f, p.x - viewW * 0.5f), Mathf.Max(0f, p.y - viewH * 0.5f));
             // 見えている範囲が変わるので拡大表示を作り直させる(パン・ズームと同じ扱い)。
             DetailView.OnViewMoved();
@@ -171,12 +172,9 @@ namespace Iroca
         // 案内の「開く」。ボタン枠を付けると行が miniLabel より高くなりプレビュー枠が跳ねるので、
         // miniLabel と同じ寸法のリンク風の文字にする。
         [System.NonSerialized] private static GUIStyle s_sceneLinkStyle;
-        private static GUIStyle SceneLinkStyle
-        {
-            get
-            {
-                if (s_sceneLinkStyle == null)
-                {
+        private static GUIStyle SceneLinkStyle {
+            get {
+                if (s_sceneLinkStyle == null) {
                     s_sceneLinkStyle = new GUIStyle(EditorStyles.miniLabel);
                     var link = EditorStyles.linkLabel;
                     s_sceneLinkStyle.normal.textColor = link.normal.textColor;
@@ -193,27 +191,26 @@ namespace Iroca
         /// 使い方は、色替えが済んだら右クリック、それまでは Scene のクリック。どちらも一度使えば出ない。
         /// 行はモードが無いときも高さを取っているので、案内を出しても下のプレビューは動かない。
         /// </summary>
-        private void DrawIdleRow()
-        {
+        private void DrawIdleRow() {
             var other = _host.SceneOtherTexture;
-            if (other != null)
-            {
+            if (other != null) {
                 GUILayout.Label(
                     TempContent.Of(string.Format(Localization.SceneClickOtherTextureFormat, other.name),
                                    Localization.SceneClickOtherTextureTooltip),
                     // 文の長さだけ取り、「開く」をすぐ後ろに置く(広げると「開く」が行の右端へ離れる)
                     EditorStyles.miniLabel, GUILayout.MinWidth(0f), GUILayout.ExpandWidth(false));
                 if (GUILayout.Button(TempContent.Of(Localization.SceneClickOpen, Localization.SceneClickOpenTooltip),
-                                     SceneLinkStyle, GUILayout.ExpandWidth(false)))
-                {
+                                     SceneLinkStyle, GUILayout.ExpandWidth(false))) {
                     // テクスチャの切り替えでプレビューの中身が変わるので、この描画の途中ではなく次の更新で行う
                     // (同じフレームの Layout と Repaint で並びが食い違うと IMGUI がエラーを出す)。
                     // delayCall で Unity は例外を受け止めない(投げると、同じ回に積まれた他のツールの処理が飛ぶ)ので、ここで受け止める。
                     var host = _host;
-                    EditorApplication.delayCall += () =>
-                    {
-                        try { if (host != null) host.OpenSceneOtherTexture(); }
-                        catch (System.Exception e) { Debug.LogException(e); }
+                    EditorApplication.delayCall += () => {
+                        try {
+                            if (host != null) {
+                                host.OpenSceneOtherTexture();
+                            }
+                        } catch (System.Exception e) { Debug.LogException(e); }
                     };
                 }
                 EditorGUIUtility.AddCursorRect(GUILayoutUtility.GetLastRect(), MouseCursor.Link);
@@ -221,8 +218,7 @@ namespace Iroca
             }
             // 範囲を直す操作(右クリック)はメニューの奥にあり、マスク編集ウィンドウを開かないと案内が無かった。
             // 色替えが済んで「同じ色の別の所まで変わった」と気づく頃に出す。
-            if (_host.StepZonesDone && !ContextMenuUsed)
-            {
+            if (_host.StepZonesDone && !ContextMenuUsed) {
                 GUILayout.Label(TempContent.Of(Localization.ContextMenuHint, Localization.ContextMenuHintTooltip),
                                 EditorStyles.miniLabel, GUILayout.MinWidth(0f));
                 return;
@@ -237,27 +233,27 @@ namespace Iroca
         private const int SceneRingSegments = 32;
         [System.NonSerialized] private static Vector3[] s_sceneRingPoints;
 
-        private static void DrawSceneRing(Vector2 center, float width, Color color)
-        {
+        private static void DrawSceneRing(Vector2 center, float width, Color color) {
             s_sceneRingPoints ??= new Vector3[SceneRingSegments + 1];
-            for (int i = 0; i <= SceneRingSegments; i++)
-            {
+            for (int i = 0; i <= SceneRingSegments; i++) {
                 float a = i * (2f * Mathf.PI / SceneRingSegments);
                 s_sceneRingPoints[i] = new Vector3(center.x + Mathf.Cos(a) * SceneRingRadius,
                                                    center.y + Mathf.Sin(a) * SceneRingRadius, 0f);
             }
-            using (new Handles.DrawingScope(color))
+            using (new Handles.DrawingScope(color)) {
                 Handles.DrawAAPolyLine(width, s_sceneRingPoints);
+            }
         }
 
         /// <summary>
         /// Scene でクリックした場所を重ねる: 島の塗り(しばらくして消える)・島の輪郭・クリック位置の輪。
         /// 線は Handles、塗りは GUI.DrawTexture で描くので、プレビュー枠の外へははみ出さない(IMGUI のクリップに従う)。
         /// </summary>
-        private void DrawSceneHighlightOverlay(Rect previewRect)
-        {
+        private void DrawSceneHighlightOverlay(Rect previewRect) {
             var h = _sceneHighlight;
-            if (h == null || h.texture == null || h.texture != _host.SourceTexture) return;
+            if (h == null || h.texture == null || h.texture != _host.SourceTexture) {
+                return;
+            }
 
             GUI.BeginClip(previewRect);
             var local = new Rect(0f, 0f, previewRect.width, previewRect.height);
@@ -265,11 +261,9 @@ namespace Iroca
             double age = EditorApplication.timeSinceStartup - h.shownAt;
             float fade = (float)((age - SceneFillHoldSeconds) / SceneFillFadeSeconds);
             float fillAlpha = SceneFillAlpha * (1f - Mathf.Clamp01(fade));
-            if (fillAlpha > 0f && previewTexture != null)
-            {
+            if (fillAlpha > 0f && previewTexture != null) {
                 var fillTex = SceneFillTexture(h, previewTexture.width, previewTexture.height);
-                if (fillTex != null)
-                {
+                if (fillTex != null) {
                     var prevColor = GUI.color;
                     GUI.color = new Color(1f, 1f, 1f, fillAlpha);
                     GUI.DrawTexture(local, fillTex, ScaleMode.StretchToFill, true);
@@ -277,14 +271,13 @@ namespace Iroca
                 }
                 // 薄めている間は描き直しを続ける(エディタは要求が無いと再描画しない)。
                 _host.RequestRepaint();
-            }
-            else if (_sceneFillTexture != null)
-            {
+            } else if (_sceneFillTexture != null) {
                 ReleaseSceneFill(); // 消し終わったら手放す
             }
 
-            if (h.outline != null && h.outline.Length >= 2)
+            if (h.outline != null && h.outline.Length >= 2) {
                 DrawUvSegments(h.outline, local, ref _sceneLineBuffer, IrocaColors.SceneHighlight);
+            }
 
             // 目印は明るい生地でも暗い生地でも沈まないよう、暗い縁取りの上に本体を重ねる(ほかの目印と同じ方針)。
             // 輪は折れ線で描く(Handles.DrawWireDisc の太さ指定は 3D 用で、GUI の座標では崩れる)。

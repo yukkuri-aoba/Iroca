@@ -2,11 +2,9 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     // ZoneAutoTuner: スポイト位置の正規化（クリック画素 → パーツの代表地色）。
-    internal static unsafe partial class ZoneAutoTuner
-    {
+    internal static unsafe partial class ZoneAutoTuner {
         // ─────────────────── スポイト位置の正規化 ───────────────────
         // 【解決する問題】自動調整の導出はすべて「クリックした 1 texel の HSV」を起点にしていた。
         // そのためパーツの中でどこをクリックするかで結果が大きく変わる（実測 2026-08-16、実 C#
@@ -34,10 +32,10 @@ namespace Iroca
         //
         // 【適用範囲】無彩クリック（sS < AchromaSampleSatMax）は色相が定まらず、同じ手順では
         // パーツを特定できないので対象外（従来どおりクリック色をそのまま使う）。
-        private const int   NormSatBins   = 16;   // 彩度の分解能。bin 内は実色の平均を取るので粗くてよい
-        private const int   NormValBins   = 32;   // 明度の分解能。粗いほど連結が切れにくく、代表色は平均で決まる
+        private const int NormSatBins = 16;   // 彩度の分解能。bin 内は実色の平均を取るので粗くてよい
+        private const int NormValBins = 32;   // 明度の分解能。粗いほど連結が切れにくく、代表色は平均で決まる
         private const float NormSatFloorFrac = 0.95f; // 候補の彩度下限 = クリック彩度 × これ（8bit 量子化ぶんの緩み）
-        private const float NormMinShift  = 0.02f; // これ未満の移動なら正規化しない（クリックが既に地色）
+        private const float NormMinShift = 0.02f; // これ未満の移動なら正規化しない（クリックが既に地色）
         // クリックが「パーツの主要な色帯の中」に居るかの判定。クリック bin 近傍の画素数が
         // 地色帯(最頻 bin 近傍)のこの割合に満たなければ、クリックはツヤ・深い影・柄といった裾。
         // 陰影は地色を数 bin に広げるので、地色を踏んだクリックの近傍は最頻値の数分の 1 には収まる
@@ -93,8 +91,7 @@ namespace Iroca
         private static bool TryNormalizeSample(
             Color32* pixels, int w, int h, ColorZone zone,
             bool* excluded, int maskW, int maskH, HsvGrid hsv, out Color normalized,
-            out float clickT, bool edgeBypass = false, bool tintedChromatic = false)
-        {
+            out float clickT, bool edgeBypass = false, bool tintedChromatic = false) {
             normalized = zone.sampleColor;
             clickT = -1f;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
@@ -106,8 +103,7 @@ namespace Iroca
             // 最頻値が面積の大きい真無彩のゴーグル(56,56,56)に落ち、代表地色がそちらへ乗り換えて
             // IoU 0.211→0.000(まったく別のパーツを塗る)になった。中性境界は彩度整合ゲートと同じ
             // 「これ未満の tint は色として扱わない」線なので、判断基準を 1 本に揃える。
-            if (sS <= ColorZone.ChromaGateActivateSat)
-            {
+            if (sS <= ColorZone.ChromaGateActivateSat) {
                 // 真の無彩クリック（白/グレー/黒の布）。色相が定まらないので同色相帯は使えないが、
                 // 「無彩寄り」という彩度条件がその代わりになる（有彩の別素材はここで落ち、白/中間/黒の
                 // 別クラスタは V 連結域が落とす。彩度上限は無彩 tolerance 導出のクラスタ条件と同一）。
@@ -125,9 +121,10 @@ namespace Iroca
                     out normalized, out clickT);
             }
 
-            if (sS < AchromaSampleSatMax)
-            {
-                if (!tintedChromatic) return false; // 色味の乗ったグレー: 従来どおりクリック色のまま
+            if (sS < AchromaSampleSatMax) {
+                if (!tintedChromatic) {
+                    return false; // 色味の乗ったグレー: 従来どおりクリック色のまま
+                }
                 // 有彩素材のツヤ・陰として、同色相・有彩の母集団(セグメントの過半に限る)の地色へ寄せる。
                 return TryNormalizeFromPopulation(pixels, w, h, zone, excluded, maskW, maskH, hsv,
                     sH, sS, sV, useHueBand: true, satFloor: AchromaSampleSatMax, satCeil: float.MaxValue,
@@ -156,8 +153,7 @@ namespace Iroca
             bool* excluded, int maskW, int maskH, HsvGrid hsv,
             float sH, float sS, float sV, bool useHueBand, float satFloor, float satCeil,
             float satBinSpan, int satBins, int valBins, bool edgeBypass, out Color normalized,
-            out float clickT, float minPopFrac = 0f)
-        {
+            out float clickT, float minPopFrac = 0f) {
             normalized = zone.sampleColor;
             clickT = -1f;
 
@@ -173,23 +169,33 @@ namespace Iroca
             int opaque = 0;                      // 除外されていない不透明画素(minPopFrac の分母)
 
             int stride = hsv.stride;
-            for (int y = 0, gy = 0; y < h; y += stride, gy++)
-            {
+            for (int y = 0, gy = 0; y < h; y += stride, gy++) {
                 int rowStart = y * w;
                 int grow = gy * hsv.gw;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                {
+                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
-                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                        continue;
+                    }
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                        continue;
+                    }
                     opaque++;
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
-                    if (pS < satFloor) continue;         // クリックより淡い側（＝別素材/脱彩の裾）を除外
-                    if (pS >= satCeil) continue;         // 有彩の別素材を除外（無彩クリック時のみ有効な上限）
-                    if (useHueBand)
-                    {
-                        float hd = Mathf.Abs(pH - sH); if (hd > 0.5f) hd = 1f - hd;
-                        if (hd >= AutoToneHueBand) continue; // 別色相パーツを除外
+                    if (pS < satFloor) {
+                        continue;         // クリックより淡い側（＝別素材/脱彩の裾）を除外
+                    }
+                    if (pS >= satCeil) {
+                        continue;         // 有彩の別素材を除外（無彩クリック時のみ有効な上限）
+                    }
+                    if (useHueBand) {
+                        float hd = Mathf.Abs(pH - sH);
+                        if (hd > 0.5f) {
+                            hd = 1f - hd;
+                        }
+                        if (hd >= AutoToneHueBand) {
+                            continue; // 別色相パーツを除外
+                        }
                     }
 
                     int sb = Mathf.Clamp((int)(pS / satBinSpan * SB), 0, SB - 1);
@@ -203,19 +209,28 @@ namespace Iroca
                     total++;
                 }
             }
-            if (total < AutoToneMinPixels) return false;
+            if (total < AutoToneMinPixels) {
+                return false;
+            }
             // 色味の乗ったグレーの寄せ直し: クリックは母集団(彩度床より上)の外に居るので、明度のつながりを
             // クリックの明度から探すと、近くに居る数十画素の塊を起点にしてしまう(実測: 紺のスカートのツヤで
             // 本体の明度帯から離れた 14 画素)。母集団の最頻の明度 = 素材の主要な色帯から取る。
             float startV = sV;
-            if (minPopFrac > 0f)
-            {
-                if (total < opaque * minPopFrac) return false;
+            if (minPopFrac > 0f) {
+                if (total < opaque * minPopFrac) {
+                    return false;
+                }
                 int modeVb = 0;
-                for (int vb = 1; vb < VB; vb++) if (vHist[vb] > vHist[modeVb]) modeVb = vb;
+                for (int vb = 1; vb < VB; vb++) {
+                    if (vHist[vb] > vHist[modeVb]) {
+                        modeVb = vb;
+                    }
+                }
                 startV = (modeVb + 0.5f) / VB;
             }
-            if (!TryConnectedValueRange(vHist, total, startV, out int loBin, out int hiBin)) return false;
+            if (!TryConnectedValueRange(vHist, total, startV, out int loBin, out int hiBin)) {
+                return false;
+            }
 
             // トーン連結域内で最も画素の多い (S,V) bin = パーツの地色。
             // 彩度だけを最頻値にして明度は連結域全体で平均する版も試したが、明るい柄やツヤを持つ
@@ -223,15 +238,15 @@ namespace Iroca
             // 地色をほとんど拾えなくなった（実測: 暗い星柄スカートで recall 0.87→0.02）。
             // 面積で決まる最頻値は、クリックがツヤでも深い影でも同じ bin に落ちる。
             int bestSb = -1, bestVb = -1, bestCnt = 0;
-            for (int sb = 0; sb < SB; sb++)
-            {
-                for (int vb = loBin; vb <= hiBin; vb++)
-                {
+            for (int sb = 0; sb < SB; sb++) {
+                for (int vb = loBin; vb <= hiBin; vb++) {
                     int n = cnt[sb * VB + vb];
                     if (n > bestCnt) { bestCnt = n; bestSb = sb; bestVb = vb; }
                 }
             }
-            if (bestSb < 0) return false;
+            if (bestSb < 0) {
+                return false;
+            }
 
             // 【無彩のみ】最頻値がトーン連結域の端に立っているなら、それは地色ではなくベタ塗り。
             // 素材の地色には必ず両側に陰影が付く(暗部と明部が地色を挟む)ので、最頻 bin は分布の
@@ -244,23 +259,25 @@ namespace Iroca
             // (229,230,242) を踏んだ良いクリックまで recall 0.92→0.60 へ引きずられた。
             // この門で背景を弾くと、地色が分布の内側にある被写体（黒衣装 (32,31,38)・
             // ゴーグル (54,54,54)）の正規化はそのまま効く。
-            if (!useHueBand && (bestVb <= loBin || bestVb >= hiBin)) return false;
+            if (!useHueBand && (bestVb <= loBin || bestVb >= hiBin)) {
+                return false;
+            }
 
             // 量子化で山が隣の bin へ割れても代表色がぶれないよう ±1 bin まで含めて平均する。
             int sbLo = Mathf.Max(0, bestSb - 1), sbHi = Mathf.Min(SB - 1, bestSb + 1);
             int vbLo = Mathf.Max(loBin, bestVb - 1), vbHi = Mathf.Min(hiBin, bestVb + 1);
             double r = 0, g = 0, b = 0;
             int n2 = 0;
-            for (int sb = sbLo; sb <= sbHi; sb++)
-            {
-                for (int vb = vbLo; vb <= vbHi; vb++)
-                {
+            for (int sb = sbLo; sb <= sbHi; sb++) {
+                for (int vb = vbLo; vb <= vbHi; vb++) {
                     int i = sb * VB + vb;
                     r += sumR[i]; g += sumG[i]; b += sumB[i];
                     n2 += cnt[i];
                 }
             }
-            if (n2 < MinNearSampleCount) return false; // 代表色の平均を取るには標本が足りない
+            if (n2 < MinNearSampleCount) {
+                return false; // 代表色の平均を取るには標本が足りない
+            }
 
             // クリックが既に地色帯に居るなら触らない（同じ ±1 bin の窓で数えて比較する）。
             //
@@ -273,23 +290,28 @@ namespace Iroca
             // 暴走を止めるので、地色帯へは常に寄せてよい(既に地色なら下の NormMinShift で止まる)。
             // edgeBypass(証拠つき導出: 母集団がセグメント)では、クリックがトーン連結域の端に
             // 居るときだけこの門を掛けない(NormEdgeFrac の説明を参照)。
-            if (useHueBand)
-            {
+            if (useHueBand) {
                 int clickSb = Mathf.Clamp((int)(sS / satBinSpan * SB), 0, SB - 1);
                 int clickVb = Mathf.Clamp((int)(sV * VB), 0, VB - 1);
                 clickT = hiBin > loBin
                     ? Mathf.Clamp01((clickVb - loBin) / (float)(hiBin - loBin)) : 0.5f;
                 bool atEdge = clickT < NormEdgeFrac || clickT > 1f - NormEdgeFrac;
                 int clickN = 0;
-                for (int sb = Mathf.Max(0, clickSb - 1); sb <= Mathf.Min(SB - 1, clickSb + 1); sb++)
-                    for (int vb = Mathf.Max(0, clickVb - 1); vb <= Mathf.Min(VB - 1, clickVb + 1); vb++)
+                for (int sb = Mathf.Max(0, clickSb - 1); sb <= Mathf.Min(SB - 1, clickSb + 1); sb++) {
+                    for (int vb = Mathf.Max(0, clickVb - 1); vb <= Mathf.Min(VB - 1, clickVb + 1); vb++) {
                         clickN += cnt[sb * VB + vb];
-                if (clickN >= n2 * NormOutlierFrac && !(edgeBypass && atEdge)) return false;
+                    }
+                }
+                if (clickN >= n2 * NormOutlierFrac && !(edgeBypass && atEdge)) {
+                    return false;
+                }
             }
 
             double inv = 1.0 / n2;
             var rep = new Color((float)(r * inv), (float)(g * inv), (float)(b * inv), 1f);
-            if (ColorDist(rep, zone.sampleColor) < NormMinShift) return false; // 既に地色
+            if (ColorDist(rep, zone.sampleColor) < NormMinShift) {
+                return false; // 既に地色
+            }
             normalized = rep;
             return true;
         }
@@ -305,33 +327,30 @@ namespace Iroca
         /// </summary>
         /// <returns>false = サンプル V の近くに実在 bin が無く、連結域を確定できない。</returns>
         private static bool TryConnectedValueRange(int[] vHist, int total, float sV,
-            out int loBin, out int hiBin)
-        {
+            out int loBin, out int hiBin) {
             int VB = vHist.Length;
             int sBin = Mathf.Clamp((int)(sV * VB), 0, VB - 1);
             int gapFloor = Mathf.Max(2, Mathf.CeilToInt(total * AutoToneGapFloorFrac));
             loBin = hiBin = sBin;
-            if (vHist[sBin] < gapFloor)
-            {
+            if (vHist[sBin] < gapFloor) {
                 // サンプル bin 自体が疎(クリック画素が彩度床の直下等)なら最寄りの実在 bin へ寄せる
                 int nearest = -1;
-                for (int off = 1; off < VB; off++)
-                {
+                for (int off = 1; off < VB; off++) {
                     if (sBin - off >= 0 && vHist[sBin - off] >= gapFloor) { nearest = sBin - off; break; }
                     if (sBin + off < VB && vHist[sBin + off] >= gapFloor) { nearest = sBin + off; break; }
                 }
-                if (nearest < 0) return false;
+                if (nearest < 0) {
+                    return false;
+                }
                 sBin = nearest;
             }
             loBin = hiBin = sBin;
-            while (loBin > 0)
-            {
+            while (loBin > 0) {
                 if (vHist[loBin - 1] >= gapFloor) { loBin--; continue; }
                 if (loBin > 1 && vHist[loBin - 2] >= gapFloor) { loBin -= 2; continue; }
                 break;
             }
-            while (hiBin < VB - 1)
-            {
+            while (hiBin < VB - 1) {
                 if (vHist[hiBin + 1] >= gapFloor) { hiBin++; continue; }
                 if (hiBin < VB - 2 && vHist[hiBin + 2] >= gapFloor) { hiBin += 2; continue; }
                 break;

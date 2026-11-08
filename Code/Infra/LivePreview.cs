@@ -6,8 +6,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// いろかウィンドウで編集中の色替えを、シーンのアバターへその場で映すための受け渡し口(NDMF 非依存)。
     /// <para>
@@ -24,16 +23,13 @@ namespace Iroca
     /// そろえる(シーンで普段見えている解像度。非破壊ビルドの差し替えテクスチャも同じ寸法)。
     /// </para>
     /// </summary>
-    internal static class LivePreview
-    {
+    internal static class LivePreview {
         /// <summary>ウィンドウが編集している元テクスチャと、結び付いたレシピ(無ければ null)。</summary>
-        internal sealed class Target : IEquatable<Target>
-        {
+        internal sealed class Target : IEquatable<Target> {
             public readonly Texture2D source;
             public readonly IrocaRecipe boundRecipe;
 
-            public Target(Texture2D source, IrocaRecipe boundRecipe)
-            {
+            public Target(Texture2D source, IrocaRecipe boundRecipe) {
                 this.source = source;
                 this.boundRecipe = boundRecipe;
             }
@@ -47,8 +43,7 @@ namespace Iroca
                 (source != null ? source.GetInstanceID() : 0) * 397 ^ (boundRecipe != null ? boundRecipe.GetInstanceID() : 0);
         }
 
-        private sealed class Slot
-        {
+        private sealed class Slot {
             public RenderTexture rt;
             public int refs;
             // 最後に届いた画素(行 0 = 画像下端)。借り手が現れたとき・作り直したときに書き込む。
@@ -68,8 +63,7 @@ namespace Iroca
             public bool HasPixels => pixels != null || native != null;
 
             // 持っている画素を手放す(native は参照を返す)。
-            public void DropPixels()
-            {
+            public void DropPixels() {
                 pixels = null;
                 var n = native;
                 native = null;
@@ -86,8 +80,7 @@ namespace Iroca
         internal static event Action TargetChanged;
 
         [InitializeOnLoadMethod]
-        private static void Install()
-        {
+        private static void Install() {
             // HideAndDontSave の RenderTexture はドメインリロードで静的な参照だけが消えて残るので、先に捨てる。
             AssemblyReloadEvents.beforeAssemblyReload -= ReleaseAll;
             AssemblyReloadEvents.beforeAssemblyReload += ReleaseAll;
@@ -97,16 +90,18 @@ namespace Iroca
         /// いま編集しているものを知らせる。<paramref name="source"/> が null なら「何も映さない」。
         /// 同じ値なら何もしない(ウィンドウは毎フレーム呼んでよい)。
         /// </summary>
-        public static void SetTarget(Texture2D source, IrocaRecipe boundRecipe)
-        {
+        public static void SetTarget(Texture2D source, IrocaRecipe boundRecipe) {
             var next = source != null ? new Target(source, boundRecipe) : null;
-            if (Equals(Current, next)) return;
+            if (Equals(Current, next)) {
+                return;
+            }
             PurgeDestroyedSources();
             var previous = Current;
             Current = next;
             // 前の元テクスチャの画素は、借り手が残っていなければもう使わない。
-            if (previous != null && (next == null || previous.source != next.source))
+            if (previous != null && (next == null || previous.source != next.source)) {
                 DropIfUnused(previous.source);
+            }
             TargetChanged?.Invoke();
         }
 
@@ -115,9 +110,10 @@ namespace Iroca
         /// (ウィンドウは毎フレーム呼んでよい)。シーンのプレビューは、変わったらマテリアルの複製の影の色を塗り直す
         /// (色を動かしている間に NDMF の作り直しを起こさないよう、<see cref="ShadowColorsVersion"/> で見る)。
         /// </summary>
-        public static void SetShadowColors(bool has, Color sample, Color target)
-        {
-            if (has == HasShadowColors && (!has || (sample == ShadowSample && target == ShadowTarget))) return;
+        public static void SetShadowColors(bool has, Color sample, Color target) {
+            if (has == HasShadowColors && (!has || (sample == ShadowSample && target == ShadowTarget))) {
+                return;
+            }
             HasShadowColors = has;
             ShadowSample = sample;
             ShadowTarget = target;
@@ -133,26 +129,32 @@ namespace Iroca
         /// 色替えの結果を置く。<paramref name="source"/> がいま編集中のものでなければ捨てる
         /// (テクスチャを切り替えた直後に届いた前のテクスチャの結果)。借り手がいればすぐ書き込む。
         /// </summary>
-        public static void Push(Texture2D source, Color32[] pixels, int width, int height)
-        {
-            if (source == null || pixels == null || Current == null || Current.source != source) return;
-            if (pixels.Length != width * height) return;
+        public static void Push(Texture2D source, Color32[] pixels, int width, int height) {
+            if (source == null || pixels == null || Current == null || Current.source != source) {
+                return;
+            }
+            if (pixels.Length != width * height) {
+                return;
+            }
             var slot = SlotFor(source);
             slot.DropPixels();
             slot.pixels = pixels;
             slot.width = width;
             slot.height = height;
             slot.importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(source)) as TextureImporter;
-            if (slot.rt != null) Upload(slot);
+            if (slot.rt != null) {
+                Upload(slot);
+            }
         }
 
         /// <summary>
         /// <see cref="Push(Texture2D, Color32[], int, int)"/> の Mono のヒープの外に置いた画素版(確定段のフル解像度)。
         /// 置いている間は参照を 1 つ持つ(次の Push・テクスチャの切り替え・閉じたときに返す)。
         /// </summary>
-        public static void Push(Texture2D source, NativePixels pixels)
-        {
-            if (source == null || pixels == null || Current == null || Current.source != source) return;
+        public static void Push(Texture2D source, NativePixels pixels) {
+            if (source == null || pixels == null || Current == null || Current.source != source) {
+                return;
+            }
             var slot = SlotFor(source);
             pixels.AddRef();
             slot.DropPixels();
@@ -160,13 +162,13 @@ namespace Iroca
             slot.width = pixels.Width;
             slot.height = pixels.Height;
             slot.importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(source)) as TextureImporter;
-            if (slot.rt != null) Upload(slot);
+            if (slot.rt != null) {
+                Upload(slot);
+            }
         }
 
-        private static Slot SlotFor(Texture2D source)
-        {
-            if (!Slots.TryGetValue(source, out var slot))
-            {
+        private static Slot SlotFor(Texture2D source) {
+            if (!Slots.TryGetValue(source, out var slot)) {
                 slot = new Slot();
                 Slots[source] = slot;
             }
@@ -177,30 +179,38 @@ namespace Iroca
         /// <paramref name="source"/> の色替え結果を映す RenderTexture を借りる。返したら
         /// <see cref="Release"/> で返す。まだ結果が無ければ元テクスチャの見た目のまま。
         /// </summary>
-        public static Texture Acquire(Texture2D source)
-        {
-            if (source == null) return null;
-            if (!Slots.TryGetValue(source, out var slot))
-            {
+        public static Texture Acquire(Texture2D source) {
+            if (source == null) {
+                return null;
+            }
+            if (!Slots.TryGetValue(source, out var slot)) {
                 slot = new Slot();
                 Slots[source] = slot;
             }
-            if (slot.rt == null || !slot.rt.IsCreated())
-            {
+            if (slot.rt == null || !slot.rt.IsCreated()) {
                 // GPU 側だけ失われたときは同じオブジェクトのまま作り直す(貸し出し中のマテリアルが参照している)。
-                if (slot.rt == null) CreateTarget(slot, source);
-                else slot.rt.Create();
-                if (slot.HasPixels) Upload(slot);
-                else BlitKeepingActive(source, slot.rt);
+                if (slot.rt == null) {
+                    CreateTarget(slot, source);
+                } else {
+                    slot.rt.Create();
+                }
+                if (slot.HasPixels) {
+                    Upload(slot);
+                } else {
+                    BlitKeepingActive(source, slot.rt);
+                }
             }
             slot.refs++;
             return slot.rt;
         }
 
-        public static void Release(Texture2D source)
-        {
-            if (source == null || !Slots.TryGetValue(source, out var slot)) return;
-            if (slot.refs > 0) slot.refs--;
+        public static void Release(Texture2D source) {
+            if (source == null || !Slots.TryGetValue(source, out var slot)) {
+                return;
+            }
+            if (slot.refs > 0) {
+                slot.refs--;
+            }
             DropIfUnused(source);
         }
 
@@ -209,19 +219,21 @@ namespace Iroca
         /// <see cref="Release"/> と <see cref="DropIfUnused"/> からは見つけられず、次の再読み込みまで画素と RenderTexture が残っていた
         /// (8K で最大約 768MB)。
         /// </summary>
-        internal static void PurgeDestroyedSources()
-        {
-            if (Current != null && Current.source == null)
-            {
+        internal static void PurgeDestroyedSources() {
+            if (Current != null && Current.source == null) {
                 Current = null;
                 TargetChanged?.Invoke();
             }
             List<Texture2D> gone = null;
-            foreach (var key in Slots.Keys)
-                if (key == null) (gone ??= new List<Texture2D>()).Add(key);
-            if (gone == null) return;
-            foreach (var key in gone)
-            {
+            foreach (var key in Slots.Keys) {
+                if (key == null) {
+                    (gone ??= new List<Texture2D>()).Add(key);
+                }
+            }
+            if (gone == null) {
+                return;
+            }
+            foreach (var key in gone) {
                 var slot = Slots[key];
                 DestroyGpu(slot);
                 slot.DropPixels();
@@ -236,11 +248,11 @@ namespace Iroca
         internal static int RefCount(Texture2D source) =>
             source != null && Slots.TryGetValue(source, out var slot) ? slot.refs : 0;
 
-        private static void DropIfUnused(Texture2D source)
-        {
-            if (source == null || !Slots.TryGetValue(source, out var slot) || slot.refs > 0) return;
-            if (Current != null && Current.source == source)
-            {
+        private static void DropIfUnused(Texture2D source) {
+            if (source == null || !Slots.TryGetValue(source, out var slot) || slot.refs > 0) {
+                return;
+            }
+            if (Current != null && Current.source == source) {
                 // 編集中のものは画素を残す(また借りられたらすぐ映せるように)。GPU 側だけ手放す。
                 DestroyGpu(slot);
                 return;
@@ -253,39 +265,28 @@ namespace Iroca
         // リロードの直前に、他のツールの後始末と同じ並びで Unity が呼ぶ。Unity はここで例外を受け止めないので、
         // 投げると後ろに並んだ他のツールの後始末が飛ばされる。スロットごと・手放すものごとに受け止め、
         // 表は必ず空にする。
-        private static void ReleaseAll()
-        {
-            try
-            {
-                foreach (var slot in Slots.Values)
-                {
-                    try { DestroyGpu(slot); }
-                    catch (Exception e) { Debug.LogException(e); }
-                    try { slot.DropPixels(); }
-                    catch (Exception e) { Debug.LogException(e); }
+        private static void ReleaseAll() {
+            try {
+                foreach (var slot in Slots.Values) {
+                    try { DestroyGpu(slot); } catch (Exception e) { Debug.LogException(e); }
+                    try { slot.DropPixels(); } catch (Exception e) { Debug.LogException(e); }
                 }
-            }
-            catch (Exception e) { Debug.LogException(e); }
-            finally
-            {
+            } catch (Exception e) { Debug.LogException(e); } finally {
                 Slots.Clear();
                 Current = null;
             }
         }
 
-        private static void CreateTarget(Slot slot, Texture2D source)
-        {
+        private static void CreateTarget(Slot slot, Texture2D source) {
             DestroyGpu(slot);
             bool srgb = GraphicsFormatUtility.IsSRGBFormat(source.graphicsFormat);
             var desc = new RenderTextureDescriptor(Mathf.Max(1, source.width), Mathf.Max(1, source.height),
-                RenderTextureFormat.ARGB32, 0)
-            {
+                RenderTextureFormat.ARGB32, 0) {
                 sRGB = srgb,
                 useMipMap = source.mipmapCount > 1,
                 autoGenerateMips = source.mipmapCount > 1,
             };
-            slot.rt = new RenderTexture(desc)
-            {
+            slot.rt = new RenderTexture(desc) {
                 name = source.name + " (Iroca preview)",
                 hideFlags = HideFlags.HideAndDontSave,
                 filterMode = source.filterMode,
@@ -299,26 +300,26 @@ namespace Iroca
         // 画素をいったん Texture2D に載せ、GPU で RenderTexture の寸法へ合わせて書き込む。
         // 縮小のときは、ミップ付きの一時 RenderTexture を挟んで GPU にミップを作らせる(そのまま縮小すると
         // 4 倍以上でちらつく)。CPU でのミップ生成(Texture2D.Apply(true))は 4K で重いので使わない。
-        private static unsafe void Upload(Slot slot)
-        {
-            if (slot.rt == null || !slot.HasPixels) return;
+        private static unsafe void Upload(Slot slot) {
+            if (slot.rt == null || !slot.HasPixels) {
+                return;
+            }
             bool srgb = slot.rt.sRGB;
             SelectStaging(slot, srgb);
-            if (slot.native != null)
+            if (slot.native != null) {
                 // RGBA32 でミップなしなので、Color32 の並びがそのままテクスチャのデータになる(管理配列へ写さない)。
                 slot.staging.LoadRawTextureData((IntPtr)slot.native.Ptr, slot.native.Length * 4);
-            else
+            } else {
                 slot.staging.SetPixelData(slot.pixels, 0);
+            }
             // ビルド(RecipeTextureBuilder)と同じく、出来上がりに取り込み設定の Alpha Source を当てる。届いた画素は窓のプレビューも
             // 使うので、写した先で当てる。
             RecipeTextureBuilder.ApplyAlphaSource(slot.staging, slot.importer);
             slot.staging.Apply(false, false);
 
             bool shrink = slot.width > slot.rt.width * 2 || slot.height > slot.rt.height * 2;
-            if (shrink)
-            {
-                var desc = new RenderTextureDescriptor(slot.width, slot.height, RenderTextureFormat.ARGB32, 0)
-                {
+            if (shrink) {
+                var desc = new RenderTextureDescriptor(slot.width, slot.height, RenderTextureFormat.ARGB32, 0) {
                     sRGB = srgb,
                     useMipMap = true,
                     autoGenerateMips = true,
@@ -328,9 +329,7 @@ namespace Iroca
                 BlitKeepingActive(slot.staging, tmp);
                 BlitKeepingActive(tmp, slot.rt);
                 RenderTexture.ReleaseTemporary(tmp);
-            }
-            else
-            {
+            } else {
                 BlitKeepingActive(slot.staging, slot.rt);
             }
             SceneView.RepaintAll();
@@ -338,23 +337,25 @@ namespace Iroca
 
         // 今の画素の寸法と色空間に合う中継を slot.staging に置く。控えに合うものがあれば入れ替えて使い、無ければ作る
         // (直近に使った方を控えへ回し、合わない控えは捨てる。持つのは 2 枚まで)。
-        private static void SelectStaging(Slot slot, bool srgb)
-        {
-            if (StagingFits(slot.staging, slot.width, slot.height, srgb)) return;
-            if (StagingFits(slot.stagingSpare, slot.width, slot.height, srgb))
-            {
+        private static void SelectStaging(Slot slot, bool srgb) {
+            if (StagingFits(slot.staging, slot.width, slot.height, srgb)) {
+                return;
+            }
+            if (StagingFits(slot.stagingSpare, slot.width, slot.height, srgb)) {
                 (slot.staging, slot.stagingSpare) = (slot.stagingSpare, slot.staging);
                 return;
             }
-            if (slot.stagingSpare != null) UnityEngine.Object.DestroyImmediate(slot.stagingSpare);
+            if (slot.stagingSpare != null) {
+                UnityEngine.Object.DestroyImmediate(slot.stagingSpare);
+            }
             slot.stagingSpare = null;
             // 色空間が替わった(別の元テクスチャの読み方)中継は、もう使わないので控えにも残さない。
-            if (slot.staging != null && GraphicsFormatUtility.IsSRGBFormat(slot.staging.graphicsFormat) != srgb)
+            if (slot.staging != null && GraphicsFormatUtility.IsSRGBFormat(slot.staging.graphicsFormat) != srgb) {
                 UnityEngine.Object.DestroyImmediate(slot.staging);
-            else
+            } else {
                 slot.stagingSpare = slot.staging;
-            slot.staging = new Texture2D(slot.width, slot.height, TextureFormat.RGBA32, false, !srgb)
-            {
+            }
+            slot.staging = new Texture2D(slot.width, slot.height, TextureFormat.RGBA32, false, !srgb) {
                 hideFlags = HideFlags.HideAndDontSave,
                 filterMode = FilterMode.Bilinear,
                 wrapMode = TextureWrapMode.Clamp,
@@ -366,28 +367,23 @@ namespace Iroca
 
         // Graphics.Blit は描画先を RenderTexture.active に残す。そのままだと他の処理の描画先を奪い、
         // 後で捨てるときに「active のまま解放した」警告も出るので、元に戻す。
-        private static void BlitKeepingActive(Texture from, RenderTexture to)
-        {
+        private static void BlitKeepingActive(Texture from, RenderTexture to) {
             var previous = RenderTexture.active;
             Graphics.Blit(from, to);
             RenderTexture.active = previous;
         }
 
-        private static void DestroyGpu(Slot slot)
-        {
-            if (slot.rt != null)
-            {
+        private static void DestroyGpu(Slot slot) {
+            if (slot.rt != null) {
                 slot.rt.Release();
                 UnityEngine.Object.DestroyImmediate(slot.rt);
                 slot.rt = null;
             }
-            if (slot.staging != null)
-            {
+            if (slot.staging != null) {
                 UnityEngine.Object.DestroyImmediate(slot.staging);
                 slot.staging = null;
             }
-            if (slot.stagingSpare != null)
-            {
+            if (slot.stagingSpare != null) {
                 UnityEngine.Object.DestroyImmediate(slot.stagingSpare);
                 slot.stagingSpare = null;
             }

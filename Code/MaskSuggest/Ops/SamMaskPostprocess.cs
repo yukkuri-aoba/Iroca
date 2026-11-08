@@ -3,8 +3,7 @@
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// デコーダ出力(low_res_logits [4,256,256] + iou_predictions [4])から提案マスクを作る純計算。
     /// SamPredictor の後処理と同値:
@@ -12,8 +11,7 @@ namespace Iroca
     ///   bilinear で元寸 → 閾値 0 で二値化。最後に下原点(GetPixels32 順)へ反転して返す。
     /// チャンネル選択は <see cref="SelectChannels"/> が正(妥当性判定 → 粒度規則の 2 段)。
     /// </summary>
-    internal static unsafe class SamMaskPostprocess
-    {
+    internal static unsafe class SamMaskPostprocess {
         /// <summary>デコーダ低解像度マスクの一辺。</summary>
         public const int LowRes = 256;
 
@@ -33,8 +31,7 @@ namespace Iroca
         /// </summary>
         public const float StabilityThreshold = 0.80f;
 
-        internal sealed class Result
-        {
+        internal sealed class Result {
             /// <summary>
             /// 下原点 texW*texH の提案マスク(Mono のヒープの外。この結果が参照を 1 つ持ち、受け取った側が引き取る。
             /// 0.4.0 の計画の B4)。
@@ -54,8 +51,7 @@ namespace Iroca
         /// 拡大前のチャンネル選択結果。低解像度ロジットだけを見るので安価
         /// (高価な <see cref="UpscaleChannel"/> を呼ぶ前に、どれを拡大するか決められる)。
         /// </summary>
-        internal struct Selection
-        {
+        internal struct Selection {
             /// <summary>採用チャンネル(1..3)。</summary>
             public int channel;
             /// <summary>採用チャンネルの予測 IoU スコア。</summary>
@@ -93,8 +89,7 @@ namespace Iroca
         /// </summary>
         public static Selection SelectChannels(float[] logits, float[] scores, int texW, int texH,
                                                float floodRejectFrac = DefaultFloodRejectFrac,
-                                               MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto)
-        {
+                                               MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto) {
             SamImageOps.GetResizedSize(texW, texH, out int newW, out int newH);
             // 低解像度空間での有効域(パディング除去相当)。1024→256 は 1/4。
             float lw = newW * (LowRes / (float)SamImageOps.InputSize);
@@ -105,19 +100,22 @@ namespace Iroca
             // multimask の各チャンネルの面積比と安定度を低解像度で測る。
             var area = new float[4];
             var stability = new float[4];
-            for (int c = 1; c < 4; c++)
-            {
+            for (int c = 1; c < 4; c++) {
                 int cOff = c * LowRes * LowRes;
                 int count = 0, hi = 0, lo = 0;
-                for (int y = 0; y < lhCeil; y++)
-                {
+                for (int y = 0; y < lhCeil; y++) {
                     int row = cOff + y * LowRes;
-                    for (int x = 0; x < lwCeil; x++)
-                    {
+                    for (int x = 0; x < lwCeil; x++) {
                         float v = logits[row + x];
-                        if (v > 0f) count++;
-                        if (v > StabilityOffset) hi++;
-                        if (v > -StabilityOffset) lo++;
+                        if (v > 0f) {
+                            count++;
+                        }
+                        if (v > StabilityOffset) {
+                            hi++;
+                        }
+                        if (v > -StabilityOffset) {
+                            lo++;
+                        }
                     }
                 }
                 area[c] = count / (lw * lh);
@@ -133,14 +131,11 @@ namespace Iroca
             bool warn = !anyInRange;
 
             int chosen;
-            if (warn)
-            {
+            if (warn) {
                 // 全滅: 最小面積のチャンネルを警告付きで提示(スパイクでは無駄撃ち扱いだが、
                 // 製品はユーザーが見て捨てられるので情報を残す)
                 chosen = PickExtreme(_ => true, area, scores, smallest: true);
-            }
-            else
-            {
+            } else {
                 // 「大きい」は安定ゲートを外す(上記の理由)。
                 bool useStable = granularity != MaskSuggestGranularity.Coarse && anyStable;
                 var pool = useStable ? (System.Func<int, bool>)IsStable : InFloodRange;
@@ -148,8 +143,7 @@ namespace Iroca
                                      smallest: granularity == MaskSuggestGranularity.Fine);
             }
 
-            return new Selection
-            {
+            return new Selection {
                 channel = chosen,
                 score = scores[chosen],
                 areaFrac = area[chosen],
@@ -158,22 +152,30 @@ namespace Iroca
         }
 
         /// <summary>母集団 pool の中で面積が最小/最大のチャンネル(同面積はスコアで決着)。</summary>
-        static int PickExtreme(System.Func<int, bool> pool, float[] area, float[] scores, bool smallest)
-        {
+        static int PickExtreme(System.Func<int, bool> pool, float[] area, float[] scores, bool smallest) {
             int best = -1;
-            for (int c = 1; c < 4; c++)
-            {
-                if (!pool(c)) continue;
+            for (int c = 1; c < 4; c++) {
+                if (!pool(c)) {
+                    continue;
+                }
                 if (best < 0) { best = c; continue; }
                 bool better = area[c] != area[best]
                     ? (smallest ? area[c] < area[best] : area[c] > area[best])
                     : scores[c] > scores[best];
-                if (better) best = c;
+                if (better) {
+                    best = c;
+                }
             }
-            if (best >= 0) return best;
+            if (best >= 0) {
+                return best;
+            }
             // pool が空(呼び出し側が保証するが念のため): 面積最小へ退避。
             best = 1;
-            for (int c = 2; c < 4; c++) if (area[c] < area[best]) best = c;
+            for (int c = 2; c < 4; c++) {
+                if (area[c] < area[best]) {
+                    best = c;
+                }
+            }
             return best;
         }
 
@@ -187,12 +189,14 @@ namespace Iroca
                                               float floodRejectFrac = DefaultFloodRejectFrac,
                                               Color32[] pixelsBottomUp = null,
                                               MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto,
-                                              System.Threading.CancellationToken token = default)
-        {
+                                              System.Threading.CancellationToken token = default) {
             // 各段は画素が足りなければ何もしない(配列版の約束)ので、足りないときは精密化しないのと同じ。
-            if (pixelsBottomUp != null && pixelsBottomUp.Length < texW * texH) pixelsBottomUp = null;
-            fixed (Color32* p = pixelsBottomUp)
+            if (pixelsBottomUp != null && pixelsBottomUp.Length < texW * texH) {
+                pixelsBottomUp = null;
+            }
+            fixed (Color32* p = pixelsBottomUp) {
                 return SelectAndUpscale(logits, scores, texW, texH, floodRejectFrac, p, granularity, token);
+            }
         }
 
         /// <summary>
@@ -203,23 +207,19 @@ namespace Iroca
                                               float floodRejectFrac,
                                               Color32* pixelsBottomUp,
                                               MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto,
-                                              System.Threading.CancellationToken token = default)
-        {
+                                              System.Threading.CancellationToken token = default) {
             var sel = SelectChannels(logits, scores, texW, texH, floodRejectFrac, granularity);
             SamImageOps.GetResizedSize(texW, texH, out int newW, out int newH);
             var mask = UpscaleChannel(logits, sel.channel, texW, texH, newW, newH, token);
-            try
-            {
-                if (pixelsBottomUp != null)
+            try {
+                if (pixelsBottomUp != null) {
                     RefineInPlace(mask.Ptr, pixelsBottomUp, texW, texH, token);
-            }
-            catch
-            {
+                }
+            } catch {
                 mask.Release();
                 throw;
             }
-            return new Result
-            {
+            return new Result {
                 mask = mask,
                 channel = sel.channel,
                 score = sel.score,
@@ -235,37 +235,43 @@ namespace Iroca
         /// </summary>
         public static void RefineInPlace(bool[] maskBottomUp, Color32[] pixelsBottomUp,
                                          int texW, int texH,
-                                         System.Threading.CancellationToken token = default)
-        {
+                                         System.Threading.CancellationToken token = default) {
             // 各段は画素が足りなければ何もしない(配列版の約束)ので、足りないときは丸ごと飛ばしても同じ。
-            if (maskBottomUp == null || maskBottomUp.Length != texW * texH) return;
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < texW * texH) return;
+            if (maskBottomUp == null || maskBottomUp.Length != texW * texH) {
+                return;
+            }
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < texW * texH) {
+                return;
+            }
             fixed (bool* m = maskBottomUp)
-            fixed (Color32* p = pixelsBottomUp) RefineInPlace(m, p, texW, texH, token);
+            fixed (Color32* p = pixelsBottomUp) {
+                RefineInPlace(m, p, texW, texH, token);
+            }
         }
 
         /// <summary><see cref="RefineInPlace(bool[], Color32[], int, int, System.Threading.CancellationToken)"/> のポインタ版(マスクは texW*texH 個)。</summary>
         public static void RefineInPlace(bool* maskBottomUp, Color32* pixelsBottomUp,
                                          int texW, int texH,
-                                         System.Threading.CancellationToken token = default)
-        {
-            if (maskBottomUp == null || pixelsBottomUp == null) return;
+                                         System.Threading.CancellationToken token = default) {
+            if (maskBottomUp == null || pixelsBottomUp == null) {
+                return;
+            }
             // 提案が画像の一部なら、外接矩形に余白を足した矩形だけで 4 段を回す(全画像で回したのとビット同一。
             // 根拠は TryDeriveRefineCropRect)。4K で全画像を回すと、提案が小さくても 1 回 1〜2 秒かかる。
             if (SamMaskRefine.TryDeriveRefineCropRect(maskBottomUp, texW, texH, token,
-                    out bool empty, out int rx0, out int ry0, out int rw, out int rh))
-            {
+                    out bool empty, out int rx0, out int ry0, out int rw, out int rh)) {
                 RefineCropped(maskBottomUp, pixelsBottomUp, texW, texH, rx0, ry0, rw, rh, token);
                 return;
             }
-            if (empty) return;   // マスクが空なら 4 段とも何も変えない
+            if (empty) {
+                return;   // マスクが空なら 4 段とも何も変えない
+            }
             RefineStages(maskBottomUp, pixelsBottomUp, texW, texH, texW, texH, token);
         }
 
         // 4 段をこの順で回す。sizeW・sizeH は帯幅などの定数を決める寸法(切り出しのときは全画像の寸法)。
         private static void RefineStages(bool* mask, Color32* px, int w, int h, int sizeW, int sizeH,
-                                         System.Threading.CancellationToken token)
-        {
+                                         System.Threading.CancellationToken token) {
             SamMaskRefine.SnapBoundary(mask, px, w, h, token, sizeW, sizeH);
             token.ThrowIfCancellationRequested();
             // 房(細い frayed strands)を実テクスチャ信号で外郭まで拡張(SAM の滑らかな境界が
@@ -287,27 +293,22 @@ namespace Iroca
         // Snap と Peel は画素を外すこともあるので、足した画素だけでなく行をそのまま写す。
         private static void RefineCropped(bool* mask, Color32* px, int w, int h,
                                           int rx0, int ry0, int rw, int rh,
-                                          System.Threading.CancellationToken token)
-        {
+                                          System.Threading.CancellationToken token) {
             bool* cropMask = WorkPools.Bool.Rent(rw * rh);
             Color32* cropPx = WorkPools.Rgba32.Rent(rw * rh);
-            try
-            {
-                Parallel.For(0, rh, SamMaskRefine.MakeParallelOptions(token), cy =>
-                {
+            try {
+                Parallel.For(0, rh, SamMaskRefine.MakeParallelOptions(token), cy => {
                     int src = (ry0 + cy) * w + rx0;
                     new System.ReadOnlySpan<bool>(mask + src, rw).CopyTo(new System.Span<bool>(cropMask + cy * rw, rw));
                     new System.ReadOnlySpan<Color32>(px + src, rw).CopyTo(new System.Span<Color32>(cropPx + cy * rw, rw));
                 });
                 RefineStages(cropMask, cropPx, rw, rh, w, h, token);
-                for (int cy = 0; cy < rh; cy++)
+                for (int cy = 0; cy < rh; cy++) {
                     System.Buffer.MemoryCopy(cropMask + (long)cy * rw, mask + (long)(ry0 + cy) * w + rx0, rw, rw);
-            }
-            finally
-            {
+                }
+            } finally {
                 // 中断中は返さない(並列で読んでいる途中のスレッドが残っていることがある)。
-                if (!IrocaNativeMemory.CurrentThreadAborting)
-                {
+                if (!IrocaNativeMemory.CurrentThreadAborting) {
                     WorkPools.Bool.Return(cropMask);
                     WorkPools.Rgba32.Return(cropPx);
                 }
@@ -320,48 +321,52 @@ namespace Iroca
         /// </summary>
         internal static NativeBools UpscaleChannel(float[] logits, int channel, int texW, int texH,
                                                    int newW, int newH,
-                                                   System.Threading.CancellationToken token = default)
-        {
+                                                   System.Threading.CancellationToken token = default) {
             float* up = WorkPools.Float.Rent(SamImageOps.InputSize * SamImageOps.InputSize);
-            try
-            {
+            try {
                 return UpscaleChannel(logits, channel, texW, texH, newW, newH, up, token);
-            }
-            finally
-            {
+            } finally {
                 // 中断中は返さない(並列で読んでいる途中のスレッドが残っていることがある)。
-                if (!IrocaNativeMemory.CurrentThreadAborting) WorkPools.Float.Return(up);
+                if (!IrocaNativeMemory.CurrentThreadAborting) {
+                    WorkPools.Float.Return(up);
+                }
             }
         }
 
         private static NativeBools UpscaleChannel(float[] logits, int channel, int texW, int texH,
                                                   int newW, int newH, float* up,
-                                                  System.Threading.CancellationToken token)
-        {
+                                                  System.Threading.CancellationToken token) {
             int cOff = channel * LowRes * LowRes;
 
             // 256 から 1024 のキャンバス全域へ補間する。
             const int S = SamImageOps.InputSize;
             float scale1 = LowRes / (float)S;
             var x0s = new int[S]; var x1s = new int[S]; var fxs = new float[S];
-            for (int x = 0; x < S; x++)
-            {
+            for (int x = 0; x < S; x++) {
                 float sx = (x + 0.5f) * scale1 - 0.5f;
-                if (sx < 0f) sx = 0f; if (sx > LowRes - 1) sx = LowRes - 1;
+                if (sx < 0f) {
+                    sx = 0f;
+                }
+                if (sx > LowRes - 1) {
+                    sx = LowRes - 1;
+                }
                 int x0 = (int)sx;
                 x0s[x] = x0; x1s[x] = Mathf.Min(x0 + 1, LowRes - 1); fxs[x] = sx - x0;
             }
             // 行ごとに独立な bilinear(書き込みは自行のみ)なので行並列で決定的
             var po = SamMaskRefine.MakeParallelOptions(token);
-            Parallel.For(0, S, po, y =>
-            {
+            Parallel.For(0, S, po, y => {
                 float sy = (y + 0.5f) * scale1 - 0.5f;
-                if (sy < 0f) sy = 0f; if (sy > LowRes - 1) sy = LowRes - 1;
+                if (sy < 0f) {
+                    sy = 0f;
+                }
+                if (sy > LowRes - 1) {
+                    sy = LowRes - 1;
+                }
                 int y0 = (int)sy; int y1 = Mathf.Min(y0 + 1, LowRes - 1);
                 float fy = sy - y0;
                 int r0 = cOff + y0 * LowRes, r1 = cOff + y1 * LowRes, dr = y * S;
-                for (int x = 0; x < S; x++)
-                {
+                for (int x = 0; x < S; x++) {
                     float a = logits[r0 + x0s[x]] + (logits[r0 + x1s[x]] - logits[r0 + x0s[x]]) * fxs[x];
                     float b = logits[r1 + x0s[x]] + (logits[r1 + x1s[x]] - logits[r1 + x0s[x]]) * fxs[x];
                     up[dr + x] = a + (b - a) * fy;
@@ -373,23 +378,30 @@ namespace Iroca
             bool* mask = result.Ptr;
             float scaleX = newW / (float)texW, scaleY = newH / (float)texH;
             var cx0 = new int[texW]; var cx1 = new int[texW]; var cfx = new float[texW];
-            for (int x = 0; x < texW; x++)
-            {
+            for (int x = 0; x < texW; x++) {
                 float sx = (x + 0.5f) * scaleX - 0.5f;
-                if (sx < 0f) sx = 0f; if (sx > newW - 1) sx = newW - 1;
+                if (sx < 0f) {
+                    sx = 0f;
+                }
+                if (sx > newW - 1) {
+                    sx = newW - 1;
+                }
                 int x0 = (int)sx;
                 cx0[x] = x0; cx1[x] = Mathf.Min(x0 + 1, newW - 1); cfx[x] = sx - x0;
             }
-            Parallel.For(0, texH, po, y =>
-            {
+            Parallel.For(0, texH, po, y => {
                 float sy = (y + 0.5f) * scaleY - 0.5f;
-                if (sy < 0f) sy = 0f; if (sy > newH - 1) sy = newH - 1;
+                if (sy < 0f) {
+                    sy = 0f;
+                }
+                if (sy > newH - 1) {
+                    sy = newH - 1;
+                }
                 int y0 = (int)sy; int y1 = Mathf.Min(y0 + 1, newH - 1);
                 float fy = sy - y0;
                 int r0 = y0 * S, r1 = y1 * S;
                 int dstRow = (texH - 1 - y) * texW; // 上原点 y → 下原点行
-                for (int x = 0; x < texW; x++)
-                {
+                for (int x = 0; x < texW; x++) {
                     float a = up[r0 + cx0[x]] + (up[r0 + cx1[x]] - up[r0 + cx0[x]]) * cfx[x];
                     float b = up[r1 + cx0[x]] + (up[r1 + cx1[x]] - up[r1 + cx0[x]]) * cfx[x];
                     mask[dstRow + x] = (a + (b - a) * fy) > 0f;

@@ -6,8 +6,7 @@ using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 自動調整の流れ(0.4.0 の計画の 4-3)。1 つのゾーンについて、スポイト位置の AI 提案を証拠に待ち、背景のスレッドで
     /// 解析して、結果(<see cref="ZoneAutoTuner.TuneResult"/>)をゾーンへ当てる。ウィンドウ(進み具合・通知・Undo・由来の
@@ -24,8 +23,7 @@ namespace Iroca
     /// 待ちと解析の終わりは <see cref="Run.Advance"/> で見る(メインスレッド。ウィンドウは EditorApplication.update、
     /// 自動化は update と MCP の問い合わせ)。
     /// </summary>
-    internal static class AutoTuneService
-    {
+    internal static class AutoTuneService {
         /// <summary>
         /// 証拠待ちの上限。埋め込み計算(テクスチャ毎 1 回)は CPU バックエンドの大きなテクスチャで数十秒かかり得るので、
         /// 短い期限で諦めて従来導出へ落とさない(以前の 8 秒は「待たない方針」の名残。期限切れは中止して案内する)。
@@ -39,8 +37,7 @@ namespace Iroca
 
         internal enum Status { WaitingForEvidence, Analyzing, Done, Failed }
 
-        internal enum Failure
-        {
+        internal enum Failure {
             None,
             /// <summary>AI(Sentis とモデル)が無い。</summary>
             AiUnavailable,
@@ -78,8 +75,7 @@ namespace Iroca
         /// 前の推論のエラーをなかったことにして試し直すか。何ゾーンもまとめて頼むときは最初の 1 回だけ(直らないエラーでゾーンごとに待たせない)。
         /// </param>
         internal static Run Start(ColorZone zone, IrocaSessionState session, NativePixels pixels, string sourceKey,
-            NativeBools excluded, int maskW, int maskH, bool retryAiError = true)
-        {
+            NativeBools excluded, int maskW, int maskH, bool retryAiError = true) {
             zone.EnsureId();
             // 背景の解析には live の zone / session を直接渡さず、値等価コピーを渡す。解析中も Undo などでゾーンや
             // session が変異し得るため、live を渡すと sampleColor 変異で混成サンプルから無意味な tolerance を導出したり、
@@ -96,8 +92,7 @@ namespace Iroca
         /// 自動調整「後」の値なので、これが無いと「自動調整がどう導出したか」は後から再現できない(2026-09-02)。
         /// テクスチャ固有の一時情報なので Undo/プリセットには載せない。
         /// </summary>
-        internal sealed class Input
-        {
+        internal sealed class Input {
             public Color sample;          // 導出に渡したサンプル色(正規化前のスポイト色)
             public Color target;
             // 証拠マスク(下原点、1bit/画素に MaskSnapshot.Pack したもの。null=証拠なし導出)。
@@ -116,11 +111,14 @@ namespace Iroca
         /// ゾーンのパラメータが、その自動調整の適用値のまま(手で触っていない)か。
         /// 再現側はこれが真のときだけ「再導出した値 = 書き出しの値」を契約にできる。
         /// </summary>
-        internal static bool ParamsIntact(ColorZone zone, Input input)
-        {
-            if (zone == null || input == null) return false;
+        internal static bool ParamsIntact(ColorZone zone, Input input) {
+            if (zone == null || input == null) {
+                return false;
+            }
             var r = input.applied;
-            if (!ValuesIntact(zone, r)) return false;
+            if (!ValuesIntact(zone, r)) {
+                return false;
+            }
             var expectedSample = r.hasNormalizedSample ? r.normalizedSample : input.sample;
             int autoCount = r.autoSamples != null ? r.autoSamples.Count : 0;
             return ParamEq(zone.sampleColor.r, expectedSample.r) && ParamEq(zone.sampleColor.g, expectedSample.g)
@@ -133,9 +131,10 @@ namespace Iroca
         /// 上書き確認は「パラメータを手で変えたか」だけを問うので、色を取り直しただけの
         /// ゾーンまで手調整扱いにしないよう、サンプル側の一致とは分けて判定する。
         /// </summary>
-        internal static bool ValuesIntact(ColorZone zone, ZoneAutoTuner.TuneResult r)
-        {
-            if (zone == null) return false;
+        internal static bool ValuesIntact(ColorZone zone, ZoneAutoTuner.TuneResult r) {
+            if (zone == null) {
+                return false;
+            }
             return ParamEq(zone.tolerance, r.tolerance)
                 && ParamEq(zone.saturationStrictness, r.saturationStrictness)
                 && ParamEq(zone.saturationGuard, r.saturationGuard)
@@ -162,16 +161,20 @@ namespace Iroca
         /// </summary>
         private static ColorZone s_zoneDefaults;
 
-        internal static bool UntouchedByUser(ColorZone zone, Input lastInput)
-        {
-            if (zone == null) return false;
-            if (lastInput != null) return ValuesIntact(zone, lastInput.applied);
+        internal static bool UntouchedByUser(ColorZone zone, Input lastInput) {
+            if (zone == null) {
+                return false;
+            }
+            if (lastInput != null) {
+                return ValuesIntact(zone, lastInput.applied);
+            }
 
             // 未調整ゾーン: 初期 tolerance を既定値に均してから、他に既定と違う項目が
             // 残らないかを既存の判定（PreviewOverwrittenSettings）で見る。
             var probe = zone.Clone();
-            if (Mathf.Approximately(probe.tolerance, EditingSession.NewZoneInitialTolerance))
+            if (Mathf.Approximately(probe.tolerance, EditingSession.NewZoneInitialTolerance)) {
                 probe.tolerance = (s_zoneDefaults ??= new ColorZone()).tolerance;
+            }
             return ZoneAutoTuner.PreviewOverwrittenSettings(probe).Count == 0;
         }
 
@@ -180,8 +183,7 @@ namespace Iroca
         /// <see cref="Status.Done"/> になったら <see cref="ApplyTo"/> で当てる。AI の提案の受け取り先の持ち主はこれ
         /// (<see cref="AiSuggestBroker"/>)。
         /// </summary>
-        internal sealed unsafe class Run
-        {
+        internal sealed unsafe class Run {
             private readonly ColorZone _zone;
             private readonly ZoneAutoTuner.SessionInput _session;
             private readonly string _sourceKey;
@@ -202,8 +204,7 @@ namespace Iroca
             private int _evW, _evH;
 
             internal Run(ColorZone zone, ZoneAutoTuner.SessionInput session, NativePixels pixels, string sourceKey,
-                NativeBools excluded, int maskW, int maskH)
-            {
+                NativeBools excluded, int maskW, int maskH) {
                 _zone = zone;
                 _session = session;
                 _pixels = pixels;
@@ -259,21 +260,17 @@ namespace Iroca
                 + $"; normalized={Result.hasNormalizedSample}"
                 + (string.IsNullOrEmpty(Result.evidenceDiag) ? "" : "; " + Result.evidenceDiag);
 
-            internal void Begin()
-            {
-                if (!_zone.HasSampleUV)
-                {
+            internal void Begin() {
+                if (!_zone.HasSampleUV) {
                     StartAnalysis(null, 0, 0, ReasonNoSamplePosition);
                     return;
                 }
                 // モデルのファイルが無い・読めないときは、最初の要求(TryEnsureModels)が Unavailable を返す。
-                if (!MaskSuggestBridge.Available)
-                {
+                if (!MaskSuggestBridge.Available) {
                     Fail(Failure.AiUnavailable);
                     return;
                 }
-                if (_sourceKey == null)
-                {
+                if (_sourceKey == null) {
                     Fail(Failure.SourceNotShared);
                     return;
                 }
@@ -283,31 +280,37 @@ namespace Iroca
                 _progress.Report(0.02f);
                 // 前の推論のエラーが残っていても、押し直したら再試行する(残したままだと、右クリックで AI を選び直すか
                 // テクスチャを切り替えるまで、自動調整が毎回すぐ中止される)。
-                if (_retryAiError) AiSuggestBroker.RetryAfterError();
+                if (_retryAiError) {
+                    AiSuggestBroker.RetryAfterError();
+                }
                 RequestEvidence();
             }
 
             /// <summary>進められるところまで進める(メインスレッド)。</summary>
-            public void Advance()
-            {
-                switch (Status)
-                {
+            public void Advance() {
+                switch (Status) {
                     case Status.WaitingForEvidence:
-                        if (!_requested) RequestEvidence();
+                        if (!_requested) {
+                            RequestEvidence();
+                        }
                         // 期限切れ: 中止して案内する(後から届いた提案は捨てる)。
-                        if (Status == Status.WaitingForEvidence && EditorApplication.timeSinceStartup >= _deadline)
+                        if (Status == Status.WaitingForEvidence && EditorApplication.timeSinceStartup >= _deadline) {
                             Fail(Failure.Timeout);
+                        }
                         break;
                     case Status.Analyzing:
-                        if (_analysis.IsCompleted) FinishAnalysis();
+                        if (_analysis.IsCompleted) {
+                            FinishAnalysis();
+                        }
                         break;
                 }
             }
 
             /// <summary>止める(待ちも解析も)。解析中なら、背景の計算は次のステップの間で抜ける。</summary>
-            public void Cancel()
-            {
-                if (Status == Status.Done || Status == Status.Failed) return;
+            public void Cancel() {
+                if (Status == Status.Done || Status == Status.Failed) {
+                    return;
+                }
                 _cts.Cancel();
                 Fail(Failure.Cancelled);
             }
@@ -317,73 +320,82 @@ namespace Iroca
             /// <see cref="ZoneAutoTuner.TuneResult.ApplyTo"/> が単一の正(headless ハーネスの --autotune と共有。
             /// ここに項目を並べ直さない)。
             /// </summary>
-            public void ApplyTo(ColorZone zone, IrocaSessionState session)
-            {
-                if (Status != Status.Done) throw new InvalidOperationException("auto-tune has not finished");
+            public void ApplyTo(ColorZone zone, IrocaSessionState session) {
+                if (Status != Status.Done) {
+                    throw new InvalidOperationException("auto-tune has not finished");
+                }
                 Result.ApplyTo(zone, session);
             }
 
             /// <summary>再現データ用の入力(<see cref="Status.Done"/> のとき)。</summary>
-            public Input ToInput() => new Input
-            {
-                sample = _zone.sampleColor, target = _zone.targetColor,
-                evidence = _evidencePacked, evW = _evW, evH = _evH, texW = TextureWidth, texH = TextureHeight,
-                maskUsed = _maskUsed, applied = Result,
+            public Input ToInput() => new Input {
+                sample = _zone.sampleColor,
+                target = _zone.targetColor,
+                evidence = _evidencePacked,
+                evW = _evW,
+                evH = _evH,
+                texW = TextureWidth,
+                texH = TextureHeight,
+                maskUsed = _maskUsed,
+                applied = Result,
             };
 
             // 証拠の要求を(再)試行する。準備中(Busy)なら次の Advance で求め直す。
-            private void RequestEvidence()
-            {
+            private void RequestEvidence() {
                 var r = AiSuggestBroker.RequestWhenIdle(this, _sourceKey, _pixels,
                     _zone.sampleUV.x, _zone.sampleUV.y, OnEvidence);
-                switch (r)
-                {
+                switch (r) {
                     case AiSuggestBroker.Request.Started:
                         _requested = true;
                         break;
-                    case AiSuggestBroker.Request.Busy:
-                    {
-                        // 準備の進み(モデルロード・埋め込み計算)を進捗に映す。
-                        var svc = MaskSuggestBridge.Service;
-                        _progress.Report(0.02f + 0.28f * (svc != null ? Mathf.Clamp01(svc.Progress) : 0f));
-                        break;
-                    }
+                    case AiSuggestBroker.Request.Busy: {
+                            // 準備の進み(モデルロード・埋め込み計算)を進捗に映す。
+                            var svc = MaskSuggestBridge.Service;
+                            _progress.Report(0.02f + 0.28f * (svc != null ? Mathf.Clamp01(svc.Progress) : 0f));
+                            break;
+                        }
                     default:
                         FailAi();
                         break;
                 }
             }
 
-            private void FailAi()
-            {
+            private void FailAi() {
                 var svc = MaskSuggestBridge.Service;
-                if (svc != null && svc.Phase == MaskSuggestPhase.Error && !string.IsNullOrEmpty(svc.ErrorMessage))
+                if (svc != null && svc.Phase == MaskSuggestPhase.Error && !string.IsNullOrEmpty(svc.ErrorMessage)) {
                     Fail(Failure.AiError, svc.ErrorMessage);
-                else
+                } else {
                     Fail(Failure.AiUnavailable);
+                }
             }
 
             // 提案の到着(null = 取消・破棄)。null なら中止(従来導出へは落とさない)。
-            private void OnEvidence(MaskSuggestProposal proposal)
-            {
-                if (Status != Status.WaitingForEvidence) return;
-                if (proposal == null || proposal.mask == null || proposal.width <= 0 || proposal.height <= 0)
-                {
+            private void OnEvidence(MaskSuggestProposal proposal) {
+                if (Status != Status.WaitingForEvidence) {
+                    return;
+                }
+                if (proposal == null || proposal.mask == null || proposal.width <= 0 || proposal.height <= 0) {
                     // AI のエラーで捨てられたのなら、その理由を出す。
                     var svc = MaskSuggestBridge.Service;
-                    if (svc != null && svc.Phase == MaskSuggestPhase.Error) FailAi();
-                    else Fail(Failure.NoEvidence);
+                    if (svc != null && svc.Phase == MaskSuggestPhase.Error) {
+                        FailAi();
+                    } else {
+                        Fail(Failure.NoEvidence);
+                    }
                     return;
                 }
                 // 背景まで広がった提案は素材の証拠にならない。この場合だけは証拠なしで解析する。
-                if (proposal.floodWarning) StartAnalysis(null, 0, 0, ReasonEvidenceFlood);
+                if (proposal.floodWarning) {
+                    StartAnalysis(null, 0, 0, ReasonEvidenceFlood);
+                }
                 // 提案の範囲は受け取りの間だけ使える(AiSuggestBroker が後で返す)。解析が終わるまで持つので写す。
-                else StartAnalysis(proposal.mask.Clone(), proposal.width, proposal.height, null);
+                else {
+                    StartAnalysis(proposal.mask.Clone(), proposal.width, proposal.height, null);
+                }
             }
 
             // evidence: 証拠マスク（true=このゾーンの素材そのもの。pixels と同じ下原点並び）。null なら従来導出。
-            private void StartAnalysis(NativeBools evidence, int evW, int evH, string conventionalReason)
-            {
+            private void StartAnalysis(NativeBools evidence, int evW, int evH, string conventionalReason) {
                 Status = Status.Analyzing;
                 ConventionalReason = conventionalReason;
                 HadEvidence = evidence != null;
@@ -403,10 +415,8 @@ namespace Iroca
                 var progress = _progress;
                 // 予約から抜けるまでを計算中として数える(閉じたときの解放が、走り終わるのを待って作業配列を返すため)。
                 NativeMemoryLifecycle.WorkStarted();
-                _analysis = s_lastAnalysis.ContinueWith(_ =>
-                {
-                    try
-                    {
+                _analysis = s_lastAnalysis.ContinueWith(_ => {
+                    try {
                         ct.ThrowIfCancellationRequested();
                         progress.Report(0.10f);
                         // ct を Analyze へ渡す。取り消されたら各解析ステップ間で停止し、ゾンビ実行(CPU 2 倍)を防ぐ。
@@ -421,10 +431,7 @@ namespace Iroca
                         _evidencePacked = MaskSnapshot.Pack(evidence);   // null は null
                         progress.Report(1.0f);
                         return (result, (Exception)null);
-                    }
-                    catch (Exception e) { return (default(ZoneAutoTuner.TuneResult), e); }
-                    finally
-                    {
+                    } catch (Exception e) { return (default(ZoneAutoTuner.TuneResult), e); } finally {
                         evidence?.Release();
                         excluded?.Release();
                         px.Release();
@@ -434,20 +441,19 @@ namespace Iroca
                 s_lastAnalysis = _analysis;
             }
 
-            private void FinishAnalysis()
-            {
+            private void FinishAnalysis() {
                 var (result, error) = _analysis.Result;
-                if (error == null)
-                {
+                if (error == null) {
                     Result = result;
                     Status = Status.Done;
+                } else if (error is OperationCanceledException) {
+                    Fail(Failure.Cancelled);
+                } else {
+                    Fail(Failure.AnalysisFailed, error.Message, error);
                 }
-                else if (error is OperationCanceledException) Fail(Failure.Cancelled);
-                else Fail(Failure.AnalysisFailed, error.Message, error);
             }
 
-            private void Fail(Failure failure, string detail = null, Exception error = null)
-            {
+            private void Fail(Failure failure, string detail = null, Exception error = null) {
                 Status = Status.Failed;
                 Failure = failure;
                 FailureDetail = detail;

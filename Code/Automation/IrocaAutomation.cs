@@ -8,8 +8,7 @@ using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// Unity MCP / AI エージェントから Iroca をヘッドレス駆動するための自動化 API。
     ///
@@ -30,8 +29,7 @@ namespace Iroca
     ///
     /// プリセットに入っているマスク（共通の除外・ゾーン別の除外・含める）も、UI でプリセットを読み込んだときと同じく当てる。
     /// </summary>
-    public static partial class IrocaAutomation
-    {
+    public static partial class IrocaAutomation {
         // package.json の name。NDMF の識別子(IrocaNdmfPlugin.QualifiedName・IrocaPreviewFilter のトグルキー)とは
         // 意図的に共有しない(あちらはパッケージ名が変わっても変えてはいけない)。
         private const string PackageName = "com.yukkuri-aoba.iroca";
@@ -42,8 +40,7 @@ namespace Iroca
 
         /// <summary>再着色 1 回分の結果。JSON 文字列としてエージェントへ返す。</summary>
         [Serializable]
-        public class RecolorResult
-        {
+        public class RecolorResult {
             public bool ok;
             public string error = "";
             public string output = "";
@@ -70,8 +67,7 @@ namespace Iroca
         // (Harness.ZoneCfg と乖離し、テストが製品でない挙動を測る事故になる)。
         // internal: ReproDump(再現データ書き出し)が同一スキーマで zones.json を書くために共有する。
         [Serializable]
-        internal class ZoneDto
-        {
+        internal class ZoneDto {
             public string name = ZonesJsonDefaults.Name;
             public float[] sample = ZonesJsonDefaults.NewSample();
             public float[] target = ZonesJsonDefaults.NewTarget();
@@ -106,8 +102,7 @@ namespace Iroca
         }
 
         [Serializable]
-        internal class SettingsDto
-        {
+        internal class SettingsDto {
             public float edgeFeather = ZonesJsonDefaults.EdgeFeather;
             public int antiAliasCleanup = ZonesJsonDefaults.AntiAliasCleanup;
             public int holeFillPasses = ZonesJsonDefaults.HoleFillPasses;
@@ -119,15 +114,13 @@ namespace Iroca
         }
 
         [Serializable]
-        internal class ZonesRequest
-        {
+        internal class ZonesRequest {
             public List<ZoneDto> zones = new List<ZoneDto>();
             public SettingsDto settings = new SettingsDto();
         }
 
         [Serializable]
-        private class JobRequest
-        {
+        private class JobRequest {
             // "preset" | "zones"
             public string mode = "preset";
             public string source = "";
@@ -145,8 +138,7 @@ namespace Iroca
         private class PresetList { public List<PresetEntry> presets = new List<PresetEntry>(); }
 
         [Serializable]
-        private class SchemaDoc
-        {
+        private class SchemaDoc {
             public string name = PackageName;
             public string version = "";
             public string[] methods;
@@ -165,13 +157,10 @@ namespace Iroca
         /// リクエスト/プリセットの JSON スキーマ・既定値・フィールド説明を JSON で返す。
         /// エージェントが呼び出し方を自己発見するための一次情報。
         /// </summary>
-        public static string DescribeSchema()
-        {
-            var doc = new SchemaDoc
-            {
+        public static string DescribeSchema() {
+            var doc = new SchemaDoc {
                 version = ExtractVersion(),
-                methods = new[]
-                {
+                methods = new[] {
                     "RecolorByPreset(sourceAssetPath, presetPathOrNameOrJson, outputAssetPath) -> RecolorResult",
                     "RecolorWithZones(sourceAssetPath, zonesRequestJson, outputAssetPath) -> RecolorResult",
                     "Inspect(target, maxColors, pointsUv, coverage) -> { kind, ndmf, ai, recolorRunning, presets, objects, "
@@ -188,8 +177,7 @@ namespace Iroca
                     "GetVersion() -> { name, version }",
                     "DescribeSchema() -> this document",
                 },
-                notes = new[]
-                {
+                notes = new[] {
                     "パスは Assets 相対（Assets/...）・プロジェクト相対・絶対のいずれも可。出力は .png。",
                     "色は [r,g,b]（0..1）。enabled なゾーンが 1 つも無いと error になる。",
                     "プリセットに入っているマスク（除外・含める）も UI と同じく当てる。",
@@ -199,8 +187,7 @@ namespace Iroca
                     "検証ループ: 再着色 → 'preview' 画像を開いて意図通りか目視 → ずれていれば target/tolerance を調整して再実行。"
                         + "largestComponentFraction が小さい・changeComponentCount が多い＝変化が散在＝過検出の疑い。",
                 },
-                fieldDocs = new[]
-                {
+                fieldDocs = new[] {
                     "sample: 変換元の色（このゾーンが拾う色）",
                     "target: 変換後の色",
                     "tolerance: 色マッチの許容範囲（大きいほど広く拾う）",
@@ -216,14 +203,12 @@ namespace Iroca
                     "settings.antiAliasCleanup / holeFill* / relaxedSat* / decontamination*: 後処理パラメータ",
                 },
             };
-            doc.jobExample = new JobRequest
-            {
+            doc.jobExample = new JobRequest {
                 mode = "preset",
                 source = "Assets/Textures/body.png",
                 output = "Assets/Textures/body_recolored.png",
                 preset = "MyPreset",
-                zones = new ZonesRequest
-                {
+                zones = new ZonesRequest {
                     zones = new List<ZoneDto> { new ZoneDto { name = "Example", sample = new[] { 1f, 1f, 1f }, target = new[] { 0.1f, 0.3f, 0.8f }, tolerance = 0.25f } },
                     settings = new SettingsDto(),
                 },
@@ -232,8 +217,7 @@ namespace Iroca
         }
 
         /// <summary>プロジェクト/ユーザー保存先のプリセット一覧を JSON で返す。</summary>
-        public static string ListPresets()
-        {
+        public static string ListPresets() {
             var list = new PresetList();
             AddPresets(list, PresetStore.ProjectPresetFolder, "project");
             AddPresets(list, PresetStore.UserPresetFolder, "user");
@@ -244,22 +228,19 @@ namespace Iroca
         /// プリセットを使ってテクスチャを再着色し PNG を書き出す。
         /// <paramref name="presetPathOrNameOrJson"/> はファイルパス・プリセット名・インライン JSON のいずれでも可。
         /// </summary>
-        public static string RecolorByPreset(string sourceAssetPath, string presetPathOrNameOrJson, string outputAssetPath)
-        {
+        public static string RecolorByPreset(string sourceAssetPath, string presetPathOrNameOrJson, string outputAssetPath) {
             var warnings = new List<string>();
-            try
-            {
+            try {
                 var preset = ResolvePreset(presetPathOrNameOrJson);
-                if (preset == null)
+                if (preset == null) {
                     return Fail($"preset not found / parse failed: {presetPathOrNameOrJson}");
+                }
 
                 string abs = ResolveExistingFile(sourceAssetPath);
                 string rel = abs != null ? PathUtils.ToAssetsRelativeOrNull(abs) : null;
                 string guid = rel != null ? AssetDatabase.AssetPathToGUID(rel) : "";
                 return Json(RunRecolorCore(sourceAssetPath, SessionFromPreset(preset, guid, warnings), outputAssetPath, warnings));
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 return Fail($"{ex.GetType().Name}: {ex.Message}", warnings);
             }
         }
@@ -268,23 +249,19 @@ namespace Iroca
         /// フラットなゾーン設定 JSON（<c>{"zones":[...],"settings":{...}}</c>）で再着色して PNG を書き出す。
         /// プリセット保存を経由せず、その場の色指定で変換したいときに使う。
         /// </summary>
-        public static string RecolorWithZones(string sourceAssetPath, string zonesRequestJson, string outputAssetPath)
-        {
+        public static string RecolorWithZones(string sourceAssetPath, string zonesRequestJson, string outputAssetPath) {
             var warnings = new List<string>();
-            try
-            {
+            try {
                 ZonesRequest req;
-                try { req = JsonUtility.FromJson<ZonesRequest>(zonesRequestJson); }
-                catch (Exception ex) { return Fail($"zones JSON parse failed: {ex.Message}"); }
-                if (req == null || req.zones == null || req.zones.Count == 0)
+                try { req = JsonUtility.FromJson<ZonesRequest>(zonesRequestJson); } catch (Exception ex) { return Fail($"zones JSON parse failed: {ex.Message}"); }
+                if (req == null || req.zones == null || req.zones.Count == 0) {
                     return Fail("zones JSON has no zones.");
+                }
 
                 var state = new IrocaSessionState { zones = req.zones.Select(BuildZone).ToList() };
                 SettingsFromDto(req.settings ?? new SettingsDto()).CopyTo(state);
                 return Json(RunRecolorCore(sourceAssetPath, state, outputAssetPath, warnings));
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 return Fail($"{ex.GetType().Name}: {ex.Message}", warnings);
             }
         }
@@ -299,8 +276,7 @@ namespace Iroca
         /// で呼ぶ、MCP を介さない完全ヘッドレス経路。結果は Console と UserSettings/Iroca/mcp/result.json に出す。
         /// batchmode のときだけ成否を終了コードにして Unity を終える(開いているエディタから呼ばれたときは終えない)。
         /// </summary>
-        public static void RunFromCommandLine()
-        {
+        public static void RunFromCommandLine() {
             string[] args = Environment.GetCommandLineArgs();
             string source = GetArg(args, "-irocaSource");
             string output = GetArg(args, "-irocaOutput");
@@ -309,29 +285,22 @@ namespace Iroca
             string jobFile = GetArg(args, "-irocaJob");
 
             string resultJson;
-            try
-            {
-                if (!string.IsNullOrEmpty(jobFile))
-                {
+            try {
+                if (!string.IsNullOrEmpty(jobFile)) {
                     var job = JsonUtility.FromJson<JobRequest>(File.ReadAllText(jobFile));
-                    if (job != null && string.Equals(job.mode, "zones", StringComparison.OrdinalIgnoreCase))
+                    if (job != null && string.Equals(job.mode, "zones", StringComparison.OrdinalIgnoreCase)) {
                         resultJson = RecolorWithZones(job.source, job.zones != null ? JsonUtility.ToJson(job.zones) : "", job.output);
-                    else if (job != null)
+                    } else if (job != null) {
                         resultJson = RecolorByPreset(job.source, job.preset, job.output);
-                    else
+                    } else {
                         resultJson = Fail("job file parse failed.");
-                }
-                else if (!string.IsNullOrEmpty(zonesFile))
-                {
+                    }
+                } else if (!string.IsNullOrEmpty(zonesFile)) {
                     resultJson = RecolorWithZones(source, File.ReadAllText(zonesFile), output);
-                }
-                else
-                {
+                } else {
                     resultJson = RecolorByPreset(source, preset, output);
                 }
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 resultJson = Fail($"{ex.GetType().Name}: {ex.Message}");
             }
 
@@ -346,10 +315,11 @@ namespace Iroca
             // 開いているエディタの中で呼ばれた(AI のコード実行や、利用者の自動処理の途中の 1 段など)ときに
             // 終了すると、保存していないシーンの変更ごと Unity が閉じる。終えるのは batchmode のときだけ
             // (BuildHelper と同じ形)。
-            if (!Application.isBatchMode) return;
+            if (!Application.isBatchMode) {
+                return;
+            }
             bool ok = false;
-            try { ok = JsonUtility.FromJson<RecolorResult>(resultJson)?.ok ?? false; }
-            catch { ok = false; }
+            try { ok = JsonUtility.FromJson<RecolorResult>(resultJson)?.ok ?? false; } catch { ok = false; }
             EditorApplication.Exit(ok ? 0 : 1);
         }
 
@@ -364,32 +334,26 @@ namespace Iroca
         /// </summary>
         private static unsafe RecolorResult RunRecolorCore(
             string sourceAssetPath, IrocaSessionState state,
-            string outputAssetPath, List<string> warnings)
-        {
+            string outputAssetPath, List<string> warnings) {
             var result = new RecolorResult { warnings = warnings ?? new List<string>() };
 
-            if (string.IsNullOrEmpty(outputAssetPath))
-            { result.error = "output path is empty."; return result; }
+            if (string.IsNullOrEmpty(outputAssetPath)) { result.error = "output path is empty."; return result; }
 
             string srcAbs = ResolveExistingFile(sourceAssetPath);
-            if (srcAbs == null)
-            { result.error = $"source not found: {sourceAssetPath}"; return result; }
+            if (srcAbs == null) { result.error = $"source not found: {sourceAssetPath}"; return result; }
 
             int enabledCount = RecolorInput.CountEnabled(state.zones);
-            if (enabledCount == 0)
-            { result.error = "no enabled zones."; return result; }
+            if (enabledCount == 0) { result.error = "no enabled zones."; return result; }
             foreach (var z in state.zones) { if (z != null && z.enabled) { z.EnsureId(); z.UpdateCacheIfNeeded(); } }
 
             // ── ディスクの PNG を直接読む（import 設定/readable に依存せず製品経路と一致させる） ──
             // imported が null なら ExportPipeline のフォールバックは起きず PNG/JPG のみを受け付ける。
             if (ExportService.ReadSource(srcAbs, null, out NativePixels pixels)
-                    == ExportPipeline.SourceKind.Unavailable)
-            { result.error = "failed to decode source image."; return result; }
+                    == ExportPipeline.SourceKind.Unavailable) { result.error = "failed to decode source image."; return result; }
 
             NativePixels originalPixels = null;
             NativeMemoryLifecycle.WorkStarted();
-            try
-            {
+            try {
                 int w = pixels.Width, h = pixels.Height;
                 // 比較パネル/メトリクス用に、再着色前の画素を退避する(色替えは in-place 変換)。
                 originalPixels = Duplicate(pixels);
@@ -413,9 +377,7 @@ namespace Iroca
                 result.height = h;
                 result.zonesApplied = enabledCount;
                 return result;
-            }
-            finally
-            {
+            } finally {
                 originalPixels?.Release();
                 pixels.Release();
                 NativeMemoryLifecycle.WorkEnded();
@@ -429,24 +391,21 @@ namespace Iroca
         /// 失敗は非致命(本体出力は成功のまま)で warnings に残す。
         /// </summary>
         private static unsafe void WritePreviewPanel(
-            NativePixels before, NativePixels after, string outAbs, string srcAbs, RecolorResult result)
-        {
+            NativePixels before, NativePixels after, string outAbs, string srcAbs, RecolorResult result) {
             // 比較パネルの行き先は outAbs から機械的に導く(&lt;stem&gt;_preview.png)ため、
             // 本体出力が原本と別でも、パネルだけが原本を指すことがある
             // (例: source=Assets/tex_preview.png, output=Assets/tex.png)。
             // 呼び出し側の output != source ガードはここを通らないので、同じ判定をこちらにも置く。
             // 目視検証用の後段生成のために原本を壊すことは絶対に許容できない。
             string previewAbs = MakePreviewPath(outAbs);
-            if (string.Equals(previewAbs, srcAbs, StringComparison.OrdinalIgnoreCase))
-            {
+            if (string.Equals(previewAbs, srcAbs, StringComparison.OrdinalIgnoreCase)) {
                 result.warnings.Add(
                     "preview panel skipped: its path would overwrite the source texture "
                     + $"(rename the output so that <stem>_preview.png differs from the source): {previewAbs}");
                 return;
             }
 
-            try
-            {
+            try {
                 var panel = RecolorPreview.BuildComparisonPanel(
                     before.Ptr, after.Ptr, before.Width, before.Height, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
                 if (!TryWritePng(panel, pw, ph, previewAbs)) { result.warnings.Add("preview panel PNG encode failed."); return; }
@@ -456,9 +415,7 @@ namespace Iroca
                     + "right=changed pixels (magenta). Scattered magenta or a low largestComponentFraction "
                     + "suggests over-selection; empty magenta where you expected change suggests it was missed. "
                     + "Adjust 'target'/'tolerance' and re-run if it does not match intent.";
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 result.warnings.Add($"preview generation failed: {ex.GetType().Name}: {ex.Message}");
             }
         }
@@ -468,18 +425,22 @@ namespace Iroca
         /// <paramref name="srcAbs"/> は原本の絶対パス(出力が原本を上書きしないことを確かめる)。
         /// </summary>
         private static string WriteRecoloredPng(NativePixels pixels, string srcAbs, string outputAssetPath,
-            out string outAbs)
-        {
+            out string outAbs) {
             outAbs = ResolveOutputPath(outputAssetPath);
-            if (outAbs == null) return $"output must be a .png inside the project: {outputAssetPath}";
+            if (outAbs == null) {
+                return $"output must be a .png inside the project: {outputAssetPath}";
+            }
             // 出力先が元テクスチャそのものだと、再着色結果で原本を上書きして戻せなくなる。
             // UI の「上書き保存」は明示操作＋確認ダイアログ＋Undo があるが、MCP/batchmode 経由には
             // 何も無く、引数のミス 1 つで非可逆に原本が失われる。ここで断る。
             // 比較は大小無視: 取りこぼして原本を壊すより、別ファイルを拒否する側に倒す。
-            if (string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase)) {
                 return "output must differ from source "
                      + $"(recoloring in place would destroy the original irreversibly): {outputAssetPath}";
-            if (!TryWritePng(pixels, outAbs, srcAbs)) return "PNG encode failed.";
+            }
+            if (!TryWritePng(pixels, outAbs, srcAbs)) {
+                return "PNG encode failed.";
+            }
             return null;
         }
 
@@ -489,11 +450,9 @@ namespace Iroca
         /// エンコードは UI の書き出しと同じ <see cref="ExportPipeline.EncodePng"/>(Texture2D を作らない。
         /// 8K で 256MB の写しが要らない)。取り込み設定は既定のまま(元の .meta は写さない。従来どおり)。
         /// </summary>
-        private static bool TryWritePng(Color32[] pixels, int w, int h, string abs)
-        {
+        private static bool TryWritePng(Color32[] pixels, int w, int h, string abs) {
             byte[] png;
-            try { png = ExportPipeline.EncodePng(pixels, w, h); }
-            catch (Exception) { return false; }
+            try { png = ExportPipeline.EncodePng(pixels, w, h); } catch (Exception) { return false; }
             WritePngFile(png, abs);
             return true;
         }
@@ -502,41 +461,38 @@ namespace Iroca
         /// <see cref="TryWritePng(Color32[],int,int,string)"/> のヒープの外の版(色替えした画素。PNG もヒープの外に作り、
         /// 書いたら手放す。バイト列は同じ)。
         /// </summary>
-        private static bool TryWritePng(NativePixels pixels, string abs, string srcAbs)
-        {
+        private static bool TryWritePng(NativePixels pixels, string abs, string srcAbs) {
             NativeArray<byte> png;
-            try { png = TextureIO.EncodePng(pixels); }
-            catch (Exception) { return false; }
+            try { png = TextureIO.EncodePng(pixels); } catch (Exception) { return false; }
             // 取り込み設定は元から引き継ぐ(窓の書き出しの既定と同じ)。
-            try { ExportService.WriteAndImport(abs, png, srcAbs, inheritImportSettings: true); }
-            finally { png.Dispose(); }
+            try { ExportService.WriteAndImport(abs, png, srcAbs, inheritImportSettings: true); } finally { png.Dispose(); }
             return true;
         }
 
         /// <summary>PNG のバイト列を <paramref name="abs"/> へ書き、Assets 配下なら取り込む(メインスレッド)。</summary>
-        private static void WritePngFile(byte[] png, string abs)
-        {
+        private static void WritePngFile(byte[] png, string abs) {
             string dir = Path.GetDirectoryName(abs);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            if (!string.IsNullOrEmpty(dir)) {
+                Directory.CreateDirectory(dir);
+            }
             // 出力先に既存 PNG があると、書き込み途中で落ちたときその既存物を壊す。
             // AtomicFile は一時ファイルへ書き切ってから置換する。
             AtomicFile.WriteAllBytes(abs, png);
 
             string rel = PathUtils.ToAssetsRelativeOrNull(abs);
-            if (rel != null) AssetDatabase.ImportAsset(rel);
+            if (rel != null) {
+                AssetDatabase.ImportAsset(rel);
+            }
         }
 
-        private static string MakePreviewPath(string outAbs)
-        {
+        private static string MakePreviewPath(string outAbs) {
             string dir = Path.GetDirectoryName(outAbs) ?? "";
             string stem = Path.GetFileNameWithoutExtension(outAbs);
             return Path.Combine(dir, stem + "_preview.png");
         }
 
-        private static ColorZone BuildZone(ZoneDto z)
-        {
-            var zone = new ColorZone
-            {
+        private static ColorZone BuildZone(ZoneDto z) {
+            var zone = new ColorZone {
                 name = z.name,
                 enabled = true,
                 mode = SelectionMode.ColorPick,
@@ -588,12 +544,10 @@ namespace Iroca
         /// advancedMode は UI 表示レベルのみで処理結果に影響しないため移送しない。
         /// 別のテクスチャで作ったマスクは読まない(UI では確かめるが、ここでは聞けない。警告で知らせる)。
         /// </summary>
-        private static IrocaSessionState SessionFromPreset(IrocaPresetData p, string textureGuid, List<string> warnings)
-        {
+        private static IrocaSessionState SessionFromPreset(IrocaPresetData p, string textureGuid, List<string> warnings) {
             var state = new IrocaSessionState();
             PresetApplier.ApplyZonesAndSettings(p, state, textureGuid);
-            if (PresetApplier.HasMasks(p) && PresetApplier.MadeForOtherTexture(p, textureGuid))
-            {
+            if (PresetApplier.HasMasks(p) && PresetApplier.MadeForOtherTexture(p, textureGuid)) {
                 warnings.Add("the masks of this preset were made on another texture, so they were not used (zones and settings were).");
                 return state;
             }
@@ -610,34 +564,33 @@ namespace Iroca
         /// <summary>
         /// プリセット指定（ファイルパス / プリセット名 / インライン JSON）を <see cref="IrocaPresetData"/> へ解決する。
         /// </summary>
-        private static IrocaPresetData ResolvePreset(string spec)
-        {
-            if (string.IsNullOrWhiteSpace(spec)) return null;
-
-            string abs = ResolveExistingFile(spec);
-            if (abs != null) return PresetStore.Load(abs);
-
-            string trimmed = spec.TrimStart();
-            if (trimmed.StartsWith("{"))
-            {
-                try { return PresetStore.Parse(spec); }
-                catch { return null; }
+        private static IrocaPresetData ResolvePreset(string spec) {
+            if (string.IsNullOrWhiteSpace(spec)) {
+                return null;
             }
 
-            foreach (var folder in new[] { PresetStore.ProjectPresetFolder, PresetStore.UserPresetFolder })
-            {
+            string abs = ResolveExistingFile(spec);
+            if (abs != null) {
+                return PresetStore.Load(abs);
+            }
+
+            string trimmed = spec.TrimStart();
+            if (trimmed.StartsWith("{")) {
+                try { return PresetStore.Parse(spec); } catch { return null; }
+            }
+
+            foreach (var folder in new[] { PresetStore.ProjectPresetFolder, PresetStore.UserPresetFolder }) {
                 string p = PresetStore.PresetFilePath(folder, spec);
-                if (File.Exists(p)) return PresetStore.Load(p);
+                if (File.Exists(p)) {
+                    return PresetStore.Load(p);
+                }
             }
             return null;
         }
 
-        private static void AddPresets(PresetList list, string folder, string scope)
-        {
-            foreach (var path in PresetStore.ListJson(folder))
-            {
-                list.presets.Add(new PresetEntry
-                {
+        private static void AddPresets(PresetList list, string folder, string scope) {
+            foreach (var path in PresetStore.ListJson(folder)) {
+                list.presets.Add(new PresetEntry {
                     name = Path.GetFileNameWithoutExtension(path),
                     path = path,
                     scope = scope,
@@ -647,71 +600,73 @@ namespace Iroca
 
         // 絶対 / プロジェクト相対 / Assets 相対のいずれかを実在する絶対パスへ解決する。
         // プロジェクトルート配下でなければ拒否する（範囲外ファイルの読み取りを防ぐ）。無ければ null。
-        private static string ResolveExistingFile(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return null;
+        private static string ResolveExistingFile(string path) {
+            if (string.IsNullOrEmpty(path)) {
+                return null;
+            }
             string abs = ToProjectAbsolute(path);
-            if (abs == null || !IsWithinProjectRoot(abs)) return null;
+            if (abs == null || !IsWithinProjectRoot(abs)) {
+                return null;
+            }
             return File.Exists(abs) ? abs : null;
         }
 
         // 出力パスを絶対パスへ解決する（存在不要）。プロジェクトルート配下かつ .png のみ許可する。
         // 自動化/MCP 経由での範囲外書き込み（任意ファイルの上書き）と非画像ファイル生成を防ぐ。
         // 条件を満たさなければ null。
-        private static string ResolveOutputPath(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return null;
+        private static string ResolveOutputPath(string path) {
+            if (string.IsNullOrEmpty(path)) {
+                return null;
+            }
             string abs = ToProjectAbsolute(path);
-            if (abs == null || !IsWithinProjectRoot(abs)) return null;
-            if (!abs.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return null;
+            if (abs == null || !IsWithinProjectRoot(abs)) {
+                return null;
+            }
+            if (!abs.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) {
+                return null;
+            }
             return abs;
         }
 
         // 絶対パスはそのまま、相対パスはプロジェクトルート基準で絶対化する。失敗時は null。
-        private static string ToProjectAbsolute(string path)
-        {
-            try
-            {
+        private static string ToProjectAbsolute(string path) {
+            try {
                 string projRoot = Path.GetDirectoryName(Application.dataPath);
                 return Path.IsPathRooted(path)
                     ? Path.GetFullPath(path)
                     : Path.GetFullPath(Path.Combine(projRoot, path));
-            }
-            catch { return null; }
+            } catch { return null; }
         }
 
         // 解決済み絶対パスがプロジェクトルート配下かを判定する（パストラバーサル/範囲外 I/O 防止）。
-        private static bool IsWithinProjectRoot(string absPath)
-        {
-            if (string.IsNullOrEmpty(absPath)) return false;
+        private static bool IsWithinProjectRoot(string absPath) {
+            if (string.IsNullOrEmpty(absPath)) {
+                return false;
+            }
             string projRoot;
-            try { projRoot = Path.GetFullPath(Path.GetDirectoryName(Application.dataPath)); }
-            catch { return false; }
+            try { projRoot = Path.GetFullPath(Path.GetDirectoryName(Application.dataPath)); } catch { return false; }
             // 末尾セパレータを付けて "Proj" と "ProjectX" の前方一致誤判定を防ぐ。
             string rootWithSep = projRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                 + Path.DirectorySeparatorChar;
             return absPath.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string GetArg(string[] args, string name)
-        {
-            for (int i = 0; i < args.Length - 1; i++)
-                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
+        private static string GetArg(string[] args, string name) {
+            for (int i = 0; i < args.Length - 1; i++) {
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase)) {
                     return args[i + 1];
+                }
+            }
             return null;
         }
 
-        private static void WriteMcpFile(string path, string content)
-        {
-            try
-            {
+        private static void WriteMcpFile(string path, string content) {
+            try {
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
                 // 呼び出し側は result.json を読んで成否を判断する。直書きだとクラッシュ時に
                 // 途中まで書けた壊れた JSON を読ませてしまう。
                 AtomicFile.WriteAllText(path, content);
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca][MCP] failed to write {path}: {ex.Message}");
             }
         }
@@ -720,20 +675,16 @@ namespace Iroca
         /// 本体アセンブリのパッケージ版。埋め込み配置などで解決できなければ "unknown"。
         /// GetVersion / DescribeSchema と ReproDump(Debug アセンブリ)が共有する唯一の解決経路。
         /// </summary>
-        internal static string ExtractVersion()
-        {
-            try
-            {
+        internal static string ExtractVersion() {
+            try {
                 var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(IrocaAutomation).Assembly);
                 return info != null && !string.IsNullOrEmpty(info.version) ? info.version : "unknown";
-            }
-            catch { return "unknown"; }
+            } catch { return "unknown"; }
         }
 
         private static string Json(RecolorResult r) => JsonUtility.ToJson(r);
 
-        private static string Fail(string error, List<string> warnings = null)
-        {
+        private static string Fail(string error, List<string> warnings = null) {
             var r = new RecolorResult { ok = false, error = error, warnings = warnings ?? new List<string>() };
             return JsonUtility.ToJson(r);
         }

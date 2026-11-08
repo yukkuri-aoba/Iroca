@@ -5,8 +5,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// スポイト位置（ColorZone.sampleUV）が Undo/Redo で sampleColor と対で戻るか。
     /// 位置は自動調整が AI 提案の証拠を取るアンカーで、消えると次の自動調整が黙って
@@ -14,8 +13,7 @@ namespace Iroca.EditorTests
     /// 無効化していたため、Ctrl+Y で色だけ戻って位置が失われていた。
     /// Undo の書き戻しは Unity のシリアライザが行うので、実機でしか検査できない。
     /// </summary>
-    public class SampleUvUndoTests
-    {
+    public class SampleUvUndoTests {
         private static readonly Color Red = new Color(0.8f, 0.2f, 0.2f);
         private static readonly Color Blue = new Color(0.2f, 0.3f, 0.9f);
         private static readonly Vector2 Uv1 = new Vector2(0.25f, 0.75f);
@@ -25,8 +23,7 @@ namespace Iroca.EditorTests
         private EditingSession _editing;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _host = ScriptableObject.CreateInstance<IrocaEditingDocument>();
             _editing = new EditingSession(_host);
             var z = new ColorZone { name = "服" };
@@ -36,8 +33,7 @@ namespace Iroca.EditorTests
         }
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             Undo.ClearUndo(_host);
             _editing.Masks.Clear();
             _editing.MaskHistory.Clear();
@@ -48,16 +44,14 @@ namespace Iroca.EditorTests
         private ColorZone Zone => _host.session.zones[0];
 
         // 操作ごとに Undo グループを分ける（同じグループだと 1 ステップに合流する）。
-        private void Pick(Color c, Vector2 uv)
-        {
+        private void Pick(Color c, Vector2 uv) {
             Undo.IncrementCurrentGroup();
             _editing.ApplySample(Zone, c, uv);
             Undo.IncrementCurrentGroup();
         }
 
         [Test]
-        public void Redo_RestoresPositionWithColor()
-        {
+        public void Redo_RestoresPositionWithColor() {
             Pick(Red, Uv1);
             Undo.PerformUndo();
             Assert.IsFalse(Zone.HasSampleUV, "Undo で位置も取る前へ戻る");
@@ -70,8 +64,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Undo_RestoresPreviousPosition()
-        {
+        public void Undo_RestoresPreviousPosition() {
             Pick(Red, Uv1);
             Pick(Blue, Uv2);
             Undo.PerformUndo();
@@ -80,8 +73,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void SameColorRepick_MovesPositionUndoably()
-        {
+        public void SameColorRepick_MovesPositionUndoably() {
             Pick(Red, Uv1);
             Pick(Red, Uv2); // 同じ色を別の島で拾い直す
             Assert.AreEqual(Uv2, Zone.sampleUV);
@@ -92,8 +84,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void UnrelatedUndo_KeepsPosition()
-        {
+        public void UnrelatedUndo_KeepsPosition() {
             Pick(Red, Uv1);
             Undo.IncrementCurrentGroup();
             Undo.RecordObject(_host, "Iroca Edit");
@@ -107,8 +98,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void UndoZoneRemoval_RestoresPosition()
-        {
+        public void UndoZoneRemoval_RestoresPosition() {
             Pick(Red, Uv1);
             Undo.IncrementCurrentGroup();
             Assert.IsTrue(_editing.RemoveZoneAt(0));
@@ -122,8 +112,7 @@ namespace Iroca.EditorTests
         // ─── 永続化 ───
 
         [Test]
-        public void Preset_DoesNotCarrySamplePosition()
-        {
+        public void Preset_DoesNotCarrySamplePosition() {
             // プリセットは別テクスチャへ読み込まれるので位置を書かない。編集中の位置は消さない。
             Pick(Red, Uv1);
             var copies = IrocaPresetData.WithoutSamplePositions(_host.session.zones);
@@ -133,12 +122,10 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void PresetLoad_DropsSamplePositionWrittenInFile()
-        {
+        public void PresetLoad_DropsSamplePositionWrittenInFile() {
             // 位置を外さずに書かれたプリセット（手書き・他ツール）でも読み込みで外す。
             var assets = TestAssets.Create();
-            try
-            {
+            try {
                 string path = Path.Combine(TestAssets.Abs(assets.Folder), "with-uv.json");
                 var z = new ColorZone { sampleColor = Red, sampleUV = Uv1 };
                 var data = new IrocaPresetData { zones = { z } };
@@ -147,13 +134,11 @@ namespace Iroca.EditorTests
                 var loaded = PresetStore.Load(path);
                 Assert.IsFalse(loaded.zones[0].HasSampleUV);
                 Assert.AreEqual(Red, loaded.zones[0].sampleColor);
-            }
-            finally { assets.Dispose(); }
+            } finally { assets.Dispose(); }
         }
 
         [Test]
-        public void Session_KeepsSamplePosition()
-        {
+        public void Session_KeepsSamplePosition() {
             // セッションはテクスチャ単位なので位置も持ち越す（開き直しても自動調整が AI 提案を使える）。
             var s = IrocaSessionState.CreateDefault();
             s.zones.Add(new ColorZone { sampleColor = Red, sampleUV = Uv1 });

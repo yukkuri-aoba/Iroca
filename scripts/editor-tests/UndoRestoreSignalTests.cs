@@ -4,8 +4,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// IrocaWindow が「関係ない Undo では作り直さない」判定に使う前提を実機で確かめる。
     /// Undo.undoRedoPerformed はエディタ全体の Undo で呼ばれるので、ウィンドウは
@@ -15,16 +14,14 @@ namespace Iroca.EditorTests
     ///   ・別のオブジェクトの Undo/Redo では、文書の OnAfterDeserialize は呼ばれない
     /// 前者が崩れると Iroca の Undo が画面に反映されなくなり、後者が崩れると無駄な再生成に戻る。
     /// </summary>
-    public class UndoRestoreSignalTests
-    {
+    public class UndoRestoreSignalTests {
         private IrocaEditingDocument _host;
         private SampleUvUndoHost _other;
         private bool _restoredSeenByCallback;
         private int _callbacks;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _host = IrocaEditingDocument.Create(null, null, null);
             _other = ScriptableObject.CreateInstance<SampleUvUndoHost>();
             var z = new ColorZone { name = "服" };
@@ -38,30 +35,26 @@ namespace Iroca.EditorTests
         }
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             Undo.undoRedoPerformed -= OnUndoRedo;
             Undo.ClearAll();
             Object.DestroyImmediate(_host);
             Object.DestroyImmediate(_other);
         }
 
-        private void OnUndoRedo()
-        {
+        private void OnUndoRedo() {
             _callbacks++;
             _restoredSeenByCallback = _host.ConsumeRestored();
         }
 
-        private void EditHost(float tolerance)
-        {
+        private void EditHost(float tolerance) {
             Undo.IncrementCurrentGroup();
             Undo.RecordObject(_host, "Iroca Edit");
             _host.session.zones[0].tolerance = tolerance;
             Undo.IncrementCurrentGroup();
         }
 
-        private void EditOther()
-        {
+        private void EditOther() {
             Undo.IncrementCurrentGroup();
             Undo.RecordObject(_other, "Unrelated Edit");
             _other.session.zones.Add(new ColorZone { name = "別" });
@@ -69,8 +62,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void OwnUndoAndRedo_SignalBeforeCallback()
-        {
+        public void OwnUndoAndRedo_SignalBeforeCallback() {
             EditHost(0.4f);
             _host.ConsumeRestored();
 
@@ -86,8 +78,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void CompleteObjectUndo_Signals()
-        {
+        public void CompleteObjectUndo_Signals() {
             Undo.IncrementCurrentGroup();
             Undo.RegisterCompleteObjectUndo(_host, "Remove Zone");
             _host.session.zones.RemoveAt(0);
@@ -100,8 +91,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void UnrelatedUndoAndRedo_NoSignal()
-        {
+        public void UnrelatedUndoAndRedo_NoSignal() {
             EditHost(0.4f);
             EditOther();
             _host.ConsumeRestored();

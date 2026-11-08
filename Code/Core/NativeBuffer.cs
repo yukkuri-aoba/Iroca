@@ -5,11 +5,9 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>ヒープの外のメモリの用途(数え上げの区分。<see cref="IrocaNativeMemory"/>)。</summary>
-    internal enum NativeUsage
-    {
+    internal enum NativeUsage {
         /// <summary>作業配列のプール(<see cref="NativeWorkPool{T}"/>)。</summary>
         Work,
         /// <summary>画素(<see cref="NativePixels"/>。プレビューの原本・出力、非破壊ビルド・書き出しの画素)。</summary>
@@ -39,18 +37,15 @@ namespace Iroca
     ///   (<see cref="IrocaNativeMemory.FinalizedCount"/>。テストで 0 であることを確かめる)。</item>
     /// </list>
     /// </summary>
-    internal sealed class NativeBuffer : IDisposable
-    {
+    internal sealed class NativeBuffer : IDisposable {
         // 塊そのもの。SafeHandle のファイナライザは、持ち主のファイナライザより後に走る(中身を使う側が先に片づく)。
-        private sealed class Block : SafeHandle
-        {
+        private sealed class Block : SafeHandle {
             internal readonly long Bytes;
             internal readonly NativeUsage Usage;
             // 持ち主が Release で解放した(false のまま解放されたらファイナライザ = 取りこぼし)。
             internal volatile bool Released;
 
-            internal Block(long bytes, NativeUsage usage) : base(IntPtr.Zero, ownsHandle: true)
-            {
+            internal Block(long bytes, NativeUsage usage) : base(IntPtr.Zero, ownsHandle: true) {
                 Bytes = bytes;
                 Usage = usage;
                 SetHandle(IrocaNativeMemory.Alloc(bytes, usage));
@@ -58,9 +53,10 @@ namespace Iroca
 
             public override bool IsInvalid => handle == IntPtr.Zero;
 
-            protected override bool ReleaseHandle()
-            {
-                if (!Released) IrocaNativeMemory.NoteFinalized(Usage);
+            protected override bool ReleaseHandle() {
+                if (!Released) {
+                    IrocaNativeMemory.NoteFinalized(Usage);
+                }
                 IrocaNativeMemory.Free(handle, Bytes, Usage);
                 return true;
             }
@@ -74,9 +70,10 @@ namespace Iroca
         private int _refs = 1;
 
         /// <summary>bytes バイトを確保する(中身は不定)。参照 1 で返る。</summary>
-        public NativeBuffer(long bytes, NativeUsage usage)
-        {
-            if (bytes <= 0) throw new ArgumentOutOfRangeException(nameof(bytes));
+        public NativeBuffer(long bytes, NativeUsage usage) {
+            if (bytes <= 0) {
+                throw new ArgumentOutOfRangeException(nameof(bytes));
+            }
             _block = new Block(bytes, usage);
             _ptr = _block.DangerousGetHandle();
         }
@@ -94,10 +91,8 @@ namespace Iroca
         public int RefCount => Volatile.Read(ref _refs);
 
         /// <summary>参照を 1 つ足す。自分が参照を持っている間に呼ぶこと(解放済みなら投げる)。</summary>
-        public NativeBuffer AddRef()
-        {
-            if (Interlocked.Increment(ref _refs) <= 1)
-            {
+        public NativeBuffer AddRef() {
+            if (Interlocked.Increment(ref _refs) <= 1) {
                 Interlocked.Decrement(ref _refs);
                 throw new ObjectDisposedException(nameof(NativeBuffer), $"解放済みの塊({Usage})に参照を足そうとしました");
             }
@@ -105,20 +100,21 @@ namespace Iroca
         }
 
         /// <summary>参照を 1 つ返す。最後の参照ならすぐ解放する(どのスレッドからでもよい)。返しすぎは投げる。</summary>
-        public void Release()
-        {
+        public void Release() {
             int left = Interlocked.Decrement(ref _refs);
-            if (left > 0) return;
-            if (left < 0)
-            {
+            if (left > 0) {
+                return;
+            }
+            if (left < 0) {
                 Interlocked.Increment(ref _refs);
                 throw new InvalidOperationException($"塊({Usage})の参照を返しすぎました");
             }
-            if (IrocaNativeMemory.CurrentThreadAborting)
-            {
+            if (IrocaNativeMemory.CurrentThreadAborting) {
                 // 解放はアンロードの後のファイナライザ。取りこぼしではないので数えない。
                 _block.Released = true;
-                lock (s_keptUntilUnload) s_keptUntilUnload.Add(this);
+                lock (s_keptUntilUnload) {
+                    s_keptUntilUnload.Add(this);
+                }
                 return;
             }
             _ptr = IntPtr.Zero;

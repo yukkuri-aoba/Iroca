@@ -5,8 +5,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 非破壊(NDMF)のレシピとの結び付け。
     /// <para>
@@ -17,23 +16,22 @@ namespace Iroca
     /// 決められないため。インスペクタの「いろかで開く」で選ぶ)。
     /// </para>
     /// </summary>
-    public partial class IrocaWindow
-    {
+    public partial class IrocaWindow {
         // 自動化 API の窓口の実体(EditingWindows。自動化は UI の型を知らない)。
-        private sealed class AutomationWindows : IEditingWindows
-        {
+        private sealed class AutomationWindows : IEditingWindows {
             public void OpenRecipe(IrocaRecipe recipe) => IrocaWindow.OpenRecipe(recipe);
             public void OpenTexture(Texture2D texture) => IrocaWindow.OpenTexture(texture);
             public bool IsShowing(Texture2D texture, out IrocaRecipe boundRecipe) => IrocaWindow.IsShowing(texture, out boundRecipe);
             public IrocaSessionState EditingStateOf(Texture2D texture) => IrocaWindow.EditingStateOf(texture);
             public void ReloadFromRecipe(IrocaRecipe recipe, string undoName) => IrocaWindow.ReloadFromRecipe(recipe, undoName);
 
-            public NativePixels ShareSourcePixels(Texture2D texture)
-            {
+            public NativePixels ShareSourcePixels(Texture2D texture) {
                 string path = texture != null ? AssetDatabase.GetAssetPath(texture) : null;
-                foreach (var w in EditingSessionRegistry.Snapshot())
-                    if (w is IrocaWindow win && win.Editing.Sources.ShareIfCurrent(texture, path) is NativePixels shared)
+                foreach (var w in EditingSessionRegistry.Snapshot()) {
+                    if (w is IrocaWindow win && win.Editing.Sources.ShareIfCurrent(texture, path) is NativePixels shared) {
                         return shared;
+                    }
+                }
                 return null;
             }
         }
@@ -48,15 +46,18 @@ namespace Iroca
                 : null;
 
         /// <summary>インスペクタの「いろかで開く」から: レシピの元テクスチャを開き、そのレシピに結び付ける。</summary>
-        internal static void OpenRecipe(IrocaRecipe recipe)
-        {
-            if (recipe == null || recipe.sourceTexture == null) return;
+        internal static void OpenRecipe(IrocaRecipe recipe) {
+            if (recipe == null || recipe.sourceTexture == null) {
+                return;
+            }
             // メニューと同じ開き方にする(素の GetWindow だとタブ名が型名になり、大きさも既定にならない)
             ShowWindow();
             var win = GetWindow<IrocaWindow>();
             win.Show();
             win.Focus();
-            if (win.SourceTexture == recipe.sourceTexture && win.BoundRecipe == recipe) return;
+            if (win.SourceTexture == recipe.sourceTexture && win.BoundRecipe == recipe) {
+                return;
+            }
             win.SwitchSourceTexture(recipe.sourceTexture, recipe);
         }
 
@@ -64,15 +65,18 @@ namespace Iroca
         /// 自動化 API(MCP)から: テクスチャを開く(そのテクスチャのレシピがプロジェクトに 1 つだけならそれに結び付く)。
         /// 既に開いていれば何もしない。
         /// </summary>
-        internal static void OpenTexture(Texture2D texture)
-        {
-            if (texture == null) return;
+        internal static void OpenTexture(Texture2D texture) {
+            if (texture == null) {
+                return;
+            }
             // メニューと同じ開き方にする(素の GetWindow だとタブ名が型名になり、大きさも既定にならない)
             ShowWindow();
             var win = GetWindow<IrocaWindow>();
             win.Show();
             win.Focus();
-            if (win.SourceTexture == texture) return;
+            if (win.SourceTexture == texture) {
+                return;
+            }
             win.SwitchSourceTexture(texture);
         }
 
@@ -80,11 +84,11 @@ namespace Iroca
         /// 編集するテクスチャを切り替える(今のテクスチャを保存 → 差し替え → 保存済みの編集内容を読む)。
         /// <paramref name="recipe"/> を渡すと、そのレシピに結び付けて読む。
         /// </summary>
-        internal void SwitchSourceTexture(Texture2D newTex, IrocaRecipe recipe = null)
-        {
+        internal void SwitchSourceTexture(Texture2D newTex, IrocaRecipe recipe = null) {
             // 保存の失敗はユーザーに通知（黙って消えないように）。
-            if (!SavePersistedSessionForCurrentTexture())
+            if (!SavePersistedSessionForCurrentTexture()) {
                 ShowNotification(new GUIContent($"{Localization.Error}: {Localization.EditSaveFailed}"));
+            }
             // Session をまるごと差し替えるため、深い Undo (RegisterCompleteObjectUndo) を使う。
             Editing.RecordMaskEdit("Change Source Texture");
             // テクスチャを選ぶ前に作ったゾーン・読んだプリセットは、そのテクスチャに編集内容が無ければ引き継ぐ。
@@ -95,14 +99,12 @@ namespace Iroca
             BindRecipe(recipe);
             _previewView.InvalidateSourceCache();
             _maskView.ClearBuffersOnTextureChange();
-            if (SourceTexture != null)
-            {
+            if (SourceTexture != null) {
                 var path = AssetDatabase.GetAssetPath(SourceTexture);
                 _exportView.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
             }
             LoadPersistedSessionForCurrentTexture();
-            if (carried != null && SessionFileStore.IsEmpty(Session) && newTex != null)
-            {
+            if (carried != null && SessionFileStore.IsEmpty(Session) && newTex != null) {
                 Session = carried;
                 Editing.NotifyChanged(EditChange.Replaced);
             }
@@ -117,15 +119,18 @@ namespace Iroca
         /// 既に結び付いているレシピ(レシピから開いた・ドメインリロード)を優先し、無ければ
         /// そのテクスチャのレシピがちょうど 1 つのときだけ結び付ける。
         /// </summary>
-        private bool TryLoadSessionFromRecipe()
-        {
+        private bool TryLoadSessionFromRecipe() {
             BindRecipe(SessionPersistence.RecipeFor(SourceTexture, BoundRecipe));
             RefreshUnboundRecipeCount();
-            if (Doc.boundRecipe == null) return false;
+            if (Doc.boundRecipe == null) {
+                return false;
+            }
 
             // 壊れたレシピは読まない(保存も BoundRecipe 経由で上書きしない)。
             var state = SessionPersistence.LoadFromRecipe(Doc.boundRecipe);
-            if (state == null) return false;
+            if (state == null) {
+                return false;
+            }
             Session = state;
             EnsureAllZoneIds();
             _maskView?.RestoreFromRecipeState();
@@ -142,12 +147,15 @@ namespace Iroca
             _unboundRecipeCount = SourceTexture != null && BoundRecipe == null ? RecipeStore.FindForTexture(SourceTexture).Count : 0;
 
         /// <summary>結び付いたレシピへ今の編集内容を書く。<paramref name="saved"/> はマスク込みのもの(<see cref="EditingSession.ToSaveState"/>)。</summary>
-        private void SaveSessionToBoundRecipe(IrocaSessionState saved)
-        {
+        private void SaveSessionToBoundRecipe(IrocaSessionState saved) {
             var recipe = BoundRecipe;
-            if (recipe == null) return;
+            if (recipe == null) {
+                return;
+            }
             // 外(git など)で書き換わったレシピを、窓の古い内容で上書きしない。窓が残るならレシピから読み直す。
-            if (!SessionPersistence.SaveToRecipe(recipe, saved)) ScheduleRecipeReload();
+            if (!SessionPersistence.SaveToRecipe(recipe, saved)) {
+                ScheduleRecipeReload();
+            }
         }
 
         /// <summary>
@@ -155,9 +163,10 @@ namespace Iroca
         /// (ウィンドウの保存はテクスチャ切り替え・ウィンドウを閉じるときなので、そのままだと
         /// 直前の編集がアップロードに乗らない)。
         /// </summary>
-        private void FlushToBoundRecipe()
-        {
-            if (BoundRecipe == null) return;
+        private void FlushToBoundRecipe() {
+            if (BoundRecipe == null) {
+                return;
+            }
             SaveSessionToBoundRecipe(Editing.ToSaveState());
         }
 
@@ -166,11 +175,13 @@ namespace Iroca
         /// 無ければ何もしない)。有効なゾーンが無ければ何も映さない(色が変わらないのに、アバターを
         /// プレビュー表示へ切り替えない)。画素は PreviewView がプレビューを作るたびに渡す。
         /// </summary>
-        private void PublishLivePreviewTarget()
-        {
+        private void PublishLivePreviewTarget() {
             bool anyEnabled = SourceTexture != null && HasEnabledZone;
-            if (anyEnabled) LivePreview.SetTarget(SourceTexture, BoundRecipe);
-            else LivePreview.SetTarget(null, null);
+            if (anyEnabled) {
+                LivePreview.SetTarget(SourceTexture, BoundRecipe);
+            } else {
+                LivePreview.SetTarget(null, null);
+            }
             bool hasColors = MaterialShadowColors.TryGetColors(Session?.zones, out var sample, out var target);
             LivePreview.SetShadowColors(hasColors, sample, target);
         }
@@ -181,10 +192,11 @@ namespace Iroca
         /// <paramref name="texture"/> を表示している窓の、いまの編集内容の複製(マスク込み)。表示している窓が無ければ null。
         /// 窓は編集をすぐにはレシピへ書かないので、自動化 API はこれを土台にして、利用者が窓で見ているものに色替えを足す。
         /// </summary>
-        internal static IrocaSessionState EditingStateOf(Texture2D texture)
-        {
+        internal static IrocaSessionState EditingStateOf(Texture2D texture) {
             var win = WindowShowing(texture);
-            if (win == null) return null;
+            if (win == null) {
+                return null;
+            }
             return JsonUtility.FromJson<IrocaSessionState>(JsonUtility.ToJson(win.Editing.ToSaveState()));
         }
 
@@ -192,8 +204,7 @@ namespace Iroca
         /// <paramref name="texture"/> を表示している窓があれば true と、その窓が結び付いているレシピ(無ければ null)。
         /// 自動化 API が、窓の編集内容を書き込み先のレシピの土台にしてよいか(同じレシピか)を確かめるのに使う。
         /// </summary>
-        internal static bool IsShowing(Texture2D texture, out IrocaRecipe boundRecipe)
-        {
+        internal static bool IsShowing(Texture2D texture, out IrocaRecipe boundRecipe) {
             var win = WindowShowing(texture);
             boundRecipe = win != null ? win.BoundRecipe : null;
             return win != null;
@@ -204,11 +215,14 @@ namespace Iroca
         /// レシピから読み直す(保存すると、外の変更を窓の古い内容で上書きしてしまう)。読み直しは窓の Undo に
         /// 積むので、Ctrl+Z で外の変更の前に戻せる(戻した内容は窓の次の保存でレシピにも書かれる)。
         /// </summary>
-        internal static void ReloadFromRecipe(IrocaRecipe recipe, string undoName)
-        {
-            if (recipe == null || recipe.sourceTexture == null) return;
+        internal static void ReloadFromRecipe(IrocaRecipe recipe, string undoName) {
+            if (recipe == null || recipe.sourceTexture == null) {
+                return;
+            }
             var win = WindowShowing(recipe.sourceTexture);
-            if (win == null) return;
+            if (win == null) {
+                return;
+            }
             win.Editing.RecordMaskEdit(undoName);
             win.BindRecipe(recipe);
             win._recipeKeptOverUndo = recipe;
@@ -217,11 +231,15 @@ namespace Iroca
             win.Repaint();
         }
 
-        private static IrocaWindow WindowShowing(Texture2D texture)
-        {
-            if (texture == null) return null;
-            foreach (var e in EditingSessionRegistry.Snapshot())
-                if (e is IrocaWindow w && w.SourceTexture == texture) return w;
+        private static IrocaWindow WindowShowing(Texture2D texture) {
+            if (texture == null) {
+                return null;
+            }
+            foreach (var e in EditingSessionRegistry.Snapshot()) {
+                if (e is IrocaWindow w && w.SourceTexture == texture) {
+                    return w;
+                }
+            }
             return null;
         }
 
@@ -243,9 +261,10 @@ namespace Iroca
         /// レシピ(.asset)が取り込まれた(git の pull・checkout の後など)ときに呼ばれる(<see cref="RecipeImportWatcher"/>)。
         /// 結び付いたレシピが外で書き換わっていれば読み直す。次の保存を待たないのは、古い内容のまま編集を続けさせないため。
         /// </summary>
-        internal void OnRecipeAssetsImported()
-        {
-            if (SessionPersistence.RecipeChangedOutside(BoundRecipe)) ScheduleRecipeReload();
+        internal void OnRecipeAssetsImported() {
+            if (SessionPersistence.RecipeChangedOutside(BoundRecipe)) {
+                ScheduleRecipeReload();
+            }
             RefreshUnboundRecipeCount();
         }
 
@@ -253,10 +272,11 @@ namespace Iroca
         /// 開いているテクスチャが取り込み直されたら原本を読み直す。寸法が同じだと読み直しのきっかけが無く、プレビューは
         /// 古い画素のままで、ファイルから読む書き出しと食い違っていた。
         /// </summary>
-        internal void OnSourceAssetImported(string[] importedAssets)
-        {
+        internal void OnSourceAssetImported(string[] importedAssets) {
             string path = CurrentTexturePath(SourceTexture);
-            if (path != null && System.Array.IndexOf(importedAssets, path) >= 0) InvalidateSourceAndRepaint();
+            if (path != null && System.Array.IndexOf(importedAssets, path) >= 0) {
+                InvalidateSourceAndRepaint();
+            }
         }
 
         /// <summary>
@@ -264,50 +284,53 @@ namespace Iroca
         /// (Undo でレシピも戻ったとき)、外からの変更ではないので同期した中身として覚え直す。
         /// internal は RecipeSyncTests が直接呼ぶため。
         /// </summary>
-        internal void AdoptRecipeAfterUndo()
-        {
+        internal void AdoptRecipeAfterUndo() {
             var recipe = BoundRecipe;
             if (recipe != null && SessionPersistence.RecipeChangedOutside(recipe)
-                && SessionPersistence.WasRecipeSyncedBefore(recipe))
+                && SessionPersistence.WasRecipeSyncedBefore(recipe)) {
                 SessionPersistence.MarkRecipeSynced(recipe);
+            }
         }
 
         /// <summary>
         /// 外で書き換わったレシピを、次のエディタの更新で読み直す。保存の途中(閉じる・ビルドの直前など)からも
         /// 呼ばれるので、その場では読み直さない。
         /// </summary>
-        private void ScheduleRecipeReload()
-        {
-            if (_recipeReloadScheduled) return;
+        private void ScheduleRecipeReload() {
+            if (_recipeReloadScheduled) {
+                return;
+            }
             _recipeReloadScheduled = true;
             EditorApplication.delayCall += ReloadChangedRecipe;
         }
 
         // internal は RecipeSyncTests が次のエディタの更新を待たずに呼ぶため。
-        internal void ReloadChangedRecipe()
-        {
+        internal void ReloadChangedRecipe() {
             _recipeReloadScheduled = false;
-            if (this == null) return;   // 窓が閉じられた
+            if (this == null) {
+                return;   // 窓が閉じられた
+            }
             var recipe = BoundRecipe;
-            if (recipe == null || !SessionPersistence.RecipeChangedOutside(recipe)) return;
+            if (recipe == null || !SessionPersistence.RecipeChangedOutside(recipe)) {
+                return;
+            }
             // 書き出し・自動調整の途中やマスクを塗っている途中は、終わってから読み直す。
-            if (IsJobBlockingUI || (_maskView != null && _maskView.isPainting))
-            {
+            if (IsJobBlockingUI || (_maskView != null && _maskView.isPainting)) {
                 ScheduleRecipeReload();
                 return;
             }
             // 読めない(新しい版のいろかで作られた・壊れた)なら読み直さない。保存もしない(覚えた中身と違うので)。
             // 「保存先のレシピ」に読めない旨が出る。
-            if (ReferenceEquals(_unreadableRecipeJson, recipe.sessionJson)) return;
-            if (RecipeStore.Load(recipe) == null)
-            {
+            if (ReferenceEquals(_unreadableRecipeJson, recipe.sessionJson)) {
+                return;
+            }
+            if (RecipeStore.Load(recipe) == null) {
                 _unreadableRecipeJson = recipe.sessionJson;
                 return;
             }
             // 外の変更を拾うのは後から(delayCall)なので、利用者が直前にした操作と同じ「元に戻す」にまとめない
             // (まとめると、Ctrl+Z 1 回で読み直しと一緒に直前の操作まで戻る)。
-            SeparateUndo.Record("Iroca: Reload Recipe", () =>
-            {
+            SeparateUndo.Record("Iroca: Reload Recipe", () => {
                 Editing.RecordMaskEdit("Iroca: Reload Recipe");
                 LoadPersistedSessionForCurrentTexture();
                 _maskView?.ResetActiveTarget();
@@ -321,37 +344,33 @@ namespace Iroca
         // ───────────── 登録 ─────────────
 
         /// <summary>「アバターに非破壊で登録」。登録先を決め、レシピを作るか更新し、コンポーネントを付ける。</summary>
-        internal void RegisterToAvatar()
-        {
-            if (SourceTexture == null) return;
+        internal void RegisterToAvatar() {
+            if (SourceTexture == null) {
+                return;
+            }
             // Play 中に付けたコンポーネントは Play を止めると消え、書き出した画像から元へ戻したマテリアル(アセット)
             // だけが残る。
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
-            {
+            if (EditorApplication.isPlayingOrWillChangePlaymode) {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterInPlayMode, Localization.OK);
                 return;
             }
-            if (RecolorInput.CountEnabled(Session?.zones) == 0)
-            {
+            if (RecolorInput.CountEnabled(Session?.zones) == 0) {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNoZones, Localization.OK);
                 return;
             }
             var selected = Selection.activeGameObject;
-            if (selected != null && !RecipeRegistration.IsSceneObject(selected))
-            {
+            if (selected != null && !RecipeRegistration.IsSceneObject(selected)) {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNotInScene, Localization.OK);
                 return;
             }
             // アバターの外に付けると、シーンのプレビューでは色が変わるのに、アップロードでは変わらない。
-            if (selected != null && !RecipeRegistration.IsInsideAvatar(selected.transform))
-            {
+            if (selected != null && !RecipeRegistration.IsInsideAvatar(selected.transform)) {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
                     string.Format(Localization.RegisterOutsideAvatarFormat, selected.name), Localization.OK);
                 return;
             }
             var target = RecipeRegistration.SuggestTarget(SourceTexture, selected);
-            if (target == null)
-            {
+            if (target == null) {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNoTarget, Localization.OK);
                 return;
             }
@@ -365,16 +384,14 @@ namespace Iroca
                 ? AssetDatabase.GetAssetPath(recipe)
                 : string.Format(Localization.RegisterRecipeNew, RecipeStore.PathForNew(SourceTexture));
             // 読めないレシピ(新しい版のいろかで作られた・壊れた)は上書きしない(戻せないため。自動化 API と同じ判定)。
-            if (RegistrationService.IsUnreadable(recipe))
-            {
+            if (RegistrationService.IsUnreadable(recipe)) {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
                     string.Format(Localization.RegisterRecipeUnreadableFormat, recipeLabel), Localization.OK);
                 return;
             }
             // 保存先のレシピが外(git など)で書き換わっていたら、窓の古い内容で上書きせず、読み直してから
             // 確かめてもらう。
-            if (recipe != null && recipe == BoundRecipe && SessionPersistence.RecipeChangedOutside(recipe))
-            {
+            if (recipe != null && recipe == BoundRecipe && SessionPersistence.RecipeChangedOutside(recipe)) {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
                     string.Format(Localization.RegisterRecipeChangedOutsideFormat, recipeLabel), Localization.OK);
                 ScheduleRecipeReload();
@@ -391,38 +408,47 @@ namespace Iroca
             // 冒頭の「マテリアルは変わりません」は、戻すマテリアルがあるときは正しくない。
             var message = string.Format(plan.switchable > 0 ? Localization.RegisterConfirmSwitchFormat : Localization.RegisterConfirmFormat,
                 target.name, SourceTexture.name, recipeLabel);
-            if (plan.switchable > 0)
+            if (plan.switchable > 0) {
                 message += "\n\n" + string.Format(Localization.RegisterSwitchExportsFormat, plan.switchable, SourceTexture.name);
-            if (plan.shared.Count > 0)
+            }
+            if (plan.shared.Count > 0) {
                 message += "\n\n" + string.Format(Localization.RegisterSharedExportsFormat, plan.shared.Count, plan.sharedPlaces,
                     Localization.RegisterKeepShared);
-            if (plan.exportUsers.Count > plan.switchable)
+            }
+            if (plan.exportUsers.Count > plan.switchable) {
                 message += "\n\n" + string.Format(Localization.RegisterLockedExportsFormat, plan.exportUsers.Count - plan.switchable);
-            if (plan.components >= 2)
+            }
+            if (plan.components >= 2) {
                 message += "\n\n" + string.Format(Localization.RegisterMergeFormat, plan.components);
-            else if (plan.components == 1)
+            } else if (plan.components == 1) {
                 message += "\n\n" + Localization.RegisterAddToExisting;
-            if (plan.replaced != null)
+            }
+            if (plan.replaced != null) {
                 message += "\n\n" + string.Format(Localization.RegisterReplaceFormat, SourceTexture.name,
                     AssetDatabase.GetAssetPath(plan.replaced));
+            }
             // 流用するレシピ(別のアバターに登録済みの同じテクスチャのレシピなど)をほかでも使っていれば、
             // 登録した後の編集がそちらの色にも効くことを知らせる。
-            if (plan.otherUsers.Count > 0)
+            if (plan.otherUsers.Count > 0) {
                 message += "\n\n" + string.Format(Localization.RegisterRecipeSharedFormat, NameList(plan.otherUsers));
+            }
             // 0 = 登録、1 = キャンセル(閉じたときも)、2 = 共有のマテリアルは戻さずに登録。
             int choice = plan.shared.Count > 0
                 ? EditorUtility.DisplayDialogComplex(Localization.RegisterNonDestructive, message,
                     Localization.RegisterOk, Localization.Cancel, Localization.RegisterKeepShared)
                 : EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, message,
                     Localization.RegisterOk, Localization.Cancel) ? 0 : 1;
-            if (choice == 1) return;
+            if (choice == 1) {
+                return;
+            }
 
             // マスク込みで保存する。
             var saved = Editing.ToSaveState();
-            if (recipe == null)
+            if (recipe == null) {
                 recipe = RecipeStore.Create(SourceTexture, saved);
-            else
+            } else {
                 RecipeStore.Save(recipe, saved);
+            }
             BindRecipe(recipe);
             _recipeKeptOverUndo = recipe;
             SessionPersistence.MarkRecipeSynced(recipe);
@@ -438,12 +464,12 @@ namespace Iroca
         }
 
         // 確認画面に出すオブジェクト名の並び(多ければ 3 つと残りの数)。
-        private static string NameList(List<IrocaRecolor> components)
-        {
+        private static string NameList(List<IrocaRecolor> components) {
             const int shown = 3;
             var names = new List<string>();
-            for (int i = 0; i < components.Count && i < shown; i++)
+            for (int i = 0; i < components.Count && i < shown; i++) {
                 names.Add(string.Format(Localization.NameQuoteFormat, components[i].gameObject.name));
+            }
             string list = string.Join(Localization.NameListSeparator, names);
             return components.Count > shown ? string.Format(Localization.NameListMoreFormat, list, components.Count - shown) : list;
         }
@@ -454,22 +480,24 @@ namespace Iroca
     /// .asset(git の pull・checkout・バックアップからの復元の後など)は <see cref="IrocaWindow"/> の「外でのレシピの書き換え」、
     /// 開いているテクスチャは原本の読み直し(外のツールでの上書き・取り込み設定の変更)。
     /// </summary>
-    internal sealed class RecipeImportWatcher : AssetPostprocessor
-    {
+    internal sealed class RecipeImportWatcher : AssetPostprocessor {
         private static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets,
-            string[] movedAssets, string[] movedFromAssetPaths)
-        {
+            string[] movedAssets, string[] movedFromAssetPaths) {
             bool anyAsset = false;
-            foreach (var path in importedAssets)
-            {
+            foreach (var path in importedAssets) {
                 if (path.EndsWith(".asset", System.StringComparison.OrdinalIgnoreCase)) { anyAsset = true; break; }
             }
             // テクスチャが消えていたら、シーンのプレビューが持つ画素も手放す。
-            if (deletedAssets.Length > 0) LivePreview.PurgeDestroyedSources();
-            foreach (var e in EditingSessionRegistry.Snapshot())
-            {
-                if (!(e is IrocaWindow w)) continue;
-                if (anyAsset) w.OnRecipeAssetsImported();
+            if (deletedAssets.Length > 0) {
+                LivePreview.PurgeDestroyedSources();
+            }
+            foreach (var e in EditingSessionRegistry.Snapshot()) {
+                if (!(e is IrocaWindow w)) {
+                    continue;
+                }
+                if (anyAsset) {
+                    w.OnRecipeAssetsImported();
+                }
                 w.OnSourceAssetImported(importedAssets);
             }
         }

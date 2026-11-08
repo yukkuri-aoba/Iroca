@@ -6,13 +6,10 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
-    public static partial class IrocaAutomation
-    {
+namespace Iroca {
+    public static partial class IrocaAutomation {
         [Serializable]
-        internal class OpenResult
-        {
+        internal class OpenResult {
             public bool ok;
             public string error = "";
             public string texture = "";
@@ -24,25 +21,23 @@ namespace Iroca
         /// いろかの窓で開く(人が手直しする入口)。<paramref name="target"/> はレシピ・テクスチャ・マテリアルのアセットパス、
         /// またはレシピの付いたシーンのオブジェクト(付いているレシピが 1 つのとき)。
         /// </summary>
-        public static string Open(string target)
-        {
+        public static string Open(string target) {
             var r = new OpenResult();
-            try
-            {
-                if (!ResolveOpenTarget(target, out var tex, out var recipe, out string error))
-                {
+            try {
+                if (!ResolveOpenTarget(target, out var tex, out var recipe, out string error)) {
                     r.error = error;
                     return JsonUtility.ToJson(r);
                 }
-                if (recipe != null) EditingWindows.Current.OpenRecipe(recipe);
-                else EditingWindows.Current.OpenTexture(tex);
+                if (recipe != null) {
+                    EditingWindows.Current.OpenRecipe(recipe);
+                } else {
+                    EditingWindows.Current.OpenTexture(tex);
+                }
                 r.ok = true;
                 r.texture = AssetDatabase.GetAssetPath(tex);
                 r.recipe = recipe != null ? AssetDatabase.GetAssetPath(recipe) : "";
                 r.note = "The Iroca window shows the texture. Changes made there are saved to the recipe automatically.";
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 r.ok = false;
                 r.error = $"{ex.GetType().Name}: {ex.Message}";
             }
@@ -50,22 +45,21 @@ namespace Iroca
         }
 
         /// <summary><see cref="Open"/> が開くもの。開けなければ false と理由。</summary>
-        internal static bool ResolveOpenTarget(string target, out Texture2D tex, out IrocaRecipe recipe, out string error)
-        {
+        internal static bool ResolveOpenTarget(string target, out Texture2D tex, out IrocaRecipe recipe, out string error) {
             tex = null; recipe = null; error = "";
             if (string.IsNullOrWhiteSpace(target)) { error = "target is required."; return false; }
 
             var asset = LoadAssetByPath(target);
-            if (asset is IrocaRecipe rec)
-            {
+            if (asset is IrocaRecipe rec) {
                 if (rec.sourceTexture == null) { error = $"the recipe has no source texture: {target}"; return false; }
                 recipe = rec;
                 tex = rec.sourceTexture;
                 return true;
             }
-            if (asset is Material mat) asset = MeshUvLocator.MainTexture(mat);
-            if (asset is Texture2D t)
-            {
+            if (asset is Material mat) {
+                asset = MeshUvLocator.MainTexture(mat);
+            }
+            if (asset is Texture2D t) {
                 tex = MeshUvLocator.EditableSourceOf(t) ?? t;
                 return true;
             }

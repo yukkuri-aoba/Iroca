@@ -6,8 +6,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// シーン上のアバターへのプレビューのうち、NDMF に依存しない部分。
     /// <list type="bullet">
@@ -17,12 +16,10 @@ namespace Iroca.EditorTests
     /// </list>
     /// NDMF を通した結合は <c>NdmfPreviewFilterTests</c>(NDMF があるホストでだけコンパイル)。
     /// </summary>
-    public class LivePreviewTests
-    {
+    public class LivePreviewTests {
         // 編集中のテクスチャが消えたら、シーンのプレビューの画素と RenderTexture を手放す。
         [Test]
-        public void DestroyedSource_IsReleased()
-        {
+        public void DestroyedSource_IsReleased() {
             var tex = new Texture2D(2, 2);
             LivePreview.SetTarget(tex, null);
             LivePreview.Push(tex, new Color32[4], 2, 2);
@@ -39,44 +36,44 @@ namespace Iroca.EditorTests
         private LivePreview.Target _savedTarget;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             // 開いているいろかウィンドウの編集対象を壊さない(終わったら戻す)。
             _savedTarget = LivePreview.Current;
             LivePreview.SetTarget(null, null);
         }
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             LivePreview.SetTarget(_savedTarget?.source, _savedTarget?.boundRecipe);
-            foreach (var o in _created)
-                if (o != null) Object.DestroyImmediate(o);
+            foreach (var o in _created) {
+                if (o != null) {
+                    Object.DestroyImmediate(o);
+                }
+            }
             _created.Clear();
         }
 
         private T Track<T>(T o) where T : Object { _created.Add(o); return o; }
 
         // 中身は青で埋める(作ったままの Texture2D は中身が不定で、赤の判定がぶれる)。
-        private Texture2D Tex(string name, int size = 8)
-        {
+        private Texture2D Tex(string name, int size = 8) {
             var t = Track(new Texture2D(size, size, TextureFormat.RGBA32, false, false) { name = name });
             t.SetPixels32(TestAssets.Solid(size, size, new Color32(0, 0, 255, 255)));
             t.Apply();
             return t;
         }
 
-        private IrocaRecipe Recipe(Texture2D source)
-        {
+        private IrocaRecipe Recipe(Texture2D source) {
             var r = Track(ScriptableObject.CreateInstance<IrocaRecipe>());
             r.sourceTexture = source;
             return r;
         }
 
-        private GameObject Go(string name, GameObject parent = null)
-        {
+        private GameObject Go(string name, GameObject parent = null) {
             var go = Track(new GameObject(name));
-            if (parent != null) go.transform.SetParent(parent.transform, false);
+            if (parent != null) {
+                go.transform.SetParent(parent.transform, false);
+            }
             return go;
         }
 
@@ -86,8 +83,7 @@ namespace Iroca.EditorTests
         // ───────────── 規則 ─────────────
 
         [Test]
-        public void Targeting_UnregisteredTexture_ShowsLiveEverywhereItIsUsed()
-        {
+        public void Targeting_UnregisteredTexture_ShowsLiveEverywhereItIsUsed() {
             var tex = Tex("t");
             var avatarA = Go("A");
             var avatarB = Go("B");
@@ -103,8 +99,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Targeting_RegisteredTexture_FollowsTheComponentScope()
-        {
+        public void Targeting_RegisteredTexture_FollowsTheComponentScope() {
             var tex = Tex("t");
             var recipe = Recipe(tex);
             var avatar = Go("avatar");
@@ -131,8 +126,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Targeting_NestedComponents_DeeperWinsLikeTheBuild()
-        {
+        public void Targeting_NestedComponents_DeeperWinsLikeTheBuild() {
             var tex = Tex("t");
             var outerRecipe = Recipe(tex);
             var innerRecipe = Recipe(tex);
@@ -157,8 +151,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Targeting_OnlyTheRecipesOwnTextureIsReplaced()
-        {
+        public void Targeting_OnlyTheRecipesOwnTextureIsReplaced() {
             var main = Tex("main");
             var emission = Tex("emission");
             var avatar = Go("avatar");
@@ -172,15 +165,13 @@ namespace Iroca.EditorTests
         // ───────────── 受け渡し口 ─────────────
 
         [Test]
-        public void LivePreview_TargetChangesAreAnnouncedOnce()
-        {
+        public void LivePreview_TargetChangesAreAnnouncedOnce() {
             var tex = Tex("t");
             var recipe = Recipe(tex);
             int fired = 0;
             void OnChanged() => fired++;
             LivePreview.TargetChanged += OnChanged;
-            try
-            {
+            try {
                 LivePreview.SetTarget(tex, null);
                 LivePreview.SetTarget(tex, null);
                 Assert.AreEqual(1, fired, "同じ値で呼び直しても知らせない(ウィンドウは毎フレーム呼ぶ)");
@@ -189,16 +180,13 @@ namespace Iroca.EditorTests
                 LivePreview.SetTarget(null, recipe);
                 Assert.IsNull(LivePreview.Current);
                 Assert.AreEqual(3, fired);
-            }
-            finally
-            {
+            } finally {
                 LivePreview.TargetChanged -= OnChanged;
             }
         }
 
         [Test]
-        public void LivePreview_LendsOneTextureSizedLikeTheImportedSource()
-        {
+        public void LivePreview_LendsOneTextureSizedLikeTheImportedSource() {
             var tex = Tex("t", 16);
             LivePreview.SetTarget(tex, null);
             var a = LivePreview.Acquire(tex);
@@ -213,55 +201,44 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void LivePreview_IgnoresResultsForATextureNoLongerBeingEdited()
-        {
+        public void LivePreview_IgnoresResultsForATextureNoLongerBeingEdited() {
             var edited = Tex("edited");
             var previous = Tex("previous");
             LivePreview.SetTarget(edited, null);
             var rt = LivePreview.Acquire(previous);   // 前のテクスチャの借り手がまだ残っている
-            try
-            {
+            try {
                 // 切り替え直後に届いた前のテクスチャの結果は書かない(画素が無いので元の見た目のまま)。
                 LivePreview.Push(previous, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
                 AssertPixelsIfGpu(rt, previous, expectRed: false);
-            }
-            finally
-            {
+            } finally {
                 LivePreview.Release(previous);
             }
         }
 
         [Test]
-        public void LivePreview_WritesPushedPixelsAndLaterResultsReplaceThem()
-        {
+        public void LivePreview_WritesPushedPixelsAndLaterResultsReplaceThem() {
             var tex = Tex("t");
             LivePreview.SetTarget(tex, null);
             // 借り手が現れる前に届いた結果も、借りたときに書かれる。
             LivePreview.Push(tex, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
             var rt = LivePreview.Acquire(tex);
-            try
-            {
+            try {
                 AssertPixelsIfGpu(rt, tex, expectRed: true);
                 // ドラッグ中の縮小版(寸法が違う)も同じ RenderTexture に引き伸ばして書く。
                 LivePreview.Push(tex, TestAssets.Solid(4, 4, new Color32(0, 255, 0, 255)), 4, 4);
-                if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null)
-                {
+                if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null) {
                     var c = ReadCenter((RenderTexture)rt);
                     Assert.Greater(c.g, 200, $"後の結果で置き換わっていない: {c}");
                 }
-            }
-            finally
-            {
+            } finally {
                 LivePreview.Release(tex);
             }
         }
 
         // シーンのプレビューもビルドと同じく取り込み設定の Alpha Source を当てる。
         [Test]
-        public void AlphaSourceNone_MakesThePreviewOpaque()
-        {
-            using (var assets = TestAssets.Create())
-            {
+        public void AlphaSourceNone_MakesThePreviewOpaque() {
+            using (var assets = TestAssets.Create()) {
                 string path = assets.WritePng("alpha", TestAssets.Solid(8, 8, new Color32(200, 50, 50, 128)), 8, 8);
                 var importer = (TextureImporter)AssetImporter.GetAtPath(path);
                 importer.alphaSource = TextureImporterAlphaSource.None;
@@ -269,45 +246,43 @@ namespace Iroca.EditorTests
                 var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
                 LivePreview.SetTarget(tex, null);
                 var rt = LivePreview.Acquire(tex);
-                try
-                {
+                try {
                     var pixels = TestAssets.Solid(8, 8, new Color32(0, 200, 0, 128));
                     LivePreview.Push(tex, pixels, 8, 8);
                     Assert.AreEqual(128, pixels[0].a, "窓のプレビューも使う画素を書き換えた");
-                    if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null)
+                    if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null) {
                         Assert.AreEqual(255, ReadCenter((RenderTexture)rt).a, "Alpha Source を当てていない");
-                }
-                finally
-                {
+                    }
+                } finally {
                     LivePreview.Release(tex);
                     LivePreview.SetTarget(null, null);
                 }
             }
         }
 
-        private static void AssertPixelsIfGpu(Texture rt, Texture2D source, bool expectRed)
-        {
+        private static void AssertPixelsIfGpu(Texture rt, Texture2D source, bool expectRed) {
             // batchmode の -nographics では RenderTexture の読み戻しが効かないので、寸法だけ確かめる。
             Assert.AreEqual((source.width, source.height), (rt.width, rt.height));
-            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null) return;
+            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null) {
+                return;
+            }
             var c = ReadCenter((RenderTexture)rt);
-            if (expectRed) Assert.Greater(c.r, 200, $"書かれていない: {c}");
-            else Assert.Less(c.r, 200, $"編集していないテクスチャの結果が書かれた: {c}");
+            if (expectRed) {
+                Assert.Greater(c.r, 200, $"書かれていない: {c}");
+            } else {
+                Assert.Less(c.r, 200, $"編集していないテクスチャの結果が書かれた: {c}");
+            }
         }
 
-        private static Color32 ReadCenter(RenderTexture rt)
-        {
+        private static Color32 ReadCenter(RenderTexture rt) {
             var prev = RenderTexture.active;
             RenderTexture.active = rt;
             var t = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
-            try
-            {
+            try {
                 t.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
                 t.Apply();
                 return t.GetPixel(rt.width / 2, rt.height / 2);
-            }
-            finally
-            {
+            } finally {
                 RenderTexture.active = prev;
                 Object.DestroyImmediate(t);
             }
@@ -315,8 +290,7 @@ namespace Iroca.EditorTests
     }
 
     /// <summary>登録済みレシピの出来上がり(非破壊ビルドと同じテクスチャ)の貸し借り。</summary>
-    public class RecipePreviewTexturesTests
-    {
+    public class RecipePreviewTexturesTests {
         private const int W = 16, H = 16;
         private TestAssets _assets;
         private readonly List<string> _cacheFiles = new List<string>();
@@ -324,19 +298,19 @@ namespace Iroca.EditorTests
         [SetUp] public void SetUp() => _assets = TestAssets.Create();
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             RecipeTextureBuilder.WaitForCacheWrites();   // 背景の書き込みが後から書いて残らないように
-            foreach (var f in _cacheFiles)
-                if (System.IO.File.Exists(f)) System.IO.File.Delete(f);
+            foreach (var f in _cacheFiles) {
+                if (System.IO.File.Exists(f)) {
+                    System.IO.File.Delete(f);
+                }
+            }
             _cacheFiles.Clear();
             _assets.Dispose();
         }
 
-        private IrocaRecipe RedToGreen(Texture2D src, float tolerance)
-        {
-            var zone = new ColorZone
-            {
+        private IrocaRecipe RedToGreen(Texture2D src, float tolerance) {
+            var zone = new ColorZone {
                 sampleColor = new Color(200 / 255f, 40 / 255f, 40 / 255f),
                 sampleColorSet = true,
                 targetColor = new Color(0.1f, 0.6f, 0.2f),
@@ -351,8 +325,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void SameRecipeSharesOneTexture_EditedRecipeGetsANewOne()
-        {
+        public void SameRecipeSharesOneTexture_EditedRecipeGetsANewOne() {
             string path = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
             var src = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             var recipe = RedToGreen(src, 0.2f);
@@ -394,8 +367,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void BuildIsCancelledOnlyWhenNoBorrowerWaitsForIt_AndBuiltAgainLater()
-        {
+        public void BuildIsCancelledOnlyWhenNoBorrowerWaitsForIt_AndBuiltAgainLater() {
             // NDMF は作りかけのパイプラインを最後まで待つので、要らなくなった作りかけは取り消す。ただし、ほかに
             // 待っている借り手がいれば取り消さない。取り消した分はキャッシュに書かず、次に借りたときに作り直す。
             string path = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
@@ -427,8 +399,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ReleasedWhileBuilding_TheResultIsDiscarded()
-        {
+        public void ReleasedWhileBuilding_TheResultIsDiscarded() {
             string path = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
             var recipe = RedToGreen(AssetDatabase.LoadAssetAtPath<Texture2D>(path), 0.2f);
             int before = RecipePreviewTextures.Count;
@@ -442,8 +413,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void SourceFileThatCannotBeOpened_FinishesWithNothing_AndIsBuiltAgainLater()
-        {
+        public void SourceFileThatCannotBeOpened_FinishesWithNothing_AndIsBuiltAgainLater() {
             // 作りかけが終わらないと、NDMF のプレビューがシーンごと(ほかのツールの分も)止まる。
             string path = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
             var recipe = RedToGreen(AssetDatabase.LoadAssetAtPath<Texture2D>(path), 0.2f);
@@ -452,8 +422,7 @@ namespace Iroca.EditorTests
             Texture2D failed;
             string keyA;
             using (new System.IO.FileStream(System.IO.Path.GetFullPath(path), System.IO.FileMode.Open,
-                       System.IO.FileAccess.Read, System.IO.FileShare.None))
-            {
+                       System.IO.FileAccess.Read, System.IO.FileShare.None)) {
                 var pending = RecipePreviewTextures.Acquire(recipe, out keyA);
                 failed = TestAssets.Wait(pending);
             }
@@ -468,19 +437,15 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void BrokenRecipe_LendsNothing()
-        {
+        public void BrokenRecipe_LendsNothing() {
             string path = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
             var empty = ScriptableObject.CreateInstance<IrocaRecipe>();
-            try
-            {
+            try {
                 empty.sourceTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
                 var lent = RecipePreviewTextures.Acquire(empty, out var key);
                 Assert.IsTrue(lent.IsCompleted && lent.Result == null);
                 Assert.IsNull(key);
-            }
-            finally
-            {
+            } finally {
                 Object.DestroyImmediate(empty);
             }
         }

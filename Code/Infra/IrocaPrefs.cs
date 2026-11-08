@@ -1,8 +1,7 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// EditorPrefs(PC ごとの設定)と SessionState(エディタを閉じるまでの状態)のキーの一覧(0.4.0 の計画の 4-1)。
     /// 以前は 20 余りのファイルがそれぞれ定数を持っていた(同じキーを 2 か所で定義していたものもある)。
@@ -10,8 +9,7 @@ namespace Iroca
     /// 変えるときは古いキーから読んで移す処理を書き、scripts/source_checks/test_editor_prefs_keys.py の一覧も直す。
     /// 名前が Prefix で終わるものは前置きで、後ろにパス・GUID・ID などを足して使う。
     /// </summary>
-    internal static class IrocaPrefs
-    {
+    internal static class IrocaPrefs {
         // ── EditorPrefs(PC ごと) ──
         internal const string Language = "Iroca.Language";
         internal const string EnglishTranslationNoticeShown = "Iroca.EnglishTranslationNoticeShown";

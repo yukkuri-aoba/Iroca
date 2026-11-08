@@ -5,16 +5,14 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// マスクデータ（<see cref="MaskState"/>）の永続化を担う。
     /// 保存先は <c>&lt;Project&gt;/UserSettings/Iroca/MaskCache/&lt;テクスチャGUID&gt;.iroca-mask.json</c> で、
     /// git 非追跡フォルダ（個人作業データ）に置く。GUID ベースのため
     /// テクスチャの rename / move には自動追従する。
     /// </summary>
-    internal static class MaskFileStore
-    {
+    internal static class MaskFileStore {
         private const string CacheDirRelative = "UserSettings/Iroca/MaskCache";
         private const string MaskFileExtension = ".iroca-mask.json";
 
@@ -41,47 +39,38 @@ namespace Iroca
         /// 一時的な読込失敗が「空保存 → 無傷ファイルの恒久削除」に化けるのを防ぐ。
         /// </para>
         /// </summary>
-        public static bool SaveMask(string texturePath, MaskState state, bool lastLoadFailed = false)
-        {
+        public static bool SaveMask(string texturePath, MaskState state, bool lastLoadFailed = false) {
             string path = MaskFilePath(texturePath);
-            if (string.IsNullOrEmpty(path)) return true;
+            if (string.IsNullOrEmpty(path)) {
+                return true;
+            }
 
-            if (state == null || IsEmpty(state))
-            {
-                if (File.Exists(path))
-                {
-                    if (lastLoadFailed)
-                    {
+            if (state == null || IsEmpty(state)) {
+                if (File.Exists(path)) {
+                    if (lastLoadFailed) {
                         Debug.LogWarning(
                             "[Iroca] マスクファイルの読み込みに失敗したセッションのため、空マスクによる削除をスキップしました: " + path);
                         return true;
                     }
-                    try { File.Delete(path); }
-                    catch (Exception ex) { Debug.LogWarning($"[Iroca] Mask delete failed: {ex.Message}"); return false; }
+                    try { File.Delete(path); } catch (Exception ex) { Debug.LogWarning($"[Iroca] Mask delete failed: {ex.Message}"); return false; }
                 }
                 return true;
             }
 
-            try
-            {
+            try {
                 Directory.CreateDirectory(CacheDir);
-                if (lastLoadFailed && File.Exists(path))
-                {
+                if (lastLoadFailed && File.Exists(path)) {
                     // 読めなかった既存データを潰す前に退避する（失敗しても保存は続行）。
-                    try
-                    {
+                    try {
                         File.Copy(path, path + ".bak", overwrite: true);
                         Debug.LogWarning($"[Iroca] 読み込めなかった既存マスクを退避しました: {path}.bak");
-                    }
-                    catch (Exception ex) { Debug.LogWarning($"[Iroca] Mask backup failed: {ex.Message}"); }
+                    } catch (Exception ex) { Debug.LogWarning($"[Iroca] Mask backup failed: {ex.Message}"); }
                 }
                 state.schemaVersion = MaskState.CurrentSchemaVersion;
                 // 自動保存は編集のたびに来るが、マスクが変わっていなければファイルは同じ中身のまま(書かない)。
                 AtomicFile.WriteAllTextIfChanged(path, JsonUtility.ToJson(state));
                 return true;
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca] Mask save failed: {ex.Message}");
                 return false;
             }
@@ -93,15 +82,17 @@ namespace Iroca
         /// <paramref name="unreadable"/> は「ファイルは存在するのに読めなかった」ときだけ true
         /// （呼び出し側はこのセッションでの破壊的保存を抑止すること）。
         /// </summary>
-        public static MaskState LoadMask(string texturePath, out bool unreadable)
-        {
+        public static MaskState LoadMask(string texturePath, out bool unreadable) {
             unreadable = false;
             Files.RestoreOrphanFor(texturePath);
             string path = MaskFilePath(texturePath);
-            if (string.IsNullOrEmpty(path)) return null;
-            if (!File.Exists(path)) return null;
-            try
-            {
+            if (string.IsNullOrEmpty(path)) {
+                return null;
+            }
+            if (!File.Exists(path)) {
+                return null;
+            }
+            try {
                 var state = JsonUtility.FromJson<MaskState>(AtomicFile.ReadAllText(path));
                 // JsonUtility は空文字や "null" で例外を投げずに null を返す。ここを見落とすと
                 // 「ファイルはあるのに読めなかった」を「マスク無し」と誤認し、破壊的保存の抑止
@@ -110,9 +101,7 @@ namespace Iroca
                 // ここだけ非対称だった。
                 if (state == null) { unreadable = true; return null; }
                 return state;
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca] Mask load failed: {ex.Message}");
                 unreadable = true;
                 return null;
@@ -138,20 +127,25 @@ namespace Iroca
         /// </summary>
         public static void CleanupOrphans() => Files.CleanupOrphans();
 
-        internal static bool IsEmpty(MaskState state)
-        {
-            if (state == null) return true;
+        internal static bool IsEmpty(MaskState state) {
+            if (state == null) {
+                return true;
+            }
             bool hasCommon = !string.IsNullOrEmpty(state.commonMaskBase64);
             return !hasCommon && !HasAnyEntry(state.zones) && !HasAnyEntry(state.zoneIncludes);
         }
 
-        private static bool HasAnyEntry(System.Collections.Generic.List<MaskZoneEntry> entries)
-        {
-            if (entries == null) return false;
-            foreach (var entry in entries)
-            {
-                if (entry == null) continue;
-                if (string.IsNullOrEmpty(entry.maskBase64)) continue;
+        private static bool HasAnyEntry(System.Collections.Generic.List<MaskZoneEntry> entries) {
+            if (entries == null) {
+                return false;
+            }
+            foreach (var entry in entries) {
+                if (entry == null) {
+                    continue;
+                }
+                if (string.IsNullOrEmpty(entry.maskBase64)) {
+                    continue;
+                }
                 return true;
             }
             return false;

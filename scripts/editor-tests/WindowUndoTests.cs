@@ -6,15 +6,13 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// ウィンドウの Undo/Redo が編集内容だけを戻すこと(0.4.0 のフェーズ 5)。Undo の対象は文書の中身で、ウィンドウではない。
     /// ズーム・前後比較・ブラシの大きさ・開閉などは巻き戻らず、いま直しているゾーンはゾーンの並びが戻っても同じゾーンを指す。
     /// 保存の控え(古い版のレイアウト・ドメインリロードの読み直し)から文書を作り直せること。
     /// </summary>
-    public class WindowUndoTests
-    {
+    public class WindowUndoTests {
         private const int W = 4, H = 4;
 
         private TestAssets _assets;
@@ -25,8 +23,7 @@ namespace Iroca.EditorTests
         private IrocaWindow _win;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _assets = TestAssets.Create();
             _tex = _assets.WritePng("tex", TestAssets.Solid(W, H, new Color32(200, 50, 50, 255)), W, H);
             _guid = AssetDatabase.AssetPathToGUID(_tex);
@@ -40,22 +37,28 @@ namespace Iroca.EditorTests
         }
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             Undo.ClearAll();
-            if (_win != null) Object.DestroyImmediate(_win);
-            if (_prefBefore == null) EditorPrefs.DeleteKey(_prefKey);
-            else EditorPrefs.SetString(_prefKey, _prefBefore);
-            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
-            {
-                if (!Directory.Exists(dir)) continue;
-                foreach (var f in Directory.GetFiles(dir, _guid + "*")) File.Delete(f);
+            if (_win != null) {
+                Object.DestroyImmediate(_win);
+            }
+            if (_prefBefore == null) {
+                EditorPrefs.DeleteKey(_prefKey);
+            } else {
+                EditorPrefs.SetString(_prefKey, _prefBefore);
+            }
+            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                if (!Directory.Exists(dir)) {
+                    continue;
+                }
+                foreach (var f in Directory.GetFiles(dir, _guid + "*")) {
+                    File.Delete(f);
+                }
             }
             _assets.Dispose();
         }
 
-        private void Stroke(int pixel)
-        {
+        private void Stroke(int pixel) {
             Undo.IncrementCurrentGroup();
             _win._maskView.BeginStroke();
             _win.Editing.Masks.WritableCommon().Set(pixel, true);
@@ -64,10 +67,8 @@ namespace Iroca.EditorTests
             Undo.IncrementCurrentGroup();
         }
 
-        private void AddZones(params string[] names)
-        {
-            foreach (var name in names)
-            {
+        private void AddZones(params string[] names) {
+            foreach (var name in names) {
                 Undo.IncrementCurrentGroup();
                 int i = _win.Editing.AddZone();
                 _win.Session.zones[i].name = name;
@@ -76,8 +77,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Undo_RestoresMasksButNotTheView()
-        {
+        public void Undo_RestoresMasksButNotTheView() {
             var view = _win.Preview;
             var masks = _win._maskView;
             view.previewZoom = 1.5f;
@@ -103,8 +103,7 @@ namespace Iroca.EditorTests
         // 塗っている途中に Esc でブラシが切れると、マウスを離す処理へ来なくなる。ストロークはそこで閉じる
         // (閉じないと、塗っている途中のままで自動保存が止まり、Undo が次のストロークとまとまる)。
         [Test]
-        public void EscapeDuringStroke_FinishesTheStroke()
-        {
+        public void EscapeDuringStroke_FinishesTheStroke() {
             var masks = _win._maskView;
             masks.maskPaintActive = true;
             Undo.IncrementCurrentGroup();
@@ -128,8 +127,7 @@ namespace Iroca.EditorTests
 
         // 読めなかったセッションのファイルは、新しい中身を書く前に .bak へ退避する。2 回目の保存で .bak を上書きしない。
         [Test]
-        public void UnreadableSessionFile_BackupSurvivesTheNextSaves()
-        {
+        public void UnreadableSessionFile_BackupSurvivesTheNextSaves() {
             string other = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(50, 200, 50, 255)), W, H);
             var otherTex = AssetDatabase.LoadAssetAtPath<Texture2D>(other);
             var tex = _win.SourceTexture;
@@ -138,15 +136,13 @@ namespace Iroca.EditorTests
             Directory.CreateDirectory(SessionFileStore.CacheDir);
             File.WriteAllText(file, "{ broken");
             LogAssert.ignoreFailingMessages = true;
-            try
-            {
+            try {
                 _win.SwitchSourceTexture(tex);
                 AddZones("a");
                 _win.SavePersistedSessionForCurrentTexture();
                 AddZones("b");
                 _win.SavePersistedSessionForCurrentTexture();
-            }
-            finally { LogAssert.ignoreFailingMessages = false; }
+            } finally { LogAssert.ignoreFailingMessages = false; }
             Assert.AreEqual("{ broken", File.ReadAllText(file + ".bak"), "読めなかった元のファイルが残っていない");
             StringAssert.Contains("\"b\"", File.ReadAllText(file), "新しい中身は書く");
             CleanOther(other);
@@ -155,15 +151,13 @@ namespace Iroca.EditorTests
         // Undo で読めないファイルのテクスチャへ戻ったら、読めなかった印もそのテクスチャのものになる。残っていないと、空の保存で
         // 読めなかったファイルを削除する。
         [Test]
-        public void UndoBackToUnreadableTexture_DoesNotDeleteItsFile()
-        {
+        public void UndoBackToUnreadableTexture_DoesNotDeleteItsFile() {
             string other = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(50, 200, 50, 255)), W, H);
             var otherTex = AssetDatabase.LoadAssetAtPath<Texture2D>(other);
             string file = Path.Combine(SessionFileStore.CacheDir, _guid + ".iroca-session.json");
             Directory.CreateDirectory(SessionFileStore.CacheDir);
             LogAssert.ignoreFailingMessages = true;
-            try
-            {
+            try {
                 // 読めない状態で A を開き直してから B へ切り替える。
                 _win.SwitchSourceTexture(otherTex);
                 File.WriteAllText(file, "{ broken");
@@ -175,16 +169,14 @@ namespace Iroca.EditorTests
                 Undo.PerformUndo();
                 Assert.AreEqual(_tex, AssetDatabase.GetAssetPath(_win.SourceTexture), "テクスチャが戻っていない");
                 _win.SavePersistedSessionForCurrentTexture();
-            }
-            finally { LogAssert.ignoreFailingMessages = false; }
+            } finally { LogAssert.ignoreFailingMessages = false; }
             Assert.AreEqual("{ broken", File.ReadAllText(file), "読めなかったファイルを消した");
             CleanOther(other);
         }
 
         // 履歴に無い版へテクスチャごと戻ったとき、前のテクスチャのマスクを残さない(次の保存で別のテクスチャへ書き込む)。
         [Test]
-        public void UndoToMissingMaskVersion_WithTextureChange_ReadsTheSavedMasks()
-        {
+        public void UndoToMissingMaskVersion_WithTextureChange_ReadsTheSavedMasks() {
             string other = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(50, 200, 50, 255)), W, H);
             var otherTex = AssetDatabase.LoadAssetAtPath<Texture2D>(other);
             Stroke(1);
@@ -195,12 +187,10 @@ namespace Iroca.EditorTests
             _win.Editing.MaskHistory.Clear();     // 上限で手放した(Unity 6 で退避を読めなかった)のと同じ
 
             LogAssert.ignoreFailingMessages = true;
-            try
-            {
+            try {
                 Undo.PerformUndo();   // B のストローク
                 Undo.PerformUndo();   // テクスチャの切り替え
-            }
-            finally { LogAssert.ignoreFailingMessages = false; }
+            } finally { LogAssert.ignoreFailingMessages = false; }
 
             Assert.AreEqual(_tex, AssetDatabase.GetAssetPath(_win.SourceTexture), "テクスチャが戻っていない");
             var common = _win.Editing.Masks.Common;
@@ -212,8 +202,7 @@ namespace Iroca.EditorTests
 
         // テクスチャの切り替えを Undo したら、書き出しの既定の名前も戻す。
         [Test]
-        public void UndoOfTextureChange_RestoresTheExportName()
-        {
+        public void UndoOfTextureChange_RestoresTheExportName() {
             string other = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(50, 200, 50, 255)), W, H);
             _win.SwitchSourceTexture(AssetDatabase.LoadAssetAtPath<Texture2D>(other));
             StringAssert.StartsWith("other", _win._exportView.newFileName);
@@ -225,8 +214,7 @@ namespace Iroca.EditorTests
         // レシピとの結び付きは編集内容ではない。登録より前の記録まで戻っても外さない(外れると、以後の編集がレシピに入らず、開き直すと
         // 古いレシピが正として読まれて消える)。
         [Test]
-        public void UndoBeforeRegistration_KeepsTheRecipeBinding()
-        {
+        public void UndoBeforeRegistration_KeepsTheRecipeBinding() {
             AddZones("服");
             var recipe = RecipeStore.Create(_win.SourceTexture, _win.Editing.ToSaveState(), _assets.Folder);
             Undo.IncrementCurrentGroup();
@@ -240,8 +228,7 @@ namespace Iroca.EditorTests
 
         // 「いろかで開く」は読み込みと一緒に Undo で戻る。結び付きだけ残すと、開く前の内容でレシピを上書きする。
         [Test]
-        public void UndoOfOpeningRecipe_DoesNotOverwriteTheRecipe()
-        {
+        public void UndoOfOpeningRecipe_DoesNotOverwriteTheRecipe() {
             AddZones("開く前");
             var texture = _win.SourceTexture;
             var content = new IrocaSessionState();
@@ -264,8 +251,7 @@ namespace Iroca.EditorTests
 
         // 複数のレシピがあるテクスチャは、最後に結び付いたレシピへ開き直す。Undo で外したら開き直しても結び付けない。
         [Test]
-        public void ReopeningTextureWithSeveralRecipes_BindsTheLastOne()
-        {
+        public void ReopeningTextureWithSeveralRecipes_BindsTheLastOne() {
             var texture = _win.SourceTexture;
             var content = new IrocaSessionState();
             content.zones.Add(new ColorZone { name = "レシピの内容" });
@@ -289,8 +275,7 @@ namespace Iroca.EditorTests
 
         // 読めないまま空で開いた後、再読み込みの間に読めるようになっても、空の保存でファイルを消さない。
         [Test]
-        public void SessionFileThatBecameReadable_IsNotDeletedByReload()
-        {
+        public void SessionFileThatBecameReadable_IsNotDeletedByReload() {
             string file = Path.Combine(SessionFileStore.CacheDir, _guid + ".iroca-session.json");
             var state = new IrocaSessionState();
             state.zones.Add(new ColorZone { name = "前の編集" });
@@ -315,8 +300,7 @@ namespace Iroca.EditorTests
 
         // 再読み込みの前にマスクをファイルへ書けなくても、塗った分は履歴から戻る。
         [Test]
-        public void MaskStrokeNotWrittenToFile_ComesBackFromHistoryAfterReload()
-        {
+        public void MaskStrokeNotWrittenToFile_ComesBackFromHistoryAfterReload() {
             Stroke(3);
             Assert.IsTrue(_win.SavePersistedSessionForCurrentTexture());
             Stroke(5);   // ファイルにはまだ書いていない = 書けなかったときと同じ
@@ -329,19 +313,15 @@ namespace Iroca.EditorTests
 
         // 保存に失敗したことを窓に出す印。直れば下りる。
         [Test]
-        public void SaveFailure_IsKeptUntilASaveSucceeds()
-        {
+        public void SaveFailure_IsKeptUntilASaveSucceeds() {
             AddZones("服");
             string file = Path.Combine(SessionFileStore.CacheDir, _guid + ".iroca-session.json");
             Directory.CreateDirectory(file);   // 同じ名前のフォルダがあるとファイルを書けない
-            try
-            {
+            try {
                 LogAssert.ignoreFailingMessages = true;
                 Assert.IsFalse(_win.SavePersistedSessionForCurrentTexture());
                 Assert.IsTrue(_win.LastSaveFailed);
-            }
-            finally
-            {
+            } finally {
                 LogAssert.ignoreFailingMessages = false;
                 Directory.Delete(file);
             }
@@ -351,8 +331,7 @@ namespace Iroca.EditorTests
 
         // 開き直した窓の宛先は先頭のゾーン。全ゾーン共通のままだと、右クリックにゾーン宛の項目が出ず、ブラシも共通へ塗る。
         [Test]
-        public void ReopenedWindow_TargetsTheFirstZone()
-        {
+        public void ReopenedWindow_TargetsTheFirstZone() {
             AddZones("服", "靴");
             Assert.IsTrue(_win.SavePersistedSessionForCurrentTexture());
             Object.DestroyImmediate(_win);
@@ -364,8 +343,7 @@ namespace Iroca.EditorTests
 
         // スポイト・シード指定を武装したらブラシを切る(残すと、カードは武装の色なのにクリックは塗りになる)。
         [Test]
-        public void ArmingEyedropperOrSeed_TurnsTheBrushOff()
-        {
+        public void ArmingEyedropperOrSeed_TurnsTheBrushOff() {
             AddZones("服");
             var zone = _win.Session.zones[0];
             _win._maskView.ActivateBrush(erase: false);
@@ -380,8 +358,7 @@ namespace Iroca.EditorTests
 
         // 別の窓にフォーカスがあっても Esc で解除できる。
         [Test]
-        public void GlobalEscape_ClearsTheModes()
-        {
+        public void GlobalEscape_ClearsTheModes() {
             AddZones("服");
             _win.ArmEyedropper(_win.Session.zones[0].id);
             _win.ClearModesOnEscape(EventType.KeyUp, KeyCode.Escape);
@@ -392,8 +369,7 @@ namespace Iroca.EditorTests
 
         // テクスチャを選ぶ前に作ったゾーンは、そのテクスチャに編集内容が無ければ引き継ぐ。
         [Test]
-        public void ZonesMadeWithoutTexture_AreCarriedToTheTexture()
-        {
+        public void ZonesMadeWithoutTexture_AreCarriedToTheTexture() {
             var texture = _win.SourceTexture;
             _win.SwitchSourceTexture(null);
             AddZones("先に作った");
@@ -404,8 +380,7 @@ namespace Iroca.EditorTests
 
         // テクスチャの切り替えを Undo したら、そのテクスチャで直していたゾーンへ戻る。
         [Test]
-        public void UndoOfTextureSwitch_RestoresTheTargetZone()
-        {
+        public void UndoOfTextureSwitch_RestoresTheTargetZone() {
             AddZones("服", "靴");
             _win._maskView.activeMaskTarget = 1;
             string other = _assets.WritePng("target-other", TestAssets.Solid(W, H, Color.white), W, H);
@@ -421,31 +396,30 @@ namespace Iroca.EditorTests
 
         // マスクの重ね表示の画素(ヒープの外で作る)。塗った所だけ色が付き、ほかは透明。
         [Test]
-        public void MaskOverlay_ShowsOnlyThePaintedPixels()
-        {
+        public void MaskOverlay_ShowsOnlyThePaintedPixels() {
             var view = _win._maskView;
             _win.Editing.Masks.WritableCommon().Set(5, true);
             view.RebuildMaskOverlay(W, H);
             var watch = System.Diagnostics.Stopwatch.StartNew();
-            while (view.maskOverlayTexture == null && watch.Elapsed.TotalSeconds < 10)
-            {
+            while (view.maskOverlayTexture == null && watch.Elapsed.TotalSeconds < 10) {
                 PreviewJobMainThread.Drain();
                 view.ApplyPendingOverlay();
                 System.Threading.Thread.Sleep(1);
             }
             Assert.IsNotNull(view.maskOverlayTexture, "重ね表示ができない");
             var pixels = view.maskOverlayTexture.GetPixels32();
-            for (int i = 0; i < pixels.Length; i++)
-            {
-                if (i == 5) Assert.Greater(pixels[i].a, 0, "塗った所に色が無い");
-                else Assert.AreEqual(0, pixels[i].a, $"塗っていない所 {i} に色がある");
+            for (int i = 0; i < pixels.Length; i++) {
+                if (i == 5) {
+                    Assert.Greater(pixels[i].a, 0, "塗った所に色が無い");
+                } else {
+                    Assert.AreEqual(0, pixels[i].a, $"塗っていない所 {i} に色がある");
+                }
             }
         }
 
         // 自動調整を押した後に Ctrl+Z やテクスチャの切り替えをしたら、結果を当てない(押したときの状態はもう無い)。
         [Test]
-        public void AutoTuneRunning_IsStoppedByUndo()
-        {
+        public void AutoTuneRunning_IsStoppedByUndo() {
             AddZones("服");
             AddZones("靴");
             var zone = _win.Session.zones[1];
@@ -457,8 +431,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void AutoTuneRunning_IsStoppedByTextureChange()
-        {
+        public void AutoTuneRunning_IsStoppedByTextureChange() {
             string other = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(50, 200, 50, 255)), W, H);
             AddZones("服");
             _win.RunAutoTune(_win.Session.zones[0]);
@@ -469,23 +442,28 @@ namespace Iroca.EditorTests
             CleanOther(other);
         }
 
-        private static void CleanOther(string otherTexturePath)
-        {
+        private static void CleanOther(string otherTexturePath) {
             string guid = AssetDatabase.AssetPathToGUID(otherTexturePath);
-            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
-            {
-                if (!Directory.Exists(dir)) continue;
-                foreach (var f in Directory.GetFiles(dir, guid + "*")) File.Delete(f);
+            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                if (!Directory.Exists(dir)) {
+                    continue;
+                }
+                foreach (var f in Directory.GetFiles(dir, guid + "*")) {
+                    File.Delete(f);
+                }
             }
         }
 
         [Test]
-        public void Undo_OfSliderEdit_RestoresTheValueAndAsksForAPreview()
-        {
+        public void Undo_OfSliderEdit_RestoresTheValueAndAsksForAPreview() {
             AddZones("服");
             float before = _win.Session.zones[0].tolerance;
             int replaced = 0;
-            _win.Editing.Changed += c => { if (c == EditChange.Replaced) replaced++; };
+            _win.Editing.Changed += c => {
+                if (c == EditChange.Replaced) {
+                    replaced++;
+                }
+            };
 
             Undo.IncrementCurrentGroup();
             Undo.RecordObject(_win.UndoTarget, "Iroca Edit");
@@ -498,23 +476,22 @@ namespace Iroca.EditorTests
             Assert.AreEqual(1, replaced, "編集が戻ったことを知らせる(プレビューの作り直し・重ね表示・自動保存)");
         }
 
-        private bool[] Pixels(params int[] on)
-        {
+        private bool[] Pixels(params int[] on) {
             var region = new bool[W * H];
-            foreach (var i in on) region[i] = true;
+            foreach (var i in on) {
+                region[i] = true;
+            }
             return region;
         }
 
-        private void ApplyToMask(string zoneId, MaskRegionOp op, params int[] on)
-        {
+        private void ApplyToMask(string zoneId, MaskRegionOp op, params int[] on) {
             Undo.IncrementCurrentGroup();
             Assert.IsTrue(_win._maskView.ApplyRegion(Pixels(on), new MaskPaintView.MaskDestination(zoneId, op), out _), op.ToString());
             Undo.IncrementCurrentGroup();
         }
 
         [Test]
-        public void ClearHere_RemovesOnlyTheRegion_AndUndoBringsItBack()
-        {
+        public void ClearHere_RemovesOnlyTheRegion_AndUndoBringsItBack() {
             AddZones("服");
             string id = _win.Session.zones[0].id;
             ApplyToMask(id, MaskRegionOp.PaintHere, 0, 1);
@@ -536,8 +513,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ClearHere_WithNothingToClear_LeavesNoUndoStep()
-        {
+        public void ClearHere_WithNothingToClear_LeavesNoUndoStep() {
             AddZones("服");
             string id = _win.Session.zones[0].id;
             ApplyToMask(id, MaskRegionOp.DontPaintHere, 0);
@@ -554,8 +530,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ClearHere_WhereOnlyTheCommonMaskIs_SaysSo()
-        {
+        public void ClearHere_WhereOnlyTheCommonMaskIs_SaysSo() {
             AddZones("服");
             string id = _win.Session.zones[0].id;
             ApplyToMask(null, MaskRegionOp.DontPaintHere, 3);
@@ -571,8 +546,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ClearHere_ToCommon_ClearsOnlyTheCommonMask()
-        {
+        public void ClearHere_ToCommon_ClearsOnlyTheCommonMask() {
             AddZones("服");
             string id = _win.Session.zones[0].id;
             ApplyToMask(null, MaskRegionOp.DontPaintHere, 3, 7);
@@ -585,8 +559,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ClearTarget_IsTheZoneWithAMaskHere_NotThePaintingZone()
-        {
+        public void ClearTarget_IsTheZoneWithAMaskHere_NotThePaintingZone() {
             AddZones("上", "下");
             string upper = _win.Session.zones[0].id, lower = _win.Session.zones[1].id;
             var view = _win._maskView;
@@ -606,11 +579,9 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void UnrelatedUndo_DoesNotRebuildThePreview()
-        {
+        public void UnrelatedUndo_DoesNotRebuildThePreview() {
             var other = ScriptableObject.CreateInstance<SampleUvUndoHost>();
-            try
-            {
+            try {
                 Stroke(1);
                 Undo.IncrementCurrentGroup();
                 Undo.RegisterCompleteObjectUndo(other, "Unrelated");
@@ -622,13 +593,11 @@ namespace Iroca.EditorTests
                 Undo.PerformUndo();
                 Assert.AreEqual(1, other.session.zones.Count == 0 ? 1 : 0, "相手の Undo は効いている");
                 Assert.AreEqual(0, changes, "関係ない Undo では編集として知らせない(プレビューを作り直さない)");
-            }
-            finally { Object.DestroyImmediate(other); }
+            } finally { Object.DestroyImmediate(other); }
         }
 
         [Test]
-        public void ActiveTarget_FollowsItsZoneWhenUndoChangesTheOrder()
-        {
+        public void ActiveTarget_FollowsItsZoneWhenUndoChangesTheOrder() {
             AddZones("a", "b", "c");
             string a = _win.Session.zones[0].id;
             var masks = _win._maskView;
@@ -645,8 +614,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ActiveTarget_FallsBackWhenUndoRemovesItsZone()
-        {
+        public void ActiveTarget_FallsBackWhenUndoRemovesItsZone() {
             AddZones("a", "b");
             var masks = _win._maskView;
             masks.activeMaskTarget = 1;
@@ -663,8 +631,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ActiveTarget_CommonStaysCommon()
-        {
+        public void ActiveTarget_CommonStaysCommon() {
             AddZones("a");
             var masks = _win._maskView;
             masks.activeMaskTarget = -1;
@@ -674,8 +641,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ChangeSourceTexture_UndoBringsBackTextureAndZones()
-        {
+        public void ChangeSourceTexture_UndoBringsBackTextureAndZones() {
             AddZones("服");
             var first = _win.SourceTexture;
             string otherPath = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(10, 20, 200, 255)), W, H);
@@ -692,16 +658,18 @@ namespace Iroca.EditorTests
             Assert.AreEqual(1, _win.Session.zones.Count, "ゾーンも戻る");
 
             string otherGuid = AssetDatabase.AssetPathToGUID(otherPath);
-            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
-            {
-                if (!Directory.Exists(dir)) continue;
-                foreach (var f in Directory.GetFiles(dir, otherGuid + "*")) File.Delete(f);
+            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                if (!Directory.Exists(dir)) {
+                    continue;
+                }
+                foreach (var f in Directory.GetFiles(dir, otherGuid + "*")) {
+                    File.Delete(f);
+                }
             }
         }
 
         [Test]
-        public void SavedForm_KeepsTheOldFieldNames()
-        {
+        public void SavedForm_KeepsTheOldFieldNames() {
             AddZones("控えに残る");
             // 0.3.x に戻したとき・文書を失ったときに読む控えは、今の中身を指している。
             string json = EditorJsonUtility.ToJson(_win);
@@ -712,16 +680,14 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void MissingDocument_IsRebuiltFromTheSavedForm()
-        {
+        public void MissingDocument_IsRebuiltFromTheSavedForm() {
             AddZones("控えから戻す");
             string json = EditorJsonUtility.ToJson(_win);
             var texture = _win.SourceTexture;
 
             // 0.3.x のレイアウト(文書が無く、控えだけがある)を読んだ状態を作る。
             var old = ScriptableObject.CreateInstance<IrocaWindow>();
-            try
-            {
+            try {
                 Object.DestroyImmediate(old.UndoTarget);
                 EditorJsonUtility.FromJsonOverwrite(json.Replace("\"_document\"", "\"_documentGone\""), old);
                 old.OnEnable();
@@ -730,13 +696,11 @@ namespace Iroca.EditorTests
                 Assert.AreEqual("控えから戻す", old.Session.zones[0].name, "ゾーンは控えから");
                 Assert.AreEqual(HideFlags.HideAndDontSave, old.UndoTarget.hideFlags, "新しい文書を作る");
                 Assert.AreNotSame(_win.UndoTarget, old.UndoTarget);
-            }
-            finally { Object.DestroyImmediate(old); }
+            } finally { Object.DestroyImmediate(old); }
         }
 
         [Test]
-        public void Document_NeverHoldsMaskStrings()
-        {
+        public void Document_NeverHoldsMaskStrings() {
             Stroke(5);
             AddZones("服");
             Stroke(6);
@@ -748,8 +712,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Saving_WritesTheEditingMasks()
-        {
+        public void Saving_WritesTheEditingMasks() {
             Stroke(5);
             Assert.IsTrue(_win.SavePersistedSessionForCurrentTexture());
 
@@ -757,17 +720,14 @@ namespace Iroca.EditorTests
             Assert.IsFalse(unreadable);
             Assert.IsNotNull(saved, "マスクがファイルに書かれていない");
             var fromFile = new MaskWorkspace();
-            try
-            {
+            try {
                 Assert.IsTrue(fromFile.DecodeFrom(saved));
                 Assert.IsTrue(fromFile.Common.Get(5));
-            }
-            finally { fromFile.Clear(); }
+            } finally { fromFile.Clear(); }
         }
 
         [Test]
-        public void Undo_OfAnEditWithoutMasks_DoesNotTouchTheMasks()
-        {
+        public void Undo_OfAnEditWithoutMasks_DoesNotTouchTheMasks() {
             AddZones("服");
             Stroke(5);
             var layer = _win.Editing.Masks.Common;
@@ -785,8 +745,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Undo_OfAVersionNoLongerInHistory_KeepsMasksAndEditingContinues()
-        {
+        public void Undo_OfAVersionNoLongerInHistory_KeepsMasksAndEditingContinues() {
             Stroke(1);
             Stroke(2);
             _win.Editing.MaskHistory.Clear();   // 上限で手放した状態
@@ -802,8 +761,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ClosingTheWindow_ReturnsTheMaskHistory()
-        {
+        public void ClosingTheWindow_ReturnsTheMaskHistory() {
             long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask);
             var win = ScriptableObject.CreateInstance<IrocaWindow>();
             win.Editing.Masks.Reset(W, H);
@@ -817,8 +775,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ClosingTheWindow_DestroysItsDocument()
-        {
+        public void ClosingTheWindow_DestroysItsDocument() {
             var win = ScriptableObject.CreateInstance<IrocaWindow>();
             var doc = win.UndoTarget;
             Assert.IsTrue(doc != null);

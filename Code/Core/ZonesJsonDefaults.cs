@@ -1,7 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// zones JSON スキーマ（"zones" / "settings" のフラット形式）の既定値の唯一の正。
     ///
@@ -25,8 +24,7 @@ namespace Iroca
     /// ColorZone が 0＝未設定センチネル、zones JSON は 0.2＝バッチで使える値）。
     /// ここは「JSON スキーマの既定」であって「ColorZone の既定」ではない。
     /// </summary>
-    internal static class ZonesJsonDefaults
-    {
+    internal static class ZonesJsonDefaults {
         public const string Name = "Zone";
         // sample は白、target は黒。配列は DTO ごとに新しい実体が要る（共有すると
         // 1 ゾーンへの書き込みが全ゾーンに波及する）ので、定数ではなくファクトリで返す。

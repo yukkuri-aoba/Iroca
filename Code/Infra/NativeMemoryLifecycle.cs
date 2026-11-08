@@ -3,8 +3,7 @@
 using System.Threading;
 using UnityEditor;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// いろかがネイティブメモリに持つ作業配列を OS へ返す時期の管理。
     /// <list type="bullet">
@@ -20,26 +19,21 @@ namespace Iroca
     ///   開発者向けの設定を表示しているときは、閉じた後に残っている量も用途ごとにログへ出す。</item>
     /// </list>
     /// </summary>
-    internal static class NativeMemoryLifecycle
-    {
+    internal static class NativeMemoryLifecycle {
         [InitializeOnLoadMethod]
-        private static void Install()
-        {
+        private static void Install() {
             AssemblyReloadEvents.beforeAssemblyReload -= Release;
             AssemblyReloadEvents.beforeAssemblyReload += Release;
         }
 
         // リロードの前に呼ばれる。Unity はこの通知の購読者を順に呼ぶだけで、1 つが例外を投げると残りの購読者
         // (他ツールのリロード前の後始末)を呼ばないので、ここで止める。
-        private static void Release()
-        {
-            try
-            {
+        private static void Release() {
+            try {
                 DisposeIdleTimer();
                 PixelProcessor.ReleaseWorkBuffers();
                 WarnFinalized();
-            }
-            catch (System.Exception e) { UnityEngine.Debug.LogException(e); }
+            } catch (System.Exception e) { UnityEngine.Debug.LogException(e); }
         }
 
         /// <summary>計算が無いまま、作業配列のプールの空きを返すまでの時間(ミリ秒。テストで短くする)。</summary>
@@ -51,27 +45,24 @@ namespace Iroca
         private static Timer s_idleTimer;
         private static readonly object s_idleLock = new object();
 
-        private static void ArmIdleTrim()
-        {
+        private static void ArmIdleTrim() {
             int gen = Interlocked.Increment(ref s_idleGen);
             Volatile.Write(ref s_armedGen, gen);
-            lock (s_idleLock)
-            {
+            lock (s_idleLock) {
                 s_idleTimer ??= new Timer(_ => TrimIfIdle());
                 s_idleTimer.Change(IdleTrimMilliseconds, Timeout.Infinite);
             }
         }
 
-        private static void TrimIfIdle()
-        {
-            if (Volatile.Read(ref s_running) != 0 || Volatile.Read(ref s_idleGen) != Volatile.Read(ref s_armedGen)) return;
+        private static void TrimIfIdle() {
+            if (Volatile.Read(ref s_running) != 0 || Volatile.Read(ref s_idleGen) != Volatile.Read(ref s_armedGen)) {
+                return;
+            }
             WorkPools.ReleaseFree();
         }
 
-        private static void DisposeIdleTimer()
-        {
-            lock (s_idleLock)
-            {
+        private static void DisposeIdleTimer() {
+            lock (s_idleLock) {
                 s_idleTimer?.Dispose();
                 s_idleTimer = null;
             }
@@ -83,28 +74,29 @@ namespace Iroca
         /// <summary>
         /// 持ち主が返し忘れてファイナライザが解放した塊が、前に見たときより増えていれば警告する(不具合を見つけるため)。
         /// </summary>
-        internal static void WarnFinalized()
-        {
+        internal static void WarnFinalized() {
             System.Text.StringBuilder sb = null;
-            for (int u = 0; u < s_finalizedWarned.Length; u++)
-            {
+            for (int u = 0; u < s_finalizedWarned.Length; u++) {
                 int n = IrocaNativeMemory.FinalizedCount((NativeUsage)u);
                 int seen = Interlocked.Exchange(ref s_finalizedWarned[u], n);
-                if (n <= seen) continue;
+                if (n <= seen) {
+                    continue;
+                }
                 (sb ??= new System.Text.StringBuilder()).Append($" {(NativeUsage)u}={n - seen}");
             }
-            if (sb != null)
+            if (sb != null) {
                 UnityEngine.Debug.LogWarning("[Iroca] Native memory blocks were not released by their owner and were freed by the finalizer:" + sb);
+            }
         }
 
         /// <summary>用途ごとの今の量(MB。ログ用)。</summary>
-        internal static string DescribeLive()
-        {
+        internal static string DescribeLive() {
             var sb = new System.Text.StringBuilder();
-            for (int u = 0; u <= (int)NativeUsage.Other; u++)
-            {
+            for (int u = 0; u <= (int)NativeUsage.Other; u++) {
                 long b = IrocaNativeMemory.LiveBytesOf((NativeUsage)u);
-                if (b > 0) sb.Append($" {(NativeUsage)u}={b / (1024.0 * 1024.0):0.#}MB");
+                if (b > 0) {
+                    sb.Append($" {(NativeUsage)u}={b / (1024.0 * 1024.0):0.#}MB");
+                }
             }
             return sb.Length == 0 ? " (none)" : sb.ToString();
         }
@@ -120,8 +112,7 @@ namespace Iroca
         /// 作業配列を借りうる計算を始める(どのスレッドからでも)。終えたら必ず <see cref="WorkEnded"/> を呼ぶ。
         /// <see cref="PreviewJob{T}"/> の計算と、非破壊の色替え(RecipeTextureBuilder)が呼ぶ。
         /// </summary>
-        internal static void WorkStarted()
-        {
+        internal static void WorkStarted() {
             Interlocked.Increment(ref s_running);
             Interlocked.Increment(ref s_idleGen);   // 予約していた縮小を取り消す
         }
@@ -130,37 +121,42 @@ namespace Iroca
         /// 計算を終える。走っている計算が無くなり、<see cref="ReleaseWhenIdle"/> の予約があれば、作業配列と
         /// 色の表をスレッドプールで OS へ返す。予約が無ければ何もしない(編集中は使い回す)。
         /// </summary>
-        internal static void WorkEnded()
-        {
-            if (Interlocked.Decrement(ref s_running) > 0) return;
-            if (Interlocked.Exchange(ref s_releaseWhenIdle, 0) == 1) ReleaseAndReport();
-            else ArmIdleTrim();
+        internal static void WorkEnded() {
+            if (Interlocked.Decrement(ref s_running) > 0) {
+                return;
+            }
+            if (Interlocked.Exchange(ref s_releaseWhenIdle, 0) == 1) {
+                ReleaseAndReport();
+            } else {
+                ArmIdleTrim();
+            }
         }
 
         /// <summary>
         /// 作業配列と色の表を OS へ返す(スレッドプールで)。今の空きはすぐ返し、計算中のものがあれば、
         /// それが全部終わったときにもう一度返す。
         /// </summary>
-        internal static void ReleaseWhenIdle()
-        {
+        internal static void ReleaseWhenIdle() {
             // 開発者向けの設定はここ(メインスレッド)で読んで控える(WorkEnded は計算のスレッドから来る)。
             Volatile.Write(ref s_reportLive, EditorPrefs.GetBool(DeveloperSettingsPrefKey, false));
             Volatile.Write(ref s_releaseWhenIdle, 1);
             ReleaseAndReport();
             // 計算が無ければ予約は要らない(上で返した)。この間に終わった計算が予約を使っていても、返すのが 1 回増えるだけ。
-            if (Volatile.Read(ref s_running) == 0) Interlocked.Exchange(ref s_releaseWhenIdle, 0);
+            if (Volatile.Read(ref s_running) == 0) {
+                Interlocked.Exchange(ref s_releaseWhenIdle, 0);
+            }
         }
 
         // 作業配列と色の表をスレッドプールで返し、返し忘れを警告する。開発者向けの設定を表示しているときは、
         // 返した後に残っている量(開いているほかのウィンドウ・シーンのプレビューが持つ分を含む)も出す。
         // どのスレッドからでも呼ぶ(EditorPrefs は読まない)。
-        private static void ReleaseAndReport()
-        {
+        private static void ReleaseAndReport() {
             bool verbose = Volatile.Read(ref s_reportLive);
-            PixelProcessor.ReleaseWorkBuffersInBackground().ContinueWith(_ =>
-            {
+            PixelProcessor.ReleaseWorkBuffersInBackground().ContinueWith(_ => {
                 WarnFinalized();
-                if (verbose) UnityEngine.Debug.Log("[Iroca] Native memory after release:" + DescribeLive());
+                if (verbose) {
+                    UnityEngine.Debug.Log("[Iroca] Native memory after release:" + DescribeLive());
+                }
             }, System.Threading.Tasks.TaskScheduler.Default);
         }
 

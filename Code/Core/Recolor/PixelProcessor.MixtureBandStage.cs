@@ -2,20 +2,16 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
         /// <summary>
         /// 再着色の段の 4 つ目「混色帯」(0.4.0 の計画の 3-7b で ProcessPixelsArrayCore から中身を書き換えずに
         /// 切り出した)。再着色する範囲(強度が <see cref="RecolorMinStrength"/> を超える画素の矩形)を求め、
         /// 混色帯モードのゾーンでは境界の帯を解析して被覆率と塗る色を書き、範囲を帯まで広げる
         /// (<see cref="ZoneState.RcMinX"/> ほか・<see cref="ZoneState.MixAlpha"/>。帯が無ければ null)。
         /// </summary>
-        private static class MixtureBandStage
-        {
-            internal static void Run(RunContext run, ZoneState z)
-            {
+        private static class MixtureBandStage {
+            internal static void Run(RunContext run, ZoneState z) {
                 // ProcessPixelsArrayCore と同じ名前のローカルへ展開する(切り出した本体をそのまま読めるように)。
                 int w = run.W, h = run.H, len = run.Len;
                 Color32* originalPixels = run.Original;
@@ -50,12 +46,10 @@ namespace Iroca
                 // の AnalyzeMixtureBand)。対象の画素は mixAlpha ≥ 0、色は decontaminatedPixels に入り、
                 // 下のループが読む。無彩サンプル(グレーモード相当)は色度で被覆率を測れないので従来の経路。
                 float* mixAlphaLocal = null;
-                if (zMixMode && rcMaxX >= 0)
-                {
+                if (zMixMode && rcMaxX >= 0) {
                     float* mixAlpha = rb.MixAlphaOrRent(len);
                     bool* mixExcluded = null;
-                    if (commonMask != null || zoneMask != null)
-                    {
+                    if (commonMask != null || zoneMask != null) {
                         // 解析が読むのは bbox ± (2·探索半径 + 1)。その範囲の除外フラグを埋める。
                         mixExcluded = rb.MaskExcludedOrRent(len);
                         int mm = 2 * Mathf.Max(MixBandRadius + 1, decontaminationRadius) + 1;

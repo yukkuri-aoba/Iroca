@@ -4,44 +4,40 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// Scene でモデルをクリックした場所を求める(<see cref="SceneMeshPicker"/>)と、プレビューに重ねる
     /// 島の組み立て(<see cref="SceneClickHighlight"/>)。光線と三角形の計算そのものは scripts/unit-run が見るので、
     /// ここは Unity の Renderer・マテリアル・スキニングとのつなぎを見る。
     /// </summary>
-    public class SceneMeshPickerTests
-    {
+    public class SceneMeshPickerTests {
         // 開いているシーンのアバター等と重ならないよう、遠く離れた場所に置く。
         private static readonly Vector3 Far = new Vector3(1000f, 1000f, 1000f);
         private readonly List<Object> _made = new List<Object>();
 
         [TearDown]
-        public void TearDown()
-        {
-            foreach (var o in _made)
-                if (o != null) Object.DestroyImmediate(o);
+        public void TearDown() {
+            foreach (var o in _made) {
+                if (o != null) {
+                    Object.DestroyImmediate(o);
+                }
+            }
             _made.Clear();
         }
 
-        private T Track<T>(T o) where T : Object
-        {
+        private T Track<T>(T o) where T : Object {
             _made.Add(o);
             return o;
         }
 
         /// <summary>離れた 2 枚の四角(= UV の島 2 つ)。並びは cross(b − a, c − a) が +z = 表は +z 側。</summary>
-        private Mesh TwoQuads()
-        {
+        private Mesh TwoQuads() {
             var m = Track(new Mesh { name = "two_quads" });
-            m.vertices = new[]
-            {
+            m.vertices = new[] {
                 new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(1, 1, 0), new Vector3(0, 1, 0),
                 new Vector3(2, 0, 0), new Vector3(3, 0, 0), new Vector3(3, 1, 0), new Vector3(2, 1, 0),
             };
-            m.uv = new[]
-            {
+            m.uv = new[] {
                 new Vector2(0.1f, 0.1f), new Vector2(0.4f, 0.1f), new Vector2(0.4f, 0.4f), new Vector2(0.1f, 0.4f),
                 new Vector2(0.6f, 0.6f), new Vector2(0.9f, 0.6f), new Vector2(0.9f, 0.9f), new Vector2(0.6f, 0.9f),
             };
@@ -52,16 +48,14 @@ namespace Iroca.EditorTests
 
         private Material StandardMaterial() => Track(new Material(Shader.Find("Standard")));
 
-        private Material DoubleSidedMaterial()
-        {
+        private Material DoubleSidedMaterial() {
             // _Cull を持つ組み込みシェーダー(0 = 両面を描く)
             var mat = Track(new Material(Shader.Find("Hidden/Internal-Colored")));
             mat.SetFloat("_Cull", 0f);
             return mat;
         }
 
-        private GameObject MeshObject(Vector3 position, Material mat)
-        {
+        private GameObject MeshObject(Vector3 position, Material mat) {
             var go = Track(new GameObject("IrocaSceneMeshPickerTest"));
             go.transform.position = position;
             go.AddComponent<MeshFilter>().sharedMesh = TwoQuads();
@@ -77,8 +71,7 @@ namespace Iroca.EditorTests
             new Ray(objectPos + new Vector3(local.x, local.y, -5f), Vector3.forward);
 
         [Test]
-        public void PicksRendererTriangleAndUv()
-        {
+        public void PicksRendererTriangleAndUv() {
             var go = MeshObject(Far, StandardMaterial());
             var hit = SceneMeshPicker.Pick(FromFront(Far, new Vector2(0.25f, 0.75f)));
             Assert.IsNotNull(hit);
@@ -92,8 +85,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void PicksTheNearestRenderer()
-        {
+        public void PicksTheNearestRenderer() {
             MeshObject(Far, StandardMaterial());
             var near = MeshObject(Far + new Vector3(0f, 0f, 2f), StandardMaterial());
             var hit = SceneMeshPicker.Pick(FromFront(Far, new Vector2(0.5f, 0.5f)));
@@ -103,8 +95,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void FollowsTheMaterialsCulling()
-        {
+        public void FollowsTheMaterialsCulling() {
             // 設定の無いシェーダー(Standard)は裏を描かないので、裏から見たら当たらない
             MeshObject(Far, StandardMaterial());
             Assert.IsNull(SceneMeshPicker.Pick(FromBehind(Far, new Vector2(0.5f, 0.5f))), "back face of a culling material");
@@ -118,8 +109,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void IgnoresWhatIsNotShown()
-        {
+        public void IgnoresWhatIsNotShown() {
             var ray = FromFront(Far, new Vector2(0.5f, 0.5f));
 
             var hidden = MeshObject(Far, StandardMaterial());
@@ -139,8 +129,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void HitsTheSkinnedMeshWhereItIsPosed()
-        {
+        public void HitsTheSkinnedMeshWhereItIsPosed() {
             // 拡縮のある親の下で、ボーンを動かしたスキンメッシュ。描かれている位置(BakeMesh)に当たり、
             // バインドポーズの位置には当たらない。
             var root = Track(new GameObject("IrocaSkinnedPickTest"));
@@ -151,7 +140,9 @@ namespace Iroca.EditorTests
 
             var mesh = TwoQuads();
             var weights = new BoneWeight[mesh.vertexCount];
-            for (int i = 0; i < weights.Length; i++) weights[i] = new BoneWeight { boneIndex0 = 0, weight0 = 1f };
+            for (int i = 0; i < weights.Length; i++) {
+                weights[i] = new BoneWeight { boneIndex0 = 0, weight0 = 1f };
+            }
             mesh.boneWeights = weights;
             mesh.bindposes = new[] { bone.transform.worldToLocalMatrix * root.transform.localToWorldMatrix };
             var smr = root.AddComponent<SkinnedMeshRenderer>();
@@ -180,8 +171,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void HighlightCoversTheClickedIslandOnly()
-        {
+        public void HighlightCoversTheClickedIslandOnly() {
             MeshObject(Far, StandardMaterial());
             var hit = SceneMeshPicker.Pick(FromFront(Far, new Vector2(0.25f, 0.75f)));
             var tex = Track(new Texture2D(8, 8));
@@ -197,8 +187,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void HighlightFoldsTiledUvBackOntoTheTexture()
-        {
+        public void HighlightFoldsTiledUvBackOntoTheTexture() {
             // Tiling 4 だと四角の UV 0.1..0.4 は 0.4..1.6 に広がり、クリック位置 (0.25, 0.75) は
             // (0.7, 1.3) → 繰り返しで (0.7, 0.3)。島も同じだけ下げて、クリック位置と同じ場所に描く。
             MeshObject(Far, StandardMaterial());
@@ -209,8 +198,7 @@ namespace Iroca.EditorTests
             Assert.AreEqual(0.3f, h.point.y, 1e-4f);
             Assert.AreEqual(0f, h.island.offset.x, 1e-6f);
             Assert.AreEqual(-1f, h.island.offset.y, 1e-6f);
-            foreach (var p in h.outline)
-            {
+            foreach (var p in h.outline) {
                 Assert.That(p.x, Is.InRange(0.4f - 1e-4f, 1.6f + 1e-4f));
                 Assert.That(p.y, Is.InRange(-0.6f - 1e-4f, 0.6f + 1e-4f));
             }

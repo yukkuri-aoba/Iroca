@@ -5,8 +5,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     // いろか メインウィンドウ。責務別に partial ファイルへ分割している:
     //   IrocaWindow.cs            … 本体(横断フィールド・ライフサイクル・共通ヘルパー)
     //   IrocaWindow.Document.cs   … 編集中の文書の中身(Undo の対象)と、保存の控え
@@ -18,8 +17,7 @@ namespace Iroca
     //   IrocaWindow.SceneClick.cs … Scene でモデルをクリックした場所をプレビューで示す
     //   IrocaWindow.Autosave.cs   … 編集内容の自動保存
     //   IrocaWindow.Repaint.cs    … 再描画の予約と、ジョブの進み具合の見張り(毎フレーム描き直さない)
-    public partial class IrocaWindow : EditorWindow, IHasCustomMenu, ISerializationCallbackReceiver, IPreviewPipelineHost
-    {
+    public partial class IrocaWindow : EditorWindow, IHasCustomMenu, ISerializationCallbackReceiver, IPreviewPipelineHost {
         // パイプライン透明化機能（Code.Debug/ asmdef がある場合のみ実体が入る）。
         // PreviewView が ProcessPixelsArray に渡したインスタンスをここに保管し、
         // DebugView が後から読み出す。Debug 機能未導入なら常に null。
@@ -69,8 +67,7 @@ namespace Iroca
         /// 拡大表示（詳細クロップ）の切り出し元になるフル段の出力は「どのゾーン集合を処理したか」に
         /// 依存するので、必ず捨てる。残すと、切り替え直後にスクロールした箇所だけ切り替え前の色が出る。
         /// </summary>
-        internal void SetSoloZone(string zoneId)
-        {
+        internal void SetSoloZone(string zoneId) {
             _soloZoneId = string.IsNullOrEmpty(zoneId) ? null : zoneId;
             _previewView?.InvalidateFullOutput();
             MarkPreviewDirty();
@@ -80,19 +77,21 @@ namespace Iroca
         /// スポイトを武装する(null で解除)。プレビューのクリックを取るほかのモードとは排他: シード指定を解除し、ブラシも切る
         /// (ブラシが ON のままだと、カードは武装の色なのにクリックは塗りになる)。
         /// </summary>
-        internal void ArmEyedropper(string zoneId)
-        {
+        internal void ArmEyedropper(string zoneId) {
             EyedropperZoneId = zoneId;
-            if (string.IsNullOrEmpty(zoneId)) return;
+            if (string.IsNullOrEmpty(zoneId)) {
+                return;
+            }
             SeedPickZoneId = null;
             _maskView?.DeactivateBrush();
         }
 
         /// <summary>シード指定を武装する(null で解除)。排他は <see cref="ArmEyedropper"/> と同じ。</summary>
-        internal void ArmSeedPick(string zoneId)
-        {
+        internal void ArmSeedPick(string zoneId) {
             SeedPickZoneId = zoneId;
-            if (string.IsNullOrEmpty(zoneId)) return;
+            if (string.IsNullOrEmpty(zoneId)) {
+                return;
+            }
             EyedropperZoneId = null;
             _maskView?.DeactivateBrush();
         }
@@ -102,18 +101,20 @@ namespace Iroca
         /// マスクブラシ）と、AI 提案の推論待ちをすべて解除する。Esc キーの受け口。
         /// 戻り値 true = 実際に何かを解除した（呼び出し側がイベントを消費してよい）。
         /// </summary>
-        internal bool ClearPreviewInteractionModes()
-        {
+        internal bool ClearPreviewInteractionModes() {
             bool any = false;
             if (!string.IsNullOrEmpty(_eyedropperZoneId)) { _eyedropperZoneId = null; any = true; }
             if (!string.IsNullOrEmpty(_seedPickZoneId)) { _seedPickZoneId = null; any = true; }
-            if (_maskView != null)
-            {
+            if (_maskView != null) {
                 if (_maskView.maskPaintActive) { _maskView.DeactivateBrush(); any = true; }
                 var ctl = _maskView.SuggestControllerIfCreated;
-                if (ctl != null && ctl.CancelPending()) any = true;
+                if (ctl != null && ctl.CancelPending()) {
+                    any = true;
+                }
             }
-            if (any) RequestRepaint();
+            if (any) {
+                RequestRepaint();
+            }
             return any;
         }
 
@@ -122,33 +123,39 @@ namespace Iroca
         private static readonly System.Reflection.FieldInfo s_globalEventHandler = typeof(EditorApplication).GetField("globalEventHandler",
             System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
 
-        private void InstallGlobalEscape()
-        {
-            if (s_globalEventHandler == null) return;
+        private void InstallGlobalEscape() {
+            if (s_globalEventHandler == null) {
+                return;
+            }
             UninstallGlobalEscape();
             var current = s_globalEventHandler.GetValue(null) as EditorApplication.CallbackFunction;
             s_globalEventHandler.SetValue(null, current + OnGlobalEvent);
         }
 
-        private void UninstallGlobalEscape()
-        {
-            if (s_globalEventHandler == null) return;
+        private void UninstallGlobalEscape() {
+            if (s_globalEventHandler == null) {
+                return;
+            }
             var current = s_globalEventHandler.GetValue(null) as EditorApplication.CallbackFunction;
             s_globalEventHandler.SetValue(null, current - OnGlobalEvent);
         }
 
-        private void OnGlobalEvent()
-        {
+        private void OnGlobalEvent() {
             var e = Event.current;
-            if (e != null) ClearModesOnEscape(e.rawType, e.keyCode);
+            if (e != null) {
+                ClearModesOnEscape(e.rawType, e.keyCode);
+            }
         }
 
         // internal はテストが直接呼ぶため(テストの中では Event.current を作れない)。
-        internal void ClearModesOnEscape(EventType type, KeyCode key)
-        {
-            if (type != EventType.KeyDown || key != KeyCode.Escape) return;
+        internal void ClearModesOnEscape(EventType type, KeyCode key) {
+            if (type != EventType.KeyDown || key != KeyCode.Escape) {
+                return;
+            }
             // 入力欄の Esc は打ちかけの取り消し。
-            if (EditorGUIUtility.editingTextField) return;
+            if (EditorGUIUtility.editingTextField) {
+                return;
+            }
             ClearPreviewInteractionModes();
         }
 
@@ -156,14 +163,17 @@ namespace Iroca
         /// プレビューを作り直す。編集は <see cref="EditingSession.NotifyChanged"/> で知らせればここへ来る
         /// (OnEditChanged)。直接呼ぶのは、表示だけが変わるとき(ソロ表示・デバッグ表示・原本の読み直し)。
         /// </summary>
-        internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
+        internal void MarkPreviewDirty() {
+            if (_previewView != null) {
+                _previewView.previewDirty = true;
+            }
+        }
 
         /// <summary>
         /// マスクを書き換えたことを知らせ、プレビューはプロキシ段なしで作り直す。確定表示がある前提の差分更新用
         /// (AI 提案・右クリックの範囲。詳細は PreviewView.SkipProxyOnce 参照)。
         /// </summary>
-        internal void NotifyMasksEditedFullRefine()
-        {
+        internal void NotifyMasksEditedFullRefine() {
             _previewView?.SkipProxyOnce();
             Editing.NotifyChanged(EditChange.Masks);
         }
@@ -192,24 +202,23 @@ namespace Iroca
         /// 別ウィンドウが最後に描いた時点の本体(と版番号・ジョブ中か)の控え。OnGUI の Repaint のときに
         /// 描く前に <see cref="Record"/> し、OnInspectorUpdate で <see cref="Changed"/> なら描き直す。
         /// </summary>
-        internal struct DrawStamp
-        {
+        internal struct DrawStamp {
             private IrocaWindow _host;
             private int _version;
             private bool _blocking;
 
-            public void Record(IrocaWindow host)
-            {
+            public void Record(IrocaWindow host) {
                 _host = host;
                 _version = host != null ? host._uiStateVersion : 0;
                 _blocking = host != null && host.IsJobBlockingUI;
             }
 
             /// <param name="host">いまの本体(無い・破棄済みなら null を渡す)。</param>
-            public bool Changed(IrocaWindow host)
-            {
+            public bool Changed(IrocaWindow host) {
                 // 破棄された本体も別の物として比べる(Unity の == は破棄済みを null と等しく扱う)。
-                if (!ReferenceEquals(host, _host)) return true;
+                if (!ReferenceEquals(host, _host)) {
+                    return true;
+                }
                 return host != null && (host._uiStateVersion != _version || host.IsJobBlockingUI != _blocking);
             }
         }
@@ -227,26 +236,27 @@ namespace Iroca
         /// 操作されたイベントの途中で描くものを変えると IMGUI がエラーを出すので、始めるのは次の Layout から。
         /// 待っている間はマウスの移動と出入りも受け取る(乗せただけで始まるように)。
         /// </summary>
-        internal void TrackDeferredPreview(EditorWindow from)
-        {
+        internal void TrackDeferredPreview(EditorWindow from) {
             bool deferred = _previewView != null && _previewView.SourceLoadDeferred;
-            if (deferred)
-            {
+            if (deferred) {
                 var type = Event.current.type;
-                if (type == EventType.Layout && _resumeDeferredPreview)
-                {
+                if (type == EventType.Layout && _resumeDeferredPreview) {
                     _previewView.EndSourceLoadDeferral();
                     deferred = false;
-                }
-                else if (!_resumeDeferredPreview && IsDeferredPreviewTrigger(type))
-                {
+                } else if (!_resumeDeferredPreview && IsDeferredPreviewTrigger(type)) {
                     _resumeDeferredPreview = true;
                     RequestRepaint();
                 }
             }
-            if (!deferred) _resumeDeferredPreview = false;
-            if (from.wantsMouseMove != deferred) from.wantsMouseMove = deferred;
-            if (from.wantsMouseEnterLeaveWindow != deferred) from.wantsMouseEnterLeaveWindow = deferred;
+            if (!deferred) {
+                _resumeDeferredPreview = false;
+            }
+            if (from.wantsMouseMove != deferred) {
+                from.wantsMouseMove = deferred;
+            }
+            if (from.wantsMouseEnterLeaveWindow != deferred) {
+                from.wantsMouseEnterLeaveWindow = deferred;
+            }
         }
 
         private static bool IsDeferredPreviewTrigger(EventType t) =>
@@ -261,8 +271,7 @@ namespace Iroca
         /// 「旧画素 × 1 回再着色」を表示したまま実出力だけが「上書き済み画素 × もう 1 回再着色」
         /// ＝二重適用になる。
         /// </summary>
-        internal void InvalidateSourceAndRepaint()
-        {
+        internal void InvalidateSourceAndRepaint() {
             // 走っている自動調整と AI 提案の要求は、古い画素のもの。AI のサービスが持つ古い原本の参照も手放させる
             // (同じ鍵のまま持ち続けると、原本がもう 1 枚残る。8K で 256MB)。
             AbortAutoTuneForEditChange();
@@ -312,8 +321,7 @@ namespace Iroca
         private const float DefaultWindowHeight = 786f; // 実測値
 
         [MenuItem(IrocaUiConsts.MenuPath, priority = 100)]
-        public static void ShowWindow()
-        {
+        public static void ShowWindow() {
             // 大きさを決めるのは新しく作ったときだけ。開いている窓の position に代入すると、ドッキング中の窓は
             // Unity がドッキングから外して浮かせる(タブが複数ある区画・分割の中にある場合)。
             bool wasOpen = HasOpenInstances<IrocaWindow>();
@@ -333,8 +341,9 @@ namespace Iroca
             //          (新規保存 ON のファイル名行込み)を積んでも、等倍(100%)の
             //          MaxSize(384)px プレビューが縦スクロールバーなしで収まる高さ
             //          (実測で数十 px の余裕。設定列を見渡せるぶんとして残す)。
-            if (!wasOpen && (window.position.width < DefaultWindowWidth || window.position.height < DefaultWindowHeight))
+            if (!wasOpen && (window.position.width < DefaultWindowWidth || window.position.height < DefaultWindowHeight)) {
                 window.position = new Rect(window.position.x, window.position.y, DefaultWindowWidth, DefaultWindowHeight);
+            }
         }
 
         /// <summary>
@@ -348,18 +357,17 @@ namespace Iroca
         /// 別ウィンドウ（プレビュー / マスク編集）で本体が見つからないときの案内と「Iroca を開く」ボタン。
         /// 押して本体を開いたら true(呼び出し側はすぐ探し直す)。
         /// </summary>
-        internal static bool DrawMissingHostNotice()
-        {
+        internal static bool DrawMissingHostNotice() {
             EditorGUILayout.HelpBox(Localization.BrushPaletteNoHost, MessageType.Info);
-            if (!GUILayout.Button(TempContent.Of(Localization.OpenIrocaWindow, Localization.OpenIrocaWindowTooltip)))
+            if (!GUILayout.Button(TempContent.Of(Localization.OpenIrocaWindow, Localization.OpenIrocaWindowTooltip))) {
                 return false;
+            }
             ShowWindow();
             return true;
         }
 
         // internal は WindowRestoreTests が Unity の再起動後の復元を再現するために呼ぶため(Unity からの呼び出しは変わらない)。
-        internal void OnEnable()
-        {
+        internal void OnEnable() {
             // 開いている編集の一覧に載せる(別ウィンドウ・自動化・非破壊ビルドはここから探す)。OnDisable の最後で外す。
             EditingSessionRegistry.Register(this);
             // ドメインリロードの書き戻しはここで取り込むので、次の Undo の印として残さない。
@@ -392,24 +400,26 @@ namespace Iroca
             // 再展開だけ行う。
             bool firstSinceEditorStart = MarkEnabledSinceEditorStart();
             RestoreMaskHistoryAfterReload(firstSinceEditorStart);
-            if (SourceTexture == null || firstSinceEditorStart)
-            {
+            if (SourceTexture == null || firstSinceEditorStart) {
                 // 前回のテクスチャを解決できなければ、今のテクスチャ（レイアウトのもの）のまま読む。
                 TryAutoLoadLastEditedTexture();
-                if (SourceTexture != null) LoadPersistedSessionForCurrentTexture();
+                if (SourceTexture != null) {
+                    LoadPersistedSessionForCurrentTexture();
+                }
                 // 新しく開いた窓の宛先は全ゾーン共通のまま。テクスチャを選び直したときと同じく、先頭のゾーンを直す対象にする
                 // (共通のままだと、右クリックにゾーン宛の項目が出ず、ブラシも全ゾーン共通へ塗る)。
                 _maskView.ResetActiveTarget();
-            }
-            else
-            {
+            } else {
                 // 読めなかった印は再読み込みで消える(ここではセッションを読み直さない)ので、読めるかを確かめ直す。
                 RecheckSessionFile(adoptMissed: true);
                 _maskView.RestoreFromSession();
                 // 再読み込みの前にファイルへ書けなかったら、ファイルのマスクは古い。今の版は履歴にある。履歴も無ければ、保存の失敗でも
                 // レシピには書けているので、そちらを読む(古いファイルのマスクで続けると、次の保存でレシピも古くなる)。
-                if (Editing.RestoreCurrentMasksFromHistory()) _maskView.maskDirty = true;
-                else if (_lastSaveFailed) _maskView.RestoreMasksFromBoundRecipe();
+                if (Editing.RestoreCurrentMasksFromHistory()) {
+                    _maskView.maskDirty = true;
+                } else if (_lastSaveFailed) {
+                    _maskView.RestoreMasksFromBoundRecipe();
+                }
             }
             // 今のマスクを Undo の履歴の起点にする。
             Editing.AdoptMasksAfterEnable();
@@ -418,8 +428,9 @@ namespace Iroca
 
             // Play を始めたときのドメインリロードの直後は、原本の読み直しと色替えの計算し直しを、ウィンドウが
             // 操作されるまで待つ(PreviewView.SourceLoadDeferred)。Play 中以外は今までどおりすぐ読む。
-            if (!firstSinceEditorStart && EditorApplication.isPlayingOrWillChangePlaymode)
+            if (!firstSinceEditorStart && EditorApplication.isPlayingOrWillChangePlaymode) {
                 _previewView.DeferSourceLoad();
+            }
 
             // Unity 標準 Undo の戻り/進みに合わせて、編集中のマスクを履歴から戻す。
             // 二重購読を避けるため一度外してから登録する（PreviewJobMainThread.Install と同じ防御）。
@@ -448,8 +459,7 @@ namespace Iroca
             // (ユーザーの操作に対する直接の応答なので、そこはモーダルでよい)。
         }
 
-        private void OnDisable()
-        {
+        private void OnDisable() {
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             AssemblyReloadEvents.beforeAssemblyReload -= SpillMaskHistoryBeforeReload;
             AssemblyReloadEvents.beforeAssemblyReload -= CancelExportBeforeReload;
@@ -475,17 +485,18 @@ namespace Iroca
 
         private void CancelExportBeforeReload() => _exportView?.CancelForReload();
 
-        private void OnUndoRedoPerformed()
-        {
+        private void OnUndoRedoPerformed() {
             bool restored = Doc.ConsumeRestored();
             bool textureChanged = restored && SourceTexture != _editedTexture;
-            if (textureChanged) _maskView?.RememberTargetIdOf(_editedTexture);
+            if (textureChanged) {
+                _maskView?.RememberTargetIdOf(_editedTexture);
+            }
             // 登録より前の記録まで戻って同じテクスチャのまま外れると、以後の編集はレシピに入らず、開き直すと古いレシピが正として読まれて、
             // その後の編集が消える(_recipeKeptOverUndo)。
-            if (restored && !textureChanged && Doc.boundRecipe == null && _editedRecipe != null && _editedRecipe == _recipeKeptOverUndo)
+            if (restored && !textureChanged && Doc.boundRecipe == null && _editedRecipe != null && _editedRecipe == _recipeKeptOverUndo) {
                 Doc.boundRecipe = _editedRecipe;
-            if (restored)
-            {
+            }
+            if (restored) {
                 RememberEditedTarget();
                 SessionPersistence.RememberBoundRecipe(SourceTexture, Doc.boundRecipe);
                 RefreshUnboundRecipeCount();
@@ -494,24 +505,28 @@ namespace Iroca
             AdoptRecipeAfterUndo();
             // 関係ない Undo(シーンのオブジェクトの移動など)で、全マスクの再展開とフル解像度の
             // 再生成を走らせない。
-            if (!restored) return;
+            if (!restored) {
+                return;
+            }
 
             AbortAutoTuneForEditChange();
             // 文書のマスクの版の番号が Undo で戻ったら、編集中のマスクをその版へ戻してオーバーレイ・プレビューを更新させる。
-            if (_maskView != null)
-            {
-                if (!Editing.RestoreMasksAfterUndo())
-                {
+            if (_maskView != null) {
+                if (!Editing.RestoreMasksAfterUndo()) {
                     ShowNotification(new GUIContent(Localization.NotifyMaskUndoTooOld));
                     // テクスチャも戻ったのにマスクが残ると、次の保存で別のテクスチャのマスクを書き込む。保存済みのマスクを読む。
-                    if (textureChanged) _maskView.RestoreFromSession();
+                    if (textureChanged) {
+                        _maskView.RestoreFromSession();
+                    }
                 }
                 // ゾーンの並びが戻っても、いま直しているゾーンを指し続ける(番号は Undo で巻き戻らない)。
                 _maskView.FollowActiveTargetAfterUndo();
                 // 保留中の AI 提案は Undo 前の状態に対する提案なので重ねない
                 _maskView.SuggestControllerIfCreated?.OnUndoRedoPerformed();
             }
-            if (textureChanged) AfterTextureRestoredByUndo();
+            if (textureChanged) {
+                AfterTextureRestoredByUndo();
+            }
             // スポイト位置（ColorZone.sampleUV）はシリアライズ対象なので、sampleColor と対で
             // Undo が書き戻す。ここで手当てする必要はない。
             Editing.NotifyChanged(EditChange.Replaced);
@@ -519,8 +534,7 @@ namespace Iroca
         }
 
         // Undo/Redo でテクスチャが戻ったとき、文書の外にあるテクスチャごとの状態を合わせる。
-        private void AfterTextureRestoredByUndo()
-        {
+        private void AfterTextureRestoredByUndo() {
             // 読めなかった印は戻す前のテクスチャのもの。残したままだと、読めなかったファイルを空の保存で削除する。
             RecheckSessionFile(adoptMissed: false);
             _maskView?.RecheckMaskFile();
@@ -528,7 +542,9 @@ namespace Iroca
             _maskView?.RestoreTargetOf(SourceTexture);
             // 書き出しの既定の名前。
             string path = CurrentTexturePath(SourceTexture);
-            if (path != null) _exportView?.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
+            if (path != null) {
+                _exportView?.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
+            }
             // AI 提案の途中の要求は前のテクスチャのもの。
             _maskView?.SuggestControllerIfCreated?.OnSourceChangedOrClosing();
             RememberLastEditedTexture();
@@ -545,8 +561,7 @@ namespace Iroca
 
         internal ColorZone FindZoneById(string id) => Editing.FindZoneById(id);
 
-        private void OnDestroy()
-        {
+        private void OnDestroy() {
             // PreviewJob 内部の CancellationToken でバックグラウンドタスクを即時中断し、
             // 以降の apply / onError も _disposed フラグで抑止する。
             _previewView?.Dispose();
@@ -592,8 +607,7 @@ namespace Iroca
         internal string EnabledSinceEditorStartKey => IrocaPrefs.WindowEnabledPrefix + GetInstanceID();
 
         /// <summary>Unity を起動してからこのウィンドウの最初の有効化なら true（印を付ける）。ドメインリロード後は false。</summary>
-        private bool MarkEnabledSinceEditorStart()
-        {
+        private bool MarkEnabledSinceEditorStart() {
             string key = EnabledSinceEditorStartKey;
             bool first = !SessionState.GetBool(key, false);
             SessionState.SetBool(key, true);
@@ -612,12 +626,10 @@ namespace Iroca
         // セッションのファイルが読めるかを確かめ直す。読めても、編集中が空なのにファイルに中身があれば、編集中は読めなかったときのまま
         // (空のセッションは保存でファイルごと消えるので、ふつうは食い違わない)。そのまま保存するとファイルを消すので、読めなかった印を
         // 立てたままにする。adoptMissed ならファイルの中身を読む。レシピが結び付いていればレシピが正なので見ない。
-        private void RecheckSessionFile(bool adoptMissed)
-        {
+        private void RecheckSessionFile(bool adoptMissed) {
             var loaded = SessionPersistence.LoadFromFile(SourceTexture, out bool unreadable);
             bool missed = loaded != null && !SessionFileStore.IsEmpty(loaded) && SessionFileStore.IsEmpty(Session) && BoundRecipe == null;
-            if (missed && adoptMissed)
-            {
+            if (missed && adoptMissed) {
                 Session = loaded;
                 Session.maskState = new MaskState();
                 EnsureAllZoneIds();
@@ -634,25 +646,29 @@ namespace Iroca
         /// ファイルに書けなかったら false（呼び出し側でユーザー通知に使う。窓の帯は <see cref="LastSaveFailed"/>）。
         /// internal は RecipeSyncTests が直接呼ぶため。
         /// </summary>
-        internal bool SavePersistedSessionForCurrentTexture()
-        {
+        internal bool SavePersistedSessionForCurrentTexture() {
             var saved = Editing.ToSaveState();
             bool maskOk = _maskView == null || _maskView.SaveMasks(saved.maskState);
             // 中身を書けたら印を下ろす(立てたままだと、次の保存で .bak を新しい中身で上書きして元のファイルを失う)。
             bool sessionOk = SessionPersistence.SaveToFile(SourceTexture, saved, _sessionLoadFailed, out bool wroteContent);
-            if (wroteContent) _sessionLoadFailed = false;
+            if (wroteContent) {
+                _sessionLoadFailed = false;
+            }
             // 非破壊のレシピが結び付いていればそちらにも書く。
             SaveSessionToBoundRecipe(saved);
             bool ok = maskOk && sessionOk;
-            if (ok == _lastSaveFailed) RequestRepaintIfAlive();
+            if (ok == _lastSaveFailed) {
+                RequestRepaintIfAlive();
+            }
             _lastSaveFailed = !ok;
             return ok;
         }
 
         // 閉じる途中(OnDestroy)の保存からも呼ばれる。
-        private void RequestRepaintIfAlive()
-        {
-            if (this != null) Repaint();
+        private void RequestRepaintIfAlive() {
+            if (this != null) {
+                Repaint();
+            }
         }
 
         /// <summary>
@@ -660,12 +676,13 @@ namespace Iroca
         /// 続けてマスクを復元する。保存が無ければ既定値（空ゾーン）にリセットする。
         /// テクスチャ切替時・初回自動ロード時に呼ぶ。
         /// </summary>
-        private void LoadPersistedSessionForCurrentTexture()
-        {
+        private void LoadPersistedSessionForCurrentTexture() {
             AbortAutoTuneForEditChange();
             _sessionLoadFailed = false;
             // 非破壊のレシピがあればそれが正(マスクも含めてレシピから読む)。
-            if (TryLoadSessionFromRecipe()) return;
+            if (TryLoadSessionFromRecipe()) {
+                return;
+            }
 
             var loaded = SessionPersistence.LoadFromFile(SourceTexture, out bool unreadable);
             _sessionLoadFailed = unreadable;
@@ -691,10 +708,11 @@ namespace Iroca
         /// EditorPrefs に記憶した前回編集テクスチャを解決して SourceTexture へ設定する。
         /// 解決できたら true（呼び出し側でセッション/マスク復元を続ける）。
         /// </summary>
-        private bool TryAutoLoadLastEditedTexture()
-        {
+        private bool TryAutoLoadLastEditedTexture() {
             var tex = SessionPersistence.LastEdited();
-            if (tex == null) return false;
+            if (tex == null) {
+                return false;
+            }
 
             SourceTexture = tex;
             _exportView?.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(CurrentTexturePath(tex)));
@@ -706,8 +724,7 @@ namespace Iroca
         /// 初期状態へ戻す。Undo 登録するので「元に戻す」で復元できる。
         /// ヘッダーの「リセット」ボタンから確認ダイアログを経て呼ばれる。
         /// </summary>
-        private void ResetCurrentSession()
-        {
+        private void ResetCurrentSession() {
             Editing.RecordMaskEdit("Reset Iroca Session");
 
             Session = IrocaSessionState.CreateDefault();

@@ -2,8 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 再着色の全体設定（ゾーンに属さない処理パラメータ）の値スナップショット。
     ///
@@ -18,8 +17,7 @@ namespace Iroca
     /// <see cref="ZonesJsonDefaults"/> はここの定数を参照する）。セッション・プリセット・zones JSON の
     /// 各フィールドとの対応は scripts/source_checks/test_recolor_settings.py が機械検査する。
     /// </summary>
-    internal readonly struct RecolorSettings
-    {
+    internal readonly struct RecolorSettings {
         public const float DefaultEdgeFeather = 0f;
         public const int DefaultAntiAliasCleanup = 3;
         public const int DefaultHoleFillPasses = 5;
@@ -46,8 +44,7 @@ namespace Iroca
         public RecolorSettings(float edgeFeather, int antiAliasCleanup,
                                int holeFillPasses, int holeFillMinNeighbors,
                                float relaxedSatMin, float relaxedSatRamp,
-                               bool useDecontamination, int decontaminationRadius)
-        {
+                               bool useDecontamination, int decontaminationRadius) {
             this.edgeFeather = edgeFeather;
             this.antiAliasCleanup = antiAliasCleanup;
             this.holeFillPasses = holeFillPasses;
@@ -77,8 +74,7 @@ namespace Iroca
             p.useDecontamination,
             Mathf.Clamp(p.decontaminationRadius, MinDecontaminationRadius, MaxDecontaminationRadius));
 
-        public void CopyTo(IrocaSessionState s)
-        {
+        public void CopyTo(IrocaSessionState s) {
             s.edgeFeather = edgeFeather;
             s.antiAliasCleanup = antiAliasCleanup;
             s.holeFillPasses = holeFillPasses;
@@ -89,8 +85,7 @@ namespace Iroca
             s.decontaminationRadius = decontaminationRadius;
         }
 
-        public void CopyTo(IrocaPresetData p)
-        {
+        public void CopyTo(IrocaPresetData p) {
             p.edgeFeather = edgeFeather;
             p.antiAliasCleanup = antiAliasCleanup;
             p.holeFillPasses = holeFillPasses;

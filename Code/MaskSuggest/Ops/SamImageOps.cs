@@ -3,8 +3,7 @@
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// AI マスク提案のエンコーダ入力前処理(純計算・Unity Editor 非依存)。
     /// SAM 規約: 長辺を 1024 にリサイズ → (x-mean)/std 正規化 → 右下 0 パディングで
@@ -16,8 +15,7 @@ namespace Iroca
     /// (uint8 経由の PIL/cv2 とは丸め差が出るが、点プロンプト推論には影響しない
     ///  ことを dev_safe/ml/onnx_parity.py の感度計測で確認して採用する)。
     /// </summary>
-    internal static unsafe class SamImageOps
-    {
+    internal static unsafe class SamImageOps {
         /// <summary>SAM 入力正方形の一辺。</summary>
         public const int InputSize = 1024;
 
@@ -29,8 +27,7 @@ namespace Iroca
         /// ResizeLongestSide.get_preprocess_shape と同値: 長辺を 1024 に合わせた
         /// リサイズ後サイズ(round(dim * scale + 0.5) 相当の int(x+0.5))。
         /// </summary>
-        public static void GetResizedSize(int w, int h, out int newW, out int newH)
-        {
+        public static void GetResizedSize(int w, int h, out int newW, out int newH) {
             float scale = InputSize / (float)Mathf.Max(w, h);
             newW = (int)(w * scale + 0.5f);
             newH = (int)(h * scale + 0.5f);
@@ -44,14 +41,15 @@ namespace Iroca
         /// token はキャンセル観測のみ(完走時の出力には影響しない)。
         /// </summary>
         public static float[] BuildEncoderInput(Color32[] pixelsBottomUp, int w, int h,
-                                                System.Threading.CancellationToken token = default)
-        {
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h)
+                                                System.Threading.CancellationToken token = default) {
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) {
                 throw new System.ArgumentException("pixelsBottomUp が w*h 画素に足りません", nameof(pixelsBottomUp));
+            }
             var chw = new float[3 * InputSize * InputSize];
             fixed (Color32* p = pixelsBottomUp)
-            fixed (float* d = chw)
+            fixed (float* d = chw) {
                 BuildEncoderInputInto(p, w, h, d, token);
+            }
             return chw;
         }
 
@@ -61,9 +59,10 @@ namespace Iroca
         /// (4K の原本で 60MB 前後。0.4.0 の計画の B4)。
         /// </summary>
         public static void BuildEncoderInputInto(Color32* pixelsBottomUp, int w, int h, float* chw,
-                                                 System.Threading.CancellationToken token = default)
-        {
-            if (chw == null) throw new System.ArgumentNullException(nameof(chw));
+                                                 System.Threading.CancellationToken token = default) {
+            if (chw == null) {
+                throw new System.ArgumentNullException(nameof(chw));
+            }
             GetResizedSize(w, h, out int newW, out int newH);
             // resized: 上原点 RGB interleaved float(0..255 スケール)
             using var resized = new NativeBuffer((long)newW * newH * 3 * sizeof(float), NativeUsage.Other);
@@ -74,14 +73,14 @@ namespace Iroca
             new System.Span<float>(chw, EncoderInputLength).Clear();
             // (c, y) を平坦化した行並列。各反復は自分の出力行だけに書き、読みは resized の
             // 読み取り専用参照のみなので決定的(出力ビット同一)。
-            Parallel.For(0, 3 * newH, SamMaskRefine.MakeParallelOptions(token), i =>
-            {
+            Parallel.For(0, 3 * newH, SamMaskRefine.MakeParallelOptions(token), i => {
                 int c = i / newH, y = i % newH;
                 float mean = Mean[c], std = Std[c];
                 int rowOff = y * newW * 3;
                 int dstOff = c * InputSize * InputSize + y * InputSize;
-                for (int x = 0; x < newW; x++)
+                for (int x = 0; x < newW; x++) {
                     chw[dstOff + x] = (rs[rowOff + x * 3 + c] - mean) / std;
+                }
             });
         }
 
@@ -90,21 +89,17 @@ namespace Iroca
         /// 縮小軸は面積平均、拡大軸は bilinear(align_corners=False 相当)。
         /// </summary>
         internal static void ResizeTopDown(Color32* pixelsBottomUp, int w, int h, int newW, int newH, float* dst,
-                                           System.Threading.CancellationToken token = default)
-        {
+                                           System.Threading.CancellationToken token = default) {
             bool downX = newW < w, downY = newH < h;
 
             // 行並列(4K で実測 300-400ms の単スレッドがクリティカルパスだった)。全パスとも
             // 「読みは読み取り専用・書きは自分の出力行のみ・行内の加算順序は不変」なので
             // 並列化しても出力ビット同一(a791ac5 と同じ論法)。
             var po = SamMaskRefine.MakeParallelOptions(token);
-            if (newW == w && newH == h)
-            {
-                Parallel.For(0, newH, po, y =>
-                {
+            if (newW == w && newH == h) {
+                Parallel.For(0, newH, po, y => {
                     int srcRow = (h - 1 - y) * w;
-                    for (int x = 0; x < newW; x++)
-                    {
+                    for (int x = 0; x < newW; x++) {
                         var p = pixelsBottomUp[srcRow + x];
                         int o = (y * newW + x) * 3;
                         dst[o] = p.r; dst[o + 1] = p.g; dst[o + 2] = p.b;
@@ -117,30 +112,34 @@ namespace Iroca
             // mid は元の高さぶんある(4K で 1024×4096×3 = 4,800 万バイト)ので、ヒープの外に置く。
             using var midBuffer = new NativeBuffer((long)newW * h * 3 * sizeof(float), NativeUsage.Other);
             float* mid = (float*)midBuffer.Ptr;
-            Parallel.For(0, h, po, ty =>
-            {
+            Parallel.For(0, h, po, ty => {
                 int srcRow = (h - 1 - ty) * w; // 上下反転しつつ読む
                 int midRow = ty * newW * 3;
-                if (downX) ResampleRowArea(pixelsBottomUp, srcRow, w, mid, midRow, newW);
-                else ResampleRowBilinear(pixelsBottomUp, srcRow, w, mid, midRow, newW);
+                if (downX) {
+                    ResampleRowArea(pixelsBottomUp, srcRow, w, mid, midRow, newW);
+                } else {
+                    ResampleRowBilinear(pixelsBottomUp, srcRow, w, mid, midRow, newW);
+                }
             });
             // mid は上原点なので、Y 軸処理での反転は不要。
-            if (downY) ResampleColsArea(mid, h, newW, dst, newH, token);
-            else ResampleColsBilinear(mid, h, newW, dst, newH, token);
+            if (downY) {
+                ResampleColsArea(mid, h, newW, dst, newH, token);
+            } else {
+                ResampleColsBilinear(mid, h, newW, dst, newH, token);
+            }
         }
 
-        static void ResampleRowArea(Color32* src, int srcOff, int srcW, float* dst, int dstOff, int dstW)
-        {
+        static void ResampleRowArea(Color32* src, int srcOff, int srcW, float* dst, int dstOff, int dstW) {
             double scale = srcW / (double)dstW; // >1
-            for (int x = 0; x < dstW; x++)
-            {
+            for (int x = 0; x < dstW; x++) {
                 double s0 = x * scale, s1 = (x + 1) * scale;
                 int i0 = (int)s0, i1 = System.Math.Min((int)System.Math.Ceiling(s1), srcW);
                 double r = 0, g = 0, b = 0, wsum = 0;
-                for (int i = i0; i < i1; i++)
-                {
+                for (int i = i0; i < i1; i++) {
                     double cover = System.Math.Min(s1, i + 1.0) - System.Math.Max(s0, (double)i);
-                    if (cover <= 0) continue;
+                    if (cover <= 0) {
+                        continue;
+                    }
                     var p = src[srcOff + i];
                     r += p.r * cover; g += p.g * cover; b += p.b * cover; wsum += cover;
                 }
@@ -149,13 +148,16 @@ namespace Iroca
             }
         }
 
-        static void ResampleRowBilinear(Color32* src, int srcOff, int srcW, float* dst, int dstOff, int dstW)
-        {
+        static void ResampleRowBilinear(Color32* src, int srcOff, int srcW, float* dst, int dstOff, int dstW) {
             double scale = srcW / (double)dstW; // <1 (拡大)
-            for (int x = 0; x < dstW; x++)
-            {
+            for (int x = 0; x < dstW; x++) {
                 double sx = (x + 0.5) * scale - 0.5;
-                if (sx < 0) sx = 0; if (sx > srcW - 1) sx = srcW - 1;
+                if (sx < 0) {
+                    sx = 0;
+                }
+                if (sx > srcW - 1) {
+                    sx = srcW - 1;
+                }
                 int x0 = (int)sx; int x1 = System.Math.Min(x0 + 1, srcW - 1);
                 float f = (float)(sx - x0);
                 var p0 = src[srcOff + x0]; var p1 = src[srcOff + x1];
@@ -167,46 +169,54 @@ namespace Iroca
         }
 
         static void ResampleColsArea(float* src, int srcH, int width, float* dst, int dstH,
-                                     System.Threading.CancellationToken token = default)
-        {
+                                     System.Threading.CancellationToken token = default) {
             double scale = srcH / (double)dstH; // >1
             int stride = width * 3;
             // 出力行単位の並列。行内の加算順序(i 昇順・k 昇順)は逐次版と同一。
-            Parallel.For(0, dstH, SamMaskRefine.MakeParallelOptions(token), y =>
-            {
+            Parallel.For(0, dstH, SamMaskRefine.MakeParallelOptions(token), y => {
                 double s0 = y * scale, s1 = (y + 1) * scale;
                 int i0 = (int)s0, i1 = System.Math.Min((int)System.Math.Ceiling(s1), srcH);
                 int dstRow = y * stride;
-                for (int k = 0; k < stride; k++) dst[dstRow + k] = 0f;
+                for (int k = 0; k < stride; k++) {
+                    dst[dstRow + k] = 0f;
+                }
                 double wsum = 0;
-                for (int i = i0; i < i1; i++)
-                {
+                for (int i = i0; i < i1; i++) {
                     double cover = System.Math.Min(s1, i + 1.0) - System.Math.Max(s0, (double)i);
-                    if (cover <= 0) continue;
+                    if (cover <= 0) {
+                        continue;
+                    }
                     wsum += cover;
                     int srcRow = i * stride;
-                    for (int k = 0; k < stride; k++)
+                    for (int k = 0; k < stride; k++) {
                         dst[dstRow + k] += (float)(src[srcRow + k] * cover);
+                    }
                 }
                 float inv = (float)(1.0 / wsum);
-                for (int k = 0; k < stride; k++) dst[dstRow + k] *= inv;
+                for (int k = 0; k < stride; k++) {
+                    dst[dstRow + k] *= inv;
+                }
             });
         }
 
         static void ResampleColsBilinear(float* src, int srcH, int width, float* dst, int dstH,
-                                         System.Threading.CancellationToken token = default)
-        {
+                                         System.Threading.CancellationToken token = default) {
             double scale = srcH / (double)dstH; // <1 (拡大)
             int stride = width * 3;
-            Parallel.For(0, dstH, SamMaskRefine.MakeParallelOptions(token), y =>
-            {
+            Parallel.For(0, dstH, SamMaskRefine.MakeParallelOptions(token), y => {
                 double sy = (y + 0.5) * scale - 0.5;
-                if (sy < 0) sy = 0; if (sy > srcH - 1) sy = srcH - 1;
+                if (sy < 0) {
+                    sy = 0;
+                }
+                if (sy > srcH - 1) {
+                    sy = srcH - 1;
+                }
                 int y0 = (int)sy; int y1 = System.Math.Min(y0 + 1, srcH - 1);
                 float f = (float)(sy - y0);
                 int r0 = y0 * stride, r1 = y1 * stride, dr = y * stride;
-                for (int k = 0; k < stride; k++)
+                for (int k = 0; k < stride; k++) {
                     dst[dr + k] = src[r0 + k] + (src[r1 + k] - src[r0 + k]) * f;
+                }
             });
         }
     }

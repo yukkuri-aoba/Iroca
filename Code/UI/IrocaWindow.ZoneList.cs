@@ -4,12 +4,10 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     // ゾーンリストの描画・編集（追加/削除/並べ替え）。並び順＝優先度。
     // GUILayout 安全のため、確定したミューテーションは次の Layout イベントで適用する（遅延ミューテーション）。
-    public partial class IrocaWindow
-    {
+    public partial class IrocaWindow {
         [SerializeField] private bool zonesFoldout = true;
 
         // ExitGUI() をネストしたレイアウトグループ内から呼ぶと
@@ -29,9 +27,10 @@ namespace Iroca
         // 右クリックは、塗っているゾーンに当たる。PreviewView.ShowPreviewContextMenu)。専用の選択操作は
         // 足さず(手数を増やさない)、最後に触ったゾーン(作った・カードのどこかを押した。スポイトや自動調整も
         // カードのボタンから始まる)へ追従させる。どれかはカードの枠で示す(ゾーンが 2 つ以上のとき。DrawZoneCard)。
-        private void SetCurrentZoneIndex(int index)
-        {
-            if (_maskView == null || index < 0 || index >= zones.Count || _maskView.activeMaskTarget == index) return;
+        private void SetCurrentZoneIndex(int index) {
+            if (_maskView == null || index < 0 || index >= zones.Count || _maskView.activeMaskTarget == index) {
+                return;
+            }
             _maskView.activeMaskTarget = index;
             _maskView.maskDirty = true;     // 明るく出すマスク(編集中)が変わる
             Repaint();
@@ -40,8 +39,7 @@ namespace Iroca
         // 前の描画で記録したゾーンカードの矩形(カードを押したらそのゾーンを直す対象にする判定用)。
         [System.NonSerialized] private List<Rect> _zoneCardRects;
 
-        internal void RequestNewZoneFromSample(Color picked, Vector2 uv)
-        {
+        internal void RequestNewZoneFromSample(Color picked, Vector2 uv) {
             _pendingNewZoneFromSample = true;
             _pendingNewZoneColor = picked;
             _pendingNewZoneUV = uv;
@@ -66,9 +64,10 @@ namespace Iroca
         // 写されるので、これを見ないと、書き出し欄を押したのに隠れたカードが選ばれる。
         [System.NonSerialized] private Rect _settingsScrollScreenRect;
 
-        private void RecordSettingsScrollRect()
-        {
-            if (Event.current.type != EventType.Repaint) return;
+        private void RecordSettingsScrollRect() {
+            if (Event.current.type != EventType.Repaint) {
+                return;
+            }
             var r = GUILayoutUtility.GetLastRect();
             _settingsScrollScreenRect = new Rect(GUIUtility.GUIToScreenPoint(r.position), r.size);
         }
@@ -80,66 +79,73 @@ namespace Iroca
         // ゾーンの並び(前に見たもの。下の ReleaseZoneFields)。
         [System.NonSerialized] private int _zoneOrderHash;
 
-        private int ZoneOrderHash()
-        {
+        private int ZoneOrderHash() {
             int hash = 17;
             var list = zones;
-            if (list == null) return hash;
-            unchecked
-            {
-                foreach (var z in list) hash = hash * 31 + (z?.id?.GetHashCode() ?? 0);
+            if (list == null) {
+                return hash;
+            }
+            unchecked {
+                foreach (var z in list) {
+                    hash = hash * 31 + (z?.id?.GetHashCode() ?? 0);
+                }
             }
             return hash;
         }
 
         // 名前欄と色の窓は入力先をコントロールの番号で覚えていて、番号はカードの並びで決まる。並びが変わったら(並べ替え・削除・Undo・
         // 読み込み)手放す。残すと、打ちかけの名前や選びかけの色が別のゾーンに入る。
-        private void ReleaseZoneFields()
-        {
+        private void ReleaseZoneFields() {
             int hash = ZoneOrderHash();
-            if (hash == _zoneOrderHash) return;
+            if (hash == _zoneOrderHash) {
+                return;
+            }
             bool first = _zoneOrderHash == 0;
             _zoneOrderHash = hash;
-            if (first) return;
+            if (first) {
+                return;
+            }
             GUIUtility.keyboardControl = 0;
             EditorGUIUtility.editingTextField = false;
-            foreach (var w in Resources.FindObjectsOfTypeAll<EditorWindow>())
-                if (w.GetType().Name == "ColorPicker") w.Close();
+            foreach (var w in Resources.FindObjectsOfTypeAll<EditorWindow>()) {
+                if (w.GetType().Name == "ColorPicker") {
+                    w.Close();
+                }
+            }
         }
 
-        private void ProcessPendingZoneChanges()
-        {
-            if (Event.current.type != EventType.Layout) return;
+        private void ProcessPendingZoneChanges() {
+            if (Event.current.type != EventType.Layout) {
+                return;
+            }
             ReleaseZoneFields();
 
-            if (_pendingRemoveZoneIndex >= 0)
-            {
+            if (_pendingRemoveZoneIndex >= 0) {
                 int idx = _pendingRemoveZoneIndex;
                 _pendingRemoveZoneIndex = -1;
                 // ゾーンとそのマスクを消す(Undo 1 ステップで両方戻る。EditingSession.RemoveZoneAt)。
-                if (Editing.RemoveZoneAt(idx))
+                if (Editing.RemoveZoneAt(idx)) {
                     _maskView.OnZoneRemoved(idx);
+                }
             }
-            if (_pendingAddZone)
-            {
+            if (_pendingAddZone) {
                 _pendingAddZone = false;
                 SetCurrentZoneIndex(Editing.AddZone());
             }
-            if (_pendingNewZoneFromSample)
-            {
+            if (_pendingNewZoneFromSample) {
                 _pendingNewZoneFromSample = false;
                 SetCurrentZoneIndex(Editing.AddZoneFromSample(_pendingNewZoneColor, _pendingNewZoneUV));
                 zonesFoldout = true;
             }
-            if (_pendingReorderFrom >= 0 && _pendingReorderTo >= 0)
-            {
+            if (_pendingReorderFrom >= 0 && _pendingReorderTo >= 0) {
                 int from = _pendingReorderFrom;
                 int to = _pendingReorderTo;
                 _pendingReorderFrom = -1;
                 _pendingReorderTo = -1;
                 // 並び順(優先度)だけを変え、編集中マスクターゲット(index 参照)を移動に追従させる。
-                if (Editing.MoveZone(from, to))
+                if (Editing.MoveZone(from, to)) {
                     _maskView.OnZoneReordered(from, to);
+                }
             }
             ReleaseZoneFields();
         }
@@ -158,41 +164,37 @@ namespace Iroca
             s_seedPickIdleContent, s_seedPickActiveContent,
             s_sampleUvMissingContent;
 
-        private static void EnsureZoneListCache()
-        {
-            if (s_dragHandleStyle == null)
-            {
-                s_dragHandleStyle = new GUIStyle(EditorStyles.label)
-                {
+        private static void EnsureZoneListCache() {
+            if (s_dragHandleStyle == null) {
+                s_dragHandleStyle = new GUIStyle(EditorStyles.label) {
                     alignment = TextAnchor.MiddleCenter,
                     fontStyle = FontStyle.Bold,
                 };
             }
-            if (s_zoneCacheLang == Localization.CurrentLanguage && s_dragHandleContent != null)
+            if (s_zoneCacheLang == Localization.CurrentLanguage && s_dragHandleContent != null) {
                 return;
+            }
             s_zoneCacheLang = Localization.CurrentLanguage;
-            s_languageLabels = new[]
-            {
+            s_languageLabels = new[] {
                 new GUIContent(Localization.LangAuto, Localization.LanguageToolbarTooltip),
                 new GUIContent(Localization.LangJapanese, Localization.LanguageToolbarTooltip),
                 new GUIContent(Localization.LangEnglish, Localization.LanguageToolbarTooltip),
             };
-            s_dragHandleContent       = new GUIContent("☰", Localization.ZoneDragHandleTooltip);
-            s_zoneEnabledContent      = new GUIContent("", Localization.ZoneEnabledTooltip);
-            s_zoneNameContent         = new GUIContent("", Localization.ZoneNameTooltip);
-            s_removeZoneContent       = new GUIContent("×", Localization.RemoveZoneTooltip);
-            s_autoTuneEnabledContent  = new GUIContent(Localization.AutoTune, Localization.AutoTuneTooltip);
+            s_dragHandleContent = new GUIContent("☰", Localization.ZoneDragHandleTooltip);
+            s_zoneEnabledContent = new GUIContent("", Localization.ZoneEnabledTooltip);
+            s_zoneNameContent = new GUIContent("", Localization.ZoneNameTooltip);
+            s_removeZoneContent = new GUIContent("×", Localization.RemoveZoneTooltip);
+            s_autoTuneEnabledContent = new GUIContent(Localization.AutoTune, Localization.AutoTuneTooltip);
             s_autoTuneDisabledContent = new GUIContent(Localization.AutoTune, Localization.AutoTuneDisabledTooltip);
-            s_eyedropperIdleContent   = new GUIContent(Localization.EyedropperIdle, Localization.EyedropperTooltip);
+            s_eyedropperIdleContent = new GUIContent(Localization.EyedropperIdle, Localization.EyedropperTooltip);
             s_eyedropperActiveContent = new GUIContent(Localization.EyedropperActive, Localization.EyedropperTooltip);
-            s_zoneSoloContent         = new GUIContent(Localization.ZoneSolo, Localization.ZoneSoloTooltip);
-            s_seedPickIdleContent     = new GUIContent(Localization.FloodFillSeedPick, Localization.FloodFillSeedPickTooltip);
-            s_seedPickActiveContent   = new GUIContent(Localization.FloodFillSeedPickActive, Localization.FloodFillSeedPickTooltip);
-            s_sampleUvMissingContent  = new GUIContent(Localization.SampleUvMissing, Localization.SampleUvTooltip);
+            s_zoneSoloContent = new GUIContent(Localization.ZoneSolo, Localization.ZoneSoloTooltip);
+            s_seedPickIdleContent = new GUIContent(Localization.FloodFillSeedPick, Localization.FloodFillSeedPickTooltip);
+            s_seedPickActiveContent = new GUIContent(Localization.FloodFillSeedPickActive, Localization.FloodFillSeedPickTooltip);
+            s_sampleUvMissingContent = new GUIContent(Localization.SampleUvMissing, Localization.SampleUvTooltip);
         }
 
-        private void DrawZoneList()
-        {
+        private void DrawZoneList() {
             // 「通常 / 上級」モードトグルは廃止した。ゾーンごとの「詳細設定」折りたたみと
             // 同じ「どこまで見せるか」の軸を二重に制御しており（プリセットの「詳細」を
             // 含めると三重）、どちらを触ればよいのか分からなかった。表示の深さは
@@ -202,8 +204,7 @@ namespace Iroca
             zonesFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(zonesFoldout,
                 TempContent.Of(Localization.StepPrefixZones + Localization.ColorZones
                     + (StepZonesDone ? Localization.StepDoneMark : ""), Localization.ColorZonesTooltip));
-            if (!zonesFoldout)
-            {
+            if (!zonesFoldout) {
                 EditorGUILayout.EndFoldoutHeaderGroup();
                 return;
             }
@@ -211,7 +212,9 @@ namespace Iroca
             // 並び順＝優先度（重なりは上のゾーンのみ適用）。説明は ☰ ハンドルのツールチップ
             // (ZoneDragHandleTooltip) に集約し、常時表示の HelpBox は置かない。
 
-            if (_dragZoneIndex >= zones.Count) _dragZoneIndex = -1;
+            if (_dragZoneIndex >= zones.Count) {
+                _dragZoneIndex = -1;
+            }
 
             // ドラッグハンドル用スタイルとヘッダ行の GUIContent は静的キャッシュを使う
             // (毎フレーム×ゾーン数のアロケーション回避。言語切替時のみ再構築)。
@@ -221,30 +224,30 @@ namespace Iroca
             // カードのどこかを押したら、そのゾーンを「いま直しているゾーン」にする。カードの中の操作より
             // 先に見るので、前の描画で記録した矩形で判定する(イベントは消費しない＝押した操作はそのまま効く)。
             var ev = Event.current;
-            if (ev.type == EventType.MouseDown && _zoneCardRects != null && MouseInSettingsScroll())
-            {
-                for (int i = 0; i < _zoneCardRects.Count && i < zones.Count; i++)
-                {
+            if (ev.type == EventType.MouseDown && _zoneCardRects != null && MouseInSettingsScroll()) {
+                for (int i = 0; i < _zoneCardRects.Count && i < zones.Count; i++) {
                     if (_zoneCardRects[i].Contains(ev.mousePosition)) { SetCurrentZoneIndex(i); break; }
                 }
             }
 
             int removeIndex = -1;
-            for (int i = 0; i < zones.Count; i++)
-            {
-                if (DrawZoneCard(zones[i], i)) removeIndex = i;
+            for (int i = 0; i < zones.Count; i++) {
+                if (DrawZoneCard(zones[i], i)) {
+                    removeIndex = i;
+                }
                 // ドロップ位置判定・インジケータ描画用に、このゾーン全体の矩形を記録。
                 // GetLastRect は Layout パスではダミー値だが、判定・描画は非 Layout パスでのみ行う。
                 zoneRects.Add(GUILayoutUtility.GetLastRect());
                 EditorGUILayout.Space(2);
             }
 
-            if (ev.type == EventType.Repaint) _zoneCardRects = zoneRects;
+            if (ev.type == EventType.Repaint) {
+                _zoneCardRects = zoneRects;
+            }
 
             HandleZoneReorderDrag(zoneRects);
 
-            if (removeIndex >= 0)
-            {
+            if (removeIndex >= 0) {
                 _pendingRemoveZoneIndex = removeIndex;
                 Repaint();
             }
@@ -260,8 +263,7 @@ namespace Iroca
         // あるときは「別の色を追加」として 2 色目以降も同じ操作で足す。以前は 2 色目から
         // 「+ ゾーン追加」→「スポイト」→ クリックの 3 手で、1 色目と操作が違っていた（2026-10-05）。
         // 空のゾーンを作る従来の入口は、色を数値で入れたいとき用に横へ小さく残す。
-        private void DrawAddColorRow()
-        {
+        private void DrawAddColorRow() {
             bool first = !HasEnabledZone;
             bool canSample = CanReadSource(SourceTexture);
             bool armed = EyedropperZoneId == NewZoneEyedropperId;
@@ -270,15 +272,13 @@ namespace Iroca
                 : EditorGUIUtility.singleLineHeight + 2f);
 
             EditorGUILayout.BeginHorizontal();
-            using (new EditorGUI.DisabledScope(!canSample))
-            {
+            using (new EditorGUI.DisabledScope(!canSample)) {
                 var content = TempContent.Of(
                     armed ? Localization.StartWithEyedropperActive
                           : first ? Localization.StartWithEyedropper : Localization.AddColorWithEyedropper,
                     Localization.StartWithEyedropperTooltip);
                 // MinWidth(0): 狭い設定列でも右の「+ 空のゾーン」を押し出さず、こちらが縮む。
-                if (ArmedToggleButton(content, armed, height, GUILayout.MinWidth(0), GUILayout.ExpandWidth(true)))
-                {
+                if (ArmedToggleButton(content, armed, height, GUILayout.MinWidth(0), GUILayout.ExpandWidth(true))) {
                     // トグル: 武装↔解除。
                     ArmEyedropper(armed ? null : NewZoneEyedropperId);
                     Repaint();
@@ -286,8 +286,7 @@ namespace Iroca
             }
 
             if (GUILayout.Button(TempContent.Of(Localization.AddZone, Localization.AddZoneTooltip),
-                    height, GUILayout.ExpandWidth(false)))
-            {
+                    height, GUILayout.ExpandWidth(false))) {
                 _pendingAddZone = true;
                 Repaint();
             }
@@ -301,10 +300,11 @@ namespace Iroca
         /// 押されたときの処理（武装 id の付け替え・Repaint）は GUI.changed にも背景色にも触れないので、
         /// 戻した後に呼び出し側で行う。DisabledScope は呼び出し側に置く。
         /// </summary>
-        private static bool ArmedToggleButton(GUIContent content, bool armed, params GUILayoutOption[] options)
-        {
+        private static bool ArmedToggleButton(GUIContent content, bool armed, params GUILayoutOption[] options) {
             var prevBg = GUI.backgroundColor;
-            if (armed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+            if (armed) {
+                GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+            }
             bool prevChanged = GUI.changed;
             bool clicked = GUILayout.Button(content, options);
             GUI.changed = prevChanged;
@@ -315,13 +315,14 @@ namespace Iroca
         // 1 ゾーン分のカード（ヘッダ行＋採色/変更先＋自動調整＋許容範囲＋模様保持/出力彩度＋
         // 畳んだ詳細設定）を描画する。
         // 戻り値 true = このカードの削除(×)ボタンが押された。
-        private bool DrawZoneCard(ColorZone zone, int index)
-        {
+        private bool DrawZoneCard(ColorZone zone, int index) {
             bool removeRequested = false;
             zone.EnsureId();
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
-            if (DrawZoneHeaderRow(zone, index)) removeRequested = true;
+            if (DrawZoneHeaderRow(zone, index)) {
+                removeRequested = true;
+            }
 
             // ゾーン別マスクの編集は除外マスク欄の「編集対象」プルダウン＋「ブラシで編集」に
             // 一本化した（かつてここにあった専用ボタンは経路重複のため削除）。
@@ -337,8 +338,7 @@ namespace Iroca
             // 位置が無いゾーン（カラーフィールドで色を決めた／Undo で無効化された）では
             // 導出経路が変わる。押してから通知で知るのでは遅いので、事前に見えるようにする。
             // 位置があるのは普通の状態なので、常時の 1 行は出さない（2026-10-04、カードの常時表示を減らした）。
-            if (zone.HasSampleColor && !zone.HasSampleUV)
-            {
+            if (zone.HasSampleColor && !zone.HasSampleUV) {
                 // 折り返しあり: 英語文は狭い設定列の 1 行に収まらず、末尾（肝心の
                 // "AI suggestion"）が欠けていた。GUILayout.Label は折り返し後の高さを確保する
                 // （EditorGUILayout.LabelField は 1 行固定高で、折り返した 2 行目が隠れる）。
@@ -383,15 +383,15 @@ namespace Iroca
                 zone.detailFoldout,
                 TempContent.Of(Localization.ZoneDetailFoldout, Localization.ZoneDetailFoldoutTooltip),
                 true);
-            if (zone.detailFoldout)
+            if (zone.detailFoldout) {
                 DrawZoneAdvancedParams(zone);
+            }
 
             EditorGUILayout.EndVertical();
 
             // いま直しているゾーン(ブラシと、塗られていない所での右クリックの宛先)を枠で示す。ゾーンが 1 つなら自明なので出さない。
             if (Event.current.type == EventType.Repaint && zones.Count >= 2
-                && _maskView != null && _maskView.activeMaskTarget == index)
-            {
+                && _maskView != null && _maskView.activeMaskTarget == index) {
                 DrawRectOutline(GUILayoutUtility.GetLastRect(), IrocaColors.ActiveMaskTarget, 2f);
             }
             return removeRequested;
@@ -399,8 +399,7 @@ namespace Iroca
 
         // カードの見出し行（ドラッグハンドル・有効・名前・ソロ・削除）。
         // 戻り値 true = 削除(×)ボタンが押された。
-        private bool DrawZoneHeaderRow(ColorZone zone, int index)
-        {
+        private bool DrawZoneHeaderRow(ColorZone zone, int index) {
             bool removeRequested = false;
             EditorGUILayout.BeginHorizontal();
             // ドラッグハンドル: 掴んでリストを並べ替える＝優先度を変える。
@@ -412,8 +411,7 @@ namespace Iroca
             Rect handleRect = GUILayoutUtility.GetLastRect();
             EditorGUIUtility.AddCursorRect(handleRect, MouseCursor.Pan);
             if (GUI.enabled && Event.current.type == EventType.MouseDown
-                && handleRect.Contains(Event.current.mousePosition) && MouseInSettingsScroll())
-            {
+                && handleRect.Contains(Event.current.mousePosition) && MouseInSettingsScroll()) {
                 _dragZoneIndex = index;
                 _dragGrabOffsetY = Event.current.mousePosition.y - handleRect.y;
                 // マウスキャプチャを取得（ウィンドウ外リリースでも MouseUp を確実に受け取るため）。
@@ -439,9 +437,10 @@ namespace Iroca
             {
                 bool soloed = !string.IsNullOrEmpty(zone.id) && SoloZoneId == zone.id;
                 var prevSoloBg = GUI.backgroundColor;
-                if (soloed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-                if (GUILayout.Button(s_zoneSoloContent, GUILayout.Width(IrocaUiConsts.Layout.SmallButtonWidth)))
-                {
+                if (soloed) {
+                    GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+                }
+                if (GUILayout.Button(s_zoneSoloContent, GUILayout.Width(IrocaUiConsts.Layout.SmallButtonWidth))) {
                     zone.EnsureId();
                     SetSoloZone(soloed ? null : zone.id);
                     Repaint();
@@ -449,8 +448,7 @@ namespace Iroca
                 GUI.backgroundColor = prevSoloBg;
             }
 
-            if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth)))
-            {
+            if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth))) {
                 removeRequested = true;
             }
             EditorGUILayout.EndHorizontal();
@@ -458,8 +456,7 @@ namespace Iroca
         }
 
         // カードの色の 2 行（サンプルカラー＋スポイト、変更先カラー）。
-        private void DrawZoneColorRows(ColorZone zone)
-        {
+        private void DrawZoneColorRows(ColorZone zone) {
             // ColorPick UI（常時表示）。カラーフィールドとプレビュー直接スポイトは
             // どちらも sampleColor を決める手段なので 1 行に統合してカードの行数を抑える。
             // 色の 2 行だけラベル幅を詰める。設定列のラベル幅は最長ラベルに合わせて広がるので
@@ -469,8 +466,7 @@ namespace Iroca
             const float ColorSwatchMinWidth = 56f;
             const float CardChrome = 16f; // helpBox の余白＋ボタン間隔
             float prevColorRowsLabelWidth = EditorGUIUtility.labelWidth;
-            if (_settingsContentWidth > 1f)
-            {
+            if (_settingsContentWidth > 1f) {
                 EditorGUIUtility.labelWidth = Mathf.Min(prevColorRowsLabelWidth, Mathf.Max(95f,
                     _settingsContentWidth - CardChrome
                     - IrocaUiConsts.Layout.EyedropperButtonWidth - ColorSwatchMinWidth));
@@ -484,8 +480,7 @@ namespace Iroca
                 TempContent.Of(Localization.SampleColor, Localization.SampleColorTooltip),
                 zone.sampleColor,
                 GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
-            if (zone.sampleColor != prevSampleColor)
-            {
+            if (zone.sampleColor != prevSampleColor) {
                 // スポイト/カラーフィールドで色を取った＝サンプル指定済み。意図的な白選択を
                 // 「未指定の白」と区別し、白い服・白髪などでも自動調整を許可できるようにする。
                 zone.sampleColorSet = true;
@@ -495,8 +490,9 @@ namespace Iroca
                 zone.ClearSampleUV();
                 // サンプルカラーが変わったら、自動トーン抽出で生成済みの内部サンプルは
                 // 古いパーツのものになるためクリアする（次の自動調整で作り直す）。
-                if (zone.extraSamples != null && zone.extraSamples.Count > 0)
+                if (zone.extraSamples != null && zone.extraSamples.Count > 0) {
                     zone.extraSamples.Clear();
+                }
                 Editing.NotifyChanged(EditChange.Content);
             }
 
@@ -506,12 +502,10 @@ namespace Iroca
                 bool canSample = CanReadSource(SourceTexture)
                     && zone.mode == SelectionMode.ColorPick;
                 bool armed = !string.IsNullOrEmpty(zone.id) && EyedropperZoneId == zone.id;
-                using (new EditorGUI.DisabledScope(!canSample))
-                {
+                using (new EditorGUI.DisabledScope(!canSample)) {
                     if (ArmedToggleButton(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent, armed,
                         GUILayout.Width(FitButtonWidth(IrocaUiConsts.Layout.EyedropperButtonWidth,
-                            s_eyedropperIdleContent.text, s_eyedropperActiveContent.text))))
-                    {
+                            s_eyedropperIdleContent.text, s_eyedropperActiveContent.text)))) {
                         // トグル：武装↔解除。武装は id で保持し、並べ替え・削除で別ゾーンを指さないようにする
                         // （クリックで一発取得→自動解除）。
                         zone.EnsureId();
@@ -532,22 +526,21 @@ namespace Iroca
                 zone.targetColor);
             // 変更先を選んだ＝手順案内を「自動調整」へ進める（白を選んだ場合も既定の白と区別する）。
             // UndoHelper.ColorField が代入前に記録済みなので、Undo で色とフラグが対で戻る。
-            if (zone.targetColor != prevTargetColor) zone.targetColorSet = true;
+            if (zone.targetColor != prevTargetColor) {
+                zone.targetColorSet = true;
+            }
             EditorGUIUtility.labelWidth = prevColorRowsLabelWidth;
         }
 
         // スポイト1点から、パーツの濃淡（暗部/中間/明部）を内部で自動サンプリングして
         // 許容範囲などを最適化する。ユーザーが濃淡を手で採り直す必要はない。
-        private void DrawZoneAutoTuneButton(ColorZone zone)
-        {
+        private void DrawZoneAutoTuneButton(ColorZone zone) {
             bool canTune =
                 CanReadSource(SourceTexture)
                 && zone.mode == SelectionMode.ColorPick
                 && zone.HasSampleColor;
-            using (new EditorGUI.DisabledScope(!canTune))
-            {
-                if (GUILayout.Button(canTune ? s_autoTuneEnabledContent : s_autoTuneDisabledContent))
-                {
+            using (new EditorGUI.DisabledScope(!canTune)) {
+                if (GUILayout.Button(canTune ? s_autoTuneEnabledContent : s_autoTuneDisabledContent)) {
                     RunAutoTune(zone);
                 }
             }
@@ -556,20 +549,19 @@ namespace Iroca
         // 連続領域モード（つながった塊だけに絞る）とシード。既定（自動アンカリング・シードなし）のまま
         // 使う人がほとんどなので、ゾーンカードの常時表示から詳細設定の「選択の範囲」へ移した（2026-10-04）。
         // シードはプレビューの Shift+クリックでも置け、置いた位置はプレビューに目印が出る。
-        private void DrawZoneFloodFillParams(ColorZone zone)
-        {
+        private void DrawZoneFloodFillParams(ColorZone zone) {
             // 既定は自動アンカリング(シード不要)。確信度の高い芯を含む連結領域だけ残し、
             // 物理的に離れた同色パーツや背景へのにじみを自動除去する。シードは任意の上書き。
             bool prevUseFloodFill = zone.useFloodFill;
             zone.useFloodFill = UndoHelper.Toggle(UndoTarget,
                 TempContent.Of(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
                 zone.useFloodFill);
-            if (zone.useFloodFill != prevUseFloodFill) Editing.NotifyChanged(EditChange.Content);
+            if (zone.useFloodFill != prevUseFloodFill) {
+                Editing.NotifyChanged(EditChange.Content);
+            }
 
-            if (zone.useFloodFill)
-            {
-                using (new EditorGUI.IndentLevelScope())
-                {
+            if (zone.useFloodFill) {
+                using (new EditorGUI.IndentLevelScope()) {
                     string seedLabel = zone.seedUV.x >= 0f
                         ? $"UV ({zone.seedUV.x:F3}, {zone.seedUV.y:F3})"
                         : Localization.FloodFillSeedNotSet;
@@ -592,20 +584,17 @@ namespace Iroca
                     {
                         bool seedArmed = !string.IsNullOrEmpty(zone.id) && SeedPickZoneId == zone.id;
                         if (ArmedToggleButton(seedArmed ? s_seedPickActiveContent : s_seedPickIdleContent, seedArmed,
-                                GUILayout.MinWidth(0)))
-                        {
+                                GUILayout.MinWidth(0))) {
                             zone.EnsureId();
                             ArmSeedPick(seedArmed ? null : zone.id);
                             Repaint();
                         }
                     }
 
-                    using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f))
-                    {
+                    using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f)) {
                         if (GUILayout.Button(
                             TempContent.Of(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
-                            GUILayout.MinWidth(0)))
-                        {
+                            GUILayout.MinWidth(0))) {
                             Editing.ClearFloodFillSeed(zone);
                         }
                     }
@@ -622,20 +611,16 @@ namespace Iroca
         // プリセットで既定から変わっているゾーンでは効いている値が見えなくならないよう、設定に関係なく出す。
         private const string ShowDeveloperSettingsPrefKey = IrocaPrefs.ShowDeveloperSettings;
         private static bool? s_showDeveloperSettings;
-        private static bool ShowDeveloperSettings
-        {
+        private static bool ShowDeveloperSettings {
             get => s_showDeveloperSettings ??= EditorPrefs.GetBool(ShowDeveloperSettingsPrefKey, false);
-            set
-            {
+            set {
                 s_showDeveloperSettings = value;
                 EditorPrefs.SetBool(ShowDeveloperSettingsPrefKey, value);
             }
         }
 
-        public void AddItemsToMenu(GenericMenu menu)
-        {
-            menu.AddItem(new GUIContent(Localization.ShowDeveloperSettings), ShowDeveloperSettings, () =>
-            {
+        public void AddItemsToMenu(GenericMenu menu) {
+            menu.AddItem(new GUIContent(Localization.ShowDeveloperSettings), ShowDeveloperSettings, () => {
                 ShowDeveloperSettings = !ShowDeveloperSettings;
                 Repaint();
             });
@@ -648,12 +633,15 @@ namespace Iroca
         // 値を既定へ戻した瞬間に項目ごと消えると、ドラッグ中のスライダーが途中で無くなる。
         [System.NonSerialized] private HashSet<string> _devParamsRevealed;
 
-        private bool ShowDevParams(ColorZone zone, string group, bool isDefault)
-        {
-            if (ShowDeveloperSettings) return true;
+        private bool ShowDevParams(ColorZone zone, string group, bool isDefault) {
+            if (ShowDeveloperSettings) {
+                return true;
+            }
             _devParamsRevealed ??= new HashSet<string>();
             string key = (zone.id ?? "") + "/" + group;
-            if (!isDefault) _devParamsRevealed.Add(key);
+            if (!isDefault) {
+                _devParamsRevealed.Add(key);
+            }
             return _devParamsRevealed.Contains(key);
         }
 
@@ -673,8 +661,7 @@ namespace Iroca
         // どれも名前に“彩度”が入るのに効く対象が違うため、どれを触るべきか読み取れなかった
         // （2026-09-11 の UX 見直し）。並び順は「どの画素を選ぶか → 明部 → 暗部/無彩色 →
         // 選んだ画素をどう塗るか → 内部の距離重み」で、処理の流れと一致させている。
-        private void DrawZoneAdvancedParams(ColorZone zone)
-        {
+        private void DrawZoneAdvancedParams(ColorZone zone) {
             // ── 選択の範囲（どの画素を対象にするか） ──
             EditorGUILayout.LabelField(Localization.ZoneGroupSelection, EditorStyles.boldLabel);
             DrawZoneFloodFillParams(zone);
@@ -701,8 +688,7 @@ namespace Iroca
 
             // ハイライト帯の拡張は「ハイライト補助」が ON のときのみ有効なので、
             // OFF のときはグレーアウトして関係を明示する。
-            using (new EditorGUI.DisabledScope(!zone.highlightRecovery))
-            {
+            using (new EditorGUI.DisabledScope(!zone.highlightRecovery)) {
                 EditorGUI.indentLevel++;
                 zone.highlightBandExpand = UndoHelper.Toggle(UndoTarget,
                     TempContent.Of(Localization.HighlightBandExpand, Localization.HighlightBandExpandTooltip),
@@ -711,16 +697,14 @@ namespace Iroca
             }
 
             // 白寄せ合成とその自動補正は開発者向け（ShowDeveloperSettings 参照）。
-            if (ShowDevParams(zone, "wash", HighlightWashIsDefault(zone)))
-            {
+            if (ShowDevParams(zone, "wash", HighlightWashIsDefault(zone))) {
                 zone.applyHighlightWash = UndoHelper.Toggle(UndoTarget,
                     TempContent.Of(Localization.ApplyHighlightWash, Localization.ApplyHighlightWashTooltip),
                     zone.applyHighlightWash);
 
                 // 俯瞰スポイト補正(wash サンプル自動導出)は「ハイライト白寄せ合成」が ON の
                 // ときのみ意味を持つので、OFF のときはグレーアウトして関係を明示する。
-                using (new EditorGUI.DisabledScope(!zone.applyHighlightWash))
-                {
+                using (new EditorGUI.DisabledScope(!zone.applyHighlightWash)) {
                     EditorGUI.indentLevel++;
                     zone.autoHighlightSample = UndoHelper.Toggle(UndoTarget,
                         TempContent.Of(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
@@ -762,8 +746,7 @@ namespace Iroca
                 zone.autoRecolorAnchor);
 
             // ── マッチング距離の重み（内部の距離式そのもの。開発者向け、ShowDeveloperSettings 参照） ──
-            if (ShowDevParams(zone, "weights", MatchingWeightsAreDefault(zone)))
-            {
+            if (ShowDevParams(zone, "weights", MatchingWeightsAreDefault(zone))) {
                 EditorGUILayout.Space(2);
                 EditorGUILayout.LabelField(Localization.ZoneGroupMatching, EditorStyles.boldLabel);
                 zone.valueWeight = UndoHelper.Slider(UndoTarget,
@@ -778,22 +761,21 @@ namespace Iroca
             }
 
             EditorGUILayout.Space(2);
-            if (GUILayout.Button(TempContent.Of(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))
-            {
+            if (GUILayout.Button(TempContent.Of(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip))) {
                 Editing.ResetZoneTuning(zone);
             }
         }
 
         // 判定・描画は非 Layout パスでのみ行う（Layout パスの GetLastRect はダミー値のため）。
-        private void HandleZoneReorderDrag(List<Rect> zoneRects)
-        {
+        private void HandleZoneReorderDrag(List<Rect> zoneRects) {
             // hotControl 用 ID を毎フレーム無条件に確保して IMGUI の ID 割り当てを安定させる。
             // MouseDown（カード描画中＝この呼び出しより前）は前フレームの値を読むが、ドラッグ中は
             // UI 構造が不変なので同値になる。
             _dragControlId = GUIUtility.GetControlID(FocusType.Passive);
 
-            if (!(_dragZoneIndex >= 0 && _dragZoneIndex < zoneRects.Count && zoneRects.Count > 0))
+            if (!(_dragZoneIndex >= 0 && _dragZoneIndex < zoneRects.Count && zoneRects.Count > 0)) {
                 return;
+            }
 
             var evt = Event.current;
             float my = evt.mousePosition.y;
@@ -809,22 +791,18 @@ namespace Iroca
             float overlapTrigger = EditorGUIUtility.singleLineHeight * 0.6f;
 
             int slot = _dragZoneIndex;
-            for (int k = 0; k < _dragZoneIndex; k++)
-            {
+            for (int k = 0; k < _dragZoneIndex; k++) {
                 if (projTop < zoneRects[k].yMax - overlapTrigger) { slot = k; break; }
             }
-            if (slot == _dragZoneIndex)
-            {
-                for (int k = zoneRects.Count - 1; k > _dragZoneIndex; k--)
-                {
+            if (slot == _dragZoneIndex) {
+                for (int k = zoneRects.Count - 1; k > _dragZoneIndex; k--) {
                     if (projBottom > zoneRects[k].yMin + overlapTrigger) { slot = k + 1; break; }
                 }
             }
             // remove 後の挿入 index に変換（自分より後ろへ落とすと 1 詰まる）。
             int insertAt = slot > _dragZoneIndex ? slot - 1 : slot;
 
-            if (evt.type == EventType.Repaint)
-            {
+            if (evt.type == EventType.Repaint) {
                 Rect src = zoneRects[_dragZoneIndex];
                 Color accent = IrocaColors.ActiveMaskTarget;
 
@@ -850,24 +828,17 @@ namespace Iroca
                 string gname = string.IsNullOrEmpty(dz.name) ? Localization.UnnamedZone : dz.name;
                 GUI.Label(new Rect(swatch.xMax + 6f, ghost.y + 3f, ghost.width - 64f, EditorGUIUtility.singleLineHeight),
                     TempContent.Of("☰  " + gname), EditorStyles.boldLabel);
-            }
-            else if (evt.type == EventType.MouseDrag)
-            {
-                if (GUIUtility.hotControl == _dragControlId)
-                {
+            } else if (evt.type == EventType.MouseDrag) {
+                if (GUIUtility.hotControl == _dragControlId) {
                     evt.Use();
                     Repaint();
                 }
-            }
-            else if (evt.type == EventType.MouseUp)
-            {
+            } else if (evt.type == EventType.MouseUp) {
                 // 自分がキャプチャした MouseUp のときだけ確定する（ウィンドウ外リリースでも hotControl
                 // 経由で必ずここに届く）。hotControl が自分のものでない無関係な MouseUp では並べ替えない。
-                if (GUIUtility.hotControl == _dragControlId)
-                {
+                if (GUIUtility.hotControl == _dragControlId) {
                     GUIUtility.hotControl = 0;
-                    if (insertAt != _dragZoneIndex)
-                    {
+                    if (insertAt != _dragZoneIndex) {
                         _pendingReorderFrom = _dragZoneIndex;
                         _pendingReorderTo = insertAt;
                     }
@@ -878,8 +849,7 @@ namespace Iroca
             }
         }
 
-        private static void DrawRectOutline(Rect r, Color color, float thickness)
-        {
+        private static void DrawRectOutline(Rect r, Color color, float thickness) {
             EditorGUI.DrawRect(new Rect(r.xMin, r.yMin, r.width, thickness), color);
             EditorGUI.DrawRect(new Rect(r.xMin, r.yMax - thickness, r.width, thickness), color);
             EditorGUI.DrawRect(new Rect(r.xMin, r.yMin, thickness, r.height), color);

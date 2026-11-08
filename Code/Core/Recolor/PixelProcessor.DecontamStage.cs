@@ -3,19 +3,15 @@
 using System.Diagnostics;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
         /// <summary>
         /// 再着色の段の 2 つ目「デコンタミ」(0.4.0 の計画の 3-7b で ProcessPixelsArrayCore から中身を書き換えずに
         /// 切り出した)。AA 境界の画素を α 分解して新色で再合成した色を作る(<see cref="ZoneState.AaMask"/>・
         /// <see cref="ZoneState.Decontaminated"/>。設定が無効なら null のまま)。
         /// </summary>
-        private static class DecontamStage
-        {
-            internal static void Run(RunContext run, ZoneState z)
-            {
+        private static class DecontamStage {
+            internal static void Run(RunContext run, ZoneState z) {
                 // ProcessPixelsArrayCore と同じ名前のローカルへ展開する(切り出した本体をそのまま読めるように)。
                 int w = run.W, h = run.H, len = run.Len;
                 Color32* originalPixels = run.Original;
@@ -42,8 +38,7 @@ namespace Iroca
                 //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
                 bool* aaMask = null;
                 Color32* decontaminatedPixels = null;
-                if (useDecontamination)
-                {
+                if (useDecontamination) {
                     // ゾーンの作業配列として借りる(ゾーンの終わりに返す。ZoneBuffers)。中身は不定で、AA 縁の印は
                     // DecontaminateAaBoundary が全域を書き、塗る色は印を付けた画素と混色帯の対象にだけ書いてから読む。
                     aaMask = z.Buffers.DecontamAaMask = s_boolPool.Rent(len);
@@ -56,8 +51,7 @@ namespace Iroca
                     // あり得る)。BG ドナーに入れると推定色がサンプル色で汚染され、マスク境界の外側に
                     // 誤色の点ノイズを塗るため、位置を渡してドナーから隠す(マスク中立化)。
                     bool* deconExcluded = null;
-                    if (commonMask != null || zoneMask != null)
-                    {
+                    if (commonMask != null || zoneMask != null) {
                         deconExcluded = rb.MaskExcludedOrRent(len);
                         // デコンタミが除外フラグを読むのは BG ドナー範囲(後段 bbox ± radius)だけ
                         // なので、そこだけ埋める。範囲外は読まれない=出力ビット不変
@@ -66,9 +60,10 @@ namespace Iroca
                         int exY1 = Mathf.Min(h - 1, ppMaxY + decontaminationRadius);
                         int exX0 = Mathf.Max(0, ppMinX - decontaminationRadius);
                         int exX1 = Mathf.Min(w - 1, ppMaxX + decontaminationRadius);
-                        if (hasPostBox)
+                        if (hasPostBox) {
                             FillExcludedRect(deconExcluded, w, exX0, exY0, exX1, exY1,
                                 maskColOf, maskRowBase, commonMask, zoneMask, po);
+                        }
                     }
                     // 後段 bbox(ppMin/Max)を渡してデコンタミを実マッチ範囲に限定する。α 分解が
                     // 触るのは 0<strength<threshold の画素だけ=定義上この bbox 内なので出力ビット不変。

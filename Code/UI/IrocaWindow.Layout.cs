@@ -3,10 +3,8 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
-    public partial class IrocaWindow
-    {
+namespace Iroca {
+    public partial class IrocaWindow {
         // 加工設定（エッジぼかし・AA クリーンアップ・境界クリーンアップ）は既定値のまま使う項目なので、
         // 既定で畳む（2026-10-04）。開いた/閉じた状態はウィンドウごとに保存される。
         [SerializeField] private bool processingFoldout = false;
@@ -47,13 +45,14 @@ namespace Iroca
             // 途中でゾーンを触られると待ち中の入力と食い違う）。
             || _autoTune != null;
 
-        private void OnGUI()
-        {
+        private void OnGUI() {
             // 描かれている = 見えている(Scene のクリックを見る条件。IrocaWindow.SceneClick)。
             _windowShown = true;
             _maskView?.RememberActiveTarget();
             // 入力があったら、別ウィンドウ(プレビュー・マスク編集)に描き直しを知らせる(DrawStamp)。
-            if (MayChangeState(Event.current.type)) BumpUiState();
+            if (MayChangeState(Event.current.type)) {
+                BumpUiState();
+            }
             TrackDeferredPreview(this);
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
@@ -64,18 +63,19 @@ namespace Iroca
             // ゾーンの有無では解除しない（解除すると押した次の描画で武装が消え、トグルにならなかった）。
             if (!string.IsNullOrEmpty(_eyedropperZoneId) &&
                 (SourceTexture == null
-                 || (_eyedropperZoneId != NewZoneEyedropperId && FindZoneById(_eyedropperZoneId) == null)))
+                 || (_eyedropperZoneId != NewZoneEyedropperId && FindZoneById(_eyedropperZoneId) == null))) {
                 _eyedropperZoneId = null;
+            }
             // シード指定の武装も同じ理由で掃除する（武装したまま対象が消えると、プレビュー上の
             // クリックが行き先の無い状態で待ち続ける）。
             if (!string.IsNullOrEmpty(_seedPickZoneId) &&
-                (SourceTexture == null || FindZoneById(_seedPickZoneId) == null))
+                (SourceTexture == null || FindZoneById(_seedPickZoneId) == null)) {
                 _seedPickZoneId = null;
+            }
             // ソロ表示の対象が消えた／テクスチャが外れたら通常表示へ戻す。残すと「ゾーンを
             // 消したのにプレビューが元に戻らない」ように見える。
             if (!string.IsNullOrEmpty(_soloZoneId) &&
-                (SourceTexture == null || FindZoneById(_soloZoneId) == null))
-            {
+                (SourceTexture == null || FindZoneById(_soloZoneId) == null)) {
                 SetSoloZone(null);
             }
 
@@ -101,18 +101,18 @@ namespace Iroca
             float availableContentH = position.height - IrocaUiConsts.Layout.WindowChromeMargin;
             float exportH = _exportView.GetSectionHeight();
 
-            if (sideBySide)
+            if (sideBySide) {
                 DrawSideBySideLayout(availableContentH, exportH);
-            else
+            } else {
                 DrawVerticalLayout(availableContentH, exportH);
+            }
 
             EditorGUI.EndDisabledGroup();
 
             // DisabledScope の外でジョブオーバーレイ（進捗バー＋キャンセル）を描画。
             // ウィンドウ全体が無効化されていてもキャンセルだけは押せる。
             // 本体レイアウトの後ろに積まず、ウィンドウ下端の固定位置に重ねる（下に隠れる欄はジョブ中は押せない）。
-            if (blocking)
-            {
+            if (blocking) {
                 float overlayH = JobOverlayReserve();
                 var area = new Rect(0f, Mathf.Max(0f, position.height - overlayH - 2f), position.width, overlayH + 2f);
                 EditorGUI.DrawRect(area, IrocaColors.WindowBackground);
@@ -125,16 +125,13 @@ namespace Iroca
                 // 実測値を次フレームの高さに使う。値が変わったら追い再描画を 1 回要求する
                 // （高さはオーバーレイ自身の中身では変わらないので収束する）。
                 if (Event.current.type == EventType.Repaint && overlayRect.height > 1f
-                    && Mathf.Abs(overlayRect.height - _jobOverlayHeight) > 0.5f)
-                {
+                    && Mathf.Abs(overlayRect.height - _jobOverlayHeight) > 0.5f) {
                     _jobOverlayHeight = overlayRect.height;
                     Repaint();
                 }
                 // 進捗バーの描き直しは、値が変わったとき・ジョブが終わったときだけ(書き出しと始まり・終わりは
                 // TickRepaintWatch、自動調整の進みは TickAutoTune)。以前はジョブ中ずっと毎フレーム描き直していた。
-            }
-            else
-            {
+            } else {
                 _jobOverlayHeight = 0f;
             }
         }
@@ -147,9 +144,10 @@ namespace Iroca
         /// ジョブオーバーレイの高さ（ウィンドウ下端からこの高さの帯に描く）。
         /// 実測値があればそれを、未計測の初回フレームだけ決定論フォールバックを返す。
         /// </summary>
-        private float JobOverlayReserve()
-        {
-            if (_jobOverlayHeight > 1f) return _jobOverlayHeight;
+        private float JobOverlayReserve() {
+            if (_jobOverlayHeight > 1f) {
+                return _jobOverlayHeight;
+            }
             // 初回フレーム用の見積もり: DrawJobProgressRow 1 行ぶん（Space + 進捗バー + キャンセル + Space）＋行間。
             return 2f + JobProgressBarHeight + JobCancelButtonHeight + 2f + EditorGUIUtility.standardVerticalSpacing * 3f;
         }
@@ -165,8 +163,7 @@ namespace Iroca
         // "Shadow Forgiveness Sat Min" など複数が欠けていた）。設定行のラベルを実測し、
         // その幅までは広げる。広げすぎるとスライダーが潰れるので、スライダー＋数値欄に
         // 最低限（SettingsFieldReserve）を残す範囲に限る。
-        private static float SettingsLabelWidth(float contentWidth)
-        {
+        private static float SettingsLabelWidth(float contentWidth) {
             float byRatio = Mathf.Clamp(contentWidth * 0.45f, 95f, 150f);
             float fit = Mathf.Min(MeasuredSettingsLabelWidth(), contentWidth - SettingsFieldReserve);
             return Mathf.Max(byRatio, fit);
@@ -183,19 +180,17 @@ namespace Iroca
 
         // 設定列（ゾーンカード・加工設定）のプレフィックスラベルの最大実測幅。
         // 文字列は Localization 由来なので言語切替時だけ測り直す。
-        private static float MeasuredSettingsLabelWidth()
-        {
-            if (s_labelWidthLang == Localization.CurrentLanguage && s_measuredLabelWidth > 0f)
+        private static float MeasuredSettingsLabelWidth() {
+            if (s_labelWidthLang == Localization.CurrentLanguage && s_measuredLabelWidth > 0f) {
                 return s_measuredLabelWidth;
+            }
             s_labelWidthLang = Localization.CurrentLanguage;
 
             var style = EditorStyles.label;
             var tmp = new GUIContent();
             float max = 0f;
-            void Measure(float indent, params string[] labels)
-            {
-                foreach (var s in labels)
-                {
+            void Measure(float indent, params string[] labels) {
+                foreach (var s in labels) {
                     tmp.text = s;
                     max = Mathf.Max(max, style.CalcSize(tmp).x + indent);
                 }
@@ -230,14 +225,12 @@ namespace Iroca
         // マスク内容と無関係な操作でも合図が出て 4K フル再生成が走ってしまうため。マスク内容の
         // 変更はストロークの終わりなどに別途 Changed(Masks) を出すので、Draw は呼び出し側が
         // ChangeCheck の外で行う。
-        private void DrawLeftColumnSettings()
-        {
+        private void DrawLeftColumnSettings() {
             DrawZoneList();
             DrawProcessingSection();
         }
 
-        private void DrawSideBySideLayout(float availableContentH, float exportH)
-        {
+        private void DrawSideBySideLayout(float availableContentH, float exportH) {
             // 変更の検出はテクスチャ欄と設定群だけを囲み、間にある設定列の BeginScrollView は外す。
             // スクロールバーは BeginScrollView の中で描かれ、つまんで動かすと GUI.changed が立つ。
             // 1 つの ChangeCheck で通して囲んでいた頃は、設定列をスクロールするだけでプレビューの
@@ -255,15 +248,13 @@ namespace Iroca
             // horizH が過大になりエクスポートが画面外へはみ出すため。DrawTextureField 直後の
             // GetLastRect().yMax はウィンドウ最上部(y=0)からの絶対値＝上部全体高そのものなので、
             // それを Repaint 時に実測してキャッシュし、horizH 算出に使う。
-            if (Event.current.type == EventType.Repaint)
-            {
+            if (Event.current.type == EventType.Repaint) {
                 float measured = GUILayoutUtility.GetLastRect().yMax;
                 // 値が変わったら追い再描画を 1 回要求する。エディタウィンドウは要求が無い限り
                 // 再描画されないため、これが無いと HelpBox の出入り等で上部高が変わった操作の
                 // 最終フレームが旧値の horizH のまま画面に固定される(PreviewView の chrome
                 // 実測と同方針)。上部高は horizH に依存しないため 1 回で収束しループしない。
-                if (measured > 1f && Mathf.Abs(measured - _sideBySideTopHeight) > 0.5f)
-                {
+                if (measured > 1f && Mathf.Abs(measured - _sideBySideTopHeight) > 0.5f) {
                     _sideBySideTopHeight = measured;
                     Repaint();
                 }
@@ -317,8 +308,7 @@ namespace Iroca
             DrawLeftColumnSettings();
 
             // 設定・ゾーンのカードで何かを変えた(値を書いたのは IMGUI。開閉なども含むが、作り直しと保存が 1 回増えるだけ)。
-            if (EditorGUI.EndChangeCheck() || textureFieldChanged)
-            {
+            if (EditorGUI.EndChangeCheck() || textureFieldChanged) {
                 Editing.NotifyChanged(EditChange.Content);
             }
 
@@ -355,12 +345,9 @@ namespace Iroca
                 GUILayout.ExpandHeight(true));
             // 別ウィンドウへ切り出している間は本体では描かない(同一 PreviewView の二重
             // レイアウトを避ける。理由は IrocaPreviewWindow のクラスコメント)。
-            if (IrocaPreviewWindow.IsOpen)
-            {
+            if (IrocaPreviewWindow.IsOpen) {
                 DrawPreviewDetachedSection(canReattach: true);
-            }
-            else
-            {
+            } else {
                 // プレビュー枠が右カラム高に収まるよう動的に縮むためのカラム高と、
                 // 枠幅を固定するためのカラム幅を渡す。
                 _previewView.availableColumnHeight = horizH;
@@ -377,8 +364,7 @@ namespace Iroca
             _exportView.DrawExportSection();
         }
 
-        private void DrawVerticalLayout(float availableContentH, float exportH)
-        {
+        private void DrawVerticalLayout(float availableContentH, float exportH) {
             // エクスポートを常にウィンドウ下部に表示するため、上部だけをスクロール領域にする。
             float toolbarH = EditorStyles.toolbar.fixedHeight + 4f;
             float topScrollH = Mathf.Max(
@@ -402,8 +388,7 @@ namespace Iroca
             DrawTextureField();
             DrawLeftColumnSettings();
 
-            if (EditorGUI.EndChangeCheck())
-            {
+            if (EditorGUI.EndChangeCheck()) {
                 Editing.NotifyChanged(EditChange.Content);
             }
 
@@ -435,8 +420,7 @@ namespace Iroca
         // 縦並び(狭幅)では常にここを描き、横並びでは別ウィンドウが開いている間だけ描く。
         // canReattach=false(縦並び)では「本体に戻す」を出さない。戻しても設定列の下に
         // 押し出されて実用にならず、押した直後にまたこの案内へ戻るだけになるため。
-        private void DrawPreviewDetachedSection(bool canReattach)
-        {
+        private void DrawPreviewDetachedSection(bool canReattach) {
             // ここではプレビューを描かないが、シーンのアバターの色のために計算は進める。
             _previewView.TickWithoutDrawing();
 
@@ -450,37 +434,37 @@ namespace Iroca
 
             if (GUILayout.Button(TempContent.Of(
                     open ? Localization.FocusPreviewWindow : Localization.OpenPreviewWindow,
-                    Localization.OpenPreviewWindowTooltip)))
-            {
-                if (open) IrocaPreviewWindow.FocusIfOpen();
-                else IrocaPreviewWindow.Open(this);
+                    Localization.OpenPreviewWindowTooltip))) {
+                if (open) {
+                    IrocaPreviewWindow.FocusIfOpen();
+                } else {
+                    IrocaPreviewWindow.Open(this);
+                }
             }
 
             if (open && canReattach &&
                 GUILayout.Button(TempContent.Of(
-                    Localization.ReattachPreview, Localization.ReattachPreviewTooltip)))
-            {
+                    Localization.ReattachPreview, Localization.ReattachPreviewTooltip))) {
                 IrocaPreviewWindow.CloseIfOpen();
             }
 
             EditorGUILayout.Space(4);
         }
 
-        private void DrawJobOverlay()
-        {
+        private void DrawJobOverlay() {
             _exportView?.DrawJobOverlay();
 
             var run = _autoTune;
-            if (run != null)
-            {
+            if (run != null) {
                 float pct = run.Progress;
                 // 解析開始前の証拠（AI 提案セグメント）待ちは、無言だと押しても無反応に見えるので、
                 // 解析中と同じ場所に何を待っているかを出す。中止は解析を始めない。
                 string label = run.Status == AutoTuneService.Status.WaitingForEvidence
                     ? $"{Localization.AutoTune}  {(run.EvidencePreparing ? Localization.AutoTuneEvidencePreparing : Localization.AutoTuneEvidenceFetching)}"
                     : $"{Localization.AutoTune}  {Mathf.RoundToInt(pct * 100f)}%";
-                if (DrawJobProgressRow(pct, label))
+                if (DrawJobProgressRow(pct, label)) {
                     CancelAutoTune();
+                }
             }
         }
 
@@ -489,12 +473,12 @@ namespace Iroca
         /// minWidth の大きい方を返す。言語で長さが変わる文言を固定値の幅に入れると、片方の言語で末尾が欠ける。
         /// OnGUI の中で呼ぶ。
         /// </summary>
-        internal static float FitButtonWidth(float minWidth, params string[] texts)
-        {
+        internal static float FitButtonWidth(float minWidth, params string[] texts) {
             float w = minWidth;
             var style = GUI.skin.button;
-            foreach (var t in texts)
+            foreach (var t in texts) {
                 w = Mathf.Max(w, Mathf.Ceil(style.CalcSize(TempContent.Of(t)).x));
+            }
             return w;
         }
 
@@ -503,8 +487,7 @@ namespace Iroca
         /// 書き出し・自動調整の解析中・証拠待ちで共通。キャンセル処理は呼び出し側が行う
         /// （どの処理も GUILayout を呼ばないので、後ろの Space の後で行ってもコントロール列は変わらない）。
         /// </summary>
-        internal static bool DrawJobProgressRow(float progress, string label)
-        {
+        internal static bool DrawJobProgressRow(float progress, string label) {
             EditorGUILayout.Space(2);
             var rect = EditorGUILayout.GetControlRect(false, JobProgressBarHeight);
             EditorGUI.ProgressBar(rect, progress, label);
@@ -518,15 +501,13 @@ namespace Iroca
         /// ジョブ中でも安全で、むしろ待ち時間に触れて困らない）が、セッション状態を破壊的に
         /// 書き換えるリセットだけはここで無効化する。
         /// </param>
-        private void DrawHeader(bool jobBlocking)
-        {
+        private void DrawHeader(bool jobBlocking) {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
             EnsureZoneListCache();
             int current = (int)Localization.CurrentLanguage;
             int next = GUILayout.Toolbar(current, s_languageLabels, EditorStyles.toolbarButton, GUILayout.ExpandWidth(false));
-            if (next != current)
-            {
+            if (next != current) {
                 Localization.CurrentLanguage = (LanguageMode)next;
                 Localization.SaveLanguagePreference();
                 Repaint();
@@ -538,25 +519,25 @@ namespace Iroca
             // 確認ダイアログを挟み、Undo 登録するので誤操作しても「元に戻す」で復元できる。
             // ジョブ実行中は無効化する: エクスポート/自動調整の完了時 apply がリセット後の
             // セッションへ書き戻し、状態不整合を生み得るため。
-            using (new EditorGUI.DisabledScope(SourceTexture == null || jobBlocking))
-            {
+            using (new EditorGUI.DisabledScope(SourceTexture == null || jobBlocking)) {
                 if (GUILayout.Button(TempContent.Of(Localization.ResetSession, Localization.ResetSessionTooltip),
-                        EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
-                {
+                        EditorStyles.toolbarButton, GUILayout.ExpandWidth(false))) {
                     if (EditorUtility.DisplayDialog(
-                            Localization.Confirm, Localization.ResetSessionConfirm, Localization.OK, Localization.Cancel))
+                            Localization.Confirm, Localization.ResetSessionConfirm, Localization.OK, Localization.Cancel)) {
                         ResetCurrentSession();
+                    }
                 }
             }
 
-            if (GUILayout.Button(TempContent.Of(Localization.Manual, Localization.ManualTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
+            if (GUILayout.Button(TempContent.Of(Localization.Manual, Localization.ManualTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false))) {
                 IrocaManual.Open();
+            }
 
-            if (GUILayout.Button(TempContent.Of(Localization.Credit, Localization.CreditTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
-            {
+            if (GUILayout.Button(TempContent.Of(Localization.Credit, Localization.CreditTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false))) {
                 if (EditorUtility.DisplayDialog(Localization.CreditTitle, Localization.CreditBody,
-                        Localization.CreditOpenList, Localization.CreditClose))
+                        Localization.CreditOpenList, Localization.CreditClose)) {
                     Application.OpenURL(Localization.CreditsUrl);
+                }
             }
 
             EditorGUILayout.EndHorizontal();
@@ -572,14 +553,17 @@ namespace Iroca
         /// シーンへのライブプレビュー（PublishLivePreviewTarget）の可否にも使う。案内の都合で条件を
         /// 変えるときは、そちらへの影響も確認すること。
         /// </summary>
-        private bool HasEnabledZone
-        {
-            get
-            {
+        private bool HasEnabledZone {
+            get {
                 var list = Session?.zones;
-                if (list == null) return false;
-                for (int i = 0; i < list.Count; i++)
-                    if (list[i] != null && list[i].enabled) return true;
+                if (list == null) {
+                    return false;
+                }
+                for (int i = 0; i < list.Count; i++) {
+                    if (list[i] != null && list[i].enabled) {
+                        return true;
+                    }
+                }
                 return false;
             }
         }
@@ -591,16 +575,17 @@ namespace Iroca
         /// （以前はサンプルカラーだけで ✓ を付け、案内もそこで終わっていた）。
         /// プレビューの右クリックの案内（PreviewView.DrawIdleRow）を出し始める条件にも使う。
         /// </summary>
-        internal bool StepZonesDone
-        {
-            get
-            {
+        internal bool StepZonesDone {
+            get {
                 var list = Session?.zones;
-                if (list == null) return false;
-                for (int i = 0; i < list.Count; i++)
-                {
+                if (list == null) {
+                    return false;
+                }
+                for (int i = 0; i < list.Count; i++) {
                     var z = list[i];
-                    if (z != null && z.enabled && z.HasSampleColor && z.HasTargetColor) return true;
+                    if (z != null && z.enabled && z.HasSampleColor && z.HasTargetColor) {
+                        return true;
+                    }
                 }
                 return false;
             }
@@ -615,22 +600,32 @@ namespace Iroca
         // DrawTextureField が描いている案内の文面（NextStepHint の結果を Layout ごとに取り直す）。
         [System.NonSerialized] private string _nextStepHint;
 
-        private string NextStepHint()
-        {
-            if (!StepTextureDone) return null;               // テクスチャ欄の HelpBox が案内済み
-            if (!HasEnabledZone) return Localization.NextStepAddZone;
+        private string NextStepHint() {
+            if (!StepTextureDone) {
+                return null;               // テクスチャ欄の HelpBox が案内済み
+            }
+            if (!HasEnabledZone) {
+                return Localization.NextStepAddZone;
+            }
 
             // 手順の途中のゾーンを、最後に足したもの（リストの下）から探す。2 色目を足したときに、
             // そのゾーンの次の一手を案内するため。
             var list = Session.zones;
-            for (int i = list.Count - 1; i >= 0; i--)
-            {
+            for (int i = list.Count - 1; i >= 0; i--) {
                 var z = list[i];
-                if (z == null || !z.enabled) continue;
+                if (z == null || !z.enabled) {
+                    continue;
+                }
                 string name = string.IsNullOrEmpty(z.name) ? Localization.UnnamedZone : z.name;
-                if (!z.HasSampleColor) return string.Format(Localization.NextStepPickColorFormat, name);
-                if (!z.HasTargetColor) return string.Format(Localization.NextStepPickTargetFormat, name);
-                if (IsUntunedNewZone(z)) return string.Format(Localization.NextStepAutoTuneFormat, name);
+                if (!z.HasSampleColor) {
+                    return string.Format(Localization.NextStepPickColorFormat, name);
+                }
+                if (!z.HasTargetColor) {
+                    return string.Format(Localization.NextStepPickTargetFormat, name);
+                }
+                if (IsUntunedNewZone(z)) {
+                    return string.Format(Localization.NextStepAutoTuneFormat, name);
+                }
             }
             return null;
         }
@@ -640,10 +635,13 @@ namespace Iroca
         /// 自動調整はこのウィンドウで走らせれば由来が残る。ウィンドウを開き直した後は由来が無いので、
         /// 自動調整が書くもの（内部サンプル・初期値以外の許容範囲）で見分ける。
         /// </summary>
-        internal bool IsUntunedNewZone(ColorZone z)
-        {
-            if (!string.IsNullOrEmpty(AutoTuneProvenance(z.id))) return false;
-            if (z.extraSamples != null && z.extraSamples.Count > 0) return false;
+        internal bool IsUntunedNewZone(ColorZone z) {
+            if (!string.IsNullOrEmpty(AutoTuneProvenance(z.id))) {
+                return false;
+            }
+            if (z.extraSamples != null && z.extraSamples.Count > 0) {
+                return false;
+            }
             return Mathf.Approximately(z.tolerance, EditingSession.NewZoneInitialTolerance);
         }
 
@@ -653,25 +651,27 @@ namespace Iroca
 
         // 英語表示の AI 翻訳のお知らせ(閉じるまで出す。Localization.ShowEnglishTranslationNotice)。
         // エディタを止めるダイアログはやめ、ウィンドウの上部に閉じられる帯で出す。
-        private void DrawTranslationNotice()
-        {
-            if (Event.current.type == EventType.Layout)
+        private void DrawTranslationNotice() {
+            if (Event.current.type == EventType.Layout) {
                 _showTranslationNotice = Localization.ShowEnglishTranslationNotice;
-            if (!_showTranslationNotice) return;
+            }
+            if (!_showTranslationNotice) {
+                return;
+            }
             EditorGUILayout.HelpBox(Localization.EnglishTranslationNotice, MessageType.Info);
             EditorGUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
             // テクスチャ欄は変更の検出(プレビューの作り直し)に囲まれているので、閉じるだけでは立てない。
             bool changed = GUI.changed;
             if (GUILayout.Button(TempContent.Of(Localization.EnglishTranslationNoticeClose,
-                    Localization.EnglishTranslationNoticeCloseTooltip), GUILayout.ExpandWidth(false)))
+                    Localization.EnglishTranslationNoticeCloseTooltip), GUILayout.ExpandWidth(false))) {
                 Localization.CloseEnglishTranslationNotice();
+            }
             GUI.changed = changed;
             EditorGUILayout.EndHorizontal();
         }
 
-        private void DrawTextureField()
-        {
+        private void DrawTextureField() {
             EditorGUILayout.Space(4);
             DrawTranslationNotice();
             // 済んだ手順に ✓ を付ける。番号だけでは「どこまで進んだか」が分からず、
@@ -682,8 +682,9 @@ namespace Iroca
                 EditorStyles.boldLabel);
 
             // 開始点が分かりにくいので、テクスチャ未設定時だけ一連の流れを案内する。
-            if (SourceTexture == null)
+            if (SourceTexture == null) {
                 EditorGUILayout.HelpBox(Localization.WorkflowHint, MessageType.Info);
+            }
 
             var newTex = (Texture2D)EditorGUILayout.ObjectField(
                 TempContent.Of(Localization.Texture, Localization.TextureTooltip),
@@ -692,27 +693,29 @@ namespace Iroca
                 // 右端の小さな枠のために行の左側が 3 行ぶん空いて、下の設定列とプレビューの
                 // 高さを恒常的に奪っていた。絵はプレビューで見えるのでここでは名前だけで足りる。
                 GUILayout.Height(EditorGUIUtility.singleLineHeight));
-            if (newTex != SourceTexture)
+            if (newTex != SourceTexture) {
                 SwitchSourceTexture(newTex);
+            }
 
             // 保存と読み込みの失敗は Console だけでは気づけないので、直るまで出す。
-            if (_lastSaveFailed)
+            if (_lastSaveFailed) {
                 EditorGUILayout.HelpBox(Localization.EditSaveFailedBanner, MessageType.Error);
-            if (_sessionLoadFailed || (_maskView != null && _maskView.MaskLoadFailed))
+            }
+            if (_sessionLoadFailed || (_maskView != null && _maskView.MaskLoadFailed)) {
                 EditorGUILayout.HelpBox(Localization.EditLoadFailedBanner, MessageType.Warning);
+            }
 
             // どのレシピにも結び付いていないと、編集はレシピ(シーンのプレビューとアップロード)に入らない。
-            if (_unboundRecipeCount >= 2)
+            if (_unboundRecipeCount >= 2) {
                 EditorGUILayout.HelpBox(string.Format(Localization.UnboundRecipesFormat, _unboundRecipeCount), MessageType.Warning);
+            }
 
             // Read/Write を求めるのは、原本ファイルからも画素を取れないときだけ（PSD/TGA 等）。
             // PNG/JPG は原本を直接読めるので、インポート設定を書き換える必要はない。
-            if (SourceTexture != null && !CanReadSource(SourceTexture))
-            {
+            if (SourceTexture != null && !CanReadSource(SourceTexture)) {
                 EditorGUILayout.HelpBox(Localization.ReadWriteError, MessageType.Error);
 
-                if (GUILayout.Button(TempContent.Of(Localization.EnableReadWrite, Localization.EnableReadWriteTooltip)))
-                {
+                if (GUILayout.Button(TempContent.Of(Localization.EnableReadWrite, Localization.EnableReadWriteTooltip))) {
                     TextureIO.EnableReadWrite(SourceTexture);
                 }
             }
@@ -730,11 +733,13 @@ namespace Iroca
             // ドラッグ中は前の文面のまま据え置く。許容範囲のスライダーを動かした瞬間に案内が消えると、
             // つまんでいるスライダーごと設定列が上へずれる。文面は Layout のときだけ決め、同じフレームの
             // Repaint と行数を揃える。
-            if (Event.current.type == EventType.Layout && GUIUtility.hotControl == 0)
+            if (Event.current.type == EventType.Layout && GUIUtility.hotControl == 0) {
                 _nextStepHint = NextStepHint();
+            }
             string next = _nextStepHint;
-            if (!string.IsNullOrEmpty(next))
+            if (!string.IsNullOrEmpty(next)) {
                 GUILayout.Label(next, EditorStyles.wordWrappedMiniLabel);
+            }
 
             // AI(Sentis + モデル)の準備状況。未準備のときだけ非モーダルの帯で案内する
             // （起動時モーダルの置き換え。導入・ダウンロード・再起動の導線をここへ集約した）。
@@ -759,32 +764,47 @@ namespace Iroca
         /// 目安と搭載量を並べて開いた時点で知らせる。
         /// 閉じると、そのテクスチャでは Unity を閉じるまで出さない(上部の高さを奪い続けないため)。
         /// </summary>
-        private void DrawLargeSourceNotice()
-        {
-            if (SourceTexture == null || _previewView == null) return;
+        private void DrawLargeSourceNotice() {
+            if (SourceTexture == null || _previewView == null) {
+                return;
+            }
             // Play 中のリロード直後で原本の読み直しを待っている間は、案内のために読まない。
-            if (_previewView.SourceLoadDeferred) return;
+            if (_previewView.SourceLoadDeferred) {
+                return;
+            }
             // 別スレッドで読んでいる間は待たない(読み終えた後の再描画で出す)。
-            if (_previewView.PollSource(SourceTexture) != SourceState.Ready) return;
-            if (!_previewView.TryGetTrueSourcePixels(SourceTexture, out _, out int ww, out int wh)) return;
+            if (_previewView.PollSource(SourceTexture) != SourceState.Ready) {
+                return;
+            }
+            if (!_previewView.TryGetTrueSourcePixels(SourceTexture, out _, out int ww, out int wh)) {
+                return;
+            }
             // 元ファイルの寸法。取り込み済みテクスチャから読んでいる(PSD など)ときは、書き出しもその寸法。
             int w = ww, h = wh;
-            if (_previewView.TrueSourceFromFile) SourceFileSize(SourceTexture, ref w, ref h);
-            if (!WorkingResolution.ExceedsLimit(w, h)) return;
+            if (_previewView.TrueSourceFromFile) {
+                SourceFileSize(SourceTexture, ref w, ref h);
+            }
+            if (!WorkingResolution.ExceedsLimit(w, h)) {
+                return;
+            }
             string key = LargeSourceDismissedKeyPrefix + CurrentTexturePath(SourceTexture);
-            if (SessionState.GetBool(key, false)) return;
+            if (SessionState.GetBool(key, false)) {
+                return;
+            }
 
             double needGB = (double)w * h * SourceBytesPerPixel / (1L << 30);
             // 搭載量は切り上げる。systemMemorySize は OS が使える量なので、32GB の PC でも 31.5GB 前後になる。
             double haveGB = System.Math.Ceiling(SystemInfo.systemMemorySize / 1024.0);
             string text;
-            if ((long)ww * wh < (long)w * h)
+            if ((long)ww * wh < (long)w * h) {
                 text = string.Format(Localization.LargeSourceExportNoticeFormat, w, h, ww, wh, needGB, haveGB);
-            else
+            } else {
                 text = string.Format(Localization.LargeSourceNoticeFormat, w, h, needGB, haveGB);
+            }
             EditorGUILayout.HelpBox(text, MessageType.Warning);
-            if (GUILayout.Button(TempContent.Of(Localization.LargeSourceDismiss, Localization.LargeSourceDismissTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.LargeSourceDismiss, Localization.LargeSourceDismissTooltip))) {
                 SessionState.SetBool(key, true);
+            }
         }
 
         // 元ファイルの寸法の覚え(案内は OnGUI ごとに通るので、取り込み設定を引くのはテクスチャか
@@ -793,14 +813,13 @@ namespace Iroca
         [System.NonSerialized] private int _fileSizeImportW, _fileSizeImportH, _fileW, _fileH;
 
         // 元ファイルの寸法(取れなければ w, h はそのまま)。
-        private void SourceFileSize(Texture2D tex, ref int w, ref int h)
-        {
-            if (_fileSizeFor != tex || _fileSizeImportW != tex.width || _fileSizeImportH != tex.height)
-            {
+        private void SourceFileSize(Texture2D tex, ref int w, ref int h) {
+            if (_fileSizeFor != tex || _fileSizeImportW != tex.width || _fileSizeImportH != tex.height) {
                 int fw = 0, fh = 0;
                 string path = AssetDatabase.GetAssetPath(tex);
-                if (!string.IsNullOrEmpty(path) && AssetImporter.GetAtPath(path) is TextureImporter ti)
+                if (!string.IsNullOrEmpty(path) && AssetImporter.GetAtPath(path) is TextureImporter ti) {
                     ti.GetSourceTextureWidthAndHeight(out fw, out fh);
+                }
                 _fileSizeFor = tex;
                 _fileSizeImportW = tex.width;
                 _fileSizeImportH = tex.height;
@@ -810,12 +829,10 @@ namespace Iroca
             if (_fileW > 0 && _fileH > 0) { w = _fileW; h = _fileH; }
         }
 
-        private void DrawProcessingSection()
-        {
+        private void DrawProcessingSection() {
             processingFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(processingFoldout,
                 TempContent.Of(Localization.Processing, Localization.ProcessingTooltip));
-            if (!processingFoldout)
-            {
+            if (!processingFoldout) {
                 EditorGUILayout.EndFoldoutHeaderGroup();
                 return;
             }
@@ -842,10 +859,8 @@ namespace Iroca
             processingDetailFoldout = EditorGUILayout.Foldout(processingDetailFoldout,
                 TempContent.Of(Localization.ProcessingDetailFoldout, Localization.ProcessingDetailFoldoutTooltip),
                 true);
-            if (processingDetailFoldout)
-            {
-                using (new EditorGUI.IndentLevelScope())
-                {
+            if (processingDetailFoldout) {
+                using (new EditorGUI.IndentLevelScope()) {
                     holeFillPasses = UndoHelper.IntSlider(UndoTarget,
                         TempContent.Of(Localization.HoleFillPasses, Localization.HoleFillPassesTooltip),
                         holeFillPasses, 0, 10);
@@ -857,8 +872,7 @@ namespace Iroca
                         relaxedSatMin, 0f, 0.2f);
                     // relaxedSatRamp は出さない。緩和マッチで使わなくなり、動かしても何も変わらないため。
                     // 値は選択キャッシュのキーと、プリセット・セッションの保存形式の互換のために残している。
-                    using (new EditorGUI.DisabledScope(!useDecontamination))
-                    {
+                    using (new EditorGUI.DisabledScope(!useDecontamination)) {
                         decontaminationRadius = UndoHelper.IntSlider(UndoTarget,
                             TempContent.Of(Localization.DecontaminationRadius, Localization.DecontaminationRadiusTooltip),
                             decontaminationRadius,

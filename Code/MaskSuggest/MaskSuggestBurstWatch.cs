@@ -3,8 +3,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// ドメインリロード直後に出る Burst のコンパイル失敗を捕まえて、セッションフラグに残す。
     ///
@@ -19,8 +18,7 @@ namespace Iroca
     /// SessionState はエディタ再起動で消える = 再起動すれば警告も自然に消える。
     /// </summary>
     [InitializeOnLoad]
-    internal static class MaskSuggestBurstWatch
-    {
+    internal static class MaskSuggestBurstWatch {
         /// <summary>このセッションで Burst のコンパイル失敗を観測した(SessionState キー)。</summary>
         public const string BurstFailedKey = IrocaPrefs.BurstCompileFailed;
 
@@ -30,24 +28,27 @@ namespace Iroca
 
         public static bool FailedThisSession => SessionState.GetBool(BurstFailedKey, false);
 
-        static MaskSuggestBurstWatch()
-        {
-            if (FailedThisSession) return;
+        static MaskSuggestBurstWatch() {
+            if (FailedThisSession) {
+                return;
+            }
             Application.logMessageReceived += OnLog;
             EditorApplication.update += StopWatching;
         }
 
-        static void OnLog(string condition, string stackTrace, LogType type)
-        {
-            if (type != LogType.Error && type != LogType.Exception) return;
+        static void OnLog(string condition, string stackTrace, LogType type) {
+            if (type != LogType.Error && type != LogType.Exception) {
+                return;
+            }
             if (condition == null ||
-                condition.IndexOf(FailureMarker, System.StringComparison.Ordinal) < 0) return;
+                condition.IndexOf(FailureMarker, System.StringComparison.Ordinal) < 0) {
+                return;
+            }
             SessionState.SetBool(BurstFailedKey, true);
             StopWatching();
         }
 
-        static void StopWatching()
-        {
+        static void StopWatching() {
             Application.logMessageReceived -= OnLog;
             EditorApplication.update -= StopWatching;
         }

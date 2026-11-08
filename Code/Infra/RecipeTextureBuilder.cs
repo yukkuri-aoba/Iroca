@@ -12,8 +12,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// レシピ(<see cref="IrocaRecipe"/>)から、非破壊ビルドで差し替える色替え済みテクスチャを作る。
     /// <list type="number">
@@ -26,10 +25,8 @@ namespace Iroca
     /// </list>
     /// 再生のたびに走るので、出来上がり(圧縮済みの生データ)を Library にキャッシュする。
     /// </summary>
-    internal static class RecipeTextureBuilder
-    {
-        internal enum Failure
-        {
+    internal static class RecipeTextureBuilder {
+        internal enum Failure {
             None,
             /// <summary>レシピに元テクスチャが設定されていない。</summary>
             NoSourceTexture,
@@ -51,35 +48,32 @@ namespace Iroca
         /// <summary>
         /// 差し替え用テクスチャを作る(キャッシュがあればそれを使う)。失敗したら null と理由を返す。
         /// </summary>
-        public static Texture2D Build(IrocaRecipe recipe, out Failure failure)
-        {
+        public static Texture2D Build(IrocaRecipe recipe, out Failure failure) {
             failure = Failure.None;
             var like = recipe != null ? recipe.sourceTexture : null;
             if (like == null) { failure = Failure.NoSourceTexture; return null; }
 
             string key = CacheKey(recipe, like);
             var cached = TryLoadCache(key, like);
-            if (cached != null) return cached;
+            if (cached != null) {
+                return cached;
+            }
 
             BeginCompute();
-            try
-            {
-                if (!TryRecolorNative(recipe, out var pixels, out failure)) return null;
-                Texture2D tex;
-                try
-                {
-                    tex = CreateMatching(pixels, like);
+            try {
+                if (!TryRecolorNative(recipe, out var pixels, out failure)) {
+                    return null;
                 }
-                finally
-                {
+                Texture2D tex;
+                try {
+                    tex = CreateMatching(pixels, like);
+                } finally {
                     pixels.Release();
                 }
                 TryStoreCache(key, tex);
                 FinishLike(tex, like);
                 return tex;
-            }
-            finally
-            {
+            } finally {
                 EndCompute();
             }
         }
@@ -90,16 +84,14 @@ namespace Iroca
         private static bool s_releaseDue;
 
         // 計算を始める(メインスレッド)。終えたら必ず EndCompute を呼ぶ。
-        private static void BeginCompute()
-        {
+        private static void BeginCompute() {
             s_computing++;
             s_releaseDue = true;
             NativeMemoryLifecycle.WorkStarted();
         }
 
         // 計算を 1 つ終える(メインスレッド)。
-        private static void EndCompute()
-        {
+        private static void EndCompute() {
             NativeMemoryLifecycle.WorkEnded();
             EndHold();
         }
@@ -108,10 +100,13 @@ namespace Iroca
         // 開いていれば返さない(編集の次の 1 手が作業配列と色の表を作り直すことになる。ウィンドウを閉じたときに
         // まとめて返る)。ウィンドウを閉じるとシーンのプレビューが登録済みのレシピを作り直すので、ここで返さないと
         // 閉じたときの解放が打ち消され、4K で 600MB ほどがエディタを閉じるまで残っていた。
-        private static void EndHold()
-        {
-            if (--s_computing > 0 || !s_releaseDue) return;
-            if (EditingSessionRegistry.Any) return;
+        private static void EndHold() {
+            if (--s_computing > 0 || !s_releaseDue) {
+                return;
+            }
+            if (EditingSessionRegistry.Any) {
+                return;
+            }
             s_releaseDue = false;
             NativeMemoryLifecycle.ReleaseWhenIdle();
         }
@@ -120,19 +115,18 @@ namespace Iroca
         /// 続けて何枚も作る間(非破壊ビルドの 1 段)は作業配列を手放さず、終わったときにまとめて手放す
         /// (1 枚ごとに手放すと、次の 1 枚が作業配列を確保し直す)。メインスレッドで使う。
         /// </summary>
-        internal static IDisposable KeepWorkBuffers()
-        {
+        internal static IDisposable KeepWorkBuffers() {
             s_computing++;
             return new KeepScope();
         }
 
-        private sealed class KeepScope : IDisposable
-        {
+        private sealed class KeepScope : IDisposable {
             private bool _disposed;
 
-            public void Dispose()
-            {
-                if (_disposed) return;
+            public void Dispose() {
+                if (_disposed) {
+                    return;
+                }
                 _disposed = true;
                 EndHold();
             }
@@ -160,15 +154,14 @@ namespace Iroca
         /// (待っていたシーンのプレビューが、元のテクスチャのまま次の表示へ進めるように)。計算は作業配列をプールへ返して
         /// 止まり、途中の結果はテクスチャにもキャッシュにもしない。計算の数の勘定(作業配列の解放の判断)は崩さない。
         /// </summary>
-        internal static void BuildAsync(IrocaRecipe recipe, CancellationToken cancellationToken, Action<Texture2D> done)
-        {
+        internal static void BuildAsync(IrocaRecipe recipe, CancellationToken cancellationToken, Action<Texture2D> done) {
             bool called = false;
             var registration = default(CancellationTokenRegistration);
-            void Once(Texture2D tex)
-            {
-                if (called)
-                {
-                    if (tex != null) UnityEngine.Object.DestroyImmediate(tex);   // 受け取り手がいない
+            void Once(Texture2D tex) {
+                if (called) {
+                    if (tex != null) {
+                        UnityEngine.Object.DestroyImmediate(tex);   // 受け取り手がいない
+                    }
                     return;
                 }
                 called = true;
@@ -177,21 +170,18 @@ namespace Iroca
             }
 
             // 取り消しはどのスレッドから来てもよいので、知らせるのはメインスレッドへ戻してから。
-            if (cancellationToken.CanBeCanceled)
+            if (cancellationToken.CanBeCanceled) {
                 registration = cancellationToken.Register(() => PreviewJobMainThread.Post(() => Once(null)));
-            try
-            {
-                StartBuild(recipe, cancellationToken, Once);
             }
-            catch (Exception ex)
-            {
+            try {
+                StartBuild(recipe, cancellationToken, Once);
+            } catch (Exception ex) {
                 Debug.LogException(ex);
                 Once(null);
             }
         }
 
-        private static void StartBuild(IrocaRecipe recipe, CancellationToken ct, Action<Texture2D> done)
-        {
+        private static void StartBuild(IrocaRecipe recipe, CancellationToken ct, Action<Texture2D> done) {
             var like = recipe != null ? recipe.sourceTexture : null;
             if (like == null) { done(null); return; }
 
@@ -200,8 +190,7 @@ namespace Iroca
             if (cached != null) { done(cached); return; }
 
             if (!TryLoadState(recipe, out var state, out _)) { done(null); return; }
-            PostOrFail(done, () =>
-            {
+            PostOrFail(done, () => {
                 // 読む前に取り消された(待っていたプレビューがもう要らない)。
                 if (ct.IsCancellationRequested) { done(null); return; }
                 if (like == null) { done(null); return; }
@@ -217,23 +206,20 @@ namespace Iroca
                 // 計算そのものが全コアを使うので、順番にしても合計の時間はほぼ同じ。
                 // 前の計算の成否は見ない(1 つが失敗しても後ろは作る)。
                 BeginCompute();
-                var compute = s_lastCompute.ContinueWith(_ =>
-                {
-                    try
-                    {
+                var compute = s_lastCompute.ContinueWith(_ => {
+                    try {
                         // 順番を待つ間に取り消されたら計算しない。計算中に取り消されたら、PixelProcessor が作業配列を
                         // プールへ返して OperationCanceledException で抜ける(画素はここで手放す)。
                         ct.ThrowIfCancellationRequested();
-                        if (pixels == null)
-                        {
+                        if (pixels == null) {
                             pixels = TextureIO.TryDecodePngOffMainThread(srcPath, importW, importH, ct);
-                            if (pixels == null) throw new InvalidDataException($"The PNG could not be decoded: {srcPath}");
+                            if (pixels == null) {
+                                throw new InvalidDataException($"The PNG could not be decoded: {srcPath}");
+                            }
                         }
                         Recolor(pixels, state, ct);
                         return pixels;
-                    }
-                    catch
-                    {
+                    } catch {
                         pixels?.Release();
                         throw;
                     }
@@ -242,14 +228,10 @@ namespace Iroca
                 // 後続のタスクをつなぎ目にする(後続は走り終えると前のタスクへの参照を手放す)。
                 s_lastCompute = compute.ContinueWith(_ => { }, CancellationToken.None,
                     TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-                compute.ContinueWith(t => PostOrFail(done, () =>
-                {
-                    try
-                    {
+                compute.ContinueWith(t => PostOrFail(done, () => {
+                    try {
                         FinishAsync(t, like, key, ct, done);
-                    }
-                    finally
-                    {
+                    } finally {
                         EndCompute();
                     }
                 }), TaskScheduler.Default);
@@ -260,27 +242,19 @@ namespace Iroca
         private static Task s_lastCompute = Task.CompletedTask;
 
         // 別スレッドで読める PNG か。ファイルを開けないときは false(TryReadPixels が理由を記録して失敗にする)。
-        private static bool CanReadOffMainThread(string srcPath)
-        {
-            try { return PngFileDecoder.CanDecode(srcPath); }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
-                                       || ex is ArgumentException || ex is NotSupportedException)
-            {
+        private static bool CanReadOffMainThread(string srcPath) {
+            try { return PngFileDecoder.CanDecode(srcPath); } catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                                                                                         || ex is ArgumentException || ex is NotSupportedException) {
                 return false;
             }
         }
 
         // メインスレッドの次の tick で work を回す。例外で抜けたら記録して done(null)(done は 1 回目だけ効く)。
-        private static void PostOrFail(Action<Texture2D> done, Action work)
-        {
-            PreviewJobMainThread.Post(() =>
-            {
-                try
-                {
+        private static void PostOrFail(Action<Texture2D> done, Action work) {
+            PreviewJobMainThread.Post(() => {
+                try {
                     work();
-                }
-                catch (Exception ex)
-                {
+                } catch (Exception ex) {
                     Debug.LogException(ex);
                     done(null);
                 }
@@ -289,45 +263,37 @@ namespace Iroca
 
         // 計算が終わったあとのメインスレッドの仕事(画素の確定、次の tick で圧縮とキャッシュ)。
         private static void FinishAsync(Task<NativePixels> t, Texture2D like, string key, CancellationToken ct,
-            Action<Texture2D> done)
-        {
+            Action<Texture2D> done) {
             // 計算している間に元テクスチャが消えたら作らない(取り込み直しで寸法が変わったなら合わせて縮める)。
             // 計算した画素はテクスチャへ写したらすぐ手放す(失敗した計算は自分で手放している)。
             var pixels = t.Status == TaskStatus.RanToCompletion ? t.Result : null;
             // 取り消されたら作らない(計算し終えていても、もう要らないものに圧縮とキャッシュの書き込みで
             // メインスレッドを使わない。done は取り消したときに呼ばれる)。
-            if (ct.IsCancellationRequested)
-            {
+            if (ct.IsCancellationRequested) {
                 pixels?.Release();
                 done(null);
                 return;
             }
             Texture2D tex;
-            try
-            {
+            try {
                 tex = Step(() => pixels == null || like == null ? null : CreateUncompressed(pixels, like), null);
-            }
-            finally
-            {
+            } finally {
                 pixels?.Release();
             }
-            if (tex == null)
-            {
-                if (t.IsFaulted && !(t.Exception.GetBaseException() is OperationCanceledException))
+            if (tex == null) {
+                if (t.IsFaulted && !(t.Exception.GetBaseException() is OperationCanceledException)) {
                     Debug.LogException(t.Exception.GetBaseException());
+                }
                 done(null);
                 return;
             }
-            PostOrFail(done, () =>
-            {
-                if (like == null || ct.IsCancellationRequested)
-                {
+            PostOrFail(done, () => {
+                if (like == null || ct.IsCancellationRequested) {
                     UnityEngine.Object.DestroyImmediate(tex);
                     done(null);
                     return;
                 }
-                done(Step(() =>
-                {
+                done(Step(() => {
                     Compress(tex, like);
                     TryStoreCache(key, tex);
                     FinishLike(tex, like);
@@ -337,16 +303,14 @@ namespace Iroca
         }
 
         // 失敗したら記録して、作りかけを捨てて null を返す。
-        private static Texture2D Step(Func<Texture2D> work, Texture2D partial)
-        {
-            try
-            {
+        private static Texture2D Step(Func<Texture2D> work, Texture2D partial) {
+            try {
                 return work();
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogException(ex);
-                if (partial != null) UnityEngine.Object.DestroyImmediate(partial);
+                if (partial != null) {
+                    UnityEngine.Object.DestroyImmediate(partial);
+                }
                 return null;
             }
         }
@@ -357,18 +321,16 @@ namespace Iroca
         /// (作業解像度が元ファイルと同じときは「適用して保存」の書き出しとも一致する)。
         /// </summary>
         internal static bool TryRecolor(IrocaRecipe recipe, out Color32[] pixels, out int width, out int height,
-            out Failure failure)
-        {
+            out Failure failure) {
             pixels = null; width = height = 0;
-            if (!TryRecolorNative(recipe, out var native, out failure)) return false;
-            try
-            {
+            if (!TryRecolorNative(recipe, out var native, out failure)) {
+                return false;
+            }
+            try {
                 pixels = native.ToArray();
                 width = native.Width;
                 height = native.Height;
-            }
-            finally
-            {
+            } finally {
                 native.Release();
             }
             return true;
@@ -377,17 +339,17 @@ namespace Iroca
         // TryRecolor と同じ画素を Mono のヒープの外に作る(ビルドが使う。参照 1 で返すので呼び出し側が Release する)。
         // 非破壊ビルド・シーンのプレビューはいろかのウィンドウを閉じた後にも走るので、管理配列で持つとその分
         // (4K で 64MB)Mono のヒープが広がったまま残る。
-        private static bool TryRecolorNative(IrocaRecipe recipe, out NativePixels pixels, out Failure failure)
-        {
+        private static bool TryRecolorNative(IrocaRecipe recipe, out NativePixels pixels, out Failure failure) {
             pixels = null;
-            if (!TryLoadState(recipe, out var state, out failure)) return false;
-            if (!TryReadPixels(recipe.sourceTexture, out pixels, out failure)) return false;
-            try
-            {
-                Recolor(pixels, state);
+            if (!TryLoadState(recipe, out var state, out failure)) {
+                return false;
             }
-            catch
-            {
+            if (!TryReadPixels(recipe.sourceTexture, out pixels, out failure)) {
+                return false;
+            }
+            try {
+                Recolor(pixels, state);
+            } catch {
                 pixels.Release();
                 pixels = null;
                 throw;
@@ -401,8 +363,7 @@ namespace Iroca
             => SessionRecolor.Apply(pixels.Ptr, pixels.Width, pixels.Height, state, cancellationToken);
 
         // レシピの編集状態を読み、色替えするものがあるか確かめる(軽い)。
-        private static bool TryLoadState(IrocaRecipe recipe, out IrocaSessionState state, out Failure failure)
-        {
+        private static bool TryLoadState(IrocaRecipe recipe, out IrocaSessionState state, out Failure failure) {
             state = null; failure = Failure.None;
             var src = recipe != null ? recipe.sourceTexture : null;
             if (src == null) { failure = Failure.NoSourceTexture; return false; }
@@ -415,18 +376,14 @@ namespace Iroca
         // 原本の画素を作業解像度で読む(4K で 0.2 秒ほど)。Unity の API を使うのでメインスレッドで呼ぶ
         // (シーンのプレビューの PNG は計算のスレッドで読むので、ここを通らない)。
         // 読めたら参照 1 の画素を返す(呼び出し側が Release する)。
-        private static bool TryReadPixels(Texture2D src, out NativePixels pixels, out Failure failure)
-        {
+        private static bool TryReadPixels(Texture2D src, out NativePixels pixels, out Failure failure) {
             failure = Failure.None;
             string srcPath = AssetDatabase.GetAssetPath(src);
             ExportPipeline.SourceKind kind;
-            try
-            {
+            try {
                 kind = ExportPipeline.ReadWorkingPixelsNative(srcPath, src, out pixels);
-            }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
-                                       || ex is ArgumentException || ex is NotSupportedException)
-            {
+            } catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                                         || ex is ArgumentException || ex is NotSupportedException) {
                 // 原本のファイルを開けない(ほかのアプリが掴んでいる・同期サービスのオンライン専用ファイル・
                 // Unity の外で消した等)。ビルドでは「元テクスチャを読めません」として報告する。
                 Debug.LogWarning($"[Iroca] 元テクスチャのファイルを読めませんでした: {srcPath}\n{ex.Message}");
@@ -442,18 +399,19 @@ namespace Iroca
         /// 取り込み済みの <paramref name="like"/> と同じ寸法・形式・ミップ有無・色空間のテクスチャを作る
         /// (読み書き可能のまま返す。サンプリング設定などは <see cref="FinishLike"/> でそろえる)。
         /// </summary>
-        internal static unsafe Texture2D CreateMatching(Color32[] pixels, int width, int height, Texture2D like)
-        {
-            if (pixels.Length < (long)width * height)
+        internal static unsafe Texture2D CreateMatching(Color32[] pixels, int width, int height, Texture2D like) {
+            if (pixels.Length < (long)width * height) {
                 throw new ArgumentException($"pixels.Length({pixels.Length}) < {width}x{height}", nameof(pixels));
+            }
             Texture2D tex;
-            fixed (Color32* p = pixels) tex = CreateUncompressed(p, width, height, like);
+            fixed (Color32* p = pixels) {
+                tex = CreateUncompressed(p, width, height, like);
+            }
             Compress(tex, like);
             return tex;
         }
 
-        private static Texture2D CreateMatching(NativePixels pixels, Texture2D like)
-        {
+        private static Texture2D CreateMatching(NativePixels pixels, Texture2D like) {
             var tex = CreateUncompressed(pixels, like);
             Compress(tex, like);
             return tex;
@@ -464,25 +422,21 @@ namespace Iroca
 
         // 圧縮の前まで(寸法・ミップ有無・色空間を like にそろえた RGBA32)。画素(width*height)はテクスチャの
         // 一番上のミップへ直接書く(寸法が違えば縮めながら)。管理配列を経由しない。
-        private static unsafe Texture2D CreateUncompressed(Color32* pixels, int width, int height, Texture2D like)
-        {
+        private static unsafe Texture2D CreateUncompressed(Color32* pixels, int width, int height, Texture2D like) {
             int dw = like.width, dh = like.height;
             bool linear = !GraphicsFormatUtility.IsSRGBFormat(like.graphicsFormat);
             bool mips = like.mipmapCount > 1;
             var tex = new Texture2D(dw, dh, TextureFormat.RGBA32, mips, linear);
-            try
-            {
+            try {
                 var top = (Color32*)NativeArrayUnsafeUtility.GetUnsafePtr(tex.GetPixelData<Color32>(0));
-                if (dw == width && dh == height)
-                {
+                if (dw == width && dh == height) {
                     long bytes = (long)dw * dh * sizeof(Color32);
                     Buffer.MemoryCopy(pixels, top, bytes, bytes);
+                } else {
+                    WorkingResolution.ResizeArea(pixels, width, height, dw, dh, top);
                 }
-                else WorkingResolution.ResizeArea(pixels, width, height, dw, dh, top);
                 tex.Apply(updateMipmaps: mips, makeNoLongerReadable: false);
-            }
-            catch
-            {
+            } catch {
                 UnityEngine.Object.DestroyImmediate(tex);
                 throw;
             }
@@ -490,25 +444,24 @@ namespace Iroca
         }
 
         // 取り込み時の形式へそろえる(アルファを取り込み設定どおりにしてから、圧縮形式なら圧縮、非圧縮なら同じ形式へ詰め替え)。
-        private static void Compress(Texture2D tex, Texture2D like)
-        {
+        private static void Compress(Texture2D tex, Texture2D like) {
             var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) as TextureImporter;
             ApplyAlphaSource(tex, importer);
             var target = like.format;
-            if (target == tex.format) return;
-            if (!GraphicsFormatUtility.IsCompressedFormat(like.graphicsFormat))
-            {
+            if (target == tex.format) {
+                return;
+            }
+            if (!GraphicsFormatUtility.IsCompressedFormat(like.graphicsFormat)) {
                 ConvertUncompressed(tex, target);
                 return;
             }
             int quality = 50;
-            if (importer != null) quality = Mathf.Clamp(importer.compressionQuality, 0, 100);
-            try
-            {
-                EditorUtility.CompressTexture(tex, target, quality);
+            if (importer != null) {
+                quality = Mathf.Clamp(importer.compressionQuality, 0, 100);
             }
-            catch (Exception) when (CrunchFallback(target) != target)
-            {
+            try {
+                EditorUtility.CompressTexture(tex, target, quality);
+            } catch (Exception) when (CrunchFallback(target) != target) {
                 // Crunch 圧縮をエディタ上で再現できない環境では、同じ VRAM 量の非 Crunch 形式にする
                 // (Crunch が減らすのはダウンロードサイズで、VRAM は変わらない)。
                 EditorUtility.CompressTexture(tex, CrunchFallback(target), quality);
@@ -523,22 +476,25 @@ namespace Iroca
         /// 色替えの後(出来上がり)に当てる。色替えした画像を同じ取り込み設定で取り込んだとき(書き出し)と同じになる。
         /// PSD・TGA などは取り込み済みテクスチャの画素を読むので、Unity が当て済み。
         /// </summary>
-        internal static unsafe void ApplyAlphaSource(Texture2D tex, TextureImporter importer)
-        {
-            if (importer == null || importer.alphaSource == TextureImporterAlphaSource.FromInput) return;
-            if (tex.format != TextureFormat.RGBA32 || !ReadsSourceFile(importer.assetPath)) return;
+        internal static unsafe void ApplyAlphaSource(Texture2D tex, TextureImporter importer) {
+            if (importer == null || importer.alphaSource == TextureImporterAlphaSource.FromInput) {
+                return;
+            }
+            if (tex.format != TextureFormat.RGBA32 || !ReadsSourceFile(importer.assetPath)) {
+                return;
+            }
             bool gray = importer.alphaSource == TextureImporterAlphaSource.FromGrayScale;
             var top = (Color32*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility
                 .GetUnsafePtr(tex.GetPixelData<Color32>(0));
-            for (int i = 0, n = tex.width * tex.height; i < n; i++)
+            for (int i = 0, n = tex.width * tex.height; i < n; i++) {
                 top[i].a = gray ? (byte)((top[i].r + top[i].g + top[i].b + 1) / 3) : (byte)255;
+            }
             // ミップのアルファも作り直す(RGB は同じ一番上から作るので変わらない)。
             tex.Apply(updateMipmaps: tex.mipmapCount > 1, makeNoLongerReadable: false);
         }
 
         // 原本ファイルをそのまま読む形式か(LoadImage が読める PNG・JPG。ExportPipeline.ReadSourcePixels と同じ)。
-        private static bool ReadsSourceFile(string assetPath)
-        {
+        private static bool ReadsSourceFile(string assetPath) {
             string ext = Path.GetExtension(assetPath).ToLowerInvariant();
             return ext == ".png" || ext == ".jpg" || ext == ".jpeg";
         }
@@ -548,61 +504,58 @@ namespace Iroca
         /// 大きさが元より増える(RGB24 なら 1.33 倍)。各ミップの画素はそのまま写す(作り直さない)。
         /// 詰め替えられない形式なら RGBA32 のまま残す。
         /// </summary>
-        private static unsafe void ConvertUncompressed(Texture2D tex, TextureFormat target)
-        {
-            if (tex.format != TextureFormat.RGBA32) return;
+        private static unsafe void ConvertUncompressed(Texture2D tex, TextureFormat target) {
+            if (tex.format != TextureFormat.RGBA32) {
+                return;
+            }
             int mips = tex.mipmapCount;
             bool srgb = GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat);
             var original = tex.graphicsFormat;
             var levels = new Unity.Collections.NativeArray<Color32>[mips];
-            try
-            {
-                for (int m = 0; m < mips; m++)
+            try {
+                for (int m = 0; m < mips; m++) {
                     levels[m] = new Unity.Collections.NativeArray<Color32>(tex.GetPixelData<Color32>(m),
                         Unity.Collections.Allocator.Persistent);
-                try
-                {
+                }
+                try {
                     tex.Reinitialize(tex.width, tex.height, GraphicsFormatUtility.GetGraphicsFormat(target, srgb), mips > 1);
-                    for (int m = 0; m < mips; m++)
-                    {
-                        if (target == TextureFormat.RGB24)
-                        {
+                    for (int m = 0; m < mips; m++) {
+                        if (target == TextureFormat.RGB24) {
                             // いちばん多い形(アルファの無い画像を圧縮なしで取り込んだもの)は、管理配列を作らずに詰める。
                             var dst = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility
                                 .GetUnsafePtr(tex.GetPixelData<byte>(m));
                             var src = (Color32*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility
                                 .GetUnsafeReadOnlyPtr(levels[m]);
-                            for (int i = 0, n = levels[m].Length; i < n; i++, dst += 3)
-                            {
+                            for (int i = 0, n = levels[m].Length; i < n; i++, dst += 3) {
                                 dst[0] = src[i].r;
                                 dst[1] = src[i].g;
                                 dst[2] = src[i].b;
                             }
+                        } else {
+                            tex.SetPixels32(levels[m].ToArray(), m);   // まれな形式(RGB565 など)は Unity に変換させる
                         }
-                        else tex.SetPixels32(levels[m].ToArray(), m);   // まれな形式(RGB565 など)は Unity に変換させる
                     }
                     tex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
-                }
-                catch (Exception ex)
-                {
+                } catch (Exception ex) {
                     // SetPixels32 が扱えない形式など。RGBA32 に戻して中身も戻す(大きさが増えるだけで、見た目は同じ)。
                     Debug.LogWarning($"[Iroca] 色替えしたテクスチャを {target} にできなかったので RGBA32 のままにします: {ex.Message}");
                     tex.Reinitialize(tex.width, tex.height, original, mips > 1);
-                    for (int m = 0; m < mips; m++) tex.GetPixelData<Color32>(m).CopyFrom(levels[m]);
+                    for (int m = 0; m < mips; m++) {
+                        tex.GetPixelData<Color32>(m).CopyFrom(levels[m]);
+                    }
                     tex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
                 }
-            }
-            finally
-            {
-                foreach (var level in levels)
-                    if (level.IsCreated) level.Dispose();
+            } finally {
+                foreach (var level in levels) {
+                    if (level.IsCreated) {
+                        level.Dispose();
+                    }
+                }
             }
         }
 
-        private static TextureFormat CrunchFallback(TextureFormat f)
-        {
-            switch (f)
-            {
+        private static TextureFormat CrunchFallback(TextureFormat f) {
+            switch (f) {
                 case TextureFormat.DXT1Crunched: return TextureFormat.DXT1;
                 case TextureFormat.DXT5Crunched: return TextureFormat.DXT5;
                 case TextureFormat.ETC_RGB4Crunched: return TextureFormat.ETC_RGB4;
@@ -615,8 +568,7 @@ namespace Iroca
         /// サンプリング設定・mip streaming・読み書き可否を元テクスチャにそろえ、名前を付ける。
         /// 読み書き不可にするとそれ以降 GetPixels できないので最後に呼ぶ。
         /// </summary>
-        internal static void FinishLike(Texture2D tex, Texture2D like)
-        {
+        internal static void FinishLike(Texture2D tex, Texture2D like) {
             tex.name = like.name + " (Iroca)";
             tex.filterMode = like.filterMode;
             tex.wrapModeU = like.wrapModeU;
@@ -625,25 +577,29 @@ namespace Iroca
             tex.anisoLevel = like.anisoLevel;
             tex.mipMapBias = like.mipMapBias;
             if (AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) is TextureImporter importer
-                && importer.streamingMipmaps)
-            {
+                && importer.streamingMipmaps) {
                 // 実行時に作った Texture2D には mip streaming の公開 API が無いのでシリアライズ値を直接立てる。
                 var so = new SerializedObject(tex);
                 var streaming = so.FindProperty("m_StreamingMipmaps");
                 var priority = so.FindProperty("m_StreamingMipmapsPriority");
-                if (streaming != null) streaming.boolValue = true;
-                if (priority != null) priority.intValue = importer.streamingMipmapsPriority;
+                if (streaming != null) {
+                    streaming.boolValue = true;
+                }
+                if (priority != null) {
+                    priority.intValue = importer.streamingMipmapsPriority;
+                }
                 so.ApplyModifiedPropertiesWithoutUndo();
             }
-            if (!like.isReadable) tex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+            if (!like.isReadable) {
+                tex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+            }
         }
 
         // ───────────── キャッシュ(Library/Iroca/RecipeTextureCache) ─────────────
         // 鍵 = 元テクスチャの取り込み結果(ファイル内容と取り込み設定) + レシピの中身 + いろかのコード
         //      + 出来上がりの形式。どれかが変われば別の鍵になる。
 
-        internal static string CacheKey(IrocaRecipe recipe, Texture2D like)
-        {
+        internal static string CacheKey(IrocaRecipe recipe, Texture2D like) {
             string srcPath = AssetDatabase.GetAssetPath(like);
             var depHash = AssetDatabase.GetAssetDependencyHash(srcPath);
             string json = recipe.sessionJson;
@@ -660,8 +616,9 @@ namespace Iroca
             if (json != null && s_keyMemo.TryGetValue(json, out var memo)
                 && memo.depHash == depHash && memo.formatVersion == formatVersion
                 && memo.width == w && memo.height == h && memo.mipmapCount == mips
-                && memo.format == format && memo.graphicsFormat == graphicsFormat)
+                && memo.format == format && memo.graphicsFormat == graphicsFormat) {
                 return memo.key;
+            }
 
             var sb = new StringBuilder();
             sb.Append(CacheFormatVersion).Append('|');
@@ -678,13 +635,17 @@ namespace Iroca
             // 鍵は「前置き + sessionJson」をつないだ文字列の UTF-8 の SHA256(値は前と同じ)。sessionJson を
             // つないだ写し・UTF-8 のバイト列を丸ごと作らず、小さい作業配列で少しずつハッシュにかける(Sha256Hex)。
             string key = Sha256Hex(sb.ToString(), json);
-            if (json != null)
-            {
+            if (json != null) {
                 s_keyMemo.Remove(json);
-                s_keyMemo.Add(json, new KeyMemo
-                {
-                    depHash = depHash, formatVersion = formatVersion, width = w, height = h, mipmapCount = mips,
-                    format = format, graphicsFormat = graphicsFormat, key = key,
+                s_keyMemo.Add(json, new KeyMemo {
+                    depHash = depHash,
+                    formatVersion = formatVersion,
+                    width = w,
+                    height = h,
+                    mipmapCount = mips,
+                    format = format,
+                    graphicsFormat = graphicsFormat,
+                    key = key,
                 });
             }
             return key;
@@ -692,8 +653,7 @@ namespace Iroca
 
         // CacheKey の覚え(sessionJson の文字列の参照 → そのとき使ったほかの入力と鍵)。メインスレッドからしか触らないが、
         // ConditionalWeakTable はスレッド安全なのでどこから触っても壊れない。
-        private sealed class KeyMemo
-        {
+        private sealed class KeyMemo {
             public Hash128 depHash;
             public int formatVersion, width, height, mipmapCount;
             public TextureFormat format;
@@ -707,28 +667,30 @@ namespace Iroca
         // a と b(null は空)をつないだ文字列の UTF-8 の SHA256 を小文字の 16 進で返す
         // (= SHA256(Encoding.UTF8.GetBytes(a + b)))。4K 文字ずつ符号化してハッシュにかける。Encoder は区切りを
         // またぐサロゲートの組を持ち越し、組になっていないものは GetBytes と同じく置き換え文字にする。
-        internal static string Sha256Hex(string a, string b)
-        {
+        internal static string Sha256Hex(string a, string b) {
             const int CharChunk = 4096;
             var encoding = Encoding.UTF8;
             var encoder = encoding.GetEncoder();
             var bytes = new byte[encoding.GetMaxByteCount(CharChunk)];
             var chunk = new char[CharChunk];
-            using (var sha = SHA256.Create())
-            {
+            using (var sha = SHA256.Create()) {
                 // 1 つの Encoder で続けて符号化し、最後だけ flush する(つないだ文字列を符号化するのと同じ)。
-                void Feed(string s, bool flushAtEnd)
-                {
-                    if (s == null) s = string.Empty;
-                    for (int i = 0; ;)
-                    {
+                void Feed(string s, bool flushAtEnd) {
+                    if (s == null) {
+                        s = string.Empty;
+                    }
+                    for (int i = 0; ;) {
                         int n = Math.Min(chunk.Length, s.Length - i);
                         s.CopyTo(i, chunk, 0, n);
                         i += n;
                         bool end = i >= s.Length;
                         int count = encoder.GetBytes(chunk, 0, n, bytes, 0, flushAtEnd && end);
-                        if (count > 0) sha.TransformBlock(bytes, 0, count, null, 0);
-                        if (end) break;
+                        if (count > 0) {
+                            sha.TransformBlock(bytes, 0, count, null, 0);
+                        }
+                        if (end) {
+                            break;
+                        }
                     }
                 }
                 Feed(a, flushAtEnd: false);
@@ -736,7 +698,9 @@ namespace Iroca
                 sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
                 var hash = sha.Hash;
                 var hex = new StringBuilder(hash.Length * 2);
-                foreach (var x in hash) hex.Append(x.ToString("x2"));
+                foreach (var x in hash) {
+                    hex.Append(x.ToString("x2"));
+                }
                 return hex.ToString();
             }
         }
@@ -746,41 +710,47 @@ namespace Iroca
 
         // 中身はテクスチャの CPU 側のデータとファイルの間で直接写す(管理配列を経由しない)。再生のたびに読むので、
         // 管理配列にすると 1 枚ごと(4K の BC7 で 21MB、非圧縮なら 85MB)の一時配列で Mono のヒープが広がる。
-        private static unsafe Texture2D TryLoadCache(string key, Texture2D like)
-        {
+        private static unsafe Texture2D TryLoadCache(string key, Texture2D like) {
             WaitForPendingStore(key);
             string path = CachePath(key);
-            if (!File.Exists(path)) return null;
+            if (!File.Exists(path)) {
+                return null;
+            }
             Texture2D tex = null;
-            try
-            {
+            try {
                 using (var fs = File.OpenRead(path))
-                using (var br = new BinaryReader(fs))
-                {
-                    if (br.ReadInt32() != CacheFormatVersion) return null;
+                using (var br = new BinaryReader(fs)) {
+                    if (br.ReadInt32() != CacheFormatVersion) {
+                        return null;
+                    }
                     int w = br.ReadInt32(), h = br.ReadInt32(), fmt = br.ReadInt32();
                     int mipCount = br.ReadInt32();
                     bool linear = br.ReadBoolean();
                     int len = br.ReadInt32();
-                    if (len < 0 || fs.Length - fs.Position < len) return null;   // 書きかけ
+                    if (len < 0 || fs.Length - fs.Position < len) {
+                        return null;   // 書きかけ
+                    }
                     // 計算の途中で元テクスチャの取り込み設定が変わると、前の設定の鍵で今の寸法の結果が入っていることがある。
-                    if (w != like.width || h != like.height || mipCount != like.mipmapCount)
+                    if (w != like.width || h != like.height || mipCount != like.mipmapCount) {
                         throw new InvalidDataException($"cache size {w}x{h} (mips {mipCount}) != texture {like.width}x{like.height} (mips {like.mipmapCount})");
+                    }
                     tex = new Texture2D(w, h, (TextureFormat)fmt, mipCount, linear);
                     var raw = tex.GetRawTextureData<byte>();
-                    if (raw.Length != len)
+                    if (raw.Length != len) {
                         throw new InvalidDataException($"cache size {len} != texture data size {raw.Length}");
-                    using (var dst = new UnmanagedMemoryStream((byte*)NativeArrayUnsafeUtility.GetUnsafePtr(raw), len, len, FileAccess.Write))
+                    }
+                    using (var dst = new UnmanagedMemoryStream((byte*)NativeArrayUnsafeUtility.GetUnsafePtr(raw), len, len, FileAccess.Write)) {
                         CopyExactly(fs, dst, len);
+                    }
                 }
                 tex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
                 File.SetLastWriteTimeUtc(path, DateTime.UtcNow);   // 使ったものを残す(古い順に消す)
                 FinishLike(tex, like);
                 return tex;
-            }
-            catch (Exception ex)
-            {
-                if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
+            } catch (Exception ex) {
+                if (tex != null) {
+                    UnityEngine.Object.DestroyImmediate(tex);
+                }
                 Debug.LogWarning($"[Iroca] テクスチャのキャッシュを読めなかったので作り直します: {ex.Message}");
                 try { File.Delete(path); } catch (Exception) { /* 次回また作り直すだけ */ }
                 return null;
@@ -788,13 +758,13 @@ namespace Iroca
         }
 
         // ちょうど count バイトを写す(小さい作業配列 1 つで。足りなければ投げる)。
-        private static void CopyExactly(Stream from, Stream to, long count)
-        {
+        private static void CopyExactly(Stream from, Stream to, long count) {
             var buffer = new byte[64 * 1024];
-            while (count > 0)
-            {
+            while (count > 0) {
                 int n = from.Read(buffer, 0, (int)Math.Min(buffer.Length, count));
-                if (n <= 0) throw new EndOfStreamException();
+                if (n <= 0) {
+                    throw new EndOfStreamException();
+                }
                 to.Write(buffer, 0, n);
                 count -= n;
             }
@@ -815,8 +785,7 @@ namespace Iroca
         private const int StoreDrainMilliseconds = 10_000;
 
         [InitializeOnLoadMethod]
-        private static void InstallStoreDrain()
-        {
+        private static void InstallStoreDrain() {
             AssemblyReloadEvents.beforeAssemblyReload -= DrainStores;
             AssemblyReloadEvents.beforeAssemblyReload += DrainStores;
             EditorApplication.quitting -= DrainStores;
@@ -824,49 +793,55 @@ namespace Iroca
         }
 
         // リロード・終了の前に呼ばれる。ここで投げると他ツールの後始末が呼ばれないので止める。
-        private static void DrainStores()
-        {
-            try { WaitForCacheWrites(StoreDrainMilliseconds); }
-            catch (Exception e) { Debug.LogException(e); }
+        private static void DrainStores() {
+            try { WaitForCacheWrites(StoreDrainMilliseconds); } catch (Exception e) { Debug.LogException(e); }
         }
 
         /// <summary>背景のキャッシュの書き込みが全部終わるまで待つ(メインスレッド。テストも使う)。終われば true。</summary>
-        internal static bool WaitForCacheWrites(int milliseconds = Timeout.Infinite)
-        {
+        internal static bool WaitForCacheWrites(int milliseconds = Timeout.Infinite) {
             bool done = s_lastStore.Wait(milliseconds);
-            if (done) s_pendingStores.Clear();
+            if (done) {
+                s_pendingStores.Clear();
+            }
             return done;
         }
 
         // その鍵を書いている途中なら、書き終えるまで待つ(メインスレッド)。
-        private static void WaitForPendingStore(string key)
-        {
-            if (!s_pendingStores.TryGetValue(key, out var pending)) return;
+        private static void WaitForPendingStore(string key) {
+            if (!s_pendingStores.TryGetValue(key, out var pending)) {
+                return;
+            }
             pending.Wait();   // 書き込みの例外は中で受けるので、ここへは出ない
             s_pendingStores.Remove(key);
         }
 
-        private static unsafe void TryStoreCache(string key, Texture2D tex)
-        {
+        private static unsafe void TryStoreCache(string key, Texture2D tex) {
             NativeBuffer data = null;
-            try
-            {
+            try {
                 // 書き終えた分を一覧から外す(ここと読むときにしか見ないので、溜めない)。
-                if (s_pendingStores.Count > 0)
-                {
+                if (s_pendingStores.Count > 0) {
                     var done = new List<string>();
-                    foreach (var kv in s_pendingStores) if (kv.Value.IsCompleted) done.Add(kv.Key);
-                    foreach (var k in done) s_pendingStores.Remove(k);
+                    foreach (var kv in s_pendingStores) {
+                        if (kv.Value.IsCompleted) {
+                            done.Add(kv.Key);
+                        }
+                    }
+                    foreach (var k in done) {
+                        s_pendingStores.Remove(k);
+                    }
                 }
                 // FinishLike で読み書き不可にすると CPU 側のデータが消えるので、ここで写す。
                 var raw = tex.GetRawTextureData<byte>();
                 int len = raw.Length;
                 data = new NativeBuffer(Math.Max(1, len), NativeUsage.Other);
                 Buffer.MemoryCopy(NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(raw), (void*)data.Ptr, len, len);
-                var header = new CacheHeader
-                {
-                    width = tex.width, height = tex.height, format = (int)tex.format, mipCount = tex.mipmapCount,
-                    linear = !GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat), length = len,
+                var header = new CacheHeader {
+                    width = tex.width,
+                    height = tex.height,
+                    format = (int)tex.format,
+                    mipCount = tex.mipmapCount,
+                    linear = !GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat),
+                    length = len,
                 };
                 string dir = CacheDir, path = CachePath(key);
                 var buffer = data;
@@ -875,66 +850,59 @@ namespace Iroca
                     CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default);
                 s_lastStore = store;
                 s_pendingStores[key] = store;
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 data?.Release();
                 // キャッシュは速さのためだけ。書けなくても出来上がりは正しい。
                 Debug.LogWarning($"[Iroca] テクスチャのキャッシュを書けませんでした: {ex.Message}");
             }
         }
 
-        private struct CacheHeader
-        {
+        private struct CacheHeader {
             public int width, height, format, mipCount, length;
             public bool linear;
         }
 
         // 背景のスレッド。中身(buffer)は書き終えたら手放す。失敗は警告に残すだけ(Debug.Log はどのスレッドからでもよい)。
-        private static unsafe void WriteCacheFile(string dir, string path, NativeBuffer buffer, CacheHeader h)
-        {
-            try
-            {
+        private static unsafe void WriteCacheFile(string dir, string path, NativeBuffer buffer, CacheHeader h) {
+            try {
                 Directory.CreateDirectory(dir);
-                AtomicFile.WriteAll(path, fs =>
-                {
-                    using (var bw = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true))
-                    {
+                AtomicFile.WriteAll(path, fs => {
+                    using (var bw = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true)) {
                         bw.Write(CacheFormatVersion);
                         bw.Write(h.width); bw.Write(h.height); bw.Write(h.format);
                         bw.Write(h.mipCount);
                         bw.Write(h.linear);
                         bw.Write(h.length);
                     }
-                    using (var src = new UnmanagedMemoryStream((byte*)buffer.Ptr, h.length))
+                    using (var src = new UnmanagedMemoryStream((byte*)buffer.Ptr, h.length)) {
                         CopyExactly(src, fs, h.length);
+                    }
                 });
                 TrimCache(dir);
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca] テクスチャのキャッシュを書けませんでした: {ex.Message}");
-            }
-            finally
-            {
+            } finally {
                 buffer.Release();
             }
         }
 
         // 合計が上限を超えたら、最後に使った時刻が古いものから消す(背景の書き込みのスレッドで呼ぶ。
         // メインスレッドが同時に読んでいるファイルは消せずに残るか、読む側が読めなかったものとして作り直す)。
-        private static void TrimCache(string dir)
-        {
+        private static void TrimCache(string dir) {
             var files = new List<FileInfo>(new DirectoryInfo(dir).GetFiles("*.tex"));
             long total = 0;
-            foreach (var f in files) total += f.Length;
-            if (total <= CacheMaxBytes) return;
+            foreach (var f in files) {
+                total += f.Length;
+            }
+            if (total <= CacheMaxBytes) {
+                return;
+            }
             files.Sort((a, b) => a.LastWriteTimeUtc.CompareTo(b.LastWriteTimeUtc));
-            foreach (var f in files)
-            {
-                if (total <= CacheMaxBytes) break;
-                try { total -= f.Length; f.Delete(); }
-                catch (Exception) { /* 使用中などは次回 */ }
+            foreach (var f in files) {
+                if (total <= CacheMaxBytes) {
+                    break;
+                }
+                try { total -= f.Length; f.Delete(); } catch (Exception) { /* 使用中などは次回 */ }
             }
         }
     }

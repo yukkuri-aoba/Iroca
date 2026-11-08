@@ -5,14 +5,12 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// プレビューの計算が読む、持ち主(いろかのウィンドウ)の状態と知らせ先。<see cref="PreviewPipeline"/> は
     /// ウィンドウを型で知らない(Application は UI を使わない)。
     /// </summary>
-    internal interface IPreviewPipelineHost
-    {
+    internal interface IPreviewPipelineHost {
         Texture2D SourceTexture { get; }
         EditingSession Editing { get; }
         /// <summary>ソロ表示中のゾーン(表示だけ。無ければ null)。</summary>
@@ -33,8 +31,7 @@ namespace Iroca
     /// 概要段・確定段の結果を表示へ渡すもの。表示はこれを受け取ってテクスチャへ上げ、上げ終えたら
     /// <see cref="Release"/> する(<see cref="PreviewPipeline.TakePendingFrame"/>)。
     /// </summary>
-    internal struct PreviewFrame
-    {
+    internal struct PreviewFrame {
         // 表示寸法の変更後・変更前(Mono のヒープの外。このフレームが参照を 1 つずつ持つ)。縮小しないテクスチャでは
         // 確定段の出力・原本そのもの(写さない)。
         public NativePixels Processed;
@@ -49,8 +46,7 @@ namespace Iroca
         public LatencyStageMarks Stage;
 
         /// <summary>持っている画素の参照を返す(上げ終えた・上げずに捨てた)。</summary>
-        public void Release()
-        {
+        public void Release() {
             Processed?.Release();
             Raw?.Release();
             Processed = Raw = null;
@@ -64,12 +60,10 @@ namespace Iroca
     /// 再計算はウィンドウの描画から進める(<see cref="Tick"/>。EditorApplication.update へ移すと、隠れている間の
     /// CPU の使い方とシーンへの反映が変わる)。メインスレッド専用(ジョブの中身はワーカー)。
     /// </summary>
-    internal sealed unsafe class PreviewPipeline : IDisposable
-    {
+    internal sealed unsafe class PreviewPipeline : IDisposable {
         private readonly IPreviewPipelineHost _host;
 
-        internal PreviewPipeline(IPreviewPipelineHost host)
-        {
+        internal PreviewPipeline(IPreviewPipelineHost host) {
             _host = host;
             Resume();
         }
@@ -78,8 +72,7 @@ namespace Iroca
         /// 閉じた後(<see cref="Suspend"/>)に開き直したとき、手放した選択キャッシュ・出力バッファを作り直す
         /// (ウィンドウの OnEnable。作ってあれば何もしない)。
         /// </summary>
-        internal void Resume()
-        {
+        internal void Resume() {
             _selectionCache ??= new SelectionCache();
             _proxySelectionCache ??= new SelectionCache();
             _outputBuffers ??= new PreviewOutputBuffers();
@@ -102,8 +95,7 @@ namespace Iroca
         internal bool Dirty => _dirty;
 
         /// <summary>作り直しを頼む。今の時刻を操作の時刻として控える。</summary>
-        internal void MarkDirty()
-        {
+        internal void MarkDirty() {
             _dirty = true;
             InputClock.NoteInput(PreviewLatencyCycle.Now);
         }
@@ -131,20 +123,17 @@ namespace Iroca
         // display はフル段の出力を拡大表示の寸法(取り込み後の寸法)へ縮めたもの(その寸法で映さないときは null)。
         // どれも Mono のヒープの外で、結果が参照を 1 つずつ持つ(受け取った側が引き取り、受け取らなければ discard で返す)。
         private readonly PreviewJob<FullResult> _previewJob = new PreviewJob<FullResult>();
-        private struct FullResult
-        {
+        private struct FullResult {
             public NativePixels processed, raw, full, display;
         }
         // 段階的リファインの第1段。ソースが大きい(scale<1)とき、まず縮小プロキシで概要を即表示する
         // 専用ジョブ。完了 apply で _previewJob(フル解像度)を同一スナップショットでスケジュールする。
         // proxy はソースをプロキシ寸法へ縮小した処理前の画素(_proxySource へ確定する)。
         private readonly PreviewJob<ProxyResult> _proxyJob = new PreviewJob<ProxyResult>();
-        private struct ProxyResult
-        {
+        private struct ProxyResult {
             public NativePixels processed, raw, proxy;
 
-            public void Release()
-            {
+            public void Release() {
                 processed?.Release();
                 raw?.Release();
                 proxy?.Release();
@@ -205,16 +194,14 @@ namespace Iroca
         // プロキシ段の入力(ソースをプロキシ寸法へ縮小したもの)と、その表示寸法の before。ソース画素と寸法だけで
         // 決まるので、同じソースの間は使い回す(操作のたびに 4K から縮小し直さない)。ジョブは読むだけで、
         // このフィールドを触るのはメインスレッド(スケジュール時に読み、apply で確定)だけ。
-        private sealed class ProxySourceCache
-        {
+        private sealed class ProxySourceCache {
             public NativePixels src;     // 縮小元のソース画素(同じものかを照合するだけ。参照は持たない)
             public int w, h, prevW, prevH;
             // 以下は参照を 1 つずつ持つ(寸法が同じなら display は proxy と同じもので、参照を 2 つ持つ)。
             public NativePixels proxy;   // プロキシ寸法(処理前)
             public NativePixels display; // proxy を表示寸法へ縮小したもの
 
-            public void Release()
-            {
+            public void Release() {
                 proxy?.Release();
                 display?.Release();
                 proxy = display = null;
@@ -223,15 +210,13 @@ namespace Iroca
         private ProxySourceCache _proxySource;
 
         // 縮小した控えを差し替える(前のものの参照を返す)。
-        private void SetProxySource(ProxySourceCache next)
-        {
+        private void SetProxySource(ProxySourceCache next) {
             _proxySource?.Release();
             _proxySource = next;
         }
 
         // 表示寸法の変更前の控えを差し替える(前のものの参照を返す。渡したものの参照は引き取る)。
-        private void SetCachedRawDisplay(NativePixels next)
-        {
+        private void SetCachedRawDisplay(NativePixels next) {
             _cachedRawDisplay?.Release();
             _cachedRawDisplay = next;
         }
@@ -287,11 +272,9 @@ namespace Iroca
         private static bool? s_detailFullResolution;
 
         /// <summary>拡大表示を作業解像度のまま映すか。この PC のいろか全体の表示の設定。</summary>
-        internal static bool DetailFullResolution
-        {
+        internal static bool DetailFullResolution {
             get => s_detailFullResolution ??= EditorPrefs.GetBool(DetailFullResolutionPrefKey, false);
-            set
-            {
+            set {
                 s_detailFullResolution = value;
                 EditorPrefs.SetBool(DetailFullResolutionPrefKey, value);
             }
@@ -301,24 +284,27 @@ namespace Iroca
         /// 保持しているフル段の出力を捨てる(拡大表示の切り出し元にしない)。処理したゾーンの集合が
         /// 変わったとき(ソロ表示の切り替え)に呼ぶ。次のフル段の確定までは拡大表示を作り直さない。
         /// </summary>
-        internal void InvalidateFullOutput()
-        {
+        internal void InvalidateFullOutput() {
             RetireFullOutput();
             _fullOutputSource = null;
         }
 
         // いまのフル段の出力を使い回しへ回し(持っていた参照を渡す)、_fullOutput を空にする。拡大表示のジョブが
         // 切り出し中・シーンへの反映が保持中なら、それぞれ参照を持っているので、手放されるまでは使い回されない。
-        private void RetireFullOutput()
-        {
+        private void RetireFullOutput() {
             BumpDetailOutput();
             _displayOutput?.Release();
             _displayOutput = null;
             var old = _fullOutput;
             _fullOutput = null;
-            if (old == null) return;
-            if (_outputBuffers != null) _outputBuffers.Retire(old);
-            else old.Release();
+            if (old == null) {
+                return;
+            }
+            if (_outputBuffers != null) {
+                _outputBuffers.Retire(old);
+            } else {
+                old.Release();
+            }
         }
 
         /// <summary>
@@ -329,8 +315,7 @@ namespace Iroca
         /// 残すと、拡大表示(詳細クロップ)が旧テクスチャの色替え結果を切り出して見せる。
         /// 表示が原本から導いたもの(拡大表示・見た目)は <see cref="SourceInvalidated"/> を受けて捨てる。
         /// </summary>
-        internal void InvalidateSourceCache()
-        {
+        internal void InvalidateSourceCache() {
             // 走行中のジョブは旧画素を処理中。世代をぶつけて apply ごと無効化する。
             CancelJobsAndDropPending();
             // 追従プレビューの入力とフル段の出力も旧画素のもの。使い回さない。
@@ -362,13 +347,18 @@ namespace Iroca
         /// 成功すると <see cref="TrueSource"/> / <see cref="TrueSourceW"/> /
         /// <see cref="TrueSourceH"/> が有効になる。
         /// </summary>
-        internal bool EnsureSource(Texture2D tex)
-        {
+        internal bool EnsureSource(Texture2D tex) {
             var sources = Sources;
-            if (tex == null || sources == null) return false;
+            if (tex == null || sources == null) {
+                return false;
+            }
             var held = CheckHeldSource(tex, sources);
-            if (held != SourceState.Loading) return held == SourceState.Ready;
-            if (!sources.Load(tex)) return false;
+            if (held != SourceState.Loading) {
+                return held == SourceState.Ready;
+            }
+            if (!sources.Load(tex)) {
+                return false;
+            }
             OnSourceLoaded();
             return true;
         }
@@ -378,59 +368,71 @@ namespace Iroca
         /// 読み終えていなければ別スレッドで読み(<see cref="SourcePixelCache.LoadInBackground"/>)、
         /// <see cref="SourceState.Loading"/> を返す。読み終えたら再描画を求める。
         /// </summary>
-        internal SourceState PollSource(Texture2D tex)
-        {
+        internal SourceState PollSource(Texture2D tex) {
             var sources = Sources;
-            if (tex == null || sources == null) return SourceState.Unavailable;
+            if (tex == null || sources == null) {
+                return SourceState.Unavailable;
+            }
             var held = CheckHeldSource(tex, sources);
-            if (held != SourceState.Loading) return held;
+            if (held != SourceState.Loading) {
+                return held;
+            }
             var state = sources.LoadInBackground(tex, OnSourceFileRead);
-            if (state == SourceState.Ready) OnSourceLoaded();
+            if (state == SourceState.Ready) {
+                OnSourceLoaded();
+            }
             return state;
         }
 
         // 持っている画素で足りるか(Ready)、取れないと分かっているか(Unavailable)、読む必要があるか(Loading)。
-        private SourceState CheckHeldSource(Texture2D tex, SourcePixelCache sources)
-        {
-            if (sources.Texture == tex && sources.Pixels != null)
-            {
-                if (sources.BasisWidth == tex.width && sources.BasisHeight == tex.height) return SourceState.Ready;
+        private SourceState CheckHeldSource(Texture2D tex, SourcePixelCache sources) {
+            if (sources.Texture == tex && sources.Pixels != null) {
+                if (sources.BasisWidth == tex.width && sources.BasisHeight == tex.height) {
+                    return SourceState.Ready;
+                }
                 // 取り込み設定(Max Size)が変わって、作業解像度か拡大表示の寸法が変わり得る。
                 // 旧画素から導いた状態ごと捨てて読み直し、表示も作り直す。
                 InvalidateSourceCache();
                 MarkDirty();
             }
             // 失敗もテクスチャ単位で覚える(SourcePixelCache.IsKnownUnreadable)。
-            if (sources.IsKnownUnreadable(tex)) return SourceState.Unavailable;
+            if (sources.IsKnownUnreadable(tex)) {
+                return SourceState.Unavailable;
+            }
             // 別のテクスチャの画素を持ったまま読み直す(SwitchSourceTexture を通らない切り替え)ときは、古い画素を
             // 指したままのジョブ・キャッシュ・ドラッグの追従の入力も捨てる(手放した画素へ参照を足しに行かないように)。
-            if (sources.Pixels != null && sources.Texture != tex) InvalidateSourceCache();
+            if (sources.Pixels != null && sources.Texture != tex) {
+                InvalidateSourceCache();
+            }
             return SourceState.Loading;
         }
 
         // 別スレッドの読み込みが終わった(メインスレッドの tick)。描かれていなくても受け取るので、読み終えた画素が
         // 受け取り手のいないまま残らない。読めなかったとき(PNG でないなど)は、次に描くときメインスレッドで読む。
-        private void OnSourceFileRead()
-        {
+        private void OnSourceFileRead() {
             var sources = Sources;
-            if (sources == null) return;
-            if (sources.TryAdoptFinished(_host.SourceTexture)) OnSourceLoaded();
+            if (sources == null) {
+                return;
+            }
+            if (sources.TryAdoptFinished(_host.SourceTexture)) {
+                OnSourceLoaded();
+            }
             _host.RequestRepaint();
         }
 
-        private void OnSourceLoaded()
-        {
+        private void OnSourceLoaded() {
             BumpDetailSource();
             // 拡大表示に映す寸法の原本もここで作る(取り込みで小さくなり、「元の解像度」の設定がオフのときだけ。
             // 4K→2K で数十 ms)。
-            if (WantsDisplaySize(out int dw, out int dh)) BuildDisplaySource(dw, dh);
+            if (WantsDisplaySize(out int dw, out int dh)) {
+                BuildDisplaySource(dw, dh);
+            }
             _deferSourceLoad = false;
         }
 
         // 処理用の画素を手放し、どのテクスチャを読んだか・読めなかったかも忘れる。拡大表示に映す寸法の原本も手放す。
         // 読んでいる途中のジョブは自分の参照を持っているので、ここで返しても消えない。
-        private void DropTrueSource()
-        {
+        private void DropTrueSource() {
             BumpDetailSource();
             Sources?.Clear();
             _displaySource?.Release();
@@ -439,16 +441,14 @@ namespace Iroca
         }
 
         // 拡大表示を取り込み後の寸法へ縮めて映すか(取り込みで小さくなり、「元の解像度」の設定がオフ)と、その寸法。
-        private bool WantsDisplaySize(out int w, out int h)
-        {
+        private bool WantsDisplaySize(out int w, out int h) {
             WorkingResolution.DisplaySize(TrueSourceW, TrueSourceH, Sources.BasisWidth, Sources.BasisHeight, out w, out h);
             return !DetailFullResolution && (w != TrueSourceW || h != TrueSourceH);
         }
 
         // 拡大表示に映す寸法の原本を作る。いまの原本で作ったフル段の出力があれば、それも同じ寸法へ縮める
         // (設定をオフへ戻したとき。色替えはやり直さない。確定段のジョブが作るものと同じ縮小なので同じ画素になる)。
-        private void BuildDisplaySource(int w, int h)
-        {
+        private void BuildDisplaySource(int w, int h) {
             BumpDetailSource();
             _displayW = w;
             _displayH = h;
@@ -461,16 +461,14 @@ namespace Iroca
         }
 
         // フル段の出力(作業解像度)を拡大表示に映す寸法へ縮めたもの(参照 1 で返す)。
-        private NativePixels ShrinkToDisplay(NativePixels full)
-        {
+        private NativePixels ShrinkToDisplay(NativePixels full) {
             var display = NativePixels.Allocate(_displayW, _displayH);
             WorkingResolution.ResizeArea(full.Ptr, full.Width, full.Height, _displayW, _displayH, display.Ptr);
             return display;
         }
 
         // 縮めた原本・出力を手放す(拡大表示は作業解像度のものを映す)。
-        private void ReleaseDisplaySource()
-        {
+        private void ReleaseDisplaySource() {
             BumpDetailSource();
             _displaySource?.Release();
             _displaySource = null;
@@ -484,13 +482,19 @@ namespace Iroca
         /// (設定はこの PC のいろか全体のもので、どのウィンドウも次に描くときに合わせる)。土台を作り直したら true
         /// (表示は今の拡大表示を捨てて作り直す)。色替えの結果には効かない(表示の寸法だけ)。
         /// </summary>
-        internal bool SyncDetailResolution()
-        {
-            if (TrueSource == null) return false;
+        internal bool SyncDetailResolution() {
+            if (TrueSource == null) {
+                return false;
+            }
             bool want = WantsDisplaySize(out int dw, out int dh);
-            if (want == (_displaySource != null)) return false;
-            if (want) BuildDisplaySource(dw, dh);
-            else ReleaseDisplaySource();
+            if (want == (_displaySource != null)) {
+                return false;
+            }
+            if (want) {
+                BuildDisplaySource(dw, dh);
+            } else {
+                ReleaseDisplaySource();
+            }
             return true;
         }
 
@@ -500,11 +504,11 @@ namespace Iroca
         internal int DetailH => _displaySource != null ? _displayH : TrueSourceH;
 
         // 拡大表示の切り出し元(いまの原本で作ったフル段の出力。DetailSource と同じ寸法)。まだ無ければ null。
-        internal NativePixels DetailOutput
-        {
-            get
-            {
-                if (!ReferenceEquals(_fullOutputSource, TrueSource)) return null;
+        internal NativePixels DetailOutput {
+            get {
+                if (!ReferenceEquals(_fullOutputSource, TrueSource)) {
+                    return null;
+                }
                 return _displaySource != null ? _displayOutput : _fullOutput;
             }
         }
@@ -513,8 +517,7 @@ namespace Iroca
         /// いま持っている処理用の画素(作業解像度)の寸法。まだ読んでいない・読めなかったときは false。
         /// 書き出しが、終わった後に作業配列を手放すか(寸法が違うときだけ)を決めるのに使う。
         /// </summary>
-        internal bool TryGetWorkingSize(out int w, out int h)
-        {
+        internal bool TryGetWorkingSize(out int w, out int h) {
             w = TrueSourceW;
             h = TrueSourceH;
             return TrueSource != null && w > 0 && h > 0;
@@ -544,10 +547,8 @@ namespace Iroca
         /// ウィンドウを閉じたときに、ここが持つ参照は手放される)。
         /// 取得不能（元ファイル読込失敗 かつ 非 Readable）なら false。
         /// </summary>
-        internal bool TryGetTrueSourcePixels(Texture2D tex, out NativePixels pixels, out int w, out int h)
-        {
-            if (EnsureSource(tex))
-            {
+        internal bool TryGetTrueSourcePixels(Texture2D tex, out NativePixels pixels, out int w, out int h) {
+            if (EnsureSource(tex)) {
                 pixels = TrueSource;
                 w = TrueSourceW;
                 h = TrueSourceH;
@@ -563,13 +564,13 @@ namespace Iroca
         /// アセットパス + ファイル更新時刻 + 実寸で構成する。
         /// 自動調整の証拠要求も AI 提案と同じキーで SetSource するために使う(別キーだとソース切替扱いになり埋め込みを捨てる)。
         /// </summary>
-        internal string SourceCacheKey()
-        {
+        internal string SourceCacheKey() {
             var sourceFor = Sources?.Texture;
             string path = sourceFor != null ? AssetDatabase.GetAssetPath(sourceFor) : null;
             long ticks = 0;
-            if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
+            if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path)) {
                 ticks = System.IO.File.GetLastWriteTimeUtc(path).Ticks;
+            }
             return $"{path}|{ticks}|{TrueSourceW}x{TrueSourceH}";
         }
 
@@ -579,8 +580,7 @@ namespace Iroca
         // 待つのが長くなるのは、8K より大きい画像を縮めている途中で取り消したときだけ。
         private const int CancelledLoadWaitMilliseconds = 1000;
 
-        public void Dispose()
-        {
+        public void Dispose() {
             Suspend();
             _proxyJob.Dispose();
             _previewJob.Dispose();
@@ -591,8 +591,7 @@ namespace Iroca
         /// 選択キャッシュを手放す。閉じる・リロードの前に呼ばれるので、ここで返せば OS へ戻る。この後は使わない
         /// (開き直したら作り直す)。
         /// </summary>
-        internal void Suspend()
-        {
+        internal void Suspend() {
             InvalidateSourceCache();
             // 読みかけの原本は取り消した。抜けるのを待てば、ここを出るときには OS へ戻っている(リロードの前にも効く)。
             Sources?.WaitForCancelledLoads(CancelledLoadWaitMilliseconds);
@@ -612,16 +611,14 @@ namespace Iroca
         /// 2 つのジョブ(追従・確定)を止め、まだ表示へ渡していない結果を捨てる。
         /// ソースの差し替え(<see cref="InvalidateSourceCache"/>)と停止(<see cref="Suspend"/>)の共通部分。
         /// </summary>
-        private void CancelJobsAndDropPending()
-        {
+        private void CancelJobsAndDropPending() {
             _proxyJob.Cancel();
             _previewJob.Cancel();
             SetPending(default);
         }
 
         // 表示へ渡す結果を差し替える(まだ受け取られていない前の結果は捨てて参照を返す)。
-        private void SetPending(PreviewFrame next)
-        {
+        private void SetPending(PreviewFrame next) {
             _pending.Release();
             _pending = next;
         }
@@ -634,51 +631,43 @@ namespace Iroca
         /// 表示が毎フレーム(描画のたびに)呼ぶ。<paramref name="pointerHeld"/> はマウスのボタンを押したまま
         /// (スライダーのドラッグ中など。GUIUtility.hotControl)か。
         /// </summary>
-        internal void Tick(bool pointerHeld)
-        {
-            if (_dirty)
-            {
+        internal void Tick(bool pointerHeld) {
+            if (_dirty) {
                 _lastDirtyTime = EditorApplication.timeSinceStartup;
                 _dragReqStale = true;
                 // プロキシ・フル両段をキャンセル。プロキシ進行中の再ダーティでは、プロキシの
                 // キャンセル(世代ぶつけ)で apply が抑止されフルが起動しない。
                 // ただしドラッグ中の追従プレビューは取り消さない。ドラッグ中は値がほぼ毎フレーム
                 // 変わるので、取り消すと一度も画面に出ない。終わってから最新の値で回し直す。
-                if (!IsDragPreviewRunning)
-                {
+                if (!IsDragPreviewRunning) {
                     _proxyJob.Cancel();
                     _previewJob.Cancel();
                 }
                 _host.RequestRepaint();
                 _dirty = false;
-            }
-            else if (!_proxyJob.IsRunning && !_previewJob.IsRunning &&
-                     _lastDirtyTime > 0 &&
-                     (!pointerHeld ||
-                      (EditorApplication.timeSinceStartup - _lastDirtyTime)
-                          >= PreviewDebounceSeconds))
-            {
+            } else if (!_proxyJob.IsRunning && !_previewJob.IsRunning &&
+                       _lastDirtyTime > 0 &&
+                       (!pointerHeld ||
+                        (EditorApplication.timeSinceStartup - _lastDirtyTime)
+                            >= PreviewDebounceSeconds)) {
                 _lastDirtyTime = 0;
                 // 最後の追従プレビュー以降に操作が無ければ、その入力のままフル段だけで確定する
                 // (同じ入力のプロキシをやり直すと、確定がその分遅れるだけ)。
-                if (_dragReq != null && !_dragReqStale) FinishDragPreview();
-                else GeneratePreviewAsync(dragOnly: false);
-            }
-            else if (!_proxyJob.IsRunning && !_previewJob.IsRunning &&
-                     _lastDirtyTime > 0 && _dragReqStale)
-            {
+                if (_dragReq != null && !_dragReqStale) {
+                    FinishDragPreview();
+                } else {
+                    GeneratePreviewAsync(dragOnly: false);
+                }
+            } else if (!_proxyJob.IsRunning && !_previewJob.IsRunning &&
+                       _lastDirtyTime > 0 && _dragReqStale) {
                 // ドラッグ中(手を止めて PreviewDebounceSeconds 経つまで): プロキシだけを回して
                 // 絵を操作に追従させる。フル段は手を止めるか離してから。
                 GeneratePreviewAsync(dragOnly: true);
-            }
-            else if (_proxyJob.IsRunning || _previewJob.IsRunning)
-            {
+            } else if (_proxyJob.IsRunning || _previewJob.IsRunning) {
                 // 計算の終わり(apply)は RequestRepaint で知らせるので、走っている間は毎フレーム描き直さない。
                 // 結果を当てずに終わる道(計算の例外)の「生成中」の表示が残らないよう、間をあけて見に来るだけにする。
                 _host.RequestRepaintAfter(BackgroundPollSeconds);
-            }
-            else if (_lastDirtyTime > 0)
-            {
+            } else if (_lastDirtyTime > 0) {
                 // ボタンを押したまま手を止めている: 待ちが明ける時刻に描き直して確定段を始める
                 // (離したときは、その入力の描き直しで上の分岐へ入る)。
                 double waited = EditorApplication.timeSinceStartup - _lastDirtyTime;
@@ -696,11 +685,12 @@ namespace Iroca
         /// 表示へまだ渡していない結果を取り出す(無ければ false)。表示はこれをテクスチャへ上げ、上げ終えたら
         /// <see cref="NoteShown"/> を呼ぶ。
         /// </summary>
-        internal bool TakePendingFrame(out PreviewFrame frame)
-        {
+        internal bool TakePendingFrame(out PreviewFrame frame) {
             frame = _pending;
             _pending = default;
-            if (frame.Processed != null && frame.Raw != null) return true;
+            if (frame.Processed != null && frame.Raw != null) {
+                return true;
+            }
             frame.Release();
             return false;
         }
@@ -714,11 +704,12 @@ namespace Iroca
         // dragOnly: ドラッグ中の追従。プロキシ段だけを回し(縮小しないテクスチャはフル段がそのまま
         // 軽いのでフル段)、入力を _dragReq に控える。確定は FinishDragPreview が同じ入力で行う。
         // internal は WindowOutputParityTests が OnGUI を回さずに作り直すため。
-        internal void GeneratePreviewAsync(bool dragOnly = false)
-        {
+        internal void GeneratePreviewAsync(bool dragOnly = false) {
             long prepStart = PreviewLatencyCycle.Now;
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null || !EnsureSource(sourceTexture)) return;
+            if (sourceTexture == null || !EnsureSource(sourceTexture)) {
+                return;
+            }
 
             int srcW = TrueSourceW;
             int srcH = TrueSourceH;
@@ -737,13 +728,10 @@ namespace Iroca
                 ReferenceEquals(_cachedSrcPixels, TrueSource) &&
                 _cachedRawDisplay != null &&
                 _cachedSrcW == srcW && _cachedSrcH == srcH &&
-                _cachedPrevW == prevW && _cachedPrevH == prevH)
-            {
+                _cachedPrevW == prevW && _cachedPrevH == prevH) {
                 srcPixels = _cachedSrcPixels;
                 rawDisplay = _cachedRawDisplay;
-            }
-            else
-            {
+            } else {
                 srcPixels = TrueSource;
                 // scale>=1 は縮小不要で raw は原本そのもの(写さない。参照をキャッシュが持つ)。
                 // scale<1 はジョブ側で生成するため null。
@@ -757,11 +745,11 @@ namespace Iroca
                 _proxySelectionCache?.Clear();
 
                 _cachedSourceTexture = sourceTexture;
-                _cachedSrcPixels     = srcPixels;    // _cachedRawDisplay は scale<1 のときは一旦 null、apply で確定
-                _cachedSrcW          = srcW;
-                _cachedSrcH          = srcH;
-                _cachedPrevW         = prevW;
-                _cachedPrevH         = prevH;
+                _cachedSrcPixels = srcPixels;    // _cachedRawDisplay は scale<1 のときは一旦 null、apply で確定
+                _cachedSrcW = srcW;
+                _cachedSrcH = srcH;
+                _cachedPrevW = prevW;
+                _cachedPrevH = prevH;
             }
 
             var editing = _host.Editing;
@@ -771,7 +759,9 @@ namespace Iroca
             // 削除されたゾーンの選択キャッシュ(4K で 67MB/ゾーン)が恒久残留しないよう、セッションに
             // 現存するゾーン id 以外のエントリを毎回刈る(無効ゾーンは残す=再有効化で再計算を避ける)。
             var liveZoneIds = new HashSet<string>();
-            foreach (ColorZone zone in session.zones) liveZoneIds.Add(zone.id);
+            foreach (ColorZone zone in session.zones) {
+                liveZoneIds.Add(zone.id);
+            }
             // 自動調整の入力(証拠マスク)も同じ集合で刈る。
             _host.RetainZoneInputs(liveZoneIds);
             _selectionCache?.RetainOnly(liveZoneIds);
@@ -791,13 +781,17 @@ namespace Iroca
 
             // 入力スナップショットを 1 回だけ構築し、プロキシ(概要)とフル(確定)の両段へ渡す。
             // 両段が同一入力を処理することを保証する(プロキシとフルで選択がズレないように)。
-            var req = new PreviewRequest
-            {
+            var req = new PreviewRequest {
                 source = sourceTexture,
-                srcW = srcW, srcH = srcH,
-                srcPixels = srcPixels, rawDisplay = rawDisplay,
-                scale = scale, prevW = prevW, prevH = prevH,
-                maskSnap = input.Masks, zonesSnapshot = input.Zones,
+                srcW = srcW,
+                srcH = srcH,
+                srcPixels = srcPixels,
+                rawDisplay = rawDisplay,
+                scale = scale,
+                prevW = prevW,
+                prevH = prevH,
+                maskSnap = input.Masks,
+                zonesSnapshot = input.Zones,
                 settings = input.Settings,
                 debugCap = debugCap,
                 latency = latency,
@@ -810,31 +804,33 @@ namespace Iroca
             // ままフルで差し替える(プロキシへ一瞬戻る「ちらつき」の防止)。
             latency.PrepEnd = PreviewLatencyCycle.Now;
             _dragRunning = dragOnly;
-            if (dragOnly)
-            {
+            if (dragOnly) {
                 // _skipProxyOnce はここでは消費しない(確定側で消える)。
                 SetDragRequest(req);
                 _dragReqStale = false;
-                if (scale < 1f)
+                if (scale < 1f) {
                     ScheduleProxyPreview(req, chainFull: false);
-                else
+                } else {
                     ScheduleFullPreview(req);
+                }
                 return;
             }
             SetDragRequest(null);
             bool skipProxy = _skipProxyOnce;
             _skipProxyOnce = false;
-            if (scale < 1f && !skipProxy)
+            if (scale < 1f && !skipProxy) {
                 ScheduleProxyPreview(req, chainFull: true);
-            else
+            } else {
                 ScheduleFullPreview(req);
+            }
             req.ReleaseMasks();   // ジョブは予約するときに参照を足している
         }
 
         // 追従の入力を差し替える。入力が持つマスクの参照は、控えから外すときに返す(持ったままだと編集側が毎回写す)。
-        private void SetDragRequest(PreviewRequest req)
-        {
-            if (!ReferenceEquals(_dragReq, req)) _dragReq?.ReleaseMasks();
+        private void SetDragRequest(PreviewRequest req) {
+            if (!ReferenceEquals(_dragReq, req)) {
+                _dragReq?.ReleaseMasks();
+            }
             _dragReq = req;
         }
 
@@ -843,15 +839,18 @@ namespace Iroca
         /// 体感の計測も同じ周期のまま続く(初回表示 = 追従のプロキシ、確定 = このフル段)。
         /// 呼び出し側は、その追従より後に操作が無いことを確かめてから呼ぶ。
         /// </summary>
-        private void FinishDragPreview()
-        {
+        private void FinishDragPreview() {
             var req = _dragReq;
             _dragReq = null;
             _dragRunning = false;
             _skipProxyOnce = false;
             // 縮小しないテクスチャは、追従のときにフル段まで済んでいる。
-            if (req == null) return;
-            if (req.latency.Full.Scheduled == 0) ScheduleFullPreview(req);
+            if (req == null) {
+                return;
+            }
+            if (req.latency.Full.Scheduled == 0) {
+                ScheduleFullPreview(req);
+            }
             req.ReleaseMasks();
         }
 
@@ -864,8 +863,7 @@ namespace Iroca
 
         // 段階的リファインの入力スナップショット。GeneratePreviewAsync が 1 回構築し、プロキシ段と
         // フル段が同一の値を処理する。フィールドはバックグラウンドジョブからの読み取り専用(不変)。
-        private sealed class PreviewRequest
-        {
+        private sealed class PreviewRequest {
             public Texture2D source;           // 結果をシーンのアバターへ渡すときの宛先(LivePreview)
             public int srcW, srcH;
             // 原本(参照は持たない。ジョブを予約するときに足し、ジョブの後始末で返す)。
@@ -877,9 +875,10 @@ namespace Iroca
             // マスク。入力が参照を 1 つ持ち(ReleaseMasks で返す)、ジョブは予約するときに足して後始末で返す。
             public MaskSnapshot maskSnap;
             private bool _masksReleased;
-            public void ReleaseMasks()
-            {
-                if (_masksReleased) return;
+            public void ReleaseMasks() {
+                if (_masksReleased) {
+                    return;
+                }
                 _masksReleased = true;
                 maskSnap?.Release();
             }
@@ -893,8 +892,7 @@ namespace Iroca
         // chainFull なら完了 apply でフル段(ScheduleFullPreview)を同一スナップショットでスケジュールする(直列)。
         // ドラッグ中の追従(chainFull=false)はプロキシで止め、確定は FinishDragPreview に任せる。
         // 出力は保持しない(詳細プレビューの切り出し元はフル段の出力だけ)。
-        private void ScheduleProxyPreview(PreviewRequest req, bool chainFull)
-        {
+        private void ScheduleProxyPreview(PreviewRequest req, bool chainFull) {
             // プロキシ寸法の丸めは ComputeFitSize が単一の正(ハーネスのプレビュー段検証と共有)。
             PixelProcessor.ComputeFitSize(req.srcW, req.srcH, IrocaConsts.Preview.ProxyMaxSize,
                 out int proxyW, out int proxyH, out float proxyScale);
@@ -904,8 +902,9 @@ namespace Iroca
             // 同じソース・同じ寸法で縮小済みなら使い回す(ジョブは読むだけ)。
             var cached = _proxySource;
             if (cached != null && !(ReferenceEquals(cached.src, req.srcPixels) && cached.w == proxyW
-                    && cached.h == proxyH && cached.prevW == req.prevW && cached.prevH == req.prevH))
+                    && cached.h == proxyH && cached.prevW == req.prevW && cached.prevH == req.prevH)) {
                 cached = null;
+            }
 
             // 縮小した控えが無いときだけジョブが原本を読む。読む間の参照を足し、後始末で返す。
             // 控えがあれば、ジョブが読む間の参照を足す(控えが差し替えられても消えない)。
@@ -917,13 +916,11 @@ namespace Iroca
             var cachedProxy = cached?.proxy.AddRef();
             var cachedDisplay = cached?.display.AddRef();
             _proxyJob.Schedule(
-                work: token =>
-                {
+                work: token => {
                     marks.WorkStart = PreviewLatencyCycle.Now;
                     NativePixels proxyRaw = null, proxyPixels = null, processedDisplay = null, rawForJob = null;
                     bool handedOff = false;
-                    try
-                    {
+                    try {
                         // ソースをプロキシ解像度へ縮小してから処理する(全フェーズが画素数に比例して軽くなる)。
                         // raw(比較/差分表示の before)は processed と同じリサンプル鎖を通す。
                         // src→表示 の 1 段縮小と src→proxy→表示 の 2 段縮小では箱平均の境界が
@@ -931,9 +928,9 @@ namespace Iroca
                         // (実テクスチャで表示画素の ~17%)。処理前のプロキシを控えて同じ鎖へ流す。
                         // 控え(proxyRaw)はソースと寸法だけで決まるので、前の回のものがあればそれを使う。
                         // 処理はその場で書き換えるので、その写しに対して行う。
-                        if (cachedProxy != null) proxyRaw = cachedProxy.AddRef();
-                        else
-                        {
+                        if (cachedProxy != null) {
+                            proxyRaw = cachedProxy.AddRef();
+                        } else {
                             proxyRaw = NativePixels.Allocate(proxyW, proxyH);
                             PixelProcessor.BoxDownsampleInto(src.Ptr, req.srcW, req.srcH,
                                 proxyRaw.Ptr, proxyW, proxyH, proxyScale);
@@ -952,56 +949,61 @@ namespace Iroca
                         // 表示寸法へ。ProxyMaxSize==MaxSize なら proxy==表示で再縮小なし(最頻ケース)。
                         bool needsResample = proxyW != req.prevW || proxyH != req.prevH;
                         float toDisplay = ProxyToDisplayScale(proxyW, proxyH, req.prevW, req.prevH);
-                        if (needsResample)
-                        {
+                        if (needsResample) {
                             processedDisplay = NativePixels.Allocate(req.prevW, req.prevH);
                             PixelProcessor.BoxDownsampleInto(proxyPixels.Ptr, proxyW, proxyH,
                                 processedDisplay.Ptr, req.prevW, req.prevH, toDisplay);
+                        } else {
+                            processedDisplay = proxyPixels.AddRef();
                         }
-                        else processedDisplay = proxyPixels.AddRef();
-                        if (cachedDisplay != null) rawForJob = cachedDisplay.AddRef();
-                        else if (needsResample)
-                        {
+                        if (cachedDisplay != null) {
+                            rawForJob = cachedDisplay.AddRef();
+                        } else if (needsResample) {
                             rawForJob = NativePixels.Allocate(req.prevW, req.prevH);
                             PixelProcessor.BoxDownsampleInto(proxyRaw.Ptr, proxyW, proxyH,
                                 rawForJob.Ptr, req.prevW, req.prevH, toDisplay);
+                        } else {
+                            rawForJob = proxyRaw.AddRef();
                         }
-                        else rawForJob = proxyRaw.AddRef();
                         marks.WorkEnd = PreviewLatencyCycle.Now;
                         handedOff = true;
                         masksHandedOver = chainFull;
                         return new ProxyResult { processed = processedDisplay, raw = rawForJob, proxy = proxyRaw };
-                    }
-                    finally
-                    {
+                    } finally {
                         // 処理の写しは結果に渡した分(参照を足した分)を除いて返す。取り消し・例外で結果を渡さなかったときは全部返す。
                         proxyPixels?.Release();
-                        if (!handedOff)
-                        {
+                        if (!handedOff) {
                             proxyRaw?.Release();
                             processedDisplay?.Release();
                             rawForJob?.Release();
                         }
                     }
                 },
-                apply: result =>
-                {
+                apply: result => {
                     marks.Applied = PreviewLatencyCycle.Now;
                     // 縮小した控えを確定する(ソースが替わっていなければ。表示側も before を読むだけ)。
-                    if (cached == null && ReferenceEquals(req.srcPixels, _cachedSrcPixels))
-                        SetProxySource(new ProxySourceCache
-                        {
-                            src = req.srcPixels, w = proxyW, h = proxyH, prevW = req.prevW, prevH = req.prevH,
-                            proxy = result.proxy.AddRef(), display = result.raw.AddRef(),
+                    if (cached == null && ReferenceEquals(req.srcPixels, _cachedSrcPixels)) {
+                        SetProxySource(new ProxySourceCache {
+                            src = req.srcPixels,
+                            w = proxyW,
+                            h = proxyH,
+                            prevW = req.prevW,
+                            prevH = req.prevH,
+                            proxy = result.proxy.AddRef(),
+                            display = result.raw.AddRef(),
                         });
+                    }
                     result.proxy.Release();
                     // 表示寸法の 2 枚の参照は、表示へ渡すフレームが引き取る。
-                    SetPending(new PreviewFrame
-                    {
-                        Processed = result.processed, Raw = result.raw,
-                        Width = req.prevW, Height = req.prevH,
-                        IsFinal = false, IsDrag = !chainFull,
-                        Latency = req.latency, Stage = marks,
+                    SetPending(new PreviewFrame {
+                        Processed = result.processed,
+                        Raw = result.raw,
+                        Width = req.prevW,
+                        Height = req.prevH,
+                        IsFinal = false,
+                        IsDrag = !chainFull,
+                        Latency = req.latency,
+                        Stage = marks,
                     });
                     // プロキシは近似。フル解像度出力の保持(詳細プレビューの切り出し元)・raw キャッシュ確定・
                     // debug 公開はフル段に委ねる(詳細プレビューの正確さを死守し、二重管理を避ける)。
@@ -1010,32 +1012,39 @@ namespace Iroca
                     // 概要は表示解像度なので、アバターのテクスチャ寸法へ引き伸ばすとフル段が届くまでの
                     // 一瞬だけ粗く崩れて見える。アバターは前の確定表示のまま、フル段で一度に差し替える。
                     // (映している間は LivePreview が自分の参照を持つ)
-                    if (!chainFull) LivePreview.Push(req.source, result.processed);
+                    if (!chainFull) {
+                        LivePreview.Push(req.source, result.processed);
+                    }
                     _host.RequestRepaint();
                     marks.ApplyEnd = PreviewLatencyCycle.Now;
                     // 続けてフル解像度で確定(同一スナップショット)。
-                    if (chainFull) ScheduleFullPreview(req);
-                    if (masksHandedOver) jobMasks?.Release();
+                    if (chainFull) {
+                        ScheduleFullPreview(req);
+                    }
+                    if (masksHandedOver) {
+                        jobMasks?.Release();
+                    }
                 },
-                cleanup: () =>
-                {
+                cleanup: () => {
                     src?.Release();
                     cachedProxy?.Release();
                     cachedDisplay?.Release();
-                    if (!masksHandedOver) jobMasks?.Release();
+                    if (!masksHandedOver) {
+                        jobMasks?.Release();
+                    }
                 },
-                discard: result =>
-                {
+                discard: result => {
                     result.Release();
-                    if (masksHandedOver) jobMasks?.Release();
+                    if (masksHandedOver) {
+                        jobMasks?.Release();
+                    }
                 });
         }
 
         // 段階的リファイン第2段(=従来のフル解像度処理)。フル解像度で処理→表示解像度へ縮小し、
         // プロキシ表示を確定結果へ差し替える。フル解像度の出力を保持し、詳細プレビューはそこから切り出す。
         // この経路はフル解像度処理そのままなので出力は段階的リファイン導入前とバイト不変。
-        private void ScheduleFullPreview(PreviewRequest req)
-        {
+        private void ScheduleFullPreview(PreviewRequest req) {
             var selCache = _selectionCache;
             var marks = req.latency.Full;
             marks.Scheduled = PreviewLatencyCycle.Now;
@@ -1050,22 +1059,24 @@ namespace Iroca
             int dispW = _displaySource != null ? _displayW : 0, dispH = _displaySource != null ? _displayH : 0;
             bool workStarted = false;
             // もう書かない出力バッファを使い回しへ戻す(参照を渡す。使い回しが無ければ返す)。
-            void RetireOutput(NativePixels b)
-            {
-                if (b == null) return;
-                if (buffers != null) buffers.Retire(b);
-                else b.Release();
+            void RetireOutput(NativePixels b) {
+                if (b == null) {
+                    return;
+                }
+                if (buffers != null) {
+                    buffers.Retire(b);
+                } else {
+                    b.Release();
+                }
             }
             _previewJob.Schedule(
-                work: token =>
-                {
+                work: token => {
                     workStarted = true;
                     marks.WorkStart = PreviewLatencyCycle.Now;
                     NativePixels pixels = reused ?? NativePixels.Allocate(req.srcW, req.srcH);
                     bool handedOff = false;
                     NativePixels display = null, processedDisplay = null, rawForJob = null;
-                    try
-                    {
+                    try {
                         pixels.CopyFrom(src);
                         marks.CoreStart = PreviewLatencyCycle.Now;
                         // 写し元のソース画素は誰も書き換えない(テクスチャが変われば別の画素になる)ので、
@@ -1078,36 +1089,32 @@ namespace Iroca
                         marks.CoreReport = DebugCaptureHooks.TakeThreadPerfReport();
 
                         // 表示用(縮小しないテクスチャは表示の上限 IrocaConsts.Preview.MaxSize 以下なので、出力そのものを上げる)。
-                        if (req.scale < 1f)
-                        {
+                        if (req.scale < 1f) {
                             processedDisplay = NativePixels.Allocate(req.prevW, req.prevH);
                             PixelProcessor.BoxDownsampleInto(pixels.Ptr, req.srcW, req.srcH,
                                 processedDisplay.Ptr, req.prevW, req.prevH, req.scale);
+                        } else {
+                            processedDisplay = pixels.AddRef();
                         }
-                        else processedDisplay = pixels.AddRef();
                         // raw が未確定(キャッシュミス & scale<1)ならバックグラウンドで生成する。
                         // それ以外(キャッシュヒット or scale>=1)は確定済みをそのまま使う。
-                        if (rawCached != null) rawForJob = rawCached.AddRef();
-                        else
-                        {
+                        if (rawCached != null) {
+                            rawForJob = rawCached.AddRef();
+                        } else {
                             rawForJob = NativePixels.Allocate(req.prevW, req.prevH);
                             PixelProcessor.BoxDownsampleInto(src.Ptr, req.srcW, req.srcH,
                                 rawForJob.Ptr, req.prevW, req.prevH, req.scale);
                         }
-                        if (dispW > 0)
-                        {
+                        if (dispW > 0) {
                             display = NativePixels.Allocate(dispW, dispH);
                             WorkingResolution.ResizeArea(pixels.Ptr, req.srcW, req.srcH, dispW, dispH, display.Ptr);
                         }
                         marks.WorkEnd = PreviewLatencyCycle.Now;
                         handedOff = true;
                         return new FullResult { processed = processedDisplay, raw = rawForJob, full = pixels, display = display };
-                    }
-                    finally
-                    {
+                    } finally {
                         // 取り消し・例外で結果を渡さなかった作業バッファは、もう書かないので使い回しへ戻す。
-                        if (!handedOff)
-                        {
+                        if (!handedOff) {
                             processedDisplay?.Release();
                             rawForJob?.Release();
                             RetireOutput(pixels);
@@ -1115,44 +1122,46 @@ namespace Iroca
                         }
                     }
                 },
-                apply: result =>
-                {
+                apply: result => {
                     marks.Applied = PreviewLatencyCycle.Now;
                     // AI 提案コミットの E2E 計測(アーム中のみ 1 回ログ)。実際の画面反映は
                     // 次フレームの表示の反映だが、差は 1 フレームなので近似で計上。
                     MaskSuggestPerf.NotifyFullPreviewApplied();
                     // 表示寸法の 2 枚の参照は、表示へ渡すフレームが引き取る。
-                    SetPending(new PreviewFrame
-                    {
-                        Processed = result.processed, Raw = result.raw,
-                        Width = req.prevW, Height = req.prevH,
-                        IsFinal = true, IsDrag = false,
-                        Latency = req.latency, Stage = marks,
+                    SetPending(new PreviewFrame {
+                        Processed = result.processed,
+                        Raw = result.raw,
+                        Width = req.prevW,
+                        Height = req.prevH,
+                        IsFinal = true,
+                        IsDrag = false,
+                        Latency = req.latency,
+                        Stage = marks,
                     });
                     // フル解像度の結果を保持する(ジョブが持っていた参照を引き取る)。拡大表示(詳細クロップ)は
                     // ここから切り出すだけなので、書き出しと同じ計算結果そのものになる(切り出しを計算し直さない)。
                     RetireFullOutput();
-                    _fullOutput       = result.full;
+                    _fullOutput = result.full;
                     _fullOutputSource = req.srcPixels;
                     // 拡大表示の寸法が変わっていたら(原本を読み直した・「元の解像度」をオンにした)使わない
                     // (原本を読み直したなら _fullOutputSource も別の原本になる)。
-                    if (result.display != null && (result.display.Width != _displayW || result.display.Height != _displayH))
-                    {
+                    if (result.display != null && (result.display.Width != _displayW || result.display.Height != _displayH)) {
                         result.display.Release();
                         _displayOutput = null;
+                    } else {
+                        _displayOutput = result.display;
                     }
-                    else _displayOutput = result.display;
                     // 走っている間に「元の解像度」をオフへ戻したら、縮めたものがまだ無いので、ここで縮める。
-                    if (_displayOutput == null && _displaySource != null && ReferenceEquals(req.srcPixels, TrueSource))
+                    if (_displayOutput == null && _displaySource != null && ReferenceEquals(req.srcPixels, TrueSource)) {
                         _displayOutput = ShrinkToDisplay(result.full);
+                    }
                     unchecked { FullOutputVersion++; }
                     BumpDetailOutput();
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
                     // 寸法が変わっていない場合のみ。新しいミスで上書きされていれば触らない)。
                     if (_cachedRawDisplay == null && _cachedSrcPixels == req.srcPixels &&
                         _cachedSrcW == req.srcW && _cachedSrcH == req.srcH &&
-                        _cachedPrevW == req.prevW && _cachedPrevH == req.prevH)
-                    {
+                        _cachedPrevW == req.prevW && _cachedPrevH == req.prevH) {
                         SetCachedRawDisplay(result.raw.AddRef());
                     }
                     // シーンのアバターにはフル解像度の結果を映す(取り込み済みテクスチャの寸法へは LivePreview が合わせる。
@@ -1161,23 +1170,24 @@ namespace Iroca
                     _host.PublishDebugCapture(req.debugCap);
                     // 充填完了したキャプチャを（メインスレッドの）ここで初めて公開する。
                     // 生成時に公開すると、DebugWindow が Add 中のリストを foreach して競合する。
-                    if (req.debugCap != null)
+                    if (req.debugCap != null) {
                         DebugCaptureHooks.RaiseCaptureComplete(req.debugCap);
+                    }
                     _host.RequestRepaint();
                     // ここまでが受け取りのメインスレッドの処理(拡大表示の土台の縮小・シーンへの反映・デバッグの記録の公開)。
                     marks.ApplyEnd = PreviewLatencyCycle.Now;
                 },
-                cleanup: () =>
-                {
+                cleanup: () => {
                     src.Release();
                     rawCached?.Release();
                     jobMasks?.Release();
                     // 取り消されて計算しなかったときは、取り出した出力バッファを戻す。
-                    if (!workStarted) RetireOutput(reused);
+                    if (!workStarted) {
+                        RetireOutput(reused);
+                    }
                 },
                 // 計算は済んだが apply しなかった(後から来た操作で古くなった)出力も戻す。
-                discard: result =>
-                {
+                discard: result => {
                     result.processed?.Release();
                     result.raw?.Release();
                     RetireOutput(result.full);

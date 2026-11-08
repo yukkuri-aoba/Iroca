@@ -2,10 +2,8 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Runtime.CompilerServices;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
         /// <summary>
         /// 画素ごとの HSV(<c>Color.RGBToHSV</c> の結果)。色の表(<see cref="ColorPalette"/>)があれば
         /// 「画素 → 番号」(<see cref="Index"/>)と「番号 → HSV」(<see cref="H"/>/<see cref="S"/>/<see cref="V"/>)の
@@ -15,13 +13,11 @@ namespace Iroca
         /// どれも Mono のヒープの外(色の表の持ち物か、作業配列のプール)を指す。指す先が生きているのは、
         /// 色の表の参照か作業配列を ProcessPixelsArrayCore が持っている間だけ。
         /// </summary>
-        internal readonly struct PixelHsv
-        {
+        internal readonly struct PixelHsv {
             internal readonly float* H, S, V;
             internal readonly int* Index;   // null = H/S/V が画素ごと
 
-            internal PixelHsv(float* h, float* s, float* v, int* index)
-            {
+            internal PixelHsv(float* h, float* s, float* v, int* index) {
                 H = h; S = s; V = v; Index = index;
             }
 

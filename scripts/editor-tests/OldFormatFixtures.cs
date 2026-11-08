@@ -1,7 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 古い版のいろかが書いた保存形式の見本（<see cref="OldFormatLoadTests"/> が読む）。手で書き直さないこと。
     /// 各版の保存するクラス（タグ v0.1.0・v0.3.0 の ColorZone・プリセット・セッション・マスク）の項目をそのまま並べ、
@@ -10,8 +9,7 @@ namespace Iroca.EditorTests
     /// マスクは 16×8。共通の「塗らない」は旧 bitpack（"R:" の付かない、1 画素 1 ビット）、ゾーンのものは RLE。
     /// v0.2.0 から v0.3.x まで、保存するクラスの項目は同じ（2026-10-27 に各タグのソースで確かめた）。
     /// </summary>
-    internal static class OldFormatFixtures
-    {
+    internal static class OldFormatFixtures {
         internal const string ShirtId = "6f0c1d2e-0000-4000-8000-000000000001";
         internal const string SkirtId = "6f0c1d2e-0000-4000-8000-000000000002";
         internal const string RibbonId = "6f0c1d2e-0000-4000-8000-000000000003";

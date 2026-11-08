@@ -8,8 +8,7 @@ using System.Text;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 製品の実行環境（Unity 2022.3 の Mono）で再着色の速さを測る。品質は検査しない。
     /// headless ハーネス（net8）は JIT の段階化や最適化が Mono と違うので、高速化の採否は
@@ -27,27 +26,26 @@ namespace Iroca.EditorTests
     /// <c>scripts/Run-EditorTests.ps1 -PerfCases &lt;json&gt;</c>。
     /// </summary>
     [Category("Perf")]
-    public class PerfBenchTests
-    {
+    public class PerfBenchTests {
         [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; }
         [Serializable] private class CasesDto { public int repeats = 5; public int[] threads = { 0 }; public List<CaseDto> cases = new List<CaseDto>(); }
 
         private TestAssets _assets;
 
         [SetUp] public void SetUp() => _assets = TestAssets.Create();
-        [TearDown] public void TearDown()
-        {
+        [TearDown]
+        public void TearDown() {
             DebugCaptureHooks.ParallelismOverride = 0;
             _assets.Dispose();
         }
 
         [Test]
-        public void RecolorTimings()
-        {
+        public void RecolorTimings() {
             string casesPath = Environment.GetEnvironmentVariable("IROCA_PERF_CASES");
             string reportPath = Environment.GetEnvironmentVariable("IROCA_PERF_REPORT");
-            if (string.IsNullOrEmpty(casesPath) || !File.Exists(casesPath))
+            if (string.IsNullOrEmpty(casesPath) || !File.Exists(casesPath)) {
                 Assert.Ignore("IROCA_PERF_CASES が未設定です（性能計測は Run-EditorTests.ps1 -PerfCases で明示実行）");
+            }
             Assert.IsFalse(string.IsNullOrEmpty(reportPath), "IROCA_PERF_REPORT が未設定です");
 
             var cfg = JsonUtility.FromJson<CasesDto>(File.ReadAllText(casesPath));
@@ -58,17 +56,13 @@ namespace Iroca.EditorTests
             void OnReport(PerfReport r) => last = r;
             DebugCaptureHooks.OnPerfReport += OnReport;
             var sb = new StringBuilder();
-            try
-            {
-                foreach (var c in cfg.cases)
-                {
+            try {
+                foreach (var c in cfg.cases) {
                     string src = _assets.WriteBytes(c.name + ".png", File.ReadAllBytes(c.png));
                     string zones = File.ReadAllText(c.zones);
-                    foreach (int threads in cfg.threads)
-                    {
+                    foreach (int threads in cfg.threads) {
                         DebugCaptureHooks.ParallelismOverride = threads;
-                        for (int k = 0; k < Math.Max(2, cfg.repeats); k++)
-                        {
+                        for (int k = 0; k < Math.Max(2, cfg.repeats); k++) {
                             // 出力は呼び出しごとに別名にする。同じファイルへ続けて書くと、直前の書き出しの
                             // 取り込みがファイルを掴んでいて置き換え(File.Replace)が IOException になる。
                             string outPath = $"{_assets.Folder}/{c.name}_t{threads}_{k}_out.png";
@@ -81,16 +75,13 @@ namespace Iroca.EditorTests
                         }
                     }
                 }
-            }
-            finally
-            {
+            } finally {
                 DebugCaptureHooks.OnPerfReport -= OnReport;
                 File.WriteAllText(reportPath, sb.ToString());
             }
         }
 
-        private static string ToJsonLine(string name, int threads, int iter, PerfReport r)
-        {
+        private static string ToJsonLine(string name, int threads, int iter, PerfReport r) {
             string Entries(PhasePerfEntry[] es) => es == null ? "{}" :
                 "{" + string.Join(",", es.Select(e => $"\"{e.Name}\":{e.TotalMs.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}")) + "}";
             var inv = System.Globalization.CultureInfo.InvariantCulture;

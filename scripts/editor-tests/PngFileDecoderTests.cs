@@ -10,53 +10,45 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// PNG を Mono のヒープの外へ読む口(<see cref="PngFileDecoder"/>)が LoadImage と同じ画素になること。扱わない形式と壊れたファイルは
     /// null を返して LoadImage に任せること。元ファイルの読み口(<see cref="TextureIO.DecodeSourceFile"/>)の結果が前の経路と同じこと。
     /// 圧縮テクスチャを GPU で展開した値が GetPixels32 に近いこと。
     /// </summary>
-    public class PngFileDecoderTests
-    {
+    public class PngFileDecoderTests {
         private const int W = 37, H = 23;
         private string _dir;
         private TestAssets _assets;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _dir = Path.Combine(Path.GetTempPath(), "iroca-png-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_dir);
             _assets = TestAssets.Create();
         }
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             Directory.Delete(_dir, true);
             _assets.Dispose();
         }
 
         // 各行に PNG の 5 種類のフィルタを順に当てる(row は元の画素。prev は前の行)。
-        private static byte[] Filtered(byte[][] rows, int bpp)
-        {
+        private static byte[] Filtered(byte[][] rows, int bpp) {
             int rowBytes = rows[0].Length;
             var result = new byte[rows.Length * (rowBytes + 1)];
             var zero = new byte[rowBytes];
-            for (int y = 0; y < rows.Length; y++)
-            {
+            for (int y = 0; y < rows.Length; y++) {
                 int filter = y % 5;
                 var row = rows[y];
                 var prev = y > 0 ? rows[y - 1] : zero;
                 int o = y * (rowBytes + 1);
                 result[o++] = (byte)filter;
-                for (int i = 0; i < rowBytes; i++)
-                {
+                for (int i = 0; i < rowBytes; i++) {
                     int a = i >= bpp ? row[i - bpp] : 0, b = prev[i], c = i >= bpp ? prev[i - bpp] : 0;
                     int predict;
-                    switch (filter)
-                    {
+                    switch (filter) {
                         case 1: predict = a; break;
                         case 2: predict = b; break;
                         case 3: predict = (a + b) >> 1; break;
@@ -72,8 +64,7 @@ namespace Iroca.EditorTests
             return result;
         }
 
-        private static void Chunk(Stream s, string type, byte[] data)
-        {
+        private static void Chunk(Stream s, string type, byte[] data) {
             var name = Encoding.ASCII.GetBytes(type);
             WriteBigEndian(s, (uint)data.Length);
             s.Write(name, 0, 4);
@@ -81,39 +72,36 @@ namespace Iroca.EditorTests
             WriteBigEndian(s, 0);   // CRC は読まない
         }
 
-        private static void WriteBigEndian(Stream s, uint v)
-        {
+        private static void WriteBigEndian(Stream s, uint v) {
             s.WriteByte((byte)(v >> 24)); s.WriteByte((byte)(v >> 16)); s.WriteByte((byte)(v >> 8)); s.WriteByte((byte)v);
         }
 
-        private static uint Adler(byte[] data)
-        {
+        private static uint Adler(byte[] data) {
             uint a = 1, b = 0;
             foreach (var d in data) { a = (a + d) % 65521; b = (b + a) % 65521; }
             return b << 16 | a;
         }
 
-        private static byte[] Idat(byte[] raw)
-        {
-            using (var ms = new MemoryStream())
-            {
+        private static byte[] Idat(byte[] raw) {
+            using (var ms = new MemoryStream()) {
                 ms.WriteByte(0x78); ms.WriteByte(0x01);
-                using (var z = new DeflateStream(ms, CompressionMode.Compress, leaveOpen: true)) z.Write(raw, 0, raw.Length);
+                using (var z = new DeflateStream(ms, CompressionMode.Compress, leaveOpen: true)) {
+                    z.Write(raw, 0, raw.Length);
+                }
                 WriteBigEndian(ms, Adler(raw));
                 return ms.ToArray();
             }
         }
 
         // CRC を計算しない PNG は LoadImage が読めないので、LoadImage と比べるものは CRC も入れる。
-        private static uint Crc(byte[] name, byte[] data)
-        {
+        private static uint Crc(byte[] name, byte[] data) {
             uint c = 0xFFFFFFFF;
-            void Add(byte[] bytes)
-            {
-                foreach (var d in bytes)
-                {
+            void Add(byte[] bytes) {
+                foreach (var d in bytes) {
                     c ^= d;
-                    for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320 ^ (c >> 1) : c >> 1;
+                    for (int k = 0; k < 8; k++) {
+                        c = (c & 1) != 0 ? 0xEDB88320 ^ (c >> 1) : c >> 1;
+                    }
                 }
             }
             Add(name);
@@ -121,8 +109,7 @@ namespace Iroca.EditorTests
             return c ^ 0xFFFFFFFF;
         }
 
-        private static void CrcChunk(Stream s, string type, byte[] data)
-        {
+        private static void CrcChunk(Stream s, string type, byte[] data) {
             var name = Encoding.ASCII.GetBytes(type);
             WriteBigEndian(s, (uint)data.Length);
             s.Write(name, 0, 4);
@@ -131,14 +118,11 @@ namespace Iroca.EditorTests
         }
 
         private string WritePng(string name, int depth, int colorType, byte[][] rows, int bpp, byte[] plte = null, byte[] trns = null,
-            int interlace = 0, bool splitIdat = false)
-        {
+            int interlace = 0, bool splitIdat = false) {
             string path = Path.Combine(_dir, name + ".png");
-            using (var f = File.Create(path))
-            {
+            using (var f = File.Create(path)) {
                 f.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, 0, 8);
-                using (var ihdr = new MemoryStream())
-                {
+                using (var ihdr = new MemoryStream()) {
                     WriteBigEndian(ihdr, W);
                     WriteBigEndian(ihdr, (uint)rows.Length);
                     ihdr.WriteByte((byte)depth); ihdr.WriteByte((byte)colorType);
@@ -146,68 +130,65 @@ namespace Iroca.EditorTests
                     CrcChunk(f, "IHDR", ihdr.ToArray());
                 }
                 CrcChunk(f, "tEXt", Encoding.ASCII.GetBytes("Comment\0ancillary chunk"));
-                if (plte != null) CrcChunk(f, "PLTE", plte);
-                if (trns != null) CrcChunk(f, "tRNS", trns);
+                if (plte != null) {
+                    CrcChunk(f, "PLTE", plte);
+                }
+                if (trns != null) {
+                    CrcChunk(f, "tRNS", trns);
+                }
                 var idat = Idat(Filtered(rows, bpp));
-                if (splitIdat)
-                {
+                if (splitIdat) {
                     int half = idat.Length / 2;
                     var a = new byte[half]; var b = new byte[idat.Length - half];
                     Buffer.BlockCopy(idat, 0, a, 0, half);
                     Buffer.BlockCopy(idat, half, b, 0, b.Length);
                     CrcChunk(f, "IDAT", a);
                     CrcChunk(f, "IDAT", b);
+                } else {
+                    CrcChunk(f, "IDAT", idat);
                 }
-                else CrcChunk(f, "IDAT", idat);
                 CrcChunk(f, "IEND", new byte[0]);
             }
             return path;
         }
 
-        private static byte[][] Rows(int rowBytes)
-        {
+        private static byte[][] Rows(int rowBytes) {
             var rows = new byte[H][];
             var r = new System.Random(7);
-            for (int y = 0; y < H; y++)
-            {
+            for (int y = 0; y < H; y++) {
                 rows[y] = new byte[rowBytes];
                 r.NextBytes(rows[y]);
             }
             return rows;
         }
 
-        private static byte[][] Masked(byte[][] rows, byte mask)
-        {
-            foreach (var row in rows)
-                for (int i = 0; i < row.Length; i++) row[i] &= mask;
+        private static byte[][] Masked(byte[][] rows, byte mask) {
+            foreach (var row in rows) {
+                for (int i = 0; i < row.Length; i++) {
+                    row[i] &= mask;
+                }
+            }
             return rows;
         }
 
-        private static byte[] Palette()
-        {
+        private static byte[] Palette() {
             var plte = new byte[256 * 3];
             for (int i = 0; i < 256; i++) { plte[i * 3] = (byte)i; plte[i * 3 + 1] = (byte)(255 - i); plte[i * 3 + 2] = (byte)(i * 7); }
             return plte;
         }
 
-        private static void AssertSameAsLoadImage(string path)
-        {
+        private static void AssertSameAsLoadImage(string path) {
             var mine = PngFileDecoder.TryDecode(path);
             Assert.IsNotNull(mine, "読めなかった");
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            try
-            {
+            try {
                 Assert.IsTrue(tex.LoadImage(File.ReadAllBytes(path)), "テストの前提: LoadImage が読める");
                 var theirs = WorkingResolution.NativePixelsOf(tex, null);
-                try
-                {
+                try {
                     Assert.AreEqual((theirs.Width, theirs.Height), (mine.Width, mine.Height));
                     CollectionAssert.AreEqual(theirs.ToArray(), mine.ToArray());
-                }
-                finally { theirs.Release(); }
-            }
-            finally
-            {
+                } finally { theirs.Release(); }
+            } finally {
                 Object.DestroyImmediate(tex);
                 mine.Release();
             }
@@ -234,15 +215,13 @@ namespace Iroca.EditorTests
 
         // 扱わないものは null(LoadImage へ回る)。
         [Test]
-        public void Unsupported_IsLeftToLoadImage()
-        {
+        public void Unsupported_IsLeftToLoadImage() {
             Assert.IsNull(PngFileDecoder.TryDecode(WritePng("key", 8, 2, Rows(W * 3), 3, trns: new byte[6])), "RGB の透明色");
             Assert.IsNull(PngFileDecoder.TryDecode(WritePng("adam7", 8, 2, Rows(W * 3), 3, interlace: 1)), "インターレース");
         }
 
         [Test]
-        public void BrokenFiles_AreNotDecoded()
-        {
+        public void BrokenFiles_AreNotDecoded() {
             string good = WritePng("good", 8, 6, Rows(W * 4), 4);
             byte[] bytes = File.ReadAllBytes(good);
 
@@ -264,17 +243,16 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void LockedFile_ThrowsLikeTheOtherPath()
-        {
+        public void LockedFile_ThrowsLikeTheOtherPath() {
             string path = WritePng("locked", 8, 6, Rows(W * 4), 4);
-            using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) {
                 Assert.Throws<IOException>(() => TextureIO.DecodeSourceFile(path, null));
+            }
         }
 
         // PNG・JPG でないファイルは LoadImage へ渡す前に分かる(読めないのに全部を管理配列へ読まない)。
         [Test]
-        public void OtherFormats_AreNotReadAtAll()
-        {
+        public void OtherFormats_AreNotReadAtAll() {
             string tga = Path.Combine(_dir, "a.tga");
             File.WriteAllBytes(tga, new byte[64]);
             Assert.IsNull(TextureIO.DecodeSourceFile(tga, null));
@@ -285,12 +263,13 @@ namespace Iroca.EditorTests
 
         // 辺が 8192 を超える原本は取り込み後の寸法へ縮める。LoadImage の経路と同じ画素。
         [Test]
-        public void ShrinkingToTheImportedSize_MatchesTheTexturePath()
-        {
+        public void ShrinkingToTheImportedSize_MatchesTheTexturePath() {
             const int sw = 8200, sh = 4;
             var px = new Color32[sw * sh];
             var r = new System.Random(3);
-            for (int i = 0; i < px.Length; i++) px[i] = new Color32((byte)r.Next(256), (byte)r.Next(256), (byte)r.Next(256), (byte)r.Next(256));
+            for (int i = 0; i < px.Length; i++) {
+                px[i] = new Color32((byte)r.Next(256), (byte)r.Next(256), (byte)r.Next(256), (byte)r.Next(256));
+            }
             // Texture2D を介さずに PNG を作る(Unity 6 の -nographics は 8192 より広い Texture2D を作れない)。
             string path = _assets.WriteBytes("wide.png",
                 ImageConversion.EncodeArrayToPNG(px, UnityEngine.Experimental.Rendering.GraphicsFormat.R8G8B8A8_SRGB, sw, sh));
@@ -302,23 +281,19 @@ namespace Iroca.EditorTests
 
             var got = TextureIO.DecodeSourceFile(path, imported);
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            try
-            {
+            try {
                 bool loaded = tex.LoadImage(File.ReadAllBytes(path));
                 // 比べる相手が無い(Unity 6 の -nographics の LoadImage は 8192 より広い画像を読めない)。
-                if (!loaded && SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
+                if (!loaded && SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null) {
                     Assert.Ignore("LoadImage cannot read images wider than 8192 without a GPU on this Unity version");
+                }
                 Assert.IsTrue(loaded);
                 var expected = WorkingResolution.NativePixelsOf(tex, imported);
-                try
-                {
+                try {
                     Assert.AreEqual((imported.width, imported.height), (got.Width, got.Height));
                     CollectionAssert.AreEqual(expected.ToArray(), got.ToArray());
-                }
-                finally { expected.Release(); }
-            }
-            finally
-            {
+                } finally { expected.Release(); }
+            } finally {
                 got.Release();
                 Object.DestroyImmediate(tex);
             }
@@ -326,11 +301,9 @@ namespace Iroca.EditorTests
 
         // 同じ寸法なら受け取った画素をそのまま返す(写さない)。
         [Test]
-        public void FitToWorkingSize_KeepsTheSameSize()
-        {
+        public void FitToWorkingSize_KeepsTheSameSize() {
             var source = NativePixels.Allocate(4, 4);
-            try { Assert.AreSame(source, WorkingResolution.FitToWorkingSize(source, null)); }
-            finally { source.Release(); }
+            try { Assert.AreSame(source, WorkingResolution.FitToWorkingSize(source, null)); } finally { source.Release(); }
         }
 
         // 圧縮テクスチャを GPU で展開した値。DXT は GPU の丸めで最大 1 段、BC7 は同じ。GPU が無ければ GetPixels32 の経路なので同じ。
@@ -342,14 +315,15 @@ namespace Iroca.EditorTests
         [TestCase(TextureImporterFormat.RGBAHalf, 0)]
         [TestCase(TextureImporterFormat.BC6H, 3)]
         [TestCase(TextureImporterFormat.BC5, 0)]
-        public void CompressedTexture_ReadsLikeGetPixels32(TextureImporterFormat format, int allowed)
-        {
+        public void CompressedTexture_ReadsLikeGetPixels32(TextureImporterFormat format, int allowed) {
             const int size = 128;
             var px = new Color32[size * size];
             var r = new System.Random(5);
-            for (int y = 0; y < size; y++)
-                for (int x = 0; x < size; x++)
+            for (int y = 0; y < size; y++) {
+                for (int x = 0; x < size; x++) {
                     px[y * size + x] = new Color32((byte)(x * 2), (byte)(y * 2), (byte)(x ^ y), (byte)(r.Next(4) == 0 ? 128 : 255));
+                }
+            }
             string path = _assets.WritePng("compressed", px, size, size);
             var importer = (TextureImporter)AssetImporter.GetAtPath(path);
             importer.isReadable = true;
@@ -361,22 +335,22 @@ namespace Iroca.EditorTests
             var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             var expected = tex.GetPixels32();
             var got = WorkingResolution.NativePixelsOf(tex, null);
-            try
-            {
+            try {
                 int max = 0;
                 var a = got.ToArray();
                 Assert.AreEqual(expected.Length, a.Length);
-                for (int i = 0; i < a.Length; i++)
-                {
+                for (int i = 0; i < a.Length; i++) {
                     max = Math.Max(max, Math.Abs(a[i].r - expected[i].r));
                     max = Math.Max(max, Math.Abs(a[i].g - expected[i].g));
                     max = Math.Max(max, Math.Abs(a[i].b - expected[i].b));
                     max = Math.Max(max, Math.Abs(a[i].a - expected[i].a));
                 }
-                if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null) Assert.AreEqual(0, max, "GPU が無ければ GetPixels32 と同じ");
-                else Assert.LessOrEqual(max, allowed, $"GPU で展開した値が離れている: {tex.format}");
-            }
-            finally { got.Release(); }
+                if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null) {
+                    Assert.AreEqual(0, max, "GPU が無ければ GetPixels32 と同じ");
+                } else {
+                    Assert.LessOrEqual(max, allowed, $"GPU で展開した値が離れている: {tex.format}");
+                }
+            } finally { got.Release(); }
         }
     }
 }

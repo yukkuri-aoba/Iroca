@@ -4,10 +4,8 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
         /// <summary>
         /// 1 つのゾーンの処理。ここがパイプラインの仕様(0.4.0 の計画の 3-7b で ProcessPixelsArrayCore のゾーンの
         /// ループの中身を書き換えずに切り出した)。ゾーンの入力(マスク・混色帯モード・サンプルの HSV・含めるマスク)を
@@ -15,8 +13,7 @@ namespace Iroca
         /// 無彩のフチ消し)の順に呼ぶ。段どうしは <see cref="ZoneState"/> で値を受け渡す。
         /// 段の順と条件は出力のビット一致に効くので、変えるときは abcheck で確かめる。
         /// </summary>
-        private static void RunZone(RunContext run, MaskSnapshot masks, ColorZone zone)
-        {
+        private static void RunZone(RunContext run, MaskSnapshot masks, ColorZone zone) {
             // ProcessPixelsArrayCore と同じ名前のローカルへ展開する(切り出した本体をそのまま読めるように)。
             int w = run.W, h = run.H, len = run.Len;
             var po = run.Po;
@@ -30,13 +27,15 @@ namespace Iroca
             cancellationToken.ThrowIfCancellationRequested();
 
             NativeBitMask zoneMaskLayer = null;
-            if (masks != null && masks.zones != null && !string.IsNullOrEmpty(zone.id))
+            if (masks != null && masks.zones != null && !string.IsNullOrEmpty(zone.id)) {
                 masks.zones.TryGetValue(zone.id, out zoneMaskLayer);
+            }
             ulong* zoneMask = NativeBitMask.BitsOf(zoneMaskLayer);
             // 含めるマスク(ゾーン別のみ)。除外と重なった画素は除外が勝つ。
             NativeBitMask zoneIncludeLayer = null;
-            if (masks != null && masks.zoneIncludes != null && !string.IsNullOrEmpty(zone.id))
+            if (masks != null && masks.zoneIncludes != null && !string.IsNullOrEmpty(zone.id)) {
                 masks.zoneIncludes.TryGetValue(zone.id, out zoneIncludeLayer);
+            }
             ulong* zoneInclude = NativeBitMask.BitsOf(zoneIncludeLayer);
 
             // Parallel.For に入る前にキャッシュを確定させてホットループ内の条件分岐を排除
@@ -56,8 +55,7 @@ namespace Iroca
             // /Solidify/GrowHighlightBand)にも cancellationToken を渡しており、内部 Parallel.For も
             // 同様にキャンセル例外を伝播するため、例外経路でもプールが汚染されないよう finally でガードする。
             var zb = new ZoneBuffers();
-            try
-            {
+            try {
                 // サンプル色の HSV(ゾーン内で不変。彩度天井ゲート・別パーツの色相幅・緩和マッチ・
                 // 中性リジェクト・再着色パラメータが同じ値を使う)。
                 Color.RGBToHSV(zone.sampleColor, out float sampH, out float sampS, out float sampV);
@@ -69,15 +67,12 @@ namespace Iroca
                 // (c) 中性リジェクト等 target 依存ヒューリスティック後の再主張
                 // キャッシュヒット時も (b)(c) で必要になるため selCached と無関係に作る。
                 // 含めるマスクが無ければ null のまま = 以降の全分岐が no-op(出力ビット不変)。
-                if (zoneInclude != null)
-                {
+                if (zoneInclude != null) {
                     zb.IncludedPx = s_boolPool.Rent(len);
                     var incLocal = zb.IncludedPx;
-                    Parallel.For(0, h, po, y =>
-                    {
+                    Parallel.For(0, h, po, y => {
                         int rowOff = y * w;
-                        for (int x = 0; x < w; x++)
-                        {
+                        for (int x = 0; x < w; x++) {
                             incLocal[rowOff + x] =
                                 IsIncludedAt(maskColOf, maskRowBase, x, y, zoneInclude)
                                 && !IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask);
@@ -95,11 +90,17 @@ namespace Iroca
                 ApplyMaskContract(run, zone, strength, zoneMask, includedPx);
 
                 // 再着色の段。段どうしは z で値を受け渡す(0.4.0 の計画の 3-7b)。
-                var z = new ZoneState
-                {
-                    Zone = zone, Buffers = zb, ZoneMask = zoneMask, MixMode = zMixMode,
-                    SampH = sampH, SampS = sampS, SampV = sampV, IncludedPx = includedPx,
-                    Strength = strength, Box = sel.Box,
+                var z = new ZoneState {
+                    Zone = zone,
+                    Buffers = zb,
+                    ZoneMask = zoneMask,
+                    MixMode = zMixMode,
+                    SampH = sampH,
+                    SampS = sampS,
+                    SampV = sampV,
+                    IncludedPx = includedPx,
+                    Strength = strength,
+                    Box = sel.Box,
                 };
                 AchromaSolidifyStage.Run(run, z);
                 DecontamStage.Run(run, z);
@@ -108,11 +109,11 @@ namespace Iroca
                 ComposeStage.Run(run, z);
                 AchromaFringeStage.Run(run, z);
 
-                if (run.Debug != null) RecolorBranchRecorder.Record(run, z);
+                if (run.Debug != null) {
+                    RecolorBranchRecorder.Record(run, z);
+                }
                 run.PerfZones[run.PerfCount++] = new ZonePerfEntry(zone.id, TicksToMs(Stopwatch.GetTimestamp() - _tZone));
-            }
-            finally
-            {
+            } finally {
                 zb.ReturnAll();
             }
         }

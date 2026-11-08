@@ -3,8 +3,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 開いているシーンの Renderer の顔ぶれ・素材の並びが変わったかもしれない、という通知の版の番号。
     /// Unity の変更の通知(<see cref="ObjectChangeEvents"/>。インスペクタ・Undo・プレハブの更新などで出る)のうち、
@@ -13,31 +12,27 @@ namespace Iroca
     /// Undo を通さずにスクリプトが素材を差し替えたときは通知が来ない。
     /// </summary>
     [InitializeOnLoad]
-    internal static class SceneRendererChanges
-    {
+    internal static class SceneRendererChanges {
         /// <summary>今の版(変わったかもしれないたびに 1 上がる)。メインスレッドで読む。</summary>
         public static int Version { get; private set; }
 
-        static SceneRendererChanges()
-        {
+        static SceneRendererChanges() {
             ObjectChangeEvents.changesPublished -= OnChangesPublished;
             ObjectChangeEvents.changesPublished += OnChangesPublished;
         }
 
-        private static void OnChangesPublished(ref ObjectChangeEventStream stream)
-        {
-            for (int i = 0; i < stream.length; i++)
-            {
-                if (!Affects(ref stream, i)) continue;
+        private static void OnChangesPublished(ref ObjectChangeEventStream stream) {
+            for (int i = 0; i < stream.length; i++) {
+                if (!Affects(ref stream, i)) {
+                    continue;
+                }
                 unchecked { Version++; }
                 return;
             }
         }
 
-        private static bool Affects(ref ObjectChangeEventStream stream, int i)
-        {
-            switch (stream.GetEventType(i))
-            {
+        private static bool Affects(ref ObjectChangeEventStream stream, int i) {
+            switch (stream.GetEventType(i)) {
                 case ObjectChangeKind.ChangeScene:
                 case ObjectChangeKind.CreateGameObjectHierarchy:
                 case ObjectChangeKind.ChangeGameObjectStructureHierarchy:

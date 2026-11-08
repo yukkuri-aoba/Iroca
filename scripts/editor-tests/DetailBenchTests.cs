@@ -12,8 +12,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 拡大表示のパン・ズームの追従を測る(0.4.0 の計画の 4-4。3.5 の案 A のタイルと、それより前の 1 枚の切り出しを比べる)。
     /// 4K のテクスチャの確定段の出力を土台に、枠(650pt 四方)を一定の速さで動かしたときの 1 コマごとに、
@@ -25,8 +24,7 @@ namespace Iroca.EditorTests
     /// 普段は IROCA_DETAIL_BENCH_REPORT が無いので Ignore。実行は <c>Run-EditorTests.ps1 -DetailBench</c>。
     /// </summary>
     [Category("DetailBench")]
-    public class DetailBenchTests
-    {
+    public class DetailBenchTests {
         private const int W = 4096, H = 4096;
         private const float ViewportPt = 650f;
         private const float MarginPt = 96f;
@@ -42,8 +40,7 @@ namespace Iroca.EditorTests
         private string _guid;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _assets = TestAssets.Create();
             _prefKey = IrocaWindow.LastTextureGuidPrefKey;
             _prefBefore = EditorPrefs.HasKey(_prefKey) ? EditorPrefs.GetString(_prefKey) : null;
@@ -51,29 +48,34 @@ namespace Iroca.EditorTests
         }
 
         [TearDown]
-        public void TearDown()
-        {
-            if (_win != null)
-            {
+        public void TearDown() {
+            if (_win != null) {
                 Undo.ClearUndo(_win);
                 UnityEngine.Object.DestroyImmediate(_win);
             }
             PreviewView.DetailFullResolution = _fullResBefore;
-            if (_prefBefore == null) EditorPrefs.DeleteKey(_prefKey);
-            else EditorPrefs.SetString(_prefKey, _prefBefore);
-            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
-            {
-                if (_guid == null || !Directory.Exists(dir)) continue;
-                foreach (var f in Directory.GetFiles(dir, _guid + "*")) File.Delete(f);
+            if (_prefBefore == null) {
+                EditorPrefs.DeleteKey(_prefKey);
+            } else {
+                EditorPrefs.SetString(_prefKey, _prefBefore);
+            }
+            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                if (_guid == null || !Directory.Exists(dir)) {
+                    continue;
+                }
+                foreach (var f in Directory.GetFiles(dir, _guid + "*")) {
+                    File.Delete(f);
+                }
             }
             _assets.Dispose();
         }
 
         [Test]
-        public void PanAndZoom()
-        {
+        public void PanAndZoom() {
             string report = Environment.GetEnvironmentVariable("IROCA_DETAIL_BENCH_REPORT");
-            if (string.IsNullOrEmpty(report)) Assert.Ignore("IROCA_DETAIL_BENCH_REPORT が未設定です（Run-EditorTests.ps1 -DetailBench で明示実行）");
+            if (string.IsNullOrEmpty(report)) {
+                Assert.Ignore("IROCA_DETAIL_BENCH_REPORT が未設定です（Run-EditorTests.ps1 -DetailBench で明示実行）");
+            }
 
             var preview = Open();
             var dv = preview.DetailView;
@@ -87,8 +89,7 @@ namespace Iroca.EditorTests
             // 表示倍率(元の 1 画素が画面の何 pt か)。枠が画像の中を動ける倍率(4K を枠いっぱいに出した全体表示 ≒0.16 の
             // 2 倍)から 16 倍まで。枠は画像の左端から右へ動かし、端に着く手前で折り返して左端へ戻る(画像の外へは出さない。
             // 実際の画面でもスクロールは画像の端で止まる)。
-            foreach (float pxPerSrc in new[] { 0.32f, 0.64f, 1.28f, 2.56f })
-            {
+            foreach (float pxPerSrc in new[] { 0.32f, 0.64f, 1.28f, 2.56f }) {
                 var samples = new List<Sample>();
                 float viewSrc = ViewportPt / pxPerSrc;
                 float step = StepPt / pxPerSrc;
@@ -97,8 +98,7 @@ namespace Iroca.EditorTests
                 float cx = viewSrc / 2f, cy = detH * 0.5f;
                 // 最初の 1 コマ(全部作る)は数えない。
                 Step(dv, scheduleRange, scheduleCrop, detW, detH, cx, cy, viewSrc, pxPerSrc);
-                for (int i = 0; i < steps * 2; i++)
-                {
+                for (int i = 0; i < steps * 2; i++) {
                     cx += (i < steps ? 1 : -1) * step;
                     samples.Add(Step(dv, scheduleRange, scheduleCrop, detW, detH, cx, cy, viewSrc, pxPerSrc));
                 }
@@ -109,9 +109,10 @@ namespace Iroca.EditorTests
             {
                 var samples = new List<Sample>();
                 float[] stops = { 0.16f, 0.2f, 0.24f, 0.32f, 0.4f, 0.48f, 0.64f, 0.8f, 0.96f, 1.28f };
-                foreach (var z in stops.Concat(stops.Reverse()))
+                foreach (var z in stops.Concat(stops.Reverse())) {
                     samples.Add(Step(dv, scheduleRange, scheduleCrop, detW, detH, detW * 0.5f, detH * 0.5f,
                         ViewportPt / z, z));
+                }
                 sb.Append(Line(kind, "zoom", 0f, samples)).Append('\n');
             }
 
@@ -119,8 +120,7 @@ namespace Iroca.EditorTests
             UnityEngine.Debug.Log("[DetailBench]\n" + sb);
         }
 
-        private struct Sample
-        {
+        private struct Sample {
             public bool Job;          // 作り直しを頼んだ(タイルの並びが変わらないときは頼まない)
             public double TotalMs;    // 頼んでから、テクスチャへ上げ終わるまで
             public double WaitMs;     // 頼んでからワーカーで始まるまで
@@ -129,8 +129,7 @@ namespace Iroca.EditorTests
         }
 
         private static Sample Step(DetailPreviewView dv, MethodInfo scheduleRange, MethodInfo scheduleCrop,
-            int detW, int detH, float cx, float cy, float viewSrc, float pxPerSrc)
-        {
+            int detW, int detH, float cx, float cy, float viewSrc, float pxPerSrc) {
             var frame = Stopwatch.StartNew();
             // 見えている範囲に余白を足す(拡大表示の作り直しと同じ求め方)。
             int margin = Mathf.CeilToInt(MarginPt / pxPerSrc);
@@ -143,15 +142,13 @@ namespace Iroca.EditorTests
             var cycle = new PreviewLatencyCycle { ViewChange = true, Input = PreviewLatencyCycle.Now, SourceW = detW, SourceH = detH };
             long prep = PreviewLatencyCycle.Now;
             bool job;
-            if (scheduleRange != null)
+            if (scheduleRange != null) {
                 job = (bool)scheduleRange.Invoke(dv, new object[] { x0, y0, x1, y1, pxPerSrc, cycle, prep });
-            else
-            {
+            } else {
                 // それより前の作り: 見えている範囲をそのまま切り出し、表示の画素数へ面平均で縮める。
                 int cw = x1 - x0, ch = y1 - y0;
                 int outW = cw, outH = ch;
-                if (pxPerSrc < 1f)
-                {
+                if (pxPerSrc < 1f) {
                     outW = Mathf.Clamp(Mathf.RoundToInt(cw * pxPerSrc), 1, cw);
                     outH = Mathf.Clamp(Mathf.RoundToInt(ch * pxPerSrc), 1, ch);
                 }
@@ -160,14 +157,14 @@ namespace Iroca.EditorTests
                 job = true;
             }
             var s = new Sample { Job = job };
-            if (job)
-            {
+            if (job) {
                 var watch = Stopwatch.StartNew();
-                while (!dv.HasPendingResult)
-                {
+                while (!dv.HasPendingResult) {
                     Assert.Less(watch.Elapsed.TotalSeconds, 60, "拡大表示が届かない");
                     PreviewJobMainThread.Drain();
-                    if (!dv.HasPendingResult) Thread.Sleep(0);
+                    if (!dv.HasPendingResult) {
+                        Thread.Sleep(0);
+                    }
                 }
                 dv.ApplyPendingResult();
                 var m = cycle.Detail;
@@ -178,8 +175,7 @@ namespace Iroca.EditorTests
                 s.UploadMs = (m.UploadEnd - m.UploadStart) / f;
             }
             // 60fps のコマの残りを待つ(タイルの先読みはこの間に進む)。
-            while (frame.Elapsed.TotalMilliseconds < FrameMs)
-            {
+            while (frame.Elapsed.TotalMilliseconds < FrameMs) {
                 PreviewJobMainThread.Drain();
                 Thread.Sleep(1);
             }
@@ -188,8 +184,7 @@ namespace Iroca.EditorTests
 
         private static PreviewView s_preview;
 
-        private static string Line(string kind, string scenario, float pxPerSrc, List<Sample> samples)
-        {
+        private static string Line(string kind, string scenario, float pxPerSrc, List<Sample> samples) {
             var jobs = samples.Where(x => x.Job).ToList();
             var totals = samples.Select(x => x.Job ? x.TotalMs : 0.0).OrderBy(x => x).ToList();
             double P(double q) => totals.Count == 0 ? 0 : totals[Math.Min(totals.Count - 1, (int)Math.Floor(q * totals.Count))];
@@ -204,13 +199,11 @@ namespace Iroca.EditorTests
         }
 
         // 4K の模様(なめらかな陰影に細かい縞と点。縮めると平均の値になる)を開き、色替えの確定段まで済ませる。
-        private PreviewView Open()
-        {
+        private PreviewView Open() {
             var px = new Color32[W * H];
             var rng = new System.Random(7);
-            for (int y = 0; y < H; y++)
-                for (int x = 0; x < W; x++)
-                {
+            for (int y = 0; y < H; y++) {
+                for (int x = 0; x < W; x++) {
                     float s = 0.55f + 0.45f * (0.5f + 0.5f * Mathf.Sin(x * 0.01f) * Mathf.Cos(y * 0.013f));
                     bool stripe = ((x / 3) + (y / 5)) % 2 == 0;
                     byte n = (byte)rng.Next(0, 24);
@@ -218,6 +211,7 @@ namespace Iroca.EditorTests
                         ? new Color32((byte)(200 * s + (stripe ? 10 : 0)), (byte)(40 * s + n), (byte)(40 * s), 255)
                         : new Color32((byte)(40 * s), (byte)(90 * s + n), (byte)(200 * s + (stripe ? 10 : 0)), 255);
                 }
+            }
             string path = _assets.WritePng("bench4k", px, W, H);
             var importer = (TextureImporter)AssetImporter.GetAtPath(path);
             importer.maxTextureSize = 4096;
@@ -226,8 +220,7 @@ namespace Iroca.EditorTests
             EditorPrefs.SetString(_prefKey, _guid);
             PreviewView.DetailFullResolution = false;
             _win = ScriptableObject.CreateInstance<IrocaWindow>();
-            var zone = new ColorZone
-            {
+            var zone = new ColorZone {
                 name = "red",
                 sampleColor = new Color(0.7f, 0.15f, 0.15f),
                 sampleColorSet = true,
@@ -243,8 +236,7 @@ namespace Iroca.EditorTests
             preview.GeneratePreviewAsync();
             var watch = Stopwatch.StartNew();
             int idle = 0;
-            while (idle < 3)
-            {
+            while (idle < 3) {
                 Assert.Less(watch.Elapsed.TotalSeconds, 300, "プレビューが終わらない");
                 PreviewJobMainThread.Drain();
                 idle = preview.IsGenerating ? 0 : idle + 1;

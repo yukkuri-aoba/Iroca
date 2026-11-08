@@ -4,8 +4,7 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 編集内容の保存と復元(0.4.0 の計画の 4-2 の 5)。テクスチャごとの編集状態を、どこから読み・どこへ書くかを決める。
     /// <list type="bullet">
@@ -17,12 +16,12 @@ namespace Iroca
     /// (いろかのウィンドウ)。マスクのファイル(MaskFileStore)は今はマスクの編集(MaskPaintView)が読み書きする。
     /// メインスレッド専用。
     /// </summary>
-    internal static class SessionPersistence
-    {
+    internal static class SessionPersistence {
         /// <summary>テクスチャのアセットのパス(アセットでなければ null)。</summary>
-        internal static string TexturePathOf(Texture2D tex)
-        {
-            if (tex == null) return null;
+        internal static string TexturePathOf(Texture2D tex) {
+            if (tex == null) {
+                return null;
+            }
             string path = AssetDatabase.GetAssetPath(tex);
             return string.IsNullOrEmpty(path) ? null : path;
         }
@@ -31,18 +30,18 @@ namespace Iroca
         /// テクスチャの編集内容のファイルを決める鍵(MaskFileStore・SessionFileStore に渡す。アセットでなければ null)。
         /// ふつうのテクスチャはパスそのもので、1 つのファイルに複数のテクスチャがあるときはサブアセットの番号を足す。
         /// </summary>
-        internal static string StorageKeyOf(Texture2D tex)
-        {
+        internal static string StorageKeyOf(Texture2D tex) {
             string path = TexturePathOf(tex);
-            if (path == null || AssetDatabase.IsMainAsset(tex)) return path;
+            if (path == null || AssetDatabase.IsMainAsset(tex)) {
+                return path;
+            }
             return AssetDatabase.TryGetGUIDAndLocalFileIdentifier(tex, out string _, out long localId)
                 ? path + GuidFileCache.SubAssetSeparator + localId
                 : path;
         }
 
         /// <summary>テクスチャのアセットの GUID(アセットでなければ空)。</summary>
-        internal static string GuidOf(Texture2D tex)
-        {
+        internal static string GuidOf(Texture2D tex) {
             string path = TexturePathOf(tex);
             return path != null ? AssetDatabase.AssetPathToGUID(path) : "";
         }
@@ -55,25 +54,38 @@ namespace Iroca
         /// 最後に結び付いたレシピ(開き直すと前と違う所へ保存しないように)。どれでもなければ null(どれに書くか決められないため。
         /// インスペクタの「いろかで開く」で選ぶ。窓が案内を出す)。
         /// </summary>
-        internal static IrocaRecipe RecipeFor(Texture2D tex, IrocaRecipe bound)
-        {
-            if (tex == null) return null;
-            if (bound != null) return bound;
+        internal static IrocaRecipe RecipeFor(Texture2D tex, IrocaRecipe bound) {
+            if (tex == null) {
+                return null;
+            }
+            if (bound != null) {
+                return bound;
+            }
             var found = RecipeStore.FindForTexture(tex);
-            if (found.Count == 1) return found[0];
-            if (found.Count == 0) return null;
+            if (found.Count == 1) {
+                return found[0];
+            }
+            if (found.Count == 0) {
+                return null;
+            }
             string guid = SessionFileStore.LoadBoundRecipeGuid(StorageKeyOf(tex));
-            if (string.IsNullOrEmpty(guid)) return null;
-            foreach (var recipe in found)
-                if (AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(recipe)) == guid) return recipe;
+            if (string.IsNullOrEmpty(guid)) {
+                return null;
+            }
+            foreach (var recipe in found) {
+                if (AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(recipe)) == guid) {
+                    return recipe;
+                }
+            }
             return null;
         }
 
         /// <summary>テクスチャに結び付いたレシピを覚える(<see cref="RecipeFor"/> が開き直したときに使う)。null なら忘れる。</summary>
-        internal static void RememberBoundRecipe(Texture2D tex, IrocaRecipe recipe)
-        {
+        internal static void RememberBoundRecipe(Texture2D tex, IrocaRecipe recipe) {
             string path = StorageKeyOf(tex);
-            if (path == null) return;
+            if (path == null) {
+                return;
+            }
             string recipePath = recipe != null ? AssetDatabase.GetAssetPath(recipe) : null;
             SessionFileStore.SaveBoundRecipeGuid(path, string.IsNullOrEmpty(recipePath) ? null : AssetDatabase.AssetPathToGUID(recipePath));
         }
@@ -83,12 +95,12 @@ namespace Iroca
         /// 壊れたレシピは読まない(保存もしない)。空のレシピは書いてよいので、同期した中身として覚える
         /// (覚えていないレシピには保存しない。下の「外でのレシピの書き換え」)。
         /// </summary>
-        internal static IrocaSessionState LoadFromRecipe(IrocaRecipe recipe)
-        {
+        internal static IrocaSessionState LoadFromRecipe(IrocaRecipe recipe) {
             var state = RecipeStore.Load(recipe);
-            if (state == null)
-            {
-                if (string.IsNullOrEmpty(recipe.sessionJson)) MarkRecipeSynced(recipe);
+            if (state == null) {
+                if (string.IsNullOrEmpty(recipe.sessionJson)) {
+                    MarkRecipeSynced(recipe);
+                }
                 return null;
             }
             MarkRecipeSynced(recipe);
@@ -100,17 +112,17 @@ namespace Iroca
         /// 外(git など)で書き換わったレシピは窓の古い内容で上書きせず false(呼び出し側がレシピから読み直す)。
         /// 読めないレシピ(新しい版で作られた等)は上書きしない。
         /// </summary>
-        internal static bool SaveToRecipe(IrocaRecipe recipe, IrocaSessionState state)
-        {
-            if (RecipeChangedOutside(recipe)) return false;
+        internal static bool SaveToRecipe(IrocaRecipe recipe, IrocaSessionState state) {
+            if (RecipeChangedOutside(recipe)) {
+                return false;
+            }
             RecipeStore.SaveUnlessUnreadable(recipe, state);
             MarkRecipeSynced(recipe);
             return true;
         }
 
         /// <summary>テクスチャのセッションのファイルを読む。無い・テクスチャがアセットでなければ null。</summary>
-        internal static IrocaSessionState LoadFromFile(Texture2D tex, out bool unreadable)
-        {
+        internal static IrocaSessionState LoadFromFile(Texture2D tex, out bool unreadable) {
             unreadable = false;
             string path = StorageKeyOf(tex);
             return path != null ? SessionFileStore.LoadSession(path, out unreadable) : null;
@@ -121,11 +133,12 @@ namespace Iroca
         /// 印で、立っている間は空保存での削除・無退避の上書きをしない。書けなかったときだけ false。
         /// <paramref name="wroteContent"/> は中身を書けた(ファイルはもう読めるので、印を下ろしてよい)とき true。
         /// </summary>
-        internal static bool SaveToFile(Texture2D tex, IrocaSessionState state, bool loadFailed, out bool wroteContent)
-        {
+        internal static bool SaveToFile(Texture2D tex, IrocaSessionState state, bool loadFailed, out bool wroteContent) {
             wroteContent = false;
             string path = StorageKeyOf(tex);
-            if (path == null || state == null) return true;
+            if (path == null || state == null) {
+                return true;
+            }
             bool ok = SessionFileStore.SaveSession(path, state, loadFailed);
             wroteContent = ok && !SessionFileStore.IsEmpty(state);
             return ok;
@@ -141,29 +154,31 @@ namespace Iroca
         internal static string LastTextureGuidPrefKey =>
             IrocaPrefs.LastTextureGuidPrefix + StableHashHex(Application.dataPath);
 
-        private static string StableHashHex(string s)
-        {
+        private static string StableHashHex(string s) {
             uint h = 2166136261u; // FNV-1a 32bit
-            if (s != null)
+            if (s != null) {
                 foreach (char c in s) { h ^= c; h *= 16777619u; }
+            }
             return h.ToString("X8");
         }
 
         /// <summary>テクスチャの GUID を「前回編集テクスチャ」として記憶する（テクスチャ未設定なら空）。</summary>
-        internal static void RememberLastEdited(Texture2D tex)
-        {
+        internal static void RememberLastEdited(Texture2D tex) {
             string path = TexturePathOf(tex);
             string guid = path != null ? AssetDatabase.AssetPathToGUID(path) : "";
             EditorPrefs.SetString(LastTextureGuidPrefKey, guid ?? "");
         }
 
         /// <summary>記憶した前回編集テクスチャ。記憶が無い・解決できなければ null。</summary>
-        internal static Texture2D LastEdited()
-        {
+        internal static Texture2D LastEdited() {
             string guid = EditorPrefs.GetString(LastTextureGuidPrefKey, "");
-            if (string.IsNullOrEmpty(guid)) return null;
+            if (string.IsNullOrEmpty(guid)) {
+                return null;
+            }
             string path = AssetDatabase.GUIDToAssetPath(guid);
-            if (string.IsNullOrEmpty(path)) return null;
+            if (string.IsNullOrEmpty(path)) {
+                return null;
+            }
             return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
@@ -185,51 +200,61 @@ namespace Iroca
         // レシピが前の中身へ戻ったとき(自動化 API の色替えの Ctrl+Z)に、外からの変更と見分けるのに使う。
         private const int RecipeSyncHistory = 8;
 
-        private static string RecipeSyncKey(IrocaRecipe recipe)
-        {
+        private static string RecipeSyncKey(IrocaRecipe recipe) {
             string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(recipe));
             return string.IsNullOrEmpty(guid) ? null : IrocaPrefs.RecipeSyncedPrefix + guid;
         }
 
         private static string RecipeJsonHash(string json) => Hash128.Compute(json ?? "").ToString();
 
-        private static string[] RecipeSyncedHashes(IrocaRecipe recipe)
-        {
+        private static string[] RecipeSyncedHashes(IrocaRecipe recipe) {
             string key = RecipeSyncKey(recipe);
             string value = key != null ? SessionState.GetString(key, "") : "";
             return value.Split(new[] { ',' }, System.StringSplitOptions.RemoveEmptyEntries);
         }
 
         /// <summary>レシピの今の中身を、窓と同期した中身として覚える(窓がレシピを読んだ・書いた直後に呼ぶ)。</summary>
-        internal static void MarkRecipeSynced(IrocaRecipe recipe)
-        {
-            if (recipe == null) return;
+        internal static void MarkRecipeSynced(IrocaRecipe recipe) {
+            if (recipe == null) {
+                return;
+            }
             string json = recipe.sessionJson ?? "";
             int id = recipe.GetInstanceID();
-            if (s_recipeSyncedJson.TryGetValue(id, out var known) && ReferenceEquals(known, json)) return;
+            if (s_recipeSyncedJson.TryGetValue(id, out var known) && ReferenceEquals(known, json)) {
+                return;
+            }
             s_recipeSyncedJson[id] = json;
             string key = RecipeSyncKey(recipe);
-            if (key == null) return;
+            if (key == null) {
+                return;
+            }
             string hash = RecipeJsonHash(json);
             var hashes = new List<string>(RecipeSyncedHashes(recipe));
             hashes.Remove(hash);
             hashes.Add(hash);
-            if (hashes.Count > RecipeSyncHistory) hashes.RemoveRange(0, hashes.Count - RecipeSyncHistory);
+            if (hashes.Count > RecipeSyncHistory) {
+                hashes.RemoveRange(0, hashes.Count - RecipeSyncHistory);
+            }
             SessionState.SetString(key, string.Join(",", hashes));
         }
 
         /// <summary>
         /// 窓が最後に同期してから、レシピの中身が外で変わったか。同期したことの無いレシピも true。
         /// </summary>
-        internal static bool RecipeChangedOutside(IrocaRecipe recipe)
-        {
-            if (recipe == null) return false;
+        internal static bool RecipeChangedOutside(IrocaRecipe recipe) {
+            if (recipe == null) {
+                return false;
+            }
             string json = recipe.sessionJson ?? "";
             int id = recipe.GetInstanceID();
-            if (s_recipeSyncedJson.TryGetValue(id, out var known) && ReferenceEquals(known, json)) return false;
+            if (s_recipeSyncedJson.TryGetValue(id, out var known) && ReferenceEquals(known, json)) {
+                return false;
+            }
             // 参照が違っても(同じ中身で取り込み直された・ドメインリロードの後)中身が同じなら変わっていない。
             var hashes = RecipeSyncedHashes(recipe);
-            if (hashes.Length == 0 || hashes[hashes.Length - 1] != RecipeJsonHash(json)) return true;
+            if (hashes.Length == 0 || hashes[hashes.Length - 1] != RecipeJsonHash(json)) {
+                return true;
+            }
             s_recipeSyncedJson[id] = json;
             return false;
         }

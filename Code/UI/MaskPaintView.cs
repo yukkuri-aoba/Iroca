@@ -4,16 +4,14 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// マスク対象選択・ブラシ入力・オーバーレイ生成(MaskPaintView.Overlay.cs)・編集中のマスク(<see cref="MaskWorkspace"/>)と
     /// 保存形式との変換と、編集中の文書(EditingSession)の履歴への記録の呼び出しを担当する。
     /// ゾーン本体の編集 UI、プレビュー生成本体、プリセット一覧、エクスポートは扱わない。
     /// </summary>
     [System.Serializable]
-    internal partial class MaskPaintView
-    {
+    internal partial class MaskPaintView {
         // どのマスクを編集対象にするか。-1 = 共通マスク、0 以上 = zones[index]。
         public int activeMaskTarget = -1;
         public int brushSize = 8;
@@ -38,14 +36,14 @@ namespace Iroca
         [System.NonSerialized] public Texture2D maskOverlayTexture;
         [System.NonSerialized] public Texture2D zoneMaskOverlayTexture;
         [System.NonSerialized] private bool _maskDirty = true;
-        public bool maskDirty
-        {
+        public bool maskDirty {
             get => _maskDirty;
-            set
-            {
+            set {
                 _maskDirty = value;
                 // マスクが変わったら、別ウィンドウ(プレビュー・マスク編集)にも描き直しを知らせる(IrocaWindow.DrawStamp)。
-                if (value) _host?.BumpUiState();
+                if (value) {
+                    _host?.BumpUiState();
+                }
             }
         }
 
@@ -89,18 +87,14 @@ namespace Iroca
         // AI マスク提案(Sentis 統合が存在するときのみ生成される。不在なら常に null = 機能 OFF)
         [System.NonSerialized] private MaskSuggestController _suggestController;
 
-        public void Initialize(IrocaWindow host)
-        {
+        public void Initialize(IrocaWindow host) {
             _host = host;
         }
 
         /// <summary>AI マスク提案コントローラ(遅延生成)。Sentis 不在時は null。</summary>
-        public MaskSuggestController SuggestController
-        {
-            get
-            {
-                if (_suggestController == null && MaskSuggestBridge.Available && _host != null)
-                {
+        public MaskSuggestController SuggestController {
+            get {
+                if (_suggestController == null && MaskSuggestBridge.Available && _host != null) {
                     _suggestController = new MaskSuggestController();
                     _suggestController.Initialize(_host, this);
                 }
@@ -115,12 +109,9 @@ namespace Iroca
         [System.NonSerialized] private MeshPartController _meshParts;
 
         /// <summary>メッシュの UV の島を使う操作のコントローラ(遅延生成)。</summary>
-        public MeshPartController MeshParts
-        {
-            get
-            {
-                if (_meshParts == null && _host != null)
-                {
+        public MeshPartController MeshParts {
+            get {
+                if (_meshParts == null && _host != null) {
                     _meshParts = new MeshPartController();
                     _meshParts.Initialize(_host, this);
                 }
@@ -128,12 +119,10 @@ namespace Iroca
             }
         }
 
-        public void Draw()
-        {
+        public void Draw() {
             maskFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(maskFoldout,
                 TempContent.Of(Localization.ExclusionMask, Localization.ExclusionMaskTooltip));
-            if (!maskFoldout)
-            {
+            if (!maskFoldout) {
                 EditorGUILayout.EndFoldoutHeaderGroup();
                 return;
             }
@@ -152,11 +141,14 @@ namespace Iroca
                 EditorStyles.miniLabel);
 
             var prevBg = GUI.backgroundColor;
-            if (maskPaintActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-            if (GUILayout.Button(TempContent.Of(Localization.MaskEditOpen, Localization.MaskEditOpenTooltip)))
-            {
+            if (maskPaintActive) {
+                GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+            }
+            if (GUILayout.Button(TempContent.Of(Localization.MaskEditOpen, Localization.MaskEditOpenTooltip))) {
                 // 初回は「押せば塗れる」ようブラシを ON にする。
-                if (!maskPaintActive) ActivateBrush(erase: false);
+                if (!maskPaintActive) {
+                    ActivateBrush(erase: false);
+                }
                 MaskBrushWindow.Open(_host);
             }
             GUI.backgroundColor = prevBg;
@@ -175,11 +167,11 @@ namespace Iroca
         }
 
         /// <summary>いま編集対象になっているマスクのゾーン名(共通マスクなら共通の表示名)。</summary>
-        public string ActiveTargetName()
-        {
+        public string ActiveTargetName() {
             var zones = _host.Session?.zones;
-            if (IsCommonTarget(zones))
+            if (IsCommonTarget(zones)) {
                 return Localization.MaskTargetCommon;
+            }
             string raw = zones[activeMaskTarget].name;
             return string.IsNullOrEmpty(raw) ? Localization.UnnamedZone : raw;
         }
@@ -189,15 +181,13 @@ namespace Iroca
             => editIncludeLayer ? Localization.Include : Localization.Exclude;
 
         /// <summary>ブラシペイントモードを ON にする。</summary>
-        public void ActivateBrush(bool erase)
-        {
+        public void ActivateBrush(bool erase) {
             maskPaintActive = true;
             brushEraseMode = erase;
         }
 
         /// <summary>ブラシペイントモードを OFF にする。</summary>
-        public void DeactivateBrush()
-        {
+        public void DeactivateBrush() {
             // 塗っている途中で切れる(Esc)と、マウスを離す処理(PreviewView.HandlePreviewPaintInput)へ来なくなる。
             FinishStroke();
             maskPaintActive = false;
@@ -207,9 +197,10 @@ namespace Iroca
         /// 塗っている途中のストロークを閉じる(マウスを離した・その前にブラシが切れた)。閉じないと、塗った分が Undo の版にならず、
         /// 塗っている途中のままなので自動保存と重ね表示の作り直しも止まる。塗っていなければ何もしない。
         /// </summary>
-        public void FinishStroke()
-        {
-            if (!isPainting) return;
+        public void FinishStroke() {
+            if (!isPainting) {
+                return;
+            }
             GUIUtility.hotControl = 0;
             isPainting = false;
             // ストローク終了: 編集中のマスクを新しい版にして、編集を知らせる。
@@ -229,12 +220,12 @@ namespace Iroca
         /// レイヤー選択の整合を保つ: 含めるレイヤーはゾーン単位のみなので、編集対象が
         /// 共通マスクのときは除外レイヤーへ戻す(ゾーン削除・対象切替の過渡で不整合になり得る)。
         /// </summary>
-        private void EnforceLayerConsistency()
-        {
-            if (!editIncludeLayer) return;
+        private void EnforceLayerConsistency() {
+            if (!editIncludeLayer) {
+                return;
+            }
             var zones = _host.Session?.zones;
-            if (IsCommonTarget(zones))
-            {
+            if (IsCommonTarget(zones)) {
                 editIncludeLayer = false;
                 maskDirty = true;
             }
@@ -248,8 +239,7 @@ namespace Iroca
         /// AI 提案(プレビューの右クリックメニューで使う)の粒度と推論の状態 → 取り消し/クリア」の順。
         /// ユーザーが決める順序どおりに並べてある。
         /// </summary>
-        public void DrawBrushPalette()
-        {
+        public void DrawBrushPalette() {
             EnforceLayerConsistency();
 
             // 1. 対象ゾーン。ここに無いと「塗る直前にメインウィンドウへ視線を往復する」ことになる
@@ -272,18 +262,22 @@ namespace Iroca
             EditorGUILayout.BeginHorizontal();
             GUI.backgroundColor = paintActive ? IrocaColors.ExcludeButton : Color.white;
             if (GUILayout.Button(TempContent.Of(Localization.BrushPaint, Localization.BrushPaintTooltip),
-                    EditorStyles.miniButtonLeft))
-            {
-                if (paintActive) DeactivateBrush();
-                else ActivateBrush(erase: false);
+                    EditorStyles.miniButtonLeft)) {
+                if (paintActive) {
+                    DeactivateBrush();
+                } else {
+                    ActivateBrush(erase: false);
+                }
                 stateChanged = true;
             }
             GUI.backgroundColor = eraseActive ? IrocaColors.IncludeButton : Color.white;
             if (GUILayout.Button(TempContent.Of(Localization.BrushErase, Localization.BrushEraseTooltip),
-                    EditorStyles.miniButtonRight))
-            {
-                if (eraseActive) DeactivateBrush();
-                else ActivateBrush(erase: true);
+                    EditorStyles.miniButtonRight)) {
+                if (eraseActive) {
+                    DeactivateBrush();
+                } else {
+                    ActivateBrush(erase: true);
+                }
                 stateChanged = true;
             }
             GUI.backgroundColor = prevBg;
@@ -295,8 +289,7 @@ namespace Iroca
                 brushSize, 1, 64);
 
             // 5. AI 提案(右クリックメニューから使う)の粒度と推論の状態。Sentis が載っているときだけ。
-            if (ctl != null)
-            {
+            if (ctl != null) {
                 EditorGUILayout.Space(2);
                 EditorGUILayout.LabelField(
                     TempContent.Of(Localization.AiSuggestSectionHeader, Localization.AiSuggestSectionHeaderTooltip),
@@ -311,8 +304,7 @@ namespace Iroca
             // ★ラベルは「マスクを元に戻す」にしないこと★ — PerformUndo の対象は直前の操作であり、
             // マスク編集とは限らない。マスク限定の Undo を名乗ると、スライダー変更やシーン編集が
             // 巻き戻ったときに破壊的なサプライズになる（Localization.UndoMask のコメント参照）。
-            if (GUILayout.Button(TempContent.Of(Localization.UndoMask, Localization.UndoMaskTooltip)))
-            {
+            if (GUILayout.Button(TempContent.Of(Localization.UndoMask, Localization.UndoMaskTooltip))) {
                 Undo.PerformUndo();
             }
 
@@ -322,8 +314,7 @@ namespace Iroca
             if (GUILayout.Button(TempContent.Of(
                     string.Format(Localization.ClearMaskTargetFormat,
                                   ActiveTargetName(), ActiveLayerName()),
-                    Localization.ClearMaskTooltip)))
-            {
+                    Localization.ClearMaskTooltip))) {
                 _host.Editing.RecordMaskEdit("Clear Mask");
                 ClearActiveMask();
                 _host.Editing.CommitMaskEdit();
@@ -335,16 +326,16 @@ namespace Iroca
                 + "\n" + Localization.MaskHintContextMenu,
                 MessageType.Info);
 
-            if (stateChanged)
+            if (stateChanged) {
                 _host.RequestRepaint();
+            }
         }
 
         /// <summary>
         /// 「マスクの種類」(除外/含める)の切り替え行。ブラシパレット(DrawBrushPalette)から呼ぶ。
         /// 含めるはゾーン単位のみなので、共通マスクが編集対象のときは無効化する。
         /// </summary>
-        public void DrawLayerKindSelector()
-        {
+        public void DrawLayerKindSelector() {
             var zones = _host.Session?.zones;
             bool commonTarget = IsCommonTarget(zones);
             EnforceLayerConsistency();
@@ -356,20 +347,17 @@ namespace Iroca
             GUI.backgroundColor = !editIncludeLayer ? IrocaColors.ExcludeButton : Color.white;
             if (GUILayout.Button(TempContent.Of(Localization.Exclude, Localization.ExcludeTooltip),
                     EditorStyles.miniButtonLeft)
-                && editIncludeLayer)
-            {
+                && editIncludeLayer) {
                 editIncludeLayer = false;
                 maskDirty = true;
                 _host.RequestRepaint();
             }
-            using (new EditorGUI.DisabledScope(commonTarget))
-            {
+            using (new EditorGUI.DisabledScope(commonTarget)) {
                 GUI.backgroundColor = editIncludeLayer ? IrocaColors.IncludeButton : Color.white;
                 if (GUILayout.Button(
                         TempContent.Of(Localization.Include, Localization.IncludeLayerTooltip),
                         EditorStyles.miniButtonRight)
-                    && !editIncludeLayer)
-                {
+                    && !editIncludeLayer) {
                     editIncludeLayer = true;
                     maskDirty = true;
                     _host.RequestRepaint();
@@ -385,27 +373,22 @@ namespace Iroca
         [System.NonSerialized] private string[] _targetOptionsNames;
         [System.NonSerialized] private LanguageMode _targetOptionsLang = (LanguageMode)(-1);
 
-        private GUIContent[] GetMaskTargetOptions(List<ColorZone> zones, int zoneCount)
-        {
+        private GUIContent[] GetMaskTargetOptions(List<ColorZone> zones, int zoneCount) {
             bool rebuild = _targetOptionsCache == null
                 || _targetOptionsCache.Length != zoneCount + 1
                 || _targetOptionsNames == null
                 || _targetOptionsLang != Localization.CurrentLanguage;
-            if (!rebuild)
-            {
-                for (int i = 0; i < zoneCount; i++)
-                {
+            if (!rebuild) {
+                for (int i = 0; i < zoneCount; i++) {
                     if (_targetOptionsNames[i] != (zones[i].name ?? "")) { rebuild = true; break; }
                 }
             }
-            if (rebuild)
-            {
+            if (rebuild) {
                 _targetOptionsCache = new GUIContent[zoneCount + 1];
                 _targetOptionsNames = new string[zoneCount];
                 _targetOptionsLang = Localization.CurrentLanguage;
                 _targetOptionsCache[0] = new GUIContent(Localization.MaskTargetCommon);
-                for (int i = 0; i < zoneCount; i++)
-                {
+                for (int i = 0; i < zoneCount; i++) {
                     string raw = zones[i].name ?? "";
                     _targetOptionsNames[i] = raw;
                     _targetOptionsCache[i + 1] = new GUIContent(string.IsNullOrEmpty(raw) ? Localization.UnnamedZone : raw);
@@ -417,8 +400,7 @@ namespace Iroca
         /// <summary>
         /// 編集対象プルダウン。-1 = 共通マスク、0 以上 = zones[index] のマスク。
         /// </summary>
-        private void DrawMaskTargetSelector()
-        {
+        private void DrawMaskTargetSelector() {
             _host.EnsureAllZoneIds();
             var zones = _host.Session.zones;
 
@@ -429,8 +411,7 @@ namespace Iroca
             int next = EditorGUILayout.Popup(
                 TempContent.Of(Localization.MaskTarget, Localization.MaskTargetTooltip),
                 selectedIdx, options);
-            if (next != selectedIdx)
-            {
+            if (next != selectedIdx) {
                 activeMaskTarget = next - 1;
                 maskDirty = true;
                 _host.RequestRepaint();
@@ -445,22 +426,19 @@ namespace Iroca
         /// 共通マスクの確保は行わない（アクティブターゲットが
         /// ゾーンだけの場合に zone-only mask を巻き込んで消さないため）。
         /// </summary>
-        public void EnsureMasks()
-        {
+        public void EnsureMasks() {
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null) return;
+            if (sourceTexture == null) {
+                return;
+            }
             CanvasSizeFor(sourceTexture, out int w, out int h);
 
-            if (maskWidth != w || maskHeight != h)
-            {
+            if (maskWidth != w || maskHeight != h) {
                 int oldW = maskWidth, oldH = maskHeight;
-                if (Workspace.HasLayers && oldW > 0 && oldH > 0)
-                {
+                if (Workspace.HasLayers && oldW > 0 && oldH > 0) {
                     Workspace.Rescale(w, h);
                     Debug.Log($"[Iroca] テクスチャ解像度の変更 ({oldW}x{oldH} → {w}x{h}) に合わせてマスクをリスケールしました。");
-                }
-                else
-                {
+                } else {
                     Workspace.Reset(w, h);
                 }
                 maskDirty = true;
@@ -479,16 +457,15 @@ namespace Iroca
         /// 塗った境目が書き出しで 2×2 画素単位に粗くなっていた。元画像の寸法が取れないテクスチャ(生成物など)は
         /// 取り込み後の寸法。
         /// </summary>
-        private void CanvasSizeFor(Texture2D tex, out int w, out int h)
-        {
+        private void CanvasSizeFor(Texture2D tex, out int w, out int h) {
             var hash = tex.imageContentsHash;
             if (_canvasFor != tex || _canvasHash != hash
-                || _canvasImportW != tex.width || _canvasImportH != tex.height)
-            {
+                || _canvasImportW != tex.width || _canvasImportH != tex.height) {
                 int fileW = 0, fileH = 0;
                 string path = AssetDatabase.GetAssetPath(tex);
-                if (!string.IsNullOrEmpty(path) && AssetImporter.GetAtPath(path) is TextureImporter ti)
+                if (!string.IsNullOrEmpty(path) && AssetImporter.GetAtPath(path) is TextureImporter ti) {
                     ti.GetSourceTextureWidthAndHeight(out fileW, out fileH);
+                }
                 MaskRegionEdit.CanvasSize(fileW, fileH, tex.width, tex.height, out _canvasW, out _canvasH);
                 _canvasFor = tex;
                 _canvasHash = hash;
@@ -503,8 +480,7 @@ namespace Iroca
         /// 共通マスクを遅延確保して、書ける状態で返す。<see cref="EnsureMasks"/> は座標系のみを扱い、
         /// このメソッドは「実際に共通マスクへ書き込む直前」にだけ呼ぶ。
         /// </summary>
-        private NativeBitMask EnsureCommonMask()
-        {
+        private NativeBitMask EnsureCommonMask() {
             EnsureMasks();
             return Workspace.WritableCommon();
         }
@@ -512,8 +488,7 @@ namespace Iroca
         /// <summary>
         /// 指定ゾーンの、含める(<paramref name="include"/>)か除外のマスクを確保(存在しなければ新規作成)して、書ける状態で返す。
         /// </summary>
-        private NativeBitMask EnsureZoneLayer(bool include, string zoneId)
-        {
+        private NativeBitMask EnsureZoneLayer(bool include, string zoneId) {
             EnsureMasks();
             return Workspace.WritableLayer(include, zoneId);
         }
@@ -527,11 +502,11 @@ namespace Iroca
         /// 共通ターゲット × 含めるレイヤーは存在しない組み合わせで null を返す
         /// (UI 側は EnforceLayerConsistency がこの状態を解消する。データ経路の防御)。
         /// </summary>
-        private NativeBitMask ActiveLayerForWrite()
-        {
+        private NativeBitMask ActiveLayerForWrite() {
             var zones = _host.Session.zones;
-            if (IsCommonTarget(zones))
+            if (IsCommonTarget(zones)) {
                 return editIncludeLayer ? null : EnsureCommonMask();
+            }
 
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
@@ -543,22 +518,21 @@ namespace Iroca
         /// 共通にできるのは「ここは塗らない」だけ(含めるはゾーン単位のみ)。
         /// ゾーンは番号でなく ID で持つ(AI の推論待ちの間に並び替え・削除があっても取り違えない)。
         /// </summary>
-        internal readonly struct MaskDestination
-        {
+        internal readonly struct MaskDestination {
             public readonly string zoneId;
             public readonly MaskRegionOp op;
-            public MaskDestination(string zoneId, MaskRegionOp op)
-            {
+            public MaskDestination(string zoneId, MaskRegionOp op) {
                 this.zoneId = zoneId;
                 this.op = op;
             }
         }
 
         /// <summary>いまの編集対象(パレットで選んだゾーン。未選択は共通)。null = 共通。</summary>
-        public string ActiveTargetZoneId()
-        {
+        public string ActiveTargetZoneId() {
             var zones = _host.Session?.zones;
-            if (IsCommonTarget(zones)) return null;
+            if (IsCommonTarget(zones)) {
+                return null;
+            }
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
             return zone.id;
@@ -569,22 +543,30 @@ namespace Iroca
         /// <see cref="MaskRegionEdit.PickClearTarget"/>)。無効のゾーンと、ソロ表示で見えていないゾーンは見ない。
         /// どのゾーンにもマスクが無ければ <paramref name="defaultZoneId"/>(ほかの操作と同じ宛先。ふつうは塗っているゾーン)。
         /// </summary>
-        public unsafe string ClearTargetZoneIdAt(Vector2 uv, string activeZoneId, string defaultZoneId)
-        {
+        public unsafe string ClearTargetZoneIdAt(Vector2 uv, string activeZoneId, string defaultZoneId) {
             var zones = _host.Session?.zones;
             int w = maskWidth, h = maskHeight;
-            if (zones == null || w <= 0 || h <= 0) return defaultZoneId;
+            if (zones == null || w <= 0 || h <= 0) {
+                return defaultZoneId;
+            }
             PreviewCoords.UvToPixel(uv.x, uv.y, w, h, out int cx, out int cy);
             var solo = _host.SoloZone;
             var hasMask = new bool[zones.Count];
             int painting = -1, active = -1;
-            for (int k = 0; k < zones.Count; k++)
-            {
+            for (int k = 0; k < zones.Count; k++) {
                 var z = zones[k];
-                if (z == null) continue;
-                if (z.id == defaultZoneId) painting = k;
-                if (z.id == activeZoneId) active = k;
-                if (!z.enabled || (solo != null && z != solo)) continue;
+                if (z == null) {
+                    continue;
+                }
+                if (z.id == defaultZoneId) {
+                    painting = k;
+                }
+                if (z.id == activeZoneId) {
+                    active = k;
+                }
+                if (!z.enabled || (solo != null && z != solo)) {
+                    continue;
+                }
                 hasMask[k] = MaskRegionEdit.AnyBitNear(BitsOf(Workspace.Layer(true, z.id)), w, h, cx, cy, MaskRegionEdit.ClearProbeRadius)
                     || MaskRegionEdit.AnyBitNear(BitsOf(Workspace.Layer(false, z.id)), w, h, cx, cy, MaskRegionEdit.ClearProbeRadius);
             }
@@ -600,37 +582,46 @@ namespace Iroca
         /// (規則は <see cref="MaskRegionEdit"/>)。AI 提案と右クリックメニューの共通の出口。
         /// 宛先のゾーンが消えた・共通に「塗らない」「消す」以外を当てようとした・寸法違いなら false。
         /// </summary>
-        public unsafe bool ApplyRegion(bool[] region, MaskDestination d, out MaskRegionEditResult result)
-        {
+        public unsafe bool ApplyRegion(bool[] region, MaskDestination d, out MaskRegionEditResult result) {
             result = default;
             EnsureMasks();
             int len = maskWidth * maskHeight;
-            if (region == null || len <= 0 || region.Length != len) return false;
-            fixed (bool* p = region) return ApplyRegion(p, d, out result);
+            if (region == null || len <= 0 || region.Length != len) {
+                return false;
+            }
+            fixed (bool* p = region) {
+                return ApplyRegion(p, d, out result);
+            }
         }
 
         /// <summary>
         /// <see cref="ApplyRegion(bool[], MaskDestination, out MaskRegionEditResult)"/> の、範囲が Mono のヒープの外にある版
         /// (AI 提案。寸法がマスクと違えば false)。
         /// </summary>
-        public unsafe bool ApplyRegion(NativeBools region, MaskDestination d, out MaskRegionEditResult result)
-        {
+        public unsafe bool ApplyRegion(NativeBools region, MaskDestination d, out MaskRegionEditResult result) {
             result = default;
             EnsureMasks();
-            if (region == null || region.Width != maskWidth || region.Height != maskHeight) return false;
+            if (region == null || region.Width != maskWidth || region.Height != maskHeight) {
+                return false;
+            }
             return ApplyRegion(region.Ptr, d, out result);
         }
 
         // 範囲(マスクと同じ寸法)を当てる本体。
-        private unsafe bool ApplyRegion(bool* region, MaskDestination d, out MaskRegionEditResult result)
-        {
+        private unsafe bool ApplyRegion(bool* region, MaskDestination d, out MaskRegionEditResult result) {
             result = default;
-            if (d.zoneId != null && FindZone(d.zoneId) == null) return false;
+            if (d.zoneId != null && FindZone(d.zoneId) == null) {
+                return false;
+            }
             // 消す物が無かった「消す」は何も書かない(Undo にも空の手を積まない)。
             bool wrote = false;
             bool ok = Workspace.ApplyRegion(region, d.zoneId, d.op, () => { wrote = true; BeginStroke(); }, out result);
-            if (!ok) return false;
-            if (!wrote) return true;
+            if (!ok) {
+                return false;
+            }
+            if (!wrote) {
+                return true;
+            }
             EndStroke();
             _host.NotifyMasksEditedFullRefine();
             _host.RequestRepaint();
@@ -641,12 +632,14 @@ namespace Iroca
         /// <see cref="ApplyRegion"/> の結果を知らせる文。何をしたか(Ctrl+Z で戻せる)に加えて、
         /// 指示どおりに塗られない理由(共通の「塗らない」との重なり・許容範囲 0)があれば添える。
         /// </summary>
-        public string DescribeRegionEdit(MaskDestination d, bool ok, MaskRegionEditResult r)
-        {
-            if (!ok) return Localization.NotifyMaskNotAdded;
-            if (r.changed == 0)
-            {
-                if (d.op != MaskRegionOp.ClearHere) return Localization.NotifyMaskNoChange;
+        public string DescribeRegionEdit(MaskDestination d, bool ok, MaskRegionEditResult r) {
+            if (!ok) {
+                return Localization.NotifyMaskNotAdded;
+            }
+            if (r.changed == 0) {
+                if (d.op != MaskRegionOp.ClearHere) {
+                    return Localization.NotifyMaskNoChange;
+                }
                 // 消す物が無い。共通の「塗らない」が重なっていれば、塗られない理由はそちらだと知らせる。
                 return r.commonOverlap > 0
                     ? Localization.NotifyClearHereNothing + "\n" + Localization.NotifyCommonOverlap
@@ -654,8 +647,7 @@ namespace Iroca
             }
             var zone = FindZone(d.zoneId);
             string name = zone == null ? null : (string.IsNullOrEmpty(zone.name) ? Localization.UnnamedZone : zone.name);
-            string msg = d.op switch
-            {
+            string msg = d.op switch {
                 MaskRegionOp.PaintHere => string.Format(Localization.NotifyPaintHereFormat, name),
                 MaskRegionOp.OnlyThisPart => string.Format(Localization.NotifyOnlyThisPartFormat, name),
                 MaskRegionOp.ClearHere => zone == null ? Localization.NotifyClearHereCommon
@@ -663,28 +655,30 @@ namespace Iroca
                 _ => zone == null ? Localization.NotifyDontPaintHereCommon
                                   : string.Format(Localization.NotifyDontPaintHereFormat, name),
             };
-            if (r.commonOverlap > 0) msg += "\n" + Localization.NotifyCommonOverlap;
+            if (r.commonOverlap > 0) {
+                msg += "\n" + Localization.NotifyCommonOverlap;
+            }
             // この部分だけ: 範囲の中は色で選ぶので、許容範囲 0 では中も塗られない(旧来の「許容 0 → 含める」の手順の名残)。
-            if (d.op == MaskRegionOp.OnlyThisPart && zone != null && zone.tolerance <= 0f)
+            if (d.op == MaskRegionOp.OnlyThisPart && zone != null && zone.tolerance <= 0f) {
                 msg += "\n" + Localization.NotifyOnlyThisZeroTolerance;
+            }
             // 自動調整の前は、明るい所で取った色だと許容 0.20 では部分の中を取りこぼすことがある
             // (2026-10-06 の計測で範囲内 IoU 0.14、自動調整後は 1.00)。自動調整は除外を見るので、
             // 押すと部分の中だけを見て合わせ直す。
-            else if (d.op == MaskRegionOp.OnlyThisPart && zone != null && _host.IsUntunedNewZone(zone))
+            else if (d.op == MaskRegionOp.OnlyThisPart && zone != null && _host.IsUntunedNewZone(zone)) {
                 msg += "\n" + Localization.NotifyOnlyThisAutoTuneHint;
+            }
             return msg;
         }
 
-        private void ClearActiveMask()
-        {
+        private void ClearActiveMask() {
             var zones = _host.Session.zones;
-            if (activeMaskTarget < 0)
-            {
+            if (activeMaskTarget < 0) {
                 // 共通ターゲットに含めるレイヤーは存在しない(EnforceLayerConsistency 済み)。
-                if (!editIncludeLayer) Workspace.SetCommon(null);
-            }
-            else if (zones != null && activeMaskTarget < zones.Count)
-            {
+                if (!editIncludeLayer) {
+                    Workspace.SetCommon(null);
+                }
+            } else if (zones != null && activeMaskTarget < zones.Count) {
                 var zone = zones[activeMaskTarget];
                 zone.EnsureId();
                 Workspace.RemoveLayer(editIncludeLayer, zone.id);
@@ -695,16 +689,20 @@ namespace Iroca
         /// 指定インデックスのゾーンを消した後に、編集対象(index 参照)を追従させる。マスクは消す操作
         /// (EditingSession.RemoveZoneAt)が一緒に消している。
         /// </summary>
-        public void OnZoneRemoved(int index)
-        {
+        public void OnZoneRemoved(int index) {
             var zones = _host.Session.zones;
-            if (zones == null) return;
+            if (zones == null) {
+                return;
+            }
 
             // 編集対象(=いま直しているゾーン)を消したら、残ったゾーンのうち同じ位置(末尾なら 1 つ上)へ移す。
             // 共通へ戻すと、右クリックの「ここも塗る」などがゾーン無しの扱いになってしまう。
             int remaining = zones.Count;
-            if (activeMaskTarget == index) activeMaskTarget = remaining > 0 ? Mathf.Min(index, remaining - 1) : -1;
-            else if (activeMaskTarget > index) activeMaskTarget--;
+            if (activeMaskTarget == index) {
+                activeMaskTarget = remaining > 0 ? Mathf.Min(index, remaining - 1) : -1;
+            } else if (activeMaskTarget > index) {
+                activeMaskTarget--;
+            }
 
             maskDirty = true;
         }
@@ -713,19 +711,18 @@ namespace Iroca
         /// ゾーンを from から to(remove 後の挿入 index)へ移動した際に、編集中マスクターゲット
         /// (index 参照)を追従させる。マスク本体は zone.id キーで管理されるため移動は不要。
         /// </summary>
-        public void OnZoneReordered(int from, int to)
-        {
-            if (activeMaskTarget >= 0)
-            {
+        public void OnZoneReordered(int from, int to) {
+            if (activeMaskTarget >= 0) {
                 int a = activeMaskTarget;
-                if (a == from)
-                {
+                if (a == from) {
                     a = to;
-                }
-                else
-                {
-                    if (a > from) a--;
-                    if (a >= to) a++;
+                } else {
+                    if (a > from) {
+                        a--;
+                    }
+                    if (a >= to) {
+                        a++;
+                    }
                 }
                 activeMaskTarget = a;
             }
@@ -736,41 +733,44 @@ namespace Iroca
         [System.NonSerialized] private Dictionary<int, string> _targetByTexture;
 
         /// <summary>テクスチャを離れる前に呼ぶ。いま直しているゾーンを、そのテクスチャのものとして覚える。</summary>
-        public void RememberTargetOf(Texture2D texture)
-        {
-            if (texture == null) return;
+        public void RememberTargetOf(Texture2D texture) {
+            if (texture == null) {
+                return;
+            }
             RememberActiveTarget();
             (_targetByTexture ??= new Dictionary<int, string>())[texture.GetInstanceID()] = _activeTargetZoneId;
         }
 
         /// <summary>Undo で離れるテクスチャについて覚える。ゾーンの並びはもう戻っているので、描く前に覚えた id を使う。</summary>
-        public void RememberTargetIdOf(Texture2D texture)
-        {
-            if (texture != null) (_targetByTexture ??= new Dictionary<int, string>())[texture.GetInstanceID()] = _activeTargetZoneId;
+        public void RememberTargetIdOf(Texture2D texture) {
+            if (texture != null) {
+                (_targetByTexture ??= new Dictionary<int, string>())[texture.GetInstanceID()] = _activeTargetZoneId;
+            }
         }
 
         /// <summary>Undo でテクスチャが戻った後に呼ぶ。そのテクスチャで直していたゾーンを指す(覚えていなければ先頭)。</summary>
-        public void RestoreTargetOf(Texture2D texture)
-        {
+        public void RestoreTargetOf(Texture2D texture) {
             _activeTargetZoneId = null;
             string id = null;
-            if (texture != null && _targetByTexture != null) _targetByTexture.TryGetValue(texture.GetInstanceID(), out id);
+            if (texture != null && _targetByTexture != null) {
+                _targetByTexture.TryGetValue(texture.GetInstanceID(), out id);
+            }
             var zones = _host?.Session?.zones;
-            if (zones != null && !string.IsNullOrEmpty(id))
-                for (int i = 0; i < zones.Count; i++)
-                    if (zones[i]?.id == id)
-                    {
+            if (zones != null && !string.IsNullOrEmpty(id)) {
+                for (int i = 0; i < zones.Count; i++) {
+                    if (zones[i]?.id == id) {
                         activeMaskTarget = i;
                         EnforceLayerConsistency();
                         maskDirty = true;
                         return;
                     }
+                }
+            }
             ResetActiveTarget();
         }
 
         /// <summary>いま直しているゾーンを覚える。別ウィンドウも含めて、描く前に呼ぶ。</summary>
-        public void RememberActiveTarget()
-        {
+        public void RememberActiveTarget() {
             var zones = _host?.Session?.zones;
             _activeTargetZoneId = zones != null && activeMaskTarget >= 0 && activeMaskTarget < zones.Count
                 ? zones[activeMaskTarget]?.id
@@ -781,14 +781,19 @@ namespace Iroca
         /// Undo/Redo でゾーンの並びが変わった後に、覚えておいたゾーンを指し直す。そのゾーンが消えたら同じ位置
         /// (末尾なら 1 つ上。<see cref="OnZoneRemoved"/> と同じ)。全ゾーン共通は番号が -1 のままなので変わらない。
         /// </summary>
-        public void FollowActiveTargetAfterUndo()
-        {
+        public void FollowActiveTargetAfterUndo() {
             var zones = _host?.Session?.zones;
-            if (zones == null) return;
-            if (!string.IsNullOrEmpty(_activeTargetZoneId))
-                for (int i = 0; i < zones.Count; i++)
+            if (zones == null) {
+                return;
+            }
+            if (!string.IsNullOrEmpty(_activeTargetZoneId)) {
+                for (int i = 0; i < zones.Count; i++) {
                     if (zones[i]?.id == _activeTargetZoneId) { activeMaskTarget = i; return; }
-            if (activeMaskTarget >= zones.Count) activeMaskTarget = zones.Count - 1;
+                }
+            }
+            if (activeMaskTarget >= zones.Count) {
+                activeMaskTarget = zones.Count - 1;
+            }
             EnforceLayerConsistency();
         }
 
@@ -798,9 +803,10 @@ namespace Iroca
         /// 大きさは拡大しても変わらず、拡大すれば細かく塗れる(4K の元画像でも、拡大して最小のブラシなら 1 画素)。
         /// gridW は表示プレビューの画素格子の幅(previewTexture の実寸)、previewZoom は全体表示を 1 とする拡大率。
         /// </summary>
-        public float BrushRadiusPx(int gridW, float previewZoom)
-        {
-            if (maskWidth <= 0) return 0f;
+        public float BrushRadiusPx(int gridW, float previewZoom) {
+            if (maskWidth <= 0) {
+                return 0f;
+            }
             float cellPx = gridW > 0 ? maskWidth / (float)gridW : 1f;
             return (Mathf.Max(1, brushSize) + 0.5f) * cellPx / Mathf.Max(1f, previewZoom);
         }
@@ -814,11 +820,14 @@ namespace Iroca
         /// 画素単位で塗っても拡大して見れば塗ったとおりに見える。全体表示のプレビュー(縮小)は、ブロック先頭の
         /// 1 画素を読むので、円の縁が 1 セル程度ずれて見えることがある。
         /// </summary>
-        public unsafe void PaintMask(Vector2 uvPos, float radiusPx)
-        {
+        public unsafe void PaintMask(Vector2 uvPos, float radiusPx) {
             var target = ActiveLayerForWrite();
-            if (target == null) return;
-            if (maskWidth <= 0 || maskHeight <= 0) return;
+            if (target == null) {
+                return;
+            }
+            if (maskWidth <= 0 || maskHeight <= 0) {
+                return;
+            }
 
             float cx = uvPos.x * maskWidth, cy = uvPos.y * maskHeight;
             bool value = !brushEraseMode;
@@ -827,7 +836,9 @@ namespace Iroca
             var opposite = value ? OppositeZoneLayer() : null;
             MaskRegionEdit.StampDisk(target.Bits, BitsOf(opposite), maskWidth, maskHeight, cx, cy, radiusPx, value,
                                      out int x0, out int y0, out int x1, out int y1);
-            if (x1 <= x0) return;
+            if (x1 <= x0) {
+                return;
+            }
 
             // オーバーレイ直接書き込み: 非同期再構築のスロットル待ちとマスクの読み直しをストローク中に
             // 発生させず、塗った所をすぐ見せる。全体用のオーバーレイ(表示格子の整数倍)と、拡大表示用の
@@ -836,20 +847,16 @@ namespace Iroca
             var overlayTex = ActiveOverlayTexture(out Color32 overlayColor);
             Color32 c = value ? overlayColor : default;
             bool direct = false;
-            if (overlayTex != null)
-            {
+            if (overlayTex != null) {
                 float sx = overlayTex.width / (float)maskWidth, sy = overlayTex.height / (float)maskHeight;
                 direct = StampOverlayDisk(overlayTex, cx * sx, cy * sy, radiusPx * sx, c);
             }
             StampDetailOverlay(cx, cy, radiusPx, c);
 
-            if (direct)
-            {
+            if (direct) {
                 _overlayDirectPendingApply = overlayTex;
                 _strokeHadDirectOverlayWrite = true;
-            }
-            else
-            {
+            } else {
                 maskDirty = true;
             }
         }
@@ -860,25 +867,26 @@ namespace Iroca
         /// テクスチャの中身(RGBA32・ミップなし・行 0 = 下端。TextureSlot.Resize が作る)へそのまま書く。以前は行ごとに
         /// 管理配列を作って SetPixels32 していた(スタンプ 1 回で円の行数ぶん、ドラッグ中ずっと)。
         /// </summary>
-        private static unsafe bool StampOverlayDisk(Texture2D tex, float cx, float cy, float r, Color32 color)
-        {
+        private static unsafe bool StampOverlayDisk(Texture2D tex, float cx, float cy, float r, Color32 color) {
             int w = tex.width, h = tex.height;
-            if (w <= 0 || h <= 0) return false;
+            if (w <= 0 || h <= 0) {
+                return false;
+            }
             var data = tex.GetPixelData<Color32>(0);
-            if (data.Length < w * h) return false;
+            if (data.Length < w * h) {
+                return false;
+            }
             var px = (Color32*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafePtr(data);
             float r2 = r * r;
             int ccx = Mathf.FloorToInt(cx), ccy = Mathf.FloorToInt(cy);
             int ry0 = Mathf.Max(0, Mathf.FloorToInt(cy - r - 0.5f));
             int ry1 = Mathf.Min(h - 1, Mathf.CeilToInt(cy + r - 0.5f));
             bool wrote = false;
-            for (int y = ry0; y <= ry1; y++)
-            {
+            for (int y = ry0; y <= ry1; y++) {
                 float dy = y + 0.5f - cy;
                 float rem = r2 - dy * dy;
                 int sx0 = int.MaxValue, sx1 = int.MinValue;
-                if (rem >= 0f)
-                {
+                if (rem >= 0f) {
                     float half = Mathf.Sqrt(rem);
                     sx0 = Mathf.CeilToInt(cx - half - 0.5f);
                     sx1 = Mathf.FloorToInt(cx + half - 0.5f);
@@ -886,9 +894,13 @@ namespace Iroca
                 if (y == ccy) { sx0 = Mathf.Min(sx0, ccx); sx1 = Mathf.Max(sx1, ccx); }
                 sx0 = Mathf.Max(0, sx0);
                 sx1 = Mathf.Min(w - 1, sx1);
-                if (sx1 < sx0) continue;
+                if (sx1 < sx0) {
+                    continue;
+                }
                 Color32* row = px + (long)y * w;
-                for (int x = sx0; x <= sx1; x++) row[x] = color;
+                for (int x = sx0; x <= sx1; x++) {
+                    row[x] = color;
+                }
                 wrote = true;
             }
             return wrote;
@@ -901,10 +913,11 @@ namespace Iroca
         /// 反対側を消したセルの表示は、同じゾーン用オーバーレイへの直接書き込み(新しい層の色で上書き)と、
         /// ストローク終了時の再構築(EndStroke の maskDirty)で揃う。
         /// </summary>
-        private NativeBitMask OppositeZoneLayer()
-        {
+        private NativeBitMask OppositeZoneLayer() {
             var zones = _host.Session.zones;
-            if (IsCommonTarget(zones)) return null;
+            if (IsCommonTarget(zones)) {
+                return null;
+            }
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
             return Workspace.WritableExistingLayer(!editIncludeLayer, zone.id);
@@ -914,9 +927,10 @@ namespace Iroca
         /// ペイントストローク開始時に呼び、ストローク前の状態を Unity Undo に登録する。
         /// 同一ストローク内で複数回呼ばれても _maskStrokeStarted で抑止される。
         /// </summary>
-        public void BeginStroke()
-        {
-            if (_maskStrokeStarted) return;
+        public void BeginStroke() {
+            if (_maskStrokeStarted) {
+                return;
+            }
             _strokeHadDirectOverlayWrite = false;
             _host.Editing.RecordMaskEdit("Paint Mask Stroke");
             _maskStrokeStarted = true;
@@ -925,9 +939,10 @@ namespace Iroca
         /// <summary>
         /// ペイントストローク終了時に呼び、ストローク後のマスクを新しい版にする(Redo で戻す先)。
         /// </summary>
-        public void EndStroke()
-        {
-            if (!_maskStrokeStarted) return;
+        public void EndStroke() {
+            if (!_maskStrokeStarted) {
+                return;
+            }
             _host.Editing.CommitMaskEdit();
             _maskStrokeStarted = false;
             // ストローク中の直接書き込みは表示テクスチャのみの更新なので、確定時に一度だけ
@@ -946,8 +961,7 @@ namespace Iroca
         /// ゾーン単位でしか使えず、共通のままだと作った直後に選べない項目が出るため(2026-10-06)。
         /// 共通はブラシのパレットや右クリックの「直すゾーンを変える」で明示的に選べる。
         /// </summary>
-        public void ResetActiveTarget()
-        {
+        public void ResetActiveTarget() {
             var zones = _host?.Session?.zones;
             activeMaskTarget = zones != null && zones.Count > 0 ? 0 : -1;
             EnforceLayerConsistency();
@@ -957,8 +971,7 @@ namespace Iroca
         /// <summary>
         /// オーバーレイテクスチャと進行中のオーバーレイ生成ジョブを破棄する。
         /// </summary>
-        public void ReleaseOverlayTextures()
-        {
+        public void ReleaseOverlayTextures() {
             SuspendTransientState();
             _overlayJob.Dispose();
             _detailOverlayJob.Dispose();
@@ -974,8 +987,7 @@ namespace Iroca
             _hostlessWorkspace?.Clear();
         }
 
-        public void SuspendTransientState()
-        {
+        public void SuspendTransientState() {
             _overlayJob.Cancel();
             _detailOverlayJob.Cancel();
             ClearPendingOverlays();

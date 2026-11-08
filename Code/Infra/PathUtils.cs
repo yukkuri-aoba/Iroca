@@ -4,16 +4,14 @@ using System;
 using System.IO;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     // Assets 配下のパスを "Assets/..." 形式の相対パスへ正規化する純粋ユーティリティ。
     // 永続化(PresetStore/RecipeStore)・自動化(IrocaAutomation)・エクスポート(ExportPipeline/ExportView)・
     // メッシュ探索(MeshUvLocator)と scripts/unit-run が
     // 共通で使うため、UI ウィンドウ(IrocaWindow)から切り離して Infra に置く。これにより
     // 下位層(Infra/Automation)が UI へ逆依存しなくなる。
     // UnityEditor 非依存(Application.dataPath は UnityEngine)なので headless でも参照できる。
-    internal static class PathUtils
-    {
+    internal static class PathUtils {
         // Assets 配下のパスを "Assets/..." 形式の相対パスに正規化する。
         // 既に "Assets/" で始まる相対パスでも、絶対パスでも受け付ける。
         // Assets 配下でない場合は null を返す。
@@ -29,38 +27,38 @@ namespace Iroca
 
         // 判定本体。Assets フォルダの絶対パスを引数で受け取るので Unity なしで検証できる
         // （scripts/unit-run が実行する）。
-        internal static string ToAssetsRelativeOrNull(string path, string assetsFolder)
-        {
-            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(assetsFolder)) return null;
+        internal static string ToAssetsRelativeOrNull(string path, string assetsFolder) {
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(assetsFolder)) {
+                return null;
+            }
 
             string dataPath = assetsFolder.Replace('\\', '/').TrimEnd('/');
             string projectRoot = Path.GetDirectoryName(dataPath);
 
             string abs;
-            try
-            {
+            try {
                 // 相対パスはプロジェクトルート基準（Unity の作業ディレクトリと同じ）で絶対化する。
                 abs = Path.IsPathRooted(path)
                     ? Path.GetFullPath(path)
                     : Path.GetFullPath(Path.Combine(projectRoot, path));
-            }
-            catch (Exception)
-            {
+            } catch (Exception) {
                 // 不正な文字・長すぎるパスなど。Assets 配下と判定できないので null。
                 return null;
             }
             abs = abs.Replace('\\', '/').TrimEnd('/');
 
-            if (string.Equals(abs, dataPath, StringComparison.OrdinalIgnoreCase)) return "Assets";
-            if (abs.StartsWith(dataPath + "/", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(abs, dataPath, StringComparison.OrdinalIgnoreCase)) {
+                return "Assets";
+            }
+            if (abs.StartsWith(dataPath + "/", StringComparison.OrdinalIgnoreCase)) {
                 return "Assets" + abs.Substring(dataPath.Length);
+            }
             return null;
         }
 
         // Windows の予約デバイス名(拡張子有無・大小無視で衝突する)。これらの名前のファイルは
         // そのままでは作成に失敗するため、前置 '_' で退避する。
-        private static readonly string[] s_reservedNames =
-        {
+        private static readonly string[] s_reservedNames = {
             "CON", "PRN", "AUX", "NUL",
             "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
             "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
@@ -71,21 +69,26 @@ namespace Iroca
         /// 区切り文字も不正文字として置換するので、".." や "a/b" でフォルダの外へ出られない。
         /// 空になったら <paramref name="fallback"/> を使う。プリセット保存とエクスポートの共通規則。
         /// </summary>
-        internal static string SanitizeFileName(string name, string fallback)
-        {
-            if (string.IsNullOrWhiteSpace(name)) name = fallback;
-            foreach (char c in Path.GetInvalidFileNameChars())
+        internal static string SanitizeFileName(string name, string fallback) {
+            if (string.IsNullOrWhiteSpace(name)) {
+                name = fallback;
+            }
+            foreach (char c in Path.GetInvalidFileNameChars()) {
                 name = name.Replace(c.ToString(), "_");
+            }
             // Windows 以外では '\' が不正文字に入らないが、Windows で開くと区切りになる。
             name = name.Replace('\\', '_');
             // Windows は末尾の '.' / ' ' を無言で除去するため、そのままだと保存名と参照名がずれる。
             name = name.TrimEnd('.', ' ');
-            if (name.Length == 0) name = fallback;
+            if (name.Length == 0) {
+                name = fallback;
+            }
             // 予約名判定は拡張子より前の基底名で行う(例: "CON.foo" も予約)。
             int dot = name.IndexOf('.');
             string baseName = dot >= 0 ? name.Substring(0, dot) : name;
-            if (Array.IndexOf(s_reservedNames, baseName.ToUpperInvariant()) >= 0)
+            if (Array.IndexOf(s_reservedNames, baseName.ToUpperInvariant()) >= 0) {
                 name = "_" + name;
+            }
             return name;
         }
 
@@ -108,15 +111,20 @@ namespace Iroca
         /// （Packages/com.example/Textures → Assets/Iroca/Exports/Packages/com.example/Textures）。写しておくと、
         /// 書き出した画像から元を辿れる（<see cref="SourceFolderOfExport"/>）。単体・一括・自動化 API の書き出しが共有する。
         /// </summary>
-        internal static string ExportFolderFor(string srcPath)
-        {
+        internal static string ExportFolderFor(string srcPath) {
             // '\' を先に '/' にそろえる（Linux の Path は '\' を区切りとして扱わず、Windows 形式のパスのフォルダが空になる）。
             string dir = Path.GetDirectoryName((srcPath ?? "").Replace('\\', '/')) ?? "";
             dir = dir.Replace('\\', '/');
-            if (dir == "Assets" || dir.StartsWith("Assets/", StringComparison.Ordinal)) return dir;
+            if (dir == "Assets" || dir.StartsWith("Assets/", StringComparison.Ordinal)) {
+                return dir;
+            }
             // アセットのパスでないもの（絶対パス・フォルダ無し）は従来どおり元と同じ場所。
-            if (dir.Length == 0 || Path.IsPathRooted(dir)) return dir;
-            if (Array.IndexOf(dir.Split('/'), "..") >= 0) return ExportsFolder;
+            if (dir.Length == 0 || Path.IsPathRooted(dir)) {
+                return dir;
+            }
+            if (Array.IndexOf(dir.Split('/'), "..") >= 0) {
+                return ExportsFolder;
+            }
             return ExportsFolder + "/" + dir;
         }
 
@@ -124,11 +132,12 @@ namespace Iroca
         /// <see cref="ExportFolderFor"/> の逆: 書き出しのフォルダから、元テクスチャのフォルダを返す。
         /// Assets の外の元を写したフォルダでなければ、そのまま返す。
         /// </summary>
-        internal static string SourceFolderOfExport(string exportDir)
-        {
+        internal static string SourceFolderOfExport(string exportDir) {
             string dir = (exportDir ?? "").Replace('\\', '/');
             string prefix = ExportsFolder + "/";
-            if (!dir.StartsWith(prefix, StringComparison.Ordinal)) return dir;
+            if (!dir.StartsWith(prefix, StringComparison.Ordinal)) {
+                return dir;
+            }
             string rest = dir.Substring(prefix.Length);
             // 写すのは Assets の外の元だけ。Assets/Iroca/Exports/Assets/... は利用者が作ったフォルダ。
             return rest == "Assets" || rest.StartsWith("Assets/", StringComparison.Ordinal) ? dir : rest;

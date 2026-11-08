@@ -4,10 +4,8 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal partial class MaskPaintView
-    {
+namespace Iroca {
+    internal partial class MaskPaintView {
 
         private string MaskTexturePath() => SessionPersistence.StorageKeyOf(_host.SourceTexture);
 
@@ -18,8 +16,7 @@ namespace Iroca
         private static string LegacySingleMaskSessionKey(string path) => IrocaPrefs.LegacyMaskPrefix + path;
 
         [System.Serializable]
-        private class LegacyMaskIndex
-        {
+        private class LegacyMaskIndex {
             public bool hasCommon;
             public List<string> zoneIds = new List<string>();
             public int width;
@@ -33,10 +30,11 @@ namespace Iroca
         public bool SaveToSession() => SaveMasks(_host.Editing.ToSaveState().maskState);
 
         /// <summary>保存形式にしたマスクを MaskCache ファイルへ書く(<see cref="SaveToSession"/> と同じ)。</summary>
-        public bool SaveMasks(MaskState ms)
-        {
+        public bool SaveMasks(MaskState ms) {
             string path = MaskTexturePath();
-            if (path == null) return true;
+            if (path == null) {
+                return true;
+            }
 
             bool ok = MaskFileStore.SaveMask(path, ms, _maskLoadFailed);
 
@@ -46,7 +44,9 @@ namespace Iroca
                 (!string.IsNullOrEmpty(ms.commonMaskBase64)
                  || (ms.zones != null && ms.zones.Count > 0)
                  || (ms.zoneIncludes != null && ms.zoneIncludes.Count > 0));
-            if (ok && hasContent) _maskLoadFailed = false;
+            if (ok && hasContent) {
+                _maskLoadFailed = false;
+            }
             return ok;
         }
 
@@ -55,10 +55,11 @@ namespace Iroca
         /// ファイルが見つからない場合は、旧 SessionState 形式の残存データを
         /// 一度だけマイグレートして MaskCache へ書き出し、SessionState 側を消去する。
         /// </summary>
-        public void RestoreFromSession()
-        {
+        public void RestoreFromSession() {
             string path = MaskTexturePath();
-            if (path == null) return;
+            if (path == null) {
+                return;
+            }
 
             // テクスチャ(セッション)切替: AI 提案の積み上げ・進行中推論は旧テクスチャ由来なので破棄
             _suggestController?.OnSourceChangedOrClosing();
@@ -68,8 +69,7 @@ namespace Iroca
 
             // 1) MaskCache ファイルからの読み込みを最優先する（Editor 再起動を跨ぐ正規ストア）。
             var fileState = MaskFileStore.LoadMask(path, out bool unreadable);
-            if (fileState != null && fileState.width > 0 && fileState.height > 0)
-            {
+            if (fileState != null && fileState.width > 0 && fileState.height > 0) {
                 // 展開規則(寸法不一致・壊れた項目は捨てる)は Core の MaskStateCodec と同じ(MaskWorkspace.DecodeFrom)。
                 Workspace.DecodeFrom(fileState);
                 maskDirty = true;
@@ -82,11 +82,12 @@ namespace Iroca
 
             // レシピが結び付いていれば、同じ内容がレシピにある。読めないまま空で進むと、次の保存でレシピのマスクまで空になる
             // (印が守るのはファイルだけ)。印は残すので、ファイルは次の保存で退避してから書き直す。
-            if (_maskLoadFailed && RestoreFromBoundRecipe()) return;
+            if (_maskLoadFailed && RestoreFromBoundRecipe()) {
+                return;
+            }
 
             // 2) ファイルが無ければ、旧 SessionState 形式（Phase 6 以前のデータ）からマイグレート。
-            if (TryMigrateFromLegacySessionState(path))
-            {
+            if (TryMigrateFromLegacySessionState(path)) {
                 maskDirty = true;
                 return;
             }
@@ -97,8 +98,7 @@ namespace Iroca
         /// 読めても、編集中が空なのにファイルに中身があれば、編集中は読めなかったときのまま(空の保存でファイルは消えるので、ふつうは
         /// 食い違わない)。そのまま保存するとファイルを消すので、印を立てたままにする。
         /// </summary>
-        public void RecheckMaskFile()
-        {
+        public void RecheckMaskFile() {
             string path = MaskTexturePath();
             if (path == null) { _maskLoadFailed = false; return; }
             var fileState = MaskFileStore.LoadMask(path, out bool unreadable);
@@ -110,12 +110,13 @@ namespace Iroca
         public void RestoreMasksFromBoundRecipe() => RestoreFromBoundRecipe();
 
         // 結び付いたレシピのマスクを編集中のマスクへ展開する。レシピが無い・読めない・マスクが無ければ false。
-        private bool RestoreFromBoundRecipe()
-        {
+        private bool RestoreFromBoundRecipe() {
             var recipe = _host.BoundRecipe;
             var state = recipe != null ? RecipeStore.Load(recipe) : null;
             var masks = state?.maskState;
-            if (masks == null || masks.width <= 0 || masks.height <= 0) return false;
+            if (masks == null || masks.width <= 0 || masks.height <= 0) {
+                return false;
+            }
             Workspace.DecodeFrom(masks);
             maskDirty = true;
             return true;
@@ -125,13 +126,16 @@ namespace Iroca
         /// レシピから読んだ編集状態(<c>maskState</c> にマスクが入っている)のマスクを編集中のマスクへ展開し、編集状態からは外す
         /// (文書に文字列を持たない)。MaskCache(UserSettings)は読まない(レシピが正。次の保存で MaskCache も同じ内容に揃う)。
         /// </summary>
-        public void RestoreFromRecipeState()
-        {
-            if (MaskTexturePath() == null) return;
+        public void RestoreFromRecipeState() {
+            if (MaskTexturePath() == null) {
+                return;
+            }
             _suggestController?.OnSourceChangedOrClosing();
             _maskLoadFailed = false;
             var session = _host.Session;
-            if (session.maskState != null) Workspace.DecodeFrom(session.maskState);
+            if (session.maskState != null) {
+                Workspace.DecodeFrom(session.maskState);
+            }
             session.maskState = new MaskState();
             maskDirty = true;
         }
@@ -141,23 +145,17 @@ namespace Iroca
         /// 一度移行が完了したら SessionState 側のキーは消去する。
         /// 戻り値: マイグレーションによりバッファが復元できたら true。
         /// </summary>
-        private bool TryMigrateFromLegacySessionState(string path)
-        {
+        private bool TryMigrateFromLegacySessionState(string path) {
             // 2a) インデックス形式（共通 + ゾーン別）。
             string indexJson = SessionState.GetString(LegacyMaskIndexSessionKey(path), null);
-            if (!string.IsNullOrEmpty(indexJson))
-            {
+            if (!string.IsNullOrEmpty(indexJson)) {
                 LegacyMaskIndex idx = null;
-                try
-                {
+                try {
                     idx = JsonUtility.FromJson<LegacyMaskIndex>(indexJson);
-                }
-                catch (System.Exception ex)
-                {
+                } catch (System.Exception ex) {
                     Debug.LogWarning($"[Iroca] Legacy mask index decode failed: {ex.Message}");
                 }
-                if (idx == null || idx.width <= 0 || idx.height <= 0)
-                {
+                if (idx == null || idx.width <= 0 || idx.height <= 0) {
                     SessionState.EraseString(LegacyMaskIndexSessionKey(path));
                     return false;
                 }
@@ -165,20 +163,22 @@ namespace Iroca
                 Workspace.Reset(idx.width, idx.height);
 
                 // 寸法の合わない層は受け取らない(SetCommon・SetLayer)。
-                if (idx.hasCommon)
-                {
+                if (idx.hasCommon) {
                     string enc = SessionState.GetString(LegacyMaskArraySessionKey(path, CommonMaskKey), null);
-                    if (!string.IsNullOrEmpty(enc))
+                    if (!string.IsNullOrEmpty(enc)) {
                         Workspace.SetCommon(MaskRle.DecodeBits(enc));
+                    }
                 }
 
-                if (idx.zoneIds != null)
-                {
-                    foreach (var zid in idx.zoneIds)
-                    {
-                        if (string.IsNullOrEmpty(zid)) continue;
+                if (idx.zoneIds != null) {
+                    foreach (var zid in idx.zoneIds) {
+                        if (string.IsNullOrEmpty(zid)) {
+                            continue;
+                        }
                         string enc = SessionState.GetString(LegacyMaskArraySessionKey(path, zid), null);
-                        if (string.IsNullOrEmpty(enc)) continue;
+                        if (string.IsNullOrEmpty(enc)) {
+                            continue;
+                        }
                         Workspace.SetLayer(false, zid, MaskRle.DecodeBits(enc));
                     }
                 }
@@ -190,11 +190,12 @@ namespace Iroca
 
             // 2b) 旧々形式: 単一マスクのみ。共通マスクへ昇格。
             string legacyEncoded = SessionState.GetString(LegacySingleMaskSessionKey(path), null);
-            if (string.IsNullOrEmpty(legacyEncoded)) return false;
+            if (string.IsNullOrEmpty(legacyEncoded)) {
+                return false;
+            }
 
             var legacy = MaskRle.DecodeBits(legacyEncoded);
-            if (legacy == null)
-            {
+            if (legacy == null) {
                 SessionState.EraseString(LegacySingleMaskSessionKey(path));
                 return false;
             }
@@ -207,15 +208,14 @@ namespace Iroca
             return true;
         }
 
-        private static void EraseLegacySessionEntries(string path, LegacyMaskIndex idx)
-        {
+        private static void EraseLegacySessionEntries(string path, LegacyMaskIndex idx) {
             SessionState.EraseString(LegacyMaskIndexSessionKey(path));
             SessionState.EraseString(LegacyMaskArraySessionKey(path, CommonMaskKey));
-            if (idx.zoneIds != null)
-            {
-                foreach (var zid in idx.zoneIds)
-                {
-                    if (string.IsNullOrEmpty(zid)) continue;
+            if (idx.zoneIds != null) {
+                foreach (var zid in idx.zoneIds) {
+                    if (string.IsNullOrEmpty(zid)) {
+                        continue;
+                    }
                     SessionState.EraseString(LegacyMaskArraySessionKey(path, zid));
                 }
             }
@@ -225,8 +225,7 @@ namespace Iroca
         /// <summary>
         /// テクスチャ切り替え時にバッファを破棄する。
         /// </summary>
-        public void ClearBuffersOnTextureChange()
-        {
+        public void ClearBuffersOnTextureChange() {
             _overlayJob.Cancel();
             _pendingOverlayResult?.Release();
             _pendingOverlayResult = null;
@@ -254,15 +253,15 @@ namespace Iroca
         /// <summary>
         /// 現在のマスク状態を IrocaPresetData の commonMaskBase64 / zoneMasks フィールドに書き出す。
         /// </summary>
-        public void WriteToPreset(IrocaPresetData data)
-        {
-            if (data == null || maskWidth <= 0 || maskHeight <= 0) return;
+        public void WriteToPreset(IrocaPresetData data) {
+            if (data == null || maskWidth <= 0 || maskHeight <= 0) {
+                return;
+            }
 
             bool includedAnything = false;
 
             var common = Workspace.Common;
-            if (common != null && common.Any())
-            {
+            if (common != null && common.Any()) {
                 data.commonMaskBase64 = MaskRle.EncodeBits(common);
                 includedAnything = true;
             }
@@ -271,8 +270,7 @@ namespace Iroca
             includedAnything |= EncodePresetEntries(Workspace.Layers(false), data.zoneMasks);
             includedAnything |= EncodePresetEntries(Workspace.Layers(true), data.zoneIncludeMasks);
 
-            if (includedAnything)
-            {
+            if (includedAnything) {
                 data.maskWidth = maskWidth;
                 data.maskHeight = maskHeight;
             }
@@ -281,14 +279,13 @@ namespace Iroca
         /// <summary>
         /// 全 false でないマスクを dst へ書き足す(除外・含めるで共通)。何か足したら true。
         /// </summary>
-        private static bool EncodePresetEntries(IEnumerable<KeyValuePair<string, NativeBitMask>> src, List<ZoneMaskEntry> dst)
-        {
+        private static bool EncodePresetEntries(IEnumerable<KeyValuePair<string, NativeBitMask>> src, List<ZoneMaskEntry> dst) {
             bool added = false;
-            foreach (var kv in src)
-            {
-                if (!kv.Value.Any()) continue;
-                dst.Add(new ZoneMaskEntry
-                {
+            foreach (var kv in src) {
+                if (!kv.Value.Any()) {
+                    continue;
+                }
+                dst.Add(new ZoneMaskEntry {
                     zoneId = kv.Key,
                     maskBase64 = MaskRle.EncodeBits(kv.Value),
                 });

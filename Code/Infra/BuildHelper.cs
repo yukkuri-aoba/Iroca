@@ -10,10 +10,8 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
-    public static class BuildHelper
-    {
+namespace Iroca {
+    public static class BuildHelper {
         private const string ExportRoot = "Assets/Iroca";
 
         // Debug 衛星(Code/Debug/)は配布対象外。IrocaEditor.Debug.asmdef は defineConstraints 無し
@@ -26,11 +24,9 @@ namespace Iroca
         /// バッチモードからのエントリポイント。
         /// コマンドライン引数 -outputPath で出力先を指定できる。
         /// </summary>
-        public static void Export()
-        {
+        public static void Export() {
             string outputPath = GetArgValue("-outputPath");
-            if (string.IsNullOrEmpty(outputPath))
-            {
+            if (string.IsNullOrEmpty(outputPath)) {
                 outputPath = Path.Combine(
                     Application.dataPath, "..",
                     "com.yukkuri-aoba.iroca.unitypackage");
@@ -38,8 +34,9 @@ namespace Iroca
 
             outputPath = Path.GetFullPath(outputPath);
             string dir = Path.GetDirectoryName(outputPath);
-            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) {
                 Directory.CreateDirectory(dir);
+            }
 
             Debug.Log($"[BuildHelper] エクスポート開始: {ExportRoot} → {outputPath}");
 
@@ -47,22 +44,26 @@ namespace Iroca
             // フォルダ 1 つを Recurse で丸ごと渡すと Debug も入ってしまうため、対象パスを
             // フィルタした配列を渡し Recurse は使わない(=渡したアセットのみを厳密に同梱)。
             var included = new List<string>();
-            foreach (string p in AssetDatabase.GetAllAssetPaths())
-            {
-                if (p != ExportRoot && !p.StartsWith(ExportRoot + "/", StringComparison.Ordinal)) continue;
-                if (IsUnder(p, DebugFolder)) continue;
+            foreach (string p in AssetDatabase.GetAllAssetPaths()) {
+                if (p != ExportRoot && !p.StartsWith(ExportRoot + "/", StringComparison.Ordinal)) {
+                    continue;
+                }
+                if (IsUnder(p, DebugFolder)) {
+                    continue;
+                }
                 included.Add(p);
             }
 
-            if (included.Count == 0)
-            {
+            if (included.Count == 0) {
                 // 0 件でも ExportPackage は成功し、空の unitypackage が「エクスポート完了」として
                 // 出力されていた。呼び出し側（PowerShell）は exit code しか見ないため、
                 // 空の配布物ができたことに誰も気づけない。バッチモードでは失敗として落とす。
                 Debug.LogError(
                     $"[BuildHelper] エクスポート対象が 0 件です（{ExportRoot} が見つかりません）。" +
                     "空の unitypackage を出力しないため中止します。");
-                if (Application.isBatchMode) EditorApplication.Exit(1);
+                if (Application.isBatchMode) {
+                    EditorApplication.Exit(1);
+                }
                 return;
             }
 
@@ -77,13 +78,12 @@ namespace Iroca
         private static bool IsUnder(string path, string folder)
             => path == folder || path.StartsWith(folder + "/", StringComparison.Ordinal);
 
-        private static string GetArgValue(string key)
-        {
+        private static string GetArgValue(string key) {
             var args = Environment.GetCommandLineArgs();
-            for (int i = 0; i < args.Length - 1; i++)
-            {
-                if (string.Equals(args[i], key, StringComparison.OrdinalIgnoreCase))
+            for (int i = 0; i < args.Length - 1; i++) {
+                if (string.Equals(args[i], key, StringComparison.OrdinalIgnoreCase)) {
                     return args[i + 1];
+                }
             }
             return null;
         }

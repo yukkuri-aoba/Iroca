@@ -2,15 +2,13 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 自動化 API(MCP)が、いろかのウィンドウを開く・表示中の編集を読む・読み直させるための窓口。
     /// 自動化は UI の型を知らない(docs/architecture.md の 1 章)ので、UI が起動時に実体を
     /// <see cref="EditingWindows.Current"/> へ登録する。メインスレッド専用。
     /// </summary>
-    internal interface IEditingWindows
-    {
+    internal interface IEditingWindows {
         /// <summary>レシピを開く(既に開いていれば何もしない)。</summary>
         void OpenRecipe(IrocaRecipe recipe);
 
@@ -34,8 +32,7 @@ namespace Iroca
         NativePixels ShareSourcePixels(Texture2D texture);
     }
 
-    internal static class EditingWindows
-    {
+    internal static class EditingWindows {
         /// <summary>実体。ドメインのロード時に UI が登録する。</summary>
         internal static IEditingWindows Current;
     }

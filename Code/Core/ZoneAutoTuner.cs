@@ -6,16 +6,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// テクスチャと ColorZone の (sampleColor, targetColor) から、
     /// 許容範囲・彩度制限などのパラメータを自動的に算出する純粋ロジック層。
     /// UI からは IrocaWindow.RunAutoTune() 経由で呼ばれ、結果は TuneResult として返す。
     /// 純粋計算のため、ピクセル配列さえあればバックグラウンドスレッドからも呼べる。
     /// </summary>
-    internal static unsafe partial class ZoneAutoTuner
-    {
+    internal static unsafe partial class ZoneAutoTuner {
         // ── デフォルト値（単一ソース: ColorZone / IrocaSessionState のフィールド初期値） ──
         // 旧実装は const をここへ複製し「同期は手作業」だったが、片側だけ変えると
         // IsZoneBasicsAtDefault / CollectOverwrittenSettings / Globals 適用可否の判定が静かに壊れる
@@ -23,22 +21,22 @@ namespace Iroca
         // 注意: 読み取り専用。変異させないこと(BG スレッドからも参照される)。
         private static readonly ColorZone s_zoneDefaults = new ColorZone();
         private static readonly IrocaSessionState s_sessionDefaults = new IrocaSessionState();
-        private static float DefaultTolerance               => s_zoneDefaults.tolerance;
-        private static float DefaultSaturationStrictness    => s_zoneDefaults.saturationStrictness;
-        private static float DefaultSaturationGuard         => s_zoneDefaults.saturationGuard;
-        private static float DefaultChromaThreshold         => s_zoneDefaults.chromaThreshold;
-        private static bool  DefaultHighlightRecovery       => s_zoneDefaults.highlightRecovery;
-        private static float DefaultValueBlend              => s_zoneDefaults.valueBlend;
-        private static float DefaultEdgeSoftness            => s_zoneDefaults.edgeSoftness;
-        private static float DefaultShadowDesaturation      => s_zoneDefaults.shadowDesaturation;
+        private static float DefaultTolerance => s_zoneDefaults.tolerance;
+        private static float DefaultSaturationStrictness => s_zoneDefaults.saturationStrictness;
+        private static float DefaultSaturationGuard => s_zoneDefaults.saturationGuard;
+        private static float DefaultChromaThreshold => s_zoneDefaults.chromaThreshold;
+        private static bool DefaultHighlightRecovery => s_zoneDefaults.highlightRecovery;
+        private static float DefaultValueBlend => s_zoneDefaults.valueBlend;
+        private static float DefaultEdgeSoftness => s_zoneDefaults.edgeSoftness;
+        private static float DefaultShadowDesaturation => s_zoneDefaults.shadowDesaturation;
         private static float DefaultShadowForgivenessSatMin => s_zoneDefaults.shadowForgivenessSatMin;
-        private static float DefaultShadowValueFloor        => s_zoneDefaults.shadowValueFloor;
-        private static float DefaultPartSatCeiling          => s_zoneDefaults.partSatCeiling;
-        private static float DefaultPartHueBand             => s_zoneDefaults.partHueBand;
-        private static float DefaultChromaCeiling           => s_zoneDefaults.chromaCeiling;
-        private static float DefaultHoleFillMargin          => s_zoneDefaults.holeFillMargin;
-        private static int   DefaultAntiAliasCleanup        => s_sessionDefaults.antiAliasCleanup;
-        private static bool  DefaultUseDecontamination      => s_sessionDefaults.useDecontamination;
+        private static float DefaultShadowValueFloor => s_zoneDefaults.shadowValueFloor;
+        private static float DefaultPartSatCeiling => s_zoneDefaults.partSatCeiling;
+        private static float DefaultPartHueBand => s_zoneDefaults.partHueBand;
+        private static float DefaultChromaCeiling => s_zoneDefaults.chromaCeiling;
+        private static float DefaultHoleFillMargin => s_zoneDefaults.holeFillMargin;
+        private static int DefaultAntiAliasCleanup => s_sessionDefaults.antiAliasCleanup;
+        private static bool DefaultUseDecontamination => s_sessionDefaults.useDecontamination;
 
         // 彩度ガード自動導出パラメータ
         //
@@ -51,24 +49,23 @@ namespace Iroca
         //    境界の sS=0.95〜1.0 では guard を 0.5〜0.8 で線形補間。
         //    UI スライダーは独立に常時露出されているので、中彩度サンプルでも
         //    ユーザーが手動で guard を有効化することは可能。
-        private const float SaturationGuardActivateSS    = 0.95f;
+        private const float SaturationGuardActivateSS = 0.95f;
         private const float SaturationGuardMinAtActivate = 0.5f;
-        private const float SaturationGuardMaxAtHighSS   = 0.8f;
+        private const float SaturationGuardMaxAtHighSS = 0.8f;
 
         // ── 解析パラメータ ──
         private const int HistogramBins = 32;
-        private const float NearHueDist  = 0.10f;
-        private const float NearSatDist  = 0.20f;
-        private const float NearValDist  = 0.30f;
-        private const int MinTextureDim  = 32;
+        private const float NearHueDist = 0.10f;
+        private const float NearSatDist = 0.20f;
+        private const float NearValDist = 0.30f;
+        private const int MinTextureDim = 32;
         private const int MinNearSampleCount = 64;
 
         /// <summary>
         /// 自動調整が上書きする項目(既定値から変わっていると、上書きの確認に並べる)。文言は UI が付ける
         /// (Core から UI の Localization を見ない。0.4.0 の計画の 3-1)。並びは確認に並べる順。
         /// </summary>
-        public enum TunedSetting
-        {
+        public enum TunedSetting {
             Tolerance,
             SaturationStrictness,
             SaturationGuard,
@@ -94,29 +91,23 @@ namespace Iroca
         /// セッションを作っていた。読むのは全体設定の 2 つと「どのゾーンも基本の項目が既定のままか」だけなので、
         /// 呼び出し側のスレッドで <see cref="From"/> が 1 回だけ取る。
         /// </summary>
-        public readonly struct SessionInput
-        {
-            public readonly int  antiAliasCleanup;
+        public readonly struct SessionInput {
+            public readonly int antiAliasCleanup;
             public readonly bool useDecontamination;
             // セッションのどのゾーンも基本の項目(IsZoneBasicsAtDefault)が既定のままか。全体設定を提案してよいかの条件。
             public readonly bool allZonesAtDefault;
 
-            public SessionInput(int antiAliasCleanup, bool useDecontamination, bool allZonesAtDefault)
-            {
-                this.antiAliasCleanup   = antiAliasCleanup;
+            public SessionInput(int antiAliasCleanup, bool useDecontamination, bool allZonesAtDefault) {
+                this.antiAliasCleanup = antiAliasCleanup;
                 this.useDecontamination = useDecontamination;
-                this.allZonesAtDefault  = allZonesAtDefault;
+                this.allZonesAtDefault = allZonesAtDefault;
             }
 
-            public static SessionInput From(IrocaSessionState session)
-            {
+            public static SessionInput From(IrocaSessionState session) {
                 bool allZonesAtDefault = true;
-                if (session.zones != null)
-                {
-                    foreach (var z in session.zones)
-                    {
-                        if (!IsZoneBasicsAtDefault(z))
-                        {
+                if (session.zones != null) {
+                    foreach (var z in session.zones) {
+                        if (!IsZoneBasicsAtDefault(z)) {
                             allZonesAtDefault = false;
                             break;
                         }
@@ -126,14 +117,13 @@ namespace Iroca
             }
         }
 
-        public struct TuneResult
-        {
+        public struct TuneResult {
             // Per-zone（常に有効）
             public float tolerance;
             public float saturationStrictness;
             public float saturationGuard;
             public float chromaThreshold;
-            public bool  highlightRecovery;
+            public bool highlightRecovery;
             public float valueBlend;
             public float edgeSoftness;
             public float shadowDesaturation;
@@ -151,9 +141,9 @@ namespace Iroca
 
             // Globals（applyGlobals が true のときのみ適用）
             // edgeFeather は「ごまかし」なので自動調整では一切扱わない（既定の 0 を維持）。
-            public bool  applyGlobals;
-            public int   antiAliasCleanup;
-            public bool  useDecontamination;
+            public bool applyGlobals;
+            public int antiAliasCleanup;
+            public bool useDecontamination;
 
             // 現在値がデフォルトと異なる(自動調整で上書きされる)項目。文言は UI が付ける。
             public List<TunedSetting> overwrittenSettings;
@@ -167,7 +157,7 @@ namespace Iroca
             // zone.sampleColor へ適用する（ツヤや深い影をクリックしても、同じパーツなら同じ
             // 基準色で選択・再着色されるようにするため）。詳細は ZoneAutoTuner.Normalize.cs。
             public Color normalizedSample;
-            public bool  hasNormalizedSample;
+            public bool hasNormalizedSample;
 
             // 証拠つき導出(AnalyzeWithEvidence)の診断文字列。null=従来経路。
             // ハーネス/テストが導出の内訳(ツヤ画素数・tolerance の合成内訳等)を観測するためだけの
@@ -183,34 +173,36 @@ namespace Iroca
             /// ここが単一の正で、ハーネスの対象（出荷ゲート対象）に入る。フィールドを増やしたら
             /// ここにも書く（scripts/source_checks/test_autotune_apply_single_source が機械検査する）。
             /// </summary>
-            public void ApplyTo(ColorZone zone, IrocaSessionState session)
-            {
-                if (zone == null) return;
+            public void ApplyTo(ColorZone zone, IrocaSessionState session) {
+                if (zone == null) {
+                    return;
+                }
                 // スポイト位置の正規化: クリックした 1 texel がツヤや深い影でも、パーツの代表地色を
                 // 基準色に据え直す。以降の選択・再着色がクリック位置に依存しなくなる
                 // （スウォッチの色も代表地色へ変わるので、何が基準かが UI から見て分かる）。
-                if (hasNormalizedSample) zone.sampleColor = normalizedSample;
-                zone.tolerance               = tolerance;
-                zone.saturationStrictness    = saturationStrictness;
-                zone.saturationGuard         = saturationGuard;
-                zone.chromaThreshold         = chromaThreshold;
-                zone.highlightRecovery       = highlightRecovery;
-                zone.valueBlend              = valueBlend;
-                zone.edgeSoftness            = edgeSoftness;
-                zone.shadowDesaturation      = shadowDesaturation;
+                if (hasNormalizedSample) {
+                    zone.sampleColor = normalizedSample;
+                }
+                zone.tolerance = tolerance;
+                zone.saturationStrictness = saturationStrictness;
+                zone.saturationGuard = saturationGuard;
+                zone.chromaThreshold = chromaThreshold;
+                zone.highlightRecovery = highlightRecovery;
+                zone.valueBlend = valueBlend;
+                zone.edgeSoftness = edgeSoftness;
+                zone.shadowDesaturation = shadowDesaturation;
                 zone.shadowForgivenessSatMin = shadowForgivenessSatMin;
-                zone.shadowValueFloor        = shadowValueFloor;
-                zone.partSatCeiling          = partSatCeiling;
-                zone.partHueBand             = partHueBand;
-                zone.chromaCeiling           = chromaCeiling;
-                zone.holeFillMargin          = holeFillMargin;
+                zone.shadowValueFloor = shadowValueFloor;
+                zone.partSatCeiling = partSatCeiling;
+                zone.partHueBand = partHueBand;
+                zone.chromaCeiling = chromaCeiling;
+                zone.holeFillMargin = holeFillMargin;
                 // 自動トーン抽出で得た内部サンプル（暗部/中間/明部の代表色）。ユーザーが複数スポイトする
                 // 代わりにアルゴリズムがパーツの濃淡を自動取得した結果で、選択（マッチング）の和集合に
                 // 使われる。出力色は主サンプル基準のまま変わらない。
                 zone.extraSamples = autoSamples ?? new List<Color>();
-                if (applyGlobals && session != null)
-                {
-                    session.antiAliasCleanup   = antiAliasCleanup;
+                if (applyGlobals && session != null) {
+                    session.antiAliasCleanup = antiAliasCleanup;
                     session.useDecontamination = useDecontamination;
                 }
                 zone.UpdateCacheIfNeeded();
@@ -227,8 +219,7 @@ namespace Iroca
         /// ここで 1 回だけ並列に作って全パスで読む。同じ関数に同じ入力を与えた値を配列経由で
         /// 読むだけなので、各パスの判定・集計は従来と完全に同一 = 出力ビット不変。
         /// </summary>
-        internal sealed class HsvGrid : IDisposable
-        {
+        internal sealed class HsvGrid : IDisposable {
             public int stride, gw, gh;
             /// <summary>解析の取り消し。格子をなめる並列ループ(照合の検証など)に渡し、ループの途中でも止める。</summary>
             public CancellationToken ct;
@@ -239,37 +230,30 @@ namespace Iroca
             public void Dispose() => scratch.Dispose();
         }
 
-        private static HsvGrid BuildHsvGrid(Color32* pixels, int w, int h, CancellationToken ct)
-        {
+        private static HsvGrid BuildHsvGrid(Color32* pixels, int w, int h, CancellationToken ct) {
             int stride = (w <= 2048) ? 1 : 2;
             int gw = (w + stride - 1) / stride, gh = (h + stride - 1) / stride;
             var grid = new HsvGrid { stride = stride, gw = gw, gh = gh, ct = ct };
             grid.h = grid.scratch.Float(gw * gh, clear: false);
             grid.s = grid.scratch.Float(gw * gh, clear: false);
             grid.v = grid.scratch.Float(gw * gh, clear: false);
-            var po = new ParallelOptions
-            {
+            var po = new ParallelOptions {
                 // PixelProcessor と同じ規則を使う。直書きするとデバッグ時のスレッド数指定
                 // (DebugCaptureHooks.ParallelismOverride) がここだけ効かず計測が食い違う。
                 MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(),
                 CancellationToken = ct,
             };
-            try
-            {
-                Parallel.For(0, gh, po, gy =>
-                {
+            try {
+                Parallel.For(0, gh, po, gy => {
                     int row = (gy * stride) * w;
                     int grow = gy * gw;
-                    for (int gx = 0; gx < gw; gx++)
-                    {
+                    for (int gx = 0; gx < gw; gx++) {
                         Color32 c = pixels[row + gx * stride];
                         Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
                             out grid.h[grow + gx], out grid.s[grow + gx], out grid.v[grow + gx]);
                     }
                 });
-            }
-            catch
-            {
+            } catch {
                 grid.Dispose();   // 取り消し。呼び出し側はまだ受け取っていない
                 throw;
             }
@@ -289,12 +273,14 @@ namespace Iroca
         public static TuneResult Analyze(Color32[] pixels, int width, int height,
             ColorZone zone, SessionInput session,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
-            Action<float> report = null)
-        {
+            Action<float> report = null) {
             // 長さが足りない配列は渡さない(ヒューリスティック既定だけを返す。ポインタ版は長さを確かめられない)。
-            if (pixels != null && pixels.Length < (long)width * height) pixels = null;
-            fixed (Color32* p = pixels)
+            if (pixels != null && pixels.Length < (long)width * height) {
+                pixels = null;
+            }
+            fixed (Color32* p = pixels) {
                 return Analyze(p, width, height, zone, session, excluded, maskW, maskH, ct, report);
+            }
         }
 
         /// <summary>
@@ -304,12 +290,14 @@ namespace Iroca
         public static TuneResult Analyze(Color32* pixels, int width, int height,
             ColorZone zone, SessionInput session,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
-            Action<float> report = null)
-        {
+            Action<float> report = null) {
             // 長さが足りないマスクは無いものとして扱う(大きさの分かるのはここまで)。
-            if (excluded != null && excluded.Length < (long)maskW * maskH) excluded = null;
-            fixed (bool* e = excluded)
+            if (excluded != null && excluded.Length < (long)maskW * maskH) {
+                excluded = null;
+            }
+            fixed (bool* e = excluded) {
                 return AnalyzeCore(pixels, width, height, zone, session, e, maskW, maskH, ct, report);
+            }
         }
 
         /// <summary>
@@ -318,8 +306,7 @@ namespace Iroca
         internal static TuneResult AnalyzeCore(Color32* pixels, int width, int height,
             ColorZone zone, SessionInput session,
             bool* excluded, int maskW, int maskH, CancellationToken ct,
-            Action<float> report)
-        {
+            Action<float> report) {
             // 進捗は「解析ステップの通過点」を単調増加で報告する。各ステップの実時間は
             // テクスチャ次第で読めないため、割合はステップ数ベースの目安。null 可(テスト等)。
             void Progress(float v) { report?.Invoke(v); }
@@ -328,8 +315,7 @@ namespace Iroca
 
             bool canAnalyze = pixels != null
                 && width >= MinTextureDim && height >= MinTextureDim;
-            if (canAnalyze)
-            {
+            if (canAnalyze) {
                 // 解析は最大 15 回前後の全画面走査で数百 ms かかる。各ステップ間でキャンセルを確認し、
                 // 新しい自動調整が来たら旧解析をゾンビ実行させない(CPU 2 倍/進捗バー飛びを防ぐ)。
                 // 各ステップは O(len) なので最悪でも 1 ステップ分で停止する。
@@ -354,16 +340,16 @@ namespace Iroca
                 ColorZone aZone = zone;
                 bool hasNorm = TryNormalizeSample(pixels, width, height, zone,
                     clusterMask, maskW, maskH, hsv, out Color canonicalSample, out _);
-                if (hasNorm)
-                {
+                if (hasNorm) {
                     aZone = zone.Clone();
                     aZone.sampleColor = canonicalSample;
                 }
 
                 Progress(0.40f);
 
-                if (TryAnalyzePixels(pixels, width, height, aZone, clusterMask, maskW, maskH, hsv, out var analyzed))
+                if (TryAnalyzePixels(pixels, width, height, aZone, clusterMask, maskW, maskH, hsv, out var analyzed)) {
                     result = MergeAnalyzed(result, analyzed);
+                }
                 Progress(0.50f);
 
                 // tolerance とトーン代表色(導出の中身と理由は DeriveToleranceAndTones)。
@@ -424,27 +410,22 @@ namespace Iroca
         private static void DeriveToleranceAndTones(Color32* pixels, int width, int height,
             ColorZone aZone, bool* clusterMask, int maskW, int maskH, HsvGrid hsv,
             bool achromatic, CancellationToken ct, Action<float> report, float progressAfterTones,
-            ref TuneResult result, out bool foreignCapped, out int vConnHiBin)
-        {
+            ref TuneResult result, out bool foreignCapped, out int vConnHiBin) {
             ct.ThrowIfCancellationRequested();
             foreignCapped = false;
             vConnHiBin = -1;
-            if (achromatic)
-            {
+            if (achromatic) {
                 // 無彩色サンプル: グレーモードの純 RGB 距離分布から(V 広がりの過大評価を回避)。
                 // 自動トーン抽出は無彩では背景の白/黒と色で分離できず危険なので行わない（単一経路）。
                 if (TryDeriveAchromaticTolerance(pixels, width, height, aZone,
-                        clusterMask, maskW, maskH, hsv, out float achTol))
-                {
+                        clusterMask, maskW, maskH, hsv, out float achTol)) {
                     result.tolerance = achTol;
                     // 無彩色サンプルではハイライト復元を切る。グレーモードのハイライト経路は
                     // 「明度だけ」で判定し色相/彩度を見ないため、明るい有彩画素(別素材)まで
                     // 巻き込んでしまう。グレー本体のハイライトは RGB 距離 tolerance で拾える。
                     result.highlightRecovery = false;
                 }
-            }
-            else
-            {
+            } else {
                 // ── 有彩サンプル: 自動トーン抽出（内部マルチサンプル）─────────────────
                 // スポイト1点から、同色相のパーツ全体のトーン分布を内部で走査し、暗部・中間・
                 // 明部の代表色を自動生成する（ユーザーの追加スポイト操作は不要）。これらを和集合の
@@ -452,14 +433,14 @@ namespace Iroca
                 // スポイト位置が明部でも暗部でも、トーン全域を覆うので取りこぼし/はみ出しを抑えられる。
                 var autoSamples = DeriveAutoTonalSamples(pixels, width, height, aZone,
                     clusterMask, maskW, maskH, hsv, out vConnHiBin);
-                if (progressAfterTones >= 0f) report?.Invoke(progressAfterTones);
+                if (progressAfterTones >= 0f) {
+                    report?.Invoke(progressAfterTones);
+                }
                 bool derivedMulti = false;
-                if (autoSamples.Count > 0)
-                {
+                if (autoSamples.Count > 0) {
                     var samples = BuildSampleHSVs(aZone.sampleColor, autoSamples);
                     if (TryDeriveChromaticToleranceMulti(pixels, width, height, aZone, samples,
-                            clusterMask, maskW, maskH, hsv, out float chromTolM, out bool fCapM))
-                    {
+                            clusterMask, maskW, maskH, hsv, out float chromTolM, out bool fCapM)) {
                         result.autoSamples = autoSamples;
                         result.tolerance = chromTolM;
                         foreignCapped = fCapM;
@@ -467,8 +448,7 @@ namespace Iroca
                     }
                 }
                 if (!derivedMulti && TryDeriveChromaticTolerance(pixels, width, height, aZone,
-                        clusterMask, maskW, maskH, hsv, out float chromTol, out bool fCap))
-                {
+                        clusterMask, maskW, maskH, hsv, out float chromTol, out bool fCap)) {
                     // 単一サンプルへフォールバック(トーン抽出が不発/クラスタ過少)。
                     result.tolerance = chromTol;
                     foreignCapped = fCap;
@@ -492,69 +472,70 @@ namespace Iroca
             bool chromatic, bool foreignCapped, int vConnHiBin, CancellationToken ct,
             Action<float> report, float progressAfterGrowth, float progressAfterOvershoot,
             bool* evidence, int evW, int evH,
-            ref TuneResult result)
-        {
+            ref TuneResult result) {
             ct.ThrowIfCancellationRequested();
             var baseSel = new BaseSelection();   // 導出 tolerance の基礎選択(最初に数えた検証が埋める)
             bool hlRecBeforeVerify = result.highlightRecovery;
-            if (result.highlightRecovery)
+            if (result.highlightRecovery) {
                 VerifyHighlightRecoveryGrowth(pixels, width, height, aZone,
                     excluded, maskW, maskH, hsv, evidence, evW, evH, baseSel, ref result);
+            }
             // 成長テストが highlightRecovery を落とした=「明るい同色相の別素材」が既に検出された
             // 状況なので、同じ方向へ広げる明部ツヤ救済も封印する。
             bool hlRecVetoed = hlRecBeforeVerify && !result.highlightRecovery;
-            if (progressAfterGrowth >= 0f) report?.Invoke(progressAfterGrowth);
+            if (progressAfterGrowth >= 0f) {
+                report?.Invoke(progressAfterGrowth);
+            }
             ct.ThrowIfCancellationRequested();
-            if (chromatic)
-            {
+            if (chromatic) {
                 float tolBeforeOvershoot = result.tolerance;
                 VerifyBrightForgivenessOvershoot(pixels, width, height, aZone,
                     excluded, maskW, maskH, hsv, baseSel, ref result);
                 // 免除過剰で tolerance を縮めた直後に拡張するのは矛盾するのでスキップする。
                 bool overshootShrunk = result.tolerance < tolBeforeOvershoot;
-                if (progressAfterOvershoot >= 0f) report?.Invoke(progressAfterOvershoot);
+                if (progressAfterOvershoot >= 0f) {
+                    report?.Invoke(progressAfterOvershoot);
+                }
 
                 ct.ThrowIfCancellationRequested();
                 // vConnHiBin < 0(トーン構造を確定できなかった)ときは拡張しない(構造未知のまま
                 // 広げるのは危険。素直なパーツならヒストグラムは常に作れる)。
-                if (!foreignCapped && !overshootShrunk && !hlRecVetoed && vConnHiBin >= 0)
+                if (!foreignCapped && !overshootShrunk && !hlRecVetoed && vConnHiBin >= 0) {
                     VerifyBrightSheenRecall(pixels, width, height, aZone,
                         excluded, maskW, maskH, hsv, vConnHiBin, baseSel, ref result);
+                }
             }
         }
 
         // ─────────────────── 既定値ベース ───────────────────
 
-        private static TuneResult BuildHeuristicDefault(ColorZone zone)
-        {
-            return new TuneResult
-            {
-                tolerance               = 0.25f,
-                saturationStrictness    = DefaultSaturationStrictness,
-                saturationGuard         = DefaultSaturationGuard,
-                chromaThreshold         = DefaultChromaThreshold,
-                highlightRecovery       = DefaultHighlightRecovery,
-                valueBlend              = DefaultValueBlend,
-                edgeSoftness            = 0.15f,
-                shadowDesaturation      = DefaultShadowDesaturation,
+        private static TuneResult BuildHeuristicDefault(ColorZone zone) {
+            return new TuneResult {
+                tolerance = 0.25f,
+                saturationStrictness = DefaultSaturationStrictness,
+                saturationGuard = DefaultSaturationGuard,
+                chromaThreshold = DefaultChromaThreshold,
+                highlightRecovery = DefaultHighlightRecovery,
+                valueBlend = DefaultValueBlend,
+                edgeSoftness = 0.15f,
+                shadowDesaturation = DefaultShadowDesaturation,
                 shadowForgivenessSatMin = DefaultShadowForgivenessSatMin,
-                shadowValueFloor        = DefaultShadowValueFloor,
-                partSatCeiling          = DefaultPartSatCeiling,
-                partHueBand             = DefaultPartHueBand,
-                chromaCeiling           = DefaultChromaCeiling,
-                holeFillMargin          = DefaultHoleFillMargin,
-                applyGlobals            = false,
-                antiAliasCleanup        = DefaultAntiAliasCleanup,
-                useDecontamination      = DefaultUseDecontamination,
-                overwrittenSettings     = new List<TunedSetting>(),
-                autoSamples             = new List<Color>(),
+                shadowValueFloor = DefaultShadowValueFloor,
+                partSatCeiling = DefaultPartSatCeiling,
+                partHueBand = DefaultPartHueBand,
+                chromaCeiling = DefaultChromaCeiling,
+                holeFillMargin = DefaultHoleFillMargin,
+                applyGlobals = false,
+                antiAliasCleanup = DefaultAntiAliasCleanup,
+                useDecontamination = DefaultUseDecontamination,
+                overwrittenSettings = new List<TunedSetting>(),
+                autoSamples = new List<Color>(),
             };
         }
 
         // ─────────────────── ピクセル解析 ───────────────────
 
-        private struct AnalysisStats
-        {
+        private struct AnalysisStats {
             public int nearSampleCount;
             public int[] hBins;
             public int[] sBins;
@@ -567,10 +548,8 @@ namespace Iroca
         }
 
         private static bool TryAnalyzePixels(Color32* pixels, int w, int h, ColorZone zone,
-            bool* excluded, int maskW, int maskH, HsvGrid hsv, out AnalysisStats stats)
-        {
-            stats = new AnalysisStats
-            {
+            bool* excluded, int maskW, int maskH, HsvGrid hsv, out AnalysisStats stats) {
+            stats = new AnalysisStats {
                 hBins = new int[HistogramBins],
                 sBins = new int[HistogramBins],
                 vBins = new int[HistogramBins],
@@ -593,21 +572,24 @@ namespace Iroca
             var po = new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(), CancellationToken = hsv.ct };
             var st = stats;
             Parallel.For(0, hsv.gh, po,
-                () => new AnalysisStats
-                {
-                    hBins = new int[HistogramBins], sBins = new int[HistogramBins], vBins = new int[HistogramBins],
+                () => new AnalysisStats {
+                    hBins = new int[HistogramBins],
+                    sBins = new int[HistogramBins],
+                    vBins = new int[HistogramBins],
                     darkestNearSampleS = 1f,
                 },
-                (gy, _, loc) =>
-                {
+                (gy, _, loc) => {
                     int y = gy * stride;
                     int rowStart = y * w;
                     int grow = gy * gw;
-                    for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                    {
+                    for (int x = 0, gx = 0; x < w; x += stride, gx++) {
                         Color32 c32 = pixels[rowStart + x];
-                        if (c32.a < PixelProcessor.OpaqueAlphaMin) continue;
-                        if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) continue; // マスク除外領域は対象外
+                        if (c32.a < PixelProcessor.OpaqueAlphaMin) {
+                            continue;
+                        }
+                        if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
+                            continue; // マスク除外領域は対象外
+                        }
 
                         int gi = grow + gx;
                         float pH = gH[gi], pS = gS[gi], pV = gV[gi];
@@ -618,20 +600,19 @@ namespace Iroca
                         // 条件は ColorZone のハイライト判定(HighlightSaturationCeiling で動的化)と
                         // Verify.cs:GrowHighlightBand ミラーと同じ定数を共有する。
                         if (pV > ColorZone.HighlightValueMin && pS < hlSatCeil
-                            && hDist < ColorZone.ForgivenessHueGate)
+                            && hDist < ColorZone.ForgivenessHueGate) {
                             loc.highlightCandidates++;
+                        }
 
                         if (hDist < NearHueDist &&
                             Mathf.Abs(pS - sSs) < NearSatDist &&
-                            Mathf.Abs(pV - sVs) < NearValDist)
-                        {
+                            Mathf.Abs(pV - sVs) < NearValDist) {
                             loc.nearSampleCount++;
                             loc.hBins[Mathf.Clamp((int)(pH * HistogramBins), 0, HistogramBins - 1)]++;
                             loc.sBins[Mathf.Clamp((int)(pS * HistogramBins), 0, HistogramBins - 1)]++;
                             loc.vBins[Mathf.Clamp((int)(pV * HistogramBins), 0, HistogramBins - 1)]++;
 
-                            if (pV < 0.4f && pS < loc.darkestNearSampleS)
-                            {
+                            if (pV < 0.4f && pS < loc.darkestNearSampleS) {
                                 loc.darkestNearSampleS = pS;
                                 loc.darkSeen = true;
                             }
@@ -639,20 +620,18 @@ namespace Iroca
                     }
                     return loc;
                 },
-                loc =>
-                {
-                    lock (gate)
-                    {
+                loc => {
+                    lock (gate) {
                         st.highlightCandidates += loc.highlightCandidates;
                         st.nearSampleCount += loc.nearSampleCount;
-                        for (int b = 0; b < HistogramBins; b++)
-                        {
+                        for (int b = 0; b < HistogramBins; b++) {
                             st.hBins[b] += loc.hBins[b]; st.sBins[b] += loc.sBins[b]; st.vBins[b] += loc.vBins[b];
                         }
-                        if (loc.darkSeen)
-                        {
+                        if (loc.darkSeen) {
                             st.darkSeen = true;
-                            if (loc.darkestNearSampleS < st.darkestNearSampleS) st.darkestNearSampleS = loc.darkestNearSampleS;
+                            if (loc.darkestNearSampleS < st.darkestNearSampleS) {
+                                st.darkestNearSampleS = loc.darkestNearSampleS;
+                            }
                         }
                     }
                 });
@@ -661,8 +640,7 @@ namespace Iroca
             return stats.nearSampleCount >= MinNearSampleCount;
         }
 
-        private static TuneResult MergeAnalyzed(TuneResult heuristic, AnalysisStats s)
-        {
+        private static TuneResult MergeAnalyzed(TuneResult heuristic, AnalysisStats s) {
             float hSpread = HueSpreadFromHistogram(s.hBins, s.sH, s.nearSampleCount);
             float sP10 = PercentileBin(s.sBins, s.nearSampleCount, 0.10f) / (float)HistogramBins;
             float vP10 = PercentileBin(s.vBins, s.nearSampleCount, 0.10f) / (float)HistogramBins;
@@ -673,27 +651,19 @@ namespace Iroca
             // 通常は Analyze で TryDeriveChromaticTolerance/TryDeriveAchromaticTolerance(実距離分布)に
             // 上書きされる。ここはクラスタが過少(<MinNearSampleCount)で実距離導出が失敗したときの保険。
             float tolerance;
-            if (s.sS < 0.10f)
-            {
+            if (s.sS < 0.10f) {
                 tolerance = Mathf.Clamp(vSpread + 0.10f, 0.12f, 0.50f);
-            }
-            else
-            {
+            } else {
                 tolerance = Mathf.Clamp(hSpread + 0.10f, 0.12f, 0.50f);
             }
 
             // saturationStrictness: 低彩度サンプル → 緩める。低 S テールが目立つ → 厳しく。
             float saturationStrictness;
-            if (s.sS < 0.10f)
-            {
+            if (s.sS < 0.10f) {
                 saturationStrictness = 0.30f;
-            }
-            else if (sP10 < s.sS * 0.3f)
-            {
+            } else if (sP10 < s.sS * 0.3f) {
                 saturationStrictness = 0.65f;
-            }
-            else
-            {
+            } else {
                 saturationStrictness = 0.50f;
             }
 
@@ -714,15 +684,23 @@ namespace Iroca
             // それ以外では模様を残すことを最優先する方針。
             float vDelta = Mathf.Abs(s.sV - s.tV);
             float valueBlend;
-            if (vDelta > 0.55f) valueBlend = 0.7f;        // 例: 白系 → 黒系
-            else if (vDelta > 0.35f) valueBlend = 0.9f;   // 中程度の明度差
-            else valueBlend = 1.0f;                       // 通常は模様完全保持
+            if (vDelta > 0.55f) {
+                valueBlend = 0.7f;        // 例: 白系 → 黒系
+            } else if (vDelta > 0.35f) {
+                valueBlend = 0.9f;   // 中程度の明度差
+            } else {
+                valueBlend = 1.0f;                       // 通常は模様完全保持
+            }
 
             // edgeSoftness: 色相広がりが大きいほど柔らかく
             float edgeSoftness;
-            if (hSpread > 0.15f) edgeSoftness = 0.4f;
-            else if (hSpread < 0.05f) edgeSoftness = 0.0f;
-            else edgeSoftness = 0.15f;
+            if (hSpread > 0.15f) {
+                edgeSoftness = 0.4f;
+            } else if (hSpread < 0.05f) {
+                edgeSoftness = 0.0f;
+            } else {
+                edgeSoftness = 0.15f;
+            }
 
             // shadowForgivenessSatMin: シャドウ免除(暗部の同系色画素を救済する仕組み)の下限彩度。
             // 免除は「自パーツの暗部彩度まで」に限定する = darkestNearSampleS(自パーツの暗部の
@@ -736,8 +714,7 @@ namespace Iroca
             // 暗部が脱彩する素材は darkestNearSampleS が低く出るので下限も自動的に下がり、免除が効いて
             // recall を保つ。暗部画素が無いパーツ(darkSeen=false)は既定 0.05 のまま。
             float shadowForgivenessSatMin = DefaultShadowForgivenessSatMin;
-            if (s.darkSeen && s.darkestNearSampleS > 0.10f)
-            {
+            if (s.darkSeen && s.darkestNearSampleS > 0.10f) {
                 shadowForgivenessSatMin = Mathf.Clamp(s.darkestNearSampleS * 0.95f, 0.05f, 0.90f);
             }
 
@@ -750,46 +727,41 @@ namespace Iroca
             // 数値はキャラ・テクスチャ依存ではなく「源色の彩度」という距離式入力から
             // 導出しているため、特定テクスチャへのハードコードにはならない。
             float saturationGuard;
-            if (s.sS < SaturationGuardActivateSS)
-            {
+            if (s.sS < SaturationGuardActivateSS) {
                 saturationGuard = 0f;
-            }
-            else
-            {
+            } else {
                 float t = Mathf.Clamp01((s.sS - SaturationGuardActivateSS)
                                         / Mathf.Max(0.001f, 1f - SaturationGuardActivateSS));
                 saturationGuard = Mathf.Lerp(SaturationGuardMinAtActivate,
                                              SaturationGuardMaxAtHighSS, t);
             }
 
-            return new TuneResult
-            {
-                tolerance               = tolerance,
-                saturationStrictness    = saturationStrictness,
-                saturationGuard         = saturationGuard,
-                chromaThreshold         = chromaThreshold,
-                highlightRecovery       = highlightRecovery,
-                valueBlend              = valueBlend,
-                edgeSoftness            = edgeSoftness,
-                shadowDesaturation      = heuristic.shadowDesaturation,
+            return new TuneResult {
+                tolerance = tolerance,
+                saturationStrictness = saturationStrictness,
+                saturationGuard = saturationGuard,
+                chromaThreshold = chromaThreshold,
+                highlightRecovery = highlightRecovery,
+                valueBlend = valueBlend,
+                edgeSoftness = edgeSoftness,
+                shadowDesaturation = heuristic.shadowDesaturation,
                 shadowForgivenessSatMin = shadowForgivenessSatMin,
-                shadowValueFloor        = DefaultShadowValueFloor,
-                partSatCeiling          = DefaultPartSatCeiling,
-                partHueBand             = DefaultPartHueBand,
-                chromaCeiling           = DefaultChromaCeiling,
-                holeFillMargin          = DefaultHoleFillMargin,
-                applyGlobals            = false,
-                antiAliasCleanup        = heuristic.antiAliasCleanup,
-                useDecontamination      = heuristic.useDecontamination,
-                overwrittenSettings     = new List<TunedSetting>(),
-                autoSamples             = new List<Color>(),
+                shadowValueFloor = DefaultShadowValueFloor,
+                partSatCeiling = DefaultPartSatCeiling,
+                partHueBand = DefaultPartHueBand,
+                chromaCeiling = DefaultChromaCeiling,
+                holeFillMargin = DefaultHoleFillMargin,
+                applyGlobals = false,
+                antiAliasCleanup = heuristic.antiAliasCleanup,
+                useDecontamination = heuristic.useDecontamination,
+                overwrittenSettings = new List<TunedSetting>(),
+                autoSamples = new List<Color>(),
             };
         }
 
         // ─────────────────── Globals 判定 ───────────────────
 
-        private static void DecideGlobals(int texWidth, int texHeight, SessionInput session, ref TuneResult result)
-        {
+        private static void DecideGlobals(int texWidth, int texHeight, SessionInput session, ref TuneResult result) {
             // edgeFeather は自動調整では一切触らない（"ごまかし" を増やさない方針）。
             // 自動調整が扱う Global は antiAliasCleanup と useDecontamination のみ。
             // 1) これらが既定 かつ 2) 他ゾーンの基本パラメータも全て既定 のときだけ提案する。
@@ -800,8 +772,7 @@ namespace Iroca
 
             bool allZonesAtDefault = session.allZonesAtDefault;
 
-            if (!globalsAtDefault || !allZonesAtDefault)
-            {
+            if (!globalsAtDefault || !allZonesAtDefault) {
                 result.applyGlobals = false;
                 return;
             }
@@ -813,12 +784,17 @@ namespace Iroca
             result.useDecontamination = DefaultUseDecontamination;
         }
 
-        private static int AntiAliasCleanupForResolution(int width, int height)
-        {
-            if (width <= 0 || height <= 0) return DefaultAntiAliasCleanup;
+        private static int AntiAliasCleanupForResolution(int width, int height) {
+            if (width <= 0 || height <= 0) {
+                return DefaultAntiAliasCleanup;
+            }
             int dim = Mathf.Max(width, height);
-            if (dim >= 2048) return 5;
-            if (dim >= 1024) return 4;
+            if (dim >= 2048) {
+                return 5;
+            }
+            if (dim >= 1024) {
+                return 4;
+            }
             return DefaultAntiAliasCleanup; // 3 = 推奨下限
         }
 
@@ -832,70 +808,85 @@ namespace Iroca
         ///
         /// 非同期化のために事前確認をジョブ開始前へ移動する用途で使う。
         /// </summary>
-        public static List<TunedSetting> PreviewOverwrittenSettings(ColorZone zone)
-        {
+        public static List<TunedSetting> PreviewOverwrittenSettings(ColorZone zone) {
             var settings = new List<TunedSetting>();
-            if (zone == null) return settings;
+            if (zone == null) {
+                return settings;
+            }
 
             AddZoneOverwrittenSettings(zone, settings);
             return settings;
         }
 
-        private static void CollectOverwrittenSettings(ColorZone zone, SessionInput session, ref TuneResult result)
-        {
+        private static void CollectOverwrittenSettings(ColorZone zone, SessionInput session, ref TuneResult result) {
             var settings = result.overwrittenSettings;
 
             AddZoneOverwrittenSettings(zone, settings);
 
-            if (result.applyGlobals)
-            {
-                if (session.antiAliasCleanup != DefaultAntiAliasCleanup)
+            if (result.applyGlobals) {
+                if (session.antiAliasCleanup != DefaultAntiAliasCleanup) {
                     settings.Add(TunedSetting.AntiAliasCleanup);
-                if (session.useDecontamination != DefaultUseDecontamination)
+                }
+                if (session.useDecontamination != DefaultUseDecontamination) {
                     settings.Add(TunedSetting.UseDecontamination);
+                }
             }
         }
 
         // ゾーン単位の項目のうち既定値と異なるものを、決まった順で settings へ足す。
         // PreviewOverwrittenSettings(Analyze 前の事前確認)と CollectOverwrittenSettings(TuneResult)で
         // 項目と順序をそろえるための共通部分。
-        private static void AddZoneOverwrittenSettings(ColorZone zone, List<TunedSetting> settings)
-        {
-            if (!Mathf.Approximately(zone.tolerance, DefaultTolerance))
+        private static void AddZoneOverwrittenSettings(ColorZone zone, List<TunedSetting> settings) {
+            if (!Mathf.Approximately(zone.tolerance, DefaultTolerance)) {
                 settings.Add(TunedSetting.Tolerance);
-            if (!Mathf.Approximately(zone.saturationStrictness, DefaultSaturationStrictness))
+            }
+            if (!Mathf.Approximately(zone.saturationStrictness, DefaultSaturationStrictness)) {
                 settings.Add(TunedSetting.SaturationStrictness);
-            if (!Mathf.Approximately(zone.saturationGuard, DefaultSaturationGuard))
+            }
+            if (!Mathf.Approximately(zone.saturationGuard, DefaultSaturationGuard)) {
                 settings.Add(TunedSetting.SaturationGuard);
-            if (!Mathf.Approximately(zone.chromaThreshold, DefaultChromaThreshold))
+            }
+            if (!Mathf.Approximately(zone.chromaThreshold, DefaultChromaThreshold)) {
                 settings.Add(TunedSetting.ChromaThreshold);
-            if (zone.highlightRecovery != DefaultHighlightRecovery)
+            }
+            if (zone.highlightRecovery != DefaultHighlightRecovery) {
                 settings.Add(TunedSetting.HighlightRecovery);
-            if (!Mathf.Approximately(zone.valueBlend, DefaultValueBlend))
+            }
+            if (!Mathf.Approximately(zone.valueBlend, DefaultValueBlend)) {
                 settings.Add(TunedSetting.PatternPreserve);
-            if (!Mathf.Approximately(zone.edgeSoftness, DefaultEdgeSoftness))
+            }
+            if (!Mathf.Approximately(zone.edgeSoftness, DefaultEdgeSoftness)) {
                 settings.Add(TunedSetting.EdgeSoftness);
-            if (!Mathf.Approximately(zone.shadowDesaturation, DefaultShadowDesaturation))
+            }
+            if (!Mathf.Approximately(zone.shadowDesaturation, DefaultShadowDesaturation)) {
                 settings.Add(TunedSetting.ShadowDesaturation);
-            if (!Mathf.Approximately(zone.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin))
+            }
+            if (!Mathf.Approximately(zone.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin)) {
                 settings.Add(TunedSetting.ShadowForgivenessSatMin);
-            if (!Mathf.Approximately(zone.shadowValueFloor, DefaultShadowValueFloor))
+            }
+            if (!Mathf.Approximately(zone.shadowValueFloor, DefaultShadowValueFloor)) {
                 settings.Add(TunedSetting.ShadowValueFloor);
-            if (!Mathf.Approximately(zone.partSatCeiling, DefaultPartSatCeiling))
+            }
+            if (!Mathf.Approximately(zone.partSatCeiling, DefaultPartSatCeiling)) {
                 settings.Add(TunedSetting.PartSatCeiling);
-            if (!Mathf.Approximately(zone.partHueBand, DefaultPartHueBand))
+            }
+            if (!Mathf.Approximately(zone.partHueBand, DefaultPartHueBand)) {
                 settings.Add(TunedSetting.PartHueBand);
-            if (!Mathf.Approximately(zone.chromaCeiling, DefaultChromaCeiling))
+            }
+            if (!Mathf.Approximately(zone.chromaCeiling, DefaultChromaCeiling)) {
                 settings.Add(TunedSetting.ChromaCeiling);
-            if (!Mathf.Approximately(zone.holeFillMargin, DefaultHoleFillMargin))
+            }
+            if (!Mathf.Approximately(zone.holeFillMargin, DefaultHoleFillMargin)) {
                 settings.Add(TunedSetting.HoleFillMargin);
+            }
         }
 
         // ─────────────────── ユーティリティ ───────────────────
 
-        private static bool IsZoneBasicsAtDefault(ColorZone z)
-        {
-            if (z == null) return true;
+        private static bool IsZoneBasicsAtDefault(ColorZone z) {
+            if (z == null) {
+                return true;
+            }
             return Mathf.Approximately(z.tolerance, DefaultTolerance)
                 && Mathf.Approximately(z.saturationStrictness, DefaultSaturationStrictness)
                 && Mathf.Approximately(z.saturationGuard, DefaultSaturationGuard)
@@ -912,8 +903,7 @@ namespace Iroca
                 && Mathf.Approximately(z.holeFillMargin, DefaultHoleFillMargin);
         }
 
-        private static float HueDistance(float a, float b)
-        {
+        private static float HueDistance(float a, float b) {
             float d = Mathf.Abs(a - b);
             return d > 0.5f ? 1f - d : d;
         }
@@ -922,28 +912,29 @@ namespace Iroca
         /// ヒストグラムから P10/P90 を求め、色相は環状なのでサンプル色相 sH を中心として
         /// 「中心からの最大距離」相当を返す（P90 of |hue - sH|_wrap）。
         /// </summary>
-        private static float HueSpreadFromHistogram(int[] hBins, float sH, int total)
-        {
-            if (total <= 0) return 0f;
+        private static float HueSpreadFromHistogram(int[] hBins, float sH, int total) {
+            if (total <= 0) {
+                return 0f;
+            }
             // 各 bin の中心色相 → サンプル色相からの環状距離をキーに、上位 10% を切る。
             // bin 数 = 32 と小さいので、距離ソートをしてから累積で 90 パーセンタイル位置を取る。
             int n = hBins.Length;
             float[] dists = new float[n];
             int[] counts = new int[n];
-            for (int i = 0; i < n; i++)
-            {
+            for (int i = 0; i < n; i++) {
                 float center = (i + 0.5f) / n;
                 dists[i] = HueDistance(center, sH);
                 counts[i] = hBins[i];
             }
             // 簡易ソート（n=32 なので選択ソートでも十分高速）
-            for (int i = 0; i < n - 1; i++)
-            {
+            for (int i = 0; i < n - 1; i++) {
                 int min = i;
-                for (int j = i + 1; j < n; j++)
-                    if (dists[j] < dists[min]) min = j;
-                if (min != i)
-                {
+                for (int j = i + 1; j < n; j++) {
+                    if (dists[j] < dists[min]) {
+                        min = j;
+                    }
+                }
+                if (min != i) {
                     float tmpD = dists[i]; dists[i] = dists[min]; dists[min] = tmpD;
                     int tmpC = counts[i]; counts[i] = counts[min]; counts[min] = tmpC;
                 }
@@ -951,10 +942,11 @@ namespace Iroca
 
             int target = Mathf.CeilToInt(total * 0.90f);
             int cum = 0;
-            for (int i = 0; i < n; i++)
-            {
+            for (int i = 0; i < n; i++) {
                 cum += counts[i];
-                if (cum >= target) return dists[i];
+                if (cum >= target) {
+                    return dists[i];
+                }
             }
             return 0.5f;
         }
@@ -962,15 +954,17 @@ namespace Iroca
         /// <summary>
         /// ヒストグラムから指定パーセンタイルに対応する bin index を返す（小数）。
         /// </summary>
-        private static float PercentileBin(int[] bins, int total, float p)
-        {
-            if (total <= 0) return 0f;
+        private static float PercentileBin(int[] bins, int total, float p) {
+            if (total <= 0) {
+                return 0f;
+            }
             int target = Mathf.CeilToInt(total * p);
             int cum = 0;
-            for (int i = 0; i < bins.Length; i++)
-            {
+            for (int i = 0; i < bins.Length; i++) {
                 cum += bins[i];
-                if (cum >= target) return i;
+                if (cum >= target) {
+                    return i;
+                }
             }
             return bins.Length - 1;
         }

@@ -1,0 +1,17 @@
+root = true
+
+# C# の書き方: 1TBS（開き波かっこは行末に置き、else・catch・finally は閉じかっこと同じ行）。
+# if・else・for・foreach・while・do の本体は、1 行でも必ず波かっこで囲む。
+# 確かめ方: dotnet format whitespace <build-check などの csproj> --verify-no-changes
+#           dotnet format style <csproj> --diagnostics IDE0011 --verify-no-changes
+# （IDE0011 の自動修正は新しいブロックの後に空行を入れるので、直すのは手で行う）
+[*.cs]
+indent_style = space
+indent_size = 4
+
+csharp_new_line_before_open_brace = none
+csharp_new_line_before_else = false
+csharp_new_line_before_catch = false
+csharp_new_line_before_finally = false
+csharp_prefer_braces = true:warning
+dotnet_diagnostic.IDE0011.severity = warning

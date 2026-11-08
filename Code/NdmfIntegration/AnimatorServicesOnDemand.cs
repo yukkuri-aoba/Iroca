@@ -5,8 +5,7 @@ using System.Collections.Generic;
 using nadena.dev.ndmf;
 using nadena.dev.ndmf.animator;
 
-namespace Iroca.NdmfIntegration
-{
+namespace Iroca.NdmfIntegration {
     /// <summary>
     /// NDMF のアニメーターの拡張(<see cref="AnimatorServicesContext"/> と、その土台の
     /// <see cref="VirtualControllerContext"/>)を、要るときだけ開く。
@@ -21,8 +20,7 @@ namespace Iroca.NdmfIntegration
     /// 開いたままパスを抜けると、後続のツールが直接いじったアニメーターを、ビルドの最後の書き戻しで上書きしてしまう。
     /// </para>
     /// </summary>
-    internal sealed class AnimatorServicesOnDemand : IDisposable
-    {
+    internal sealed class AnimatorServicesOnDemand : IDisposable {
         /// <summary>パスに Compatible と宣言する拡張。</summary>
         internal static readonly Type[] Types = { typeof(VirtualControllerContext), typeof(AnimatorServicesContext) };
 
@@ -34,39 +32,38 @@ namespace Iroca.NdmfIntegration
         public AnimatorServicesOnDemand(BuildContext ctx) { _ctx = ctx; }
 
         /// <summary>拡張を取り出す(開いていなければ開く)。</summary>
-        public AnimatorServicesContext Get()
-        {
-            if (_services != null) return _services;
+        public AnimatorServicesContext Get() {
+            if (_services != null) {
+                return _services;
+            }
             Open<VirtualControllerContext>();   // 依存される側から
             Open<AnimatorServicesContext>();
             return _services = _ctx.Extension<AnimatorServicesContext>();
         }
 
         /// <summary>ここで開いたものだけを、依存する側から閉じる。</summary>
-        public void Dispose()
-        {
+        public void Dispose() {
             _services = null;
-            for (int i = _opened.Count - 1; i >= 0; i--) _ctx.DeactivateExtensionContext(_opened[i]);
+            for (int i = _opened.Count - 1; i >= 0; i--) {
+                _ctx.DeactivateExtensionContext(_opened[i]);
+            }
             _opened.Clear();
         }
 
-        private void Open<T>() where T : IExtensionContext
-        {
-            if (IsActive<T>(_ctx)) return;
+        private void Open<T>() where T : IExtensionContext {
+            if (IsActive<T>(_ctx)) {
+                return;
+            }
             _ctx.ActivateExtensionContext<T>();
             _opened.Add(typeof(T));
         }
 
         // NDMF には「開いているか」を聞く API が無いので、取り出せるかで見る(開いていなければ例外になる)。
-        internal static bool IsActive<T>(BuildContext ctx) where T : IExtensionContext
-        {
-            try
-            {
+        internal static bool IsActive<T>(BuildContext ctx) where T : IExtensionContext {
+            try {
                 ctx.Extension<T>();
                 return true;
-            }
-            catch (Exception)
-            {
+            } catch (Exception) {
                 return false;
             }
         }

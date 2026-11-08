@@ -6,8 +6,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// スクリプトの再読み込み・Play をまたいだときの編集と Undo の確認。
     /// 再読み込みで Undo の記録が残るかは Unity の版で違う(2026-10-30 に実験で確かめた)。2022.3 はスクリプトのオブジェクト
@@ -20,8 +19,7 @@ namespace Iroca.EditorTests
     /// (<c>Run-EditorTests.ps1 -UndoReload</c>)。結果は 1 行ずつ報告のファイルへ書き、失敗の数を終了コードにする。
     /// </summary>
     [InitializeOnLoad]
-    internal static class UndoReloadScenario
-    {
+    internal static class UndoReloadScenario {
         private const string Key = "Iroca.Tests.UndoReload.";
         private const int W = 4, H = 4;
 
@@ -34,19 +32,23 @@ namespace Iroca.EditorTests
 
         private static string Report => Environment.GetEnvironmentVariable("IROCA_UNDO_RELOAD_REPORT");
 
-        static UndoReloadScenario()
-        {
-            if (string.IsNullOrEmpty(Report)) return;
+        static UndoReloadScenario() {
+            if (string.IsNullOrEmpty(Report)) {
+                return;
+            }
             // 窓の OnEnable とエディタの更新が済んでから進める。Play の前後は、切り替えが終わるまで待つ。
             EditorApplication.update -= WaitAndRun;
             EditorApplication.update += WaitAndRun;
         }
 
-        private static void WaitAndRun()
-        {
-            if (EditorApplication.isCompiling || EditorApplication.isUpdating) return;
+        private static void WaitAndRun() {
+            if (EditorApplication.isCompiling || EditorApplication.isUpdating) {
+                return;
+            }
             bool wantPlay = SessionState.GetBool(Key + "wantPlay", false);
-            if (EditorApplication.isPlaying != wantPlay) return;
+            if (EditorApplication.isPlaying != wantPlay) {
+                return;
+            }
             EditorApplication.update -= WaitAndRun;
             RunStep();
         }
@@ -55,25 +57,20 @@ namespace Iroca.EditorTests
             EditorUtility.InstanceIDToObject(SessionState.GetInt(Key + "win", 0)) as IrocaWindow;
 
         // 手順。どれも最後に再読み込みか Play の切り替えを頼む(最後の手順は終わる)。
-        private static readonly Action[] Steps =
-        {
+        private static readonly Action[] Steps = {
             BeforeReload,
             AfterReload,
             InPlayMode,
             AfterPlayMode,
         };
 
-        private static void RunStep()
-        {
+        private static void RunStep() {
             int step = SessionState.GetInt(Key + "step", 0);
             SessionState.SetInt(Key + "step", step + 1);
-            try
-            {
+            try {
                 Line($"step {step}: {Steps[step].Method.Name}");
                 Steps[step]();
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Fail($"step {step}: {ex}");
                 Finish();
             }
@@ -81,49 +78,58 @@ namespace Iroca.EditorTests
 
         private static void Line(string s) => File.AppendAllText(Report, s + "\n");
 
-        private static void Fail(string s)
-        {
+        private static void Fail(string s) {
             SessionState.SetInt(Key + "fails", SessionState.GetInt(Key + "fails", 0) + 1);
             Line("FAIL " + s);
         }
 
-        private static void Check(bool ok, string what)
-        {
-            if (ok) Line("ok   " + what);
-            else Fail(what);
+        private static void Check(bool ok, string what) {
+            if (ok) {
+                Line("ok   " + what);
+            } else {
+                Fail(what);
+            }
         }
 
-        private static void Finish()
-        {
+        private static void Finish() {
             Cleanup();
             int fails = SessionState.GetInt(Key + "fails", 0);
             Line($"done fails={fails}");
             EditorApplication.Exit(fails);
         }
 
-        private static void Cleanup()
-        {
+        private static void Cleanup() {
             var win = Win;
-            if (win != null) UnityEngine.Object.DestroyImmediate(win);
+            if (win != null) {
+                UnityEngine.Object.DestroyImmediate(win);
+            }
 
             string prefKey = IrocaWindow.LastTextureGuidPrefKey;
-            if (SessionState.GetBool(Key + "hadPref", false)) EditorPrefs.SetString(prefKey, SessionState.GetString(Key + "pref", ""));
-            else EditorPrefs.DeleteKey(prefKey);
+            if (SessionState.GetBool(Key + "hadPref", false)) {
+                EditorPrefs.SetString(prefKey, SessionState.GetString(Key + "pref", ""));
+            } else {
+                EditorPrefs.DeleteKey(prefKey);
+            }
 
             string guid = SessionState.GetString(Key + "guid", "");
-            if (guid.Length > 0)
-                foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
-                {
-                    if (!Directory.Exists(dir)) continue;
-                    foreach (var f in Directory.GetFiles(dir, guid + "*")) File.Delete(f);
+            if (guid.Length > 0) {
+                foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                    if (!Directory.Exists(dir)) {
+                        continue;
+                    }
+                    foreach (var f in Directory.GetFiles(dir, guid + "*")) {
+                        File.Delete(f);
+                    }
                 }
+            }
             string folder = SessionState.GetString(Key + "folder", "");
-            if (folder.Length > 0) AssetDatabase.DeleteAsset(folder);
+            if (folder.Length > 0) {
+                AssetDatabase.DeleteAsset(folder);
+            }
         }
 
         // ブラシの 1 ストローク(押し始めの記録 → 塗る → 離す)。操作ごとに Undo グループを分ける。
-        private static void Stroke(int pixel)
-        {
+        private static void Stroke(int pixel) {
             var win = Win;
             Undo.IncrementCurrentGroup();
             win._maskView.BeginStroke();
@@ -133,26 +139,26 @@ namespace Iroca.EditorTests
             Undo.IncrementCurrentGroup();
         }
 
-        private static void CheckCommon(string because, params int[] pixels)
-        {
+        private static void CheckCommon(string because, params int[] pixels) {
             var common = Win.Editing.Masks.Common;
             var got = new List<int>();
-            for (int i = 0; i < W * H; i++)
-                if (common != null && common.Get(i)) got.Add(i);
+            for (int i = 0; i < W * H; i++) {
+                if (common != null && common.Get(i)) {
+                    got.Add(i);
+                }
+            }
             Check(string.Join(",", got) == string.Join(",", pixels),
                 $"{because}: 共通のマスク 期待 [{string.Join(",", pixels)}] 実際 [{string.Join(",", got)}]");
         }
 
-        private static void CheckZones(string because, int count)
-        {
+        private static void CheckZones(string because, int count) {
             int got = Win.Session.zones.Count;
             Check(got == count, $"{because}: ゾーン 期待 {count} 実際 {got}");
         }
 
         // ─────────────── 手順 ───────────────
 
-        private static void BeforeReload()
-        {
+        private static void BeforeReload() {
             var assets = TestAssets.Create();
             string tex = assets.WritePng("tex", TestAssets.Solid(W, H, new Color32(200, 50, 50, 255)), W, H);
             string guid = AssetDatabase.AssetPathToGUID(tex);
@@ -186,8 +192,7 @@ namespace Iroca.EditorTests
         }
 
         // Undo の履歴の名前(Unity の internal の口。結果の読み解き用)。
-        private static List<string> UndoRecords()
-        {
+        private static List<string> UndoRecords() {
             var undo = new List<string>();
             var m = typeof(Undo).GetMethod("GetRecords",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
@@ -196,8 +201,7 @@ namespace Iroca.EditorTests
             return undo;
         }
 
-        private static void AfterReload()
-        {
+        private static void AfterReload() {
             Line("     履歴: " + string.Join(" | ", UndoRecords()));
             Check(Win != null, "再読み込みで窓が残る");
             Check(Win.UndoTarget.GetInstanceID() == SessionState.GetInt(Key + "doc", 0), "文書も同じものが残る");
@@ -206,8 +210,7 @@ namespace Iroca.EditorTests
             Check(!File.Exists(SpillPath()), "退避のファイルは読んだら消す");
 
 #pragma warning disable CS0162 // 版で片方だけ通る
-            if (KeepsUndoAcrossReload)
-            {
+            if (KeepsUndoAcrossReload) {
                 Check(UndoRecords().Count == 3, "再読み込みの前の編集の Undo が残っている");
                 Undo.PerformUndo();
                 CheckCommon("ストロークを戻す", 1);
@@ -222,9 +225,7 @@ namespace Iroca.EditorTests
                 Undo.PerformRedo();
                 CheckCommon("やり直す", 1, 2);
                 CheckZones("やり直す", 1);
-            }
-            else
-            {
+            } else {
                 Check(UndoRecords().Count == 0, "Unity が再読み込みの前の編集の Undo を捨てている");
                 Undo.PerformUndo();
                 CheckCommon("空振りの Ctrl+Z", 1, 2);
@@ -249,13 +250,11 @@ namespace Iroca.EditorTests
             Path.Combine(Path.GetDirectoryName(Application.dataPath), "Library", "Iroca", "MaskHistory",
                 SessionState.GetInt(Key + "win", 0) + ".bin");
 
-        private static void InPlayMode()
-        {
+        private static void InPlayMode() {
             CheckCommon("Play を始めた後", 1, 2);
             CheckZones("Play を始めた後", 1);
 #pragma warning disable CS0162
-            if (KeepsUndoAcrossReload)
-            {
+            if (KeepsUndoAcrossReload) {
                 Undo.PerformUndo();
                 CheckCommon("Play 中に、始める前の編集を戻す", 1);
                 Undo.PerformRedo();
@@ -274,13 +273,11 @@ namespace Iroca.EditorTests
             EditorApplication.update += WaitAndRun;
         }
 
-        private static void AfterPlayMode()
-        {
+        private static void AfterPlayMode() {
             CheckCommon("Play を止めた後", 1, 2, 4);
             CheckZones("Play を止めた後", 1);
 #pragma warning disable CS0162
-            if (KeepsUndoAcrossReload)
-            {
+            if (KeepsUndoAcrossReload) {
                 Undo.PerformUndo();
                 CheckCommon("Play を止めた後に、Play 中の編集を戻す", 1, 2);
                 Undo.PerformRedo();

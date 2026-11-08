@@ -5,15 +5,13 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 影の色を塗り先に合わせる設定(<see cref="IrocaRecolor.shadowMatchMaterials"/>)の非破壊ビルドでの効き方。
     /// 複製にだけ効き、元のマテリアルは変わらない。計算そのものは unit-run の ShadowMatch_*。
     /// lilToon が無いホストでは Ignore。
     /// </summary>
-    public class ShadowColorMatchTests
-    {
+    public class ShadowColorMatchTests {
         private static readonly Color BlueShadow = new Color(0.606f, 0.693f, 0.784f, 1f);
         private static readonly Color Sample = new Color(0.676f, 0.851f, 0.998f);
         private static readonly Color Target = new Color(0.904f, 1f, 0.896f);
@@ -24,26 +22,28 @@ namespace Iroca.EditorTests
         [SetUp] public void SetUp() => _assets = TestAssets.Create();
 
         [TearDown]
-        public void TearDown()
-        {
-            foreach (var o in _created)
-                if (o != null) Object.DestroyImmediate(o);
+        public void TearDown() {
+            foreach (var o in _created) {
+                if (o != null) {
+                    Object.DestroyImmediate(o);
+                }
+            }
             _created.Clear();
             _assets.Dispose();
         }
 
         private T Track<T>(T o) where T : Object { _created.Add(o); return o; }
 
-        private Texture2D Tex(string name)
-        {
+        private Texture2D Tex(string name) {
             string path = _assets.WritePng(name, TestAssets.Solid(8, 8, new Color32(172, 217, 254, 255)), 8, 8);
             return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
-        private Material LilToon(Texture2D main)
-        {
+        private Material LilToon(Texture2D main) {
             var shader = Shader.Find("lilToon");
-            if (shader == null) Assert.Ignore("lilToon が入っていないホスト");
+            if (shader == null) {
+                Assert.Ignore("lilToon が入っていないホスト");
+            }
             var m = Track(new Material(shader));
             m.SetTexture(MaterialColorSettings.MainTextureProperty(m), main);
             m.SetFloat("_UseShadow", 1f);
@@ -51,8 +51,7 @@ namespace Iroca.EditorTests
             return m;
         }
 
-        private IrocaRecipe Recipe(Texture2D src)
-        {
+        private IrocaRecipe Recipe(Texture2D src) {
             var zone = new ColorZone { sampleColor = Sample, sampleColorSet = true, targetColor = Target, tolerance = 0.2f };
             zone.EnsureId();
             var state = new IrocaSessionState();
@@ -60,27 +59,28 @@ namespace Iroca.EditorTests
             return RecipeStore.Create(src, state, _assets.Folder);
         }
 
-        private GameObject Node(string name, Transform parent, Material mat = null)
-        {
+        private GameObject Node(string name, Transform parent, Material mat = null) {
             var go = Track(mat != null ? GameObject.CreatePrimitive(PrimitiveType.Cube) : new GameObject());
             go.name = name;
-            if (parent != null) go.transform.SetParent(parent, false);
-            if (mat != null) go.GetComponent<Renderer>().sharedMaterial = mat;
+            if (parent != null) {
+                go.transform.SetParent(parent, false);
+            }
+            if (mat != null) {
+                go.GetComponent<Renderer>().sharedMaterial = mat;
+            }
             return go;
         }
 
         private static Color Expected => ShadowColorMatch.Compute(BlueShadow, Sample, Target);
 
-        private static void AssertColor(Color expected, Color actual, string message)
-        {
+        private static void AssertColor(Color expected, Color actual, string message) {
             Assert.AreEqual(expected.r, actual.r, 1e-3f, message);
             Assert.AreEqual(expected.g, actual.g, 1e-3f, message);
             Assert.AreEqual(expected.b, actual.b, 1e-3f, message);
         }
 
         [Test]
-        public void Applier_ChangesOnlyTheClone()
-        {
+        public void Applier_ChangesOnlyTheClone() {
             var src = Tex("src");
             var mat = LilToon(src);
             var root = Node("avatar", null);
@@ -98,8 +98,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_NotChosen_KeepsTheShadowColor()
-        {
+        public void Applier_NotChosen_KeepsTheShadowColor() {
             var src = Tex("src");
             var mat = LilToon(src);
             var root = Node("avatar", null);
@@ -112,8 +111,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_SameRecipe_OnlyTheChoosingComponentMatches()
-        {
+        public void Applier_SameRecipe_OnlyTheChoosingComponentMatches() {
             // 同じレシピでも、設定はコンポーネントごと。複製を共有すると、選んでいない方の影まで変わる。
             var src = Tex("src");
             var mat = LilToon(src);
@@ -133,8 +131,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_TwoStages_DoesNotShiftTwice()
-        {
+        public void Applier_TwoStages_DoesNotShiftTwice() {
             var src = Tex("src");
             var mat = LilToon(src);
             var root = Node("avatar", null);
@@ -154,8 +151,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_RecipeOfAnotherSlotFirst_StillUsesTheOriginalColors()
-        {
+        public void Applier_RecipeOfAnotherSlotFirst_StillUsesTheOriginalColors() {
             // 別の欄のレシピが先に複製しても、影の色はメインのレシピで、元のマテリアルの色から決まる。
             var main = Tex("main");
             var layer = Tex("layer");
@@ -174,8 +170,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Applier_ChosenButTextureNotMain_KeepsTheShadowColor()
-        {
+        public void Applier_ChosenButTextureNotMain_KeepsTheShadowColor() {
             var main = Tex("main");
             var layer = Tex("layer");
             var mat = LilToon(main);
@@ -192,8 +187,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void NeedsMatch_OnlyWhenTheShadowIsVisiblyOff()
-        {
+        public void NeedsMatch_OnlyWhenTheShadowIsVisiblyOff() {
             var src = Tex("src");
             var mat = LilToon(src);
             mat.SetColor("_Shadow2ndColor", new Color(0.7f, 0.7f, 0.7f, 1f));
@@ -209,8 +203,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void AddShadowMatch_SkipsOutOfScopeAndDuplicates()
-        {
+        public void AddShadowMatch_SkipsOutOfScopeAndDuplicates() {
             var src = Tex("src");
             var inScope = LilToon(src);
             var outOfScope = LilToon(src);
@@ -225,10 +218,8 @@ namespace Iroca.EditorTests
             CollectionAssert.AreEqual(new[] { inScope }, c.shadowMatchMaterials);
         }
 
-        private sealed class Host : NonDestructiveApplier.IHost
-        {
-            public Texture2D BuildTexture(IrocaRecipe recipe, out RecipeTextureBuilder.Failure failure)
-            {
+        private sealed class Host : NonDestructiveApplier.IHost {
+            public Texture2D BuildTexture(IrocaRecipe recipe, out RecipeTextureBuilder.Failure failure) {
                 failure = RecipeTextureBuilder.Failure.None;
                 return new Texture2D(2, 2) { name = "recolored:" + recipe.name };
             }

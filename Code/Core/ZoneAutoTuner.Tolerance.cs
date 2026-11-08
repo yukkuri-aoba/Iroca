@@ -6,43 +6,47 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     // ZoneAutoTuner: tolerance 導出(無彩/有彩/マルチサンプル)と自動トーン抽出。
-    internal static unsafe partial class ZoneAutoTuner
-    {
+    internal static unsafe partial class ZoneAutoTuner {
         // ─────────────────── クラスタ距離の共通定数 / マスク判定 ───────────────────
 
         private const int DistBins = 600;          // 距離 [0,1.5] を 600 分割（分解能 0.0025）
         private const float DistMax = 1.5f;
 
         // 距離ヒストグラム(DistBins 分割)の累積が total*pct に届いた bin の上端の距離。届かなければ DistMax。
-        private static float DistUpperEdgeAtPercentile(int[] bins, int total, float pct)
-        {
+        private static float DistUpperEdgeAtPercentile(int[] bins, int total, float pct) {
             int target = Mathf.CeilToInt(total * pct);
             int cum = 0;
-            for (int i = 0; i < DistBins; i++)
-            {
+            for (int i = 0; i < DistBins; i++) {
                 cum += bins[i];
-                if (cum >= target) return (i + 1) / (float)DistBins * DistMax;
+                if (cum >= target) {
+                    return (i + 1) / (float)DistBins * DistMax;
+                }
             }
             return DistMax;
         }
 
-        private static bool HasUsableMask(bool* excluded, int maskW, int maskH)
-        {
-            if (excluded == null || maskW <= 0 || maskH <= 0) return false;
+        private static bool HasUsableMask(bool* excluded, int maskW, int maskH) {
+            if (excluded == null || maskW <= 0 || maskH <= 0) {
+                return false;
+            }
             // 何も除外していない / 全部除外 のマスクは「パーツ分離」として使えない。
             int total = maskW * maskH;
             int ex = 0;
-            for (int i = 0; i < total; i++) if (excluded[i]) ex++;
+            for (int i = 0; i < total; i++) {
+                if (excluded[i]) {
+                    ex++;
+                }
+            }
             return ex > 0 && ex < total;
         }
 
         // ピクセル (x,y) がマスクで除外されているか。excluded==null なら常に false(マスク無し)。
-        private static bool IsMaskExcluded(bool* excluded, int maskW, int maskH, int x, int y, int w, int h)
-        {
-            if (excluded == null) return false;
+        private static bool IsMaskExcluded(bool* excluded, int maskW, int maskH, int x, int y, int w, int h) {
+            if (excluded == null) {
+                return false;
+            }
             int mx = Mathf.Clamp(x * maskW / w, 0, maskW - 1);
             int my = Mathf.Clamp(y * maskH / h, 0, maskH - 1);
             return excluded[my * maskW + mx];
@@ -51,19 +55,23 @@ namespace Iroca
         // 格子の行(gy)を並列に回し、行ごとの数え上げ(長さ n の int)をスレッドごとに持って最後に足し合わせる。
         // 数は整数の和なので、足す順に依らず逐次と同じ値になる(浮動小数の和を取るループには使わない)。
         // 格子の行は gy·stride の画素の行(逐次のループの `y += stride` と同じ)。
-        private static int[] ParallelGridCounts(HsvGrid hsv, int n, Action<int, int[]> rowBody)
-        {
+        private static int[] ParallelGridCounts(HsvGrid hsv, int n, Action<int, int[]> rowBody) {
             var total = new int[n];
             var gate = new object();
             var po = new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(), CancellationToken = hsv.ct };
             Parallel.For(0, hsv.gh, po, () => new int[n],
                 (gy, _, local) => { rowBody(gy, local); return local; },
-                local => { lock (gate) { for (int i = 0; i < n; i++) total[i] += local[i]; } });
+                local => {
+                    lock (gate) {
+                        for (int i = 0; i < n; i++) {
+                            total[i] += local[i];
+                        }
+                    }
+                });
             return total;
         }
 
-        private static int[] Slice(int[] a, int start, int n)
-        {
+        private static int[] Slice(int[] a, int start, int n) {
             var r = new int[n];
             Array.Copy(a, start, r, 0, n);
             return r;
@@ -71,16 +79,20 @@ namespace Iroca
 
         // マスクの除外を、格子の列ごとのマスクの列番号と、行ごとのマスクの行の先頭で引く表(IsMaskExcluded と同じ式を
         // 前もって計算したもの。画素ごとの割り算 2 回を省く)。excluded が null なら null。
-        private sealed class GridMaskLookup
-        {
+        private sealed class GridMaskLookup {
             internal int[] Col;   // 格子の列 gx → マスクの列
             internal int[] Row;   // 格子の行 gy → マスクの行 × maskW
-            internal static GridMaskLookup Build(bool* excluded, int maskW, int maskH, int w, int h, int stride, int gw, int gh)
-            {
-                if (excluded == null) return null;
+            internal static GridMaskLookup Build(bool* excluded, int maskW, int maskH, int w, int h, int stride, int gw, int gh) {
+                if (excluded == null) {
+                    return null;
+                }
                 var m = new GridMaskLookup { Col = new int[gw], Row = new int[gh] };
-                for (int gx = 0; gx < gw; gx++) m.Col[gx] = Mathf.Clamp(gx * stride * maskW / w, 0, maskW - 1);
-                for (int gy = 0; gy < gh; gy++) m.Row[gy] = Mathf.Clamp(gy * stride * maskH / h, 0, maskH - 1) * maskW;
+                for (int gx = 0; gx < gw; gx++) {
+                    m.Col[gx] = Mathf.Clamp(gx * stride * maskW / w, 0, maskW - 1);
+                }
+                for (int gy = 0; gy < gh; gy++) {
+                    m.Row[gy] = Mathf.Clamp(gy * stride * maskH / h, 0, maskH - 1) * maskW;
+                }
                 return m;
             }
         }
@@ -101,8 +113,7 @@ namespace Iroca
         private const float AchromaTolMax = 0.40f;
 
         private static bool TryDeriveAchromaticTolerance(Color32* pixels, int w, int h, ColorZone zone,
-            bool* excluded, int maskW, int maskH, HsvGrid hsv, out float tolerance)
-        {
+            bool* excluded, int maskW, int maskH, HsvGrid hsv, out float tolerance) {
             tolerance = 0f;
             Color.RGBToHSV(zone.sampleColor, out _, out _, out float sV);
             float sr = zone.sampleColor.r, sg = zone.sampleColor.g, sb = zone.sampleColor.b;
@@ -112,20 +123,26 @@ namespace Iroca
             int gw = hsv.gw;
             var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, gw, hsv.gh);
             // [0, DistBins) = 距離のヒストグラム、[DistBins] = 個数
-            var acc = ParallelGridCounts(hsv, DistBins + 1, (gy, local) =>
-            {
+            var acc = ParallelGridCounts(hsv, DistBins + 1, (gy, local) => {
                 int y = gy * stride;
                 int rowStart = y * w;
                 int grow = gy * gw;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                {
+                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
-                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) continue; // マスク除外領域は対象外
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                        continue;
+                    }
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
+                        continue; // マスク除外領域は対象外
+                    }
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                     float pS = gS[grow + gx], pV = gV[grow + gx];
-                    if (pS > AchromaClusterSatMax) continue;        // 有彩は別素材として距離分布に入れない
-                    if (Mathf.Abs(pV - sV) > AchromaVWindow) continue; // 明度が遠い(黒/白の別パート)は除外
+                    if (pS > AchromaClusterSatMax) {
+                        continue;        // 有彩は別素材として距離分布に入れない
+                    }
+                    if (Mathf.Abs(pV - sV) > AchromaVWindow) {
+                        continue; // 明度が遠い(黒/白の別パート)は除外
+                    }
                     float dr = r - sr, dg = g - sg, db = b - sb;
                     float d = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3; // グレーモードの距離式と一致
                     int bi = Mathf.Clamp((int)(d / DistMax * DistBins), 0, DistBins - 1);
@@ -135,7 +152,9 @@ namespace Iroca
             });
             int count = acc[DistBins];
             var bins = Slice(acc, 0, DistBins);
-            if (count < MinNearSampleCount) return false;
+            if (count < MinNearSampleCount) {
+                return false;
+            }
 
             float pctDist = DistUpperEdgeAtPercentile(bins, count, AchromaPercentile);
             tolerance = Mathf.Clamp(pctDist + AchromaMargin, AchromaTolMin, AchromaTolMax);
@@ -181,46 +200,58 @@ namespace Iroca
         // 打ち切る。通常の床(ChromaTolMin=0.08)より低い ForeignLowFloor まで下げてよい(隣接別パーツの
         // 存在という積極的根拠があるため)。foreign が無いテクスチャでは一切発火せず現行挙動と同一。
         // 特定の色相・キャラ・ピクセルに依存せず、テクスチャ統計(core hue spread / foreign 比)のみから決まる。
-        private const int   ForeignHueBins     = 200;    // [0,NearHueDist] の hue ヒストグラム分解能
-        private const float CoreHueWindow      = 0.03f;  // core 抽出: サンプルからの hue 窓
-        private const float CoreSatWindow      = 0.15f;  // core 抽出: 彩度窓
-        private const float CoreValWindow      = 0.20f;  // core 抽出: 明度窓
-        private const float ForeignGateK       = 2.5f;   // 許容 hue ゲート = K*coreSpread + floor
-        private const float ForeignGateFloor   = 0.015f;
-        private const float ForeignGateMin     = 0.03f;  // ゲート下限(締まった core でもこの幅は同パーツ扱い)
+        private const int ForeignHueBins = 200;    // [0,NearHueDist] の hue ヒストグラム分解能
+        private const float CoreHueWindow = 0.03f;  // core 抽出: サンプルからの hue 窓
+        private const float CoreSatWindow = 0.15f;  // core 抽出: 彩度窓
+        private const float CoreValWindow = 0.20f;  // core 抽出: 明度窓
+        private const float ForeignGateK = 2.5f;   // 許容 hue ゲート = K*coreSpread + floor
+        private const float ForeignGateFloor = 0.015f;
+        private const float ForeignGateMin = 0.03f;  // ゲート下限(締まった core でもこの幅は同パーツ扱い)
         private const float ForeignRatioThresh = 0.25f;  // foreign/core 比がこれ超で隣接別パーツと判定
-        private const int   ForeignMinCount    = 30;     // foreign 画素数の下限(ノイズ無視)
-        private const float ForeignLowFloor    = 0.04f;  // 打ち切り時に許す tolerance 下限(通常床 0.08 より低い)
-        private const float ForeignCapEps      = 0.005f; // foreign 最小距離(P10)からのマージン
-        private const float CoreSpreadDefault  = 0.02f;  // core が少なく P90 を取れないときの hue 広がり
+        private const int ForeignMinCount = 30;     // foreign 画素数の下限(ノイズ無視)
+        private const float ForeignLowFloor = 0.04f;  // 打ち切り時に許す tolerance 下限(通常床 0.08 より低い)
+        private const float ForeignCapEps = 0.005f; // foreign 最小距離(P10)からのマージン
+        private const float CoreSpreadDefault = 0.02f;  // core が少なく P90 を取れないときの hue 広がり
 
         // 自パーツ core の hue 広がり(P90)から foreign 判定の hue ゲートを導出する。
         // core = サンプルにごく近い(hue/彩度/明度の窓内)有彩画素。その hue 広がりの数倍までを
         // 「同パーツの色相」とみなし、それを超える画素を foreign(別パーツ)候補にする。
         private static float CoreHueGate(Color32* pixels, int w, int h, bool* excluded, int maskW, int maskH,
-            HsvGrid hsv, float sH, float sS, float sV)
-        {
+            HsvGrid hsv, float sH, float sS, float sV) {
             int stride = hsv.stride;
             float* gH = hsv.h, gS = hsv.s, gV = hsv.v;
             int gw = hsv.gw;
             var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, gw, hsv.gh);
             // [0, ForeignHueBins) = core の色相のヒストグラム、[ForeignHueBins] = 個数
-            var acc = ParallelGridCounts(hsv, ForeignHueBins + 1, (gy, local) =>
-            {
+            var acc = ParallelGridCounts(hsv, ForeignHueBins + 1, (gy, local) => {
                 int y = gy * stride;
                 int rowStart = y * w;
                 int grow = gy * gw;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                {
+                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
-                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                        continue;
+                    }
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
+                        continue;
+                    }
                     float pH = gH[grow + gx], pS = gS[grow + gx], pV = gV[grow + gx];
-                    if (pS < sS * ChromaClusterSatFrac) continue;
-                    float hdc = Mathf.Abs(pH - sH); if (hdc > 0.5f) hdc = 1f - hdc;
-                    if (hdc >= CoreHueWindow) continue;
-                    if (Mathf.Abs(pS - sS) >= CoreSatWindow) continue;
-                    if (Mathf.Abs(pV - sV) >= CoreValWindow) continue;
+                    if (pS < sS * ChromaClusterSatFrac) {
+                        continue;
+                    }
+                    float hdc = Mathf.Abs(pH - sH);
+                    if (hdc > 0.5f) {
+                        hdc = 1f - hdc;
+                    }
+                    if (hdc >= CoreHueWindow) {
+                        continue;
+                    }
+                    if (Mathf.Abs(pS - sS) >= CoreSatWindow) {
+                        continue;
+                    }
+                    if (Mathf.Abs(pV - sV) >= CoreValWindow) {
+                        continue;
+                    }
                     int cb = Mathf.Clamp((int)(hdc / NearHueDist * ForeignHueBins), 0, ForeignHueBins - 1);
                     local[cb]++;
                     local[ForeignHueBins]++;
@@ -231,14 +262,11 @@ namespace Iroca
 
         // core の hue ヒストグラム([0,NearHueDist] を ForeignHueBins 分割)の P90 を core の広がりとし、
         // 許容 hue ゲート K*coreSpread+floor を返す(自動トーン抽出の hue 純度ゲートも同じ式を使う)。
-        private static float HueGateFromCoreHist(int[] coreHueBins, int coreHueCount)
-        {
+        private static float HueGateFromCoreHist(int[] coreHueBins, int coreHueCount) {
             float coreSpread = CoreSpreadDefault;
-            if (coreHueCount >= MinNearSampleCount)
-            {
+            if (coreHueCount >= MinNearSampleCount) {
                 int ctgt = Mathf.CeilToInt(coreHueCount * 0.90f), ccum = 0;
-                for (int i = 0; i < ForeignHueBins; i++)
-                {
+                for (int i = 0; i < ForeignHueBins; i++) {
                     ccum += coreHueBins[i];
                     if (ccum >= ctgt) { coreSpread = (i + 1) / (float)ForeignHueBins * NearHueDist; break; }
                 }
@@ -250,11 +278,12 @@ namespace Iroca
         // 単一経路とマルチ経路で共通の後処理: near クラスタ距離の P95 + margin を tolerance とし、
         // foreign 打ち切りの条件を満たせば foreign 距離の P10 の直下まで下げる。
         private static bool FinishChromaticTolerance(int[] bins, int count, int[] fgnBins, int fgnCount, int coreCount,
-            out float tolerance, out bool foreignCapped)
-        {
+            out float tolerance, out bool foreignCapped) {
             tolerance = 0f;
             foreignCapped = false;
-            if (count < MinNearSampleCount) return false;
+            if (count < MinNearSampleCount) {
+                return false;
+            }
 
             float pctDist = DistUpperEdgeAtPercentile(bins, count, ChromaPercentile);
             tolerance = Mathf.Clamp(pctDist + ChromaMargin, ChromaTolMin, ChromaTolMax);
@@ -263,8 +292,7 @@ namespace Iroca
             // foreign 画素が core に対して十分多い(=隣に別パーツがある)ときのみ発火。foreign の最小側
             // 距離(P10)の直下まで下げ、別パーツの巻き込みを防ぐ。暗部の取りこぼしは本番のシャドウ免除が拾う。
             if (coreCount > 0 && fgnCount >= ForeignMinCount
-                && fgnCount > coreCount * ForeignRatioThresh)
-            {
+                && fgnCount > coreCount * ForeignRatioThresh) {
                 float fgnP10 = DistUpperEdgeAtPercentile(fgnBins, fgnCount, 0.10f);
                 float capped = Mathf.Clamp(Mathf.Min(tolerance, fgnP10 - ForeignCapEps),
                                            ForeignLowFloor, ChromaTolMax);
@@ -275,8 +303,7 @@ namespace Iroca
         }
 
         private static bool TryDeriveChromaticTolerance(Color32* pixels, int w, int h, ColorZone zone,
-            bool* excluded, int maskW, int maskH, HsvGrid hsv, out float tolerance, out bool foreignCapped)
-        {
+            bool* excluded, int maskW, int maskH, HsvGrid hsv, out float tolerance, out bool foreignCapped) {
             tolerance = 0f;
             foreignCapped = false;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
@@ -295,25 +322,37 @@ namespace Iroca
             // [0,DistBins) = 距離の分布、[DistBins, 2·DistBins) = foreign 画素(別 hue)の距離分布、
             // その後ろに 個数・foreign の個数・同パーツ core の個数(foreign 比の分母)
             int oCount = 2 * DistBins, oFgn = oCount + 1, oCore = oCount + 2;
-            var acc = ParallelGridCounts(hsv, oCount + 3, (gy, local) =>
-            {
+            var acc = ParallelGridCounts(hsv, oCount + 3, (gy, local) => {
                 int y = gy * stride;
                 int rowStart = y * w;
                 int grow = gy * gw;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                {
+                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
-                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) continue; // マスク除外領域は対象外
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                        continue;
+                    }
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
+                        continue; // マスク除外領域は対象外
+                    }
                     float pH = gH[grow + gx], pS = gS[grow + gx], pV = gV[grow + gx];
                     float hd = Mathf.Abs(pH - sH);
-                    if (hd > 0.5f) hd = 1f - hd;
+                    if (hd > 0.5f) {
+                        hd = 1f - hd;
+                    }
                     // near-sample クラスタ(サンプルに似た画素=同パーツ相当)に限定
-                    if (hd >= NearHueDist) continue;
-                    if (Mathf.Abs(pS - sS) >= NearSatDist) continue;
-                    if (Mathf.Abs(pV - sV) >= NearValDist) continue;
+                    if (hd >= NearHueDist) {
+                        continue;
+                    }
+                    if (Mathf.Abs(pS - sS) >= NearSatDist) {
+                        continue;
+                    }
+                    if (Mathf.Abs(pV - sV) >= NearValDist) {
+                        continue;
+                    }
                     // 無彩寄り画素(背景/陰影のグレー, hue=0 で暖色サンプルに誤マッチ)を除外
-                    if (pS < sS * ChromaClusterSatFrac) continue;
+                    if (pS < sS * ChromaClusterSatFrac) {
+                        continue;
+                    }
                     float sd = Mathf.Abs(pS - sS);
                     float vd = Mathf.Abs(pV - sV);
                     float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
@@ -322,8 +361,9 @@ namespace Iroca
                     local[bi]++;
                     local[oCount]++;
                     // core / foreign の振り分け(hue ゲートで分割)
-                    if (hd < effHueGate) local[oCore]++;
-                    else { local[DistBins + bi]++; local[oFgn]++; }
+                    if (hd < effHueGate) {
+                        local[oCore]++;
+                    } else { local[DistBins + bi]++; local[oFgn]++; }
                 }
             });
             return FinishChromaticTolerance(Slice(acc, 0, DistBins), acc[oCount], Slice(acc, DistBins, DistBins),
@@ -336,19 +376,19 @@ namespace Iroca
         // （ColorZone 側で全サンプルの max 強度）と整合する。内部サンプルが無いとき（autoSamples 空）は
         // 呼ばれず、既存の単一経路がそのまま走るので後方互換は保たれる。
 
-        private struct SampleHSV
-        {
+        private struct SampleHSV {
             public float r, g, b;
             public float h, s, v;
             public float effHueGate; // foreign 判定の hue ゲート（このサンプルの core hue 広がりから導出）
         }
 
-        private static SampleHSV[] BuildSampleHSVs(Color primary, List<Color> extras)
-        {
+        private static SampleHSV[] BuildSampleHSVs(Color primary, List<Color> extras) {
             int extraN = extras?.Count ?? 0;
             var arr = new SampleHSV[1 + extraN];
             arr[0] = MakeSampleHSV(primary);
-            for (int i = 0; i < extraN; i++) arr[i + 1] = MakeSampleHSV(extras[i]);
+            for (int i = 0; i < extraN; i++) {
+                arr[i + 1] = MakeSampleHSV(extras[i]);
+            }
             return arr;
         }
 
@@ -368,16 +408,16 @@ namespace Iroca
         // 暗部代表がその別パーツの色になって巻き込む。パーツの彩度バンド内に絞れば、percentile 前に
         // 別マテリアルを除外でき、暗部代表がパーツ本来の暗い影になる。色だけでパーツ分離できない領域での
         // 過検出を防ぐ安全弁(汎化のため特定色・座標に依存せず、テクスチャ統計のみから決める)。
-        private const float AutoToneHueBand   = 0.06f;  // 同パーツとみなす hue 近傍
-        private const float AutoToneSatFrac   = ColorZone.HueReliableSatFrac;  // satFloor の下限 = sS*frac
+        private const float AutoToneHueBand = 0.06f;  // 同パーツとみなす hue 近傍
+        private const float AutoToneSatFrac = ColorZone.HueReliableSatFrac;  // satFloor の下限 = sS*frac
         private const float AutoTonePartSatRelax = 0.85f; // satFloor = max(sS*frac, nearClusterSatP10*relax)
-        private const float AutoToneDarkPct   = 0.12f;  // 暗部代表のパーセンタイル
-        private const float AutoToneMidPct    = 0.50f;  // 中間代表のパーセンタイル
-        private const float AutoToneLightPct  = 0.85f;  // 明部代表のパーセンタイル
-        private const float AutoToneMinSep    = 0.10f;  // サンプル/既存代表とこの距離未満は重複として除外
-        private const int   AutoToneMinPixels = 200;    // 同色相画素がこれ未満なら抽出しない
-        private const int   AutoToneValueBins = 64;
-        private const int   AutoToneSatBins   = 64;
+        private const float AutoToneDarkPct = 0.12f;  // 暗部代表のパーセンタイル
+        private const float AutoToneMidPct = 0.50f;  // 中間代表のパーセンタイル
+        private const float AutoToneLightPct = 0.85f;  // 明部代表のパーセンタイル
+        private const float AutoToneMinSep = 0.10f;  // サンプル/既存代表とこの距離未満は重複として除外
+        private const int AutoToneMinPixels = 200;    // 同色相画素がこれ未満なら抽出しない
+        private const int AutoToneValueBins = 64;
+        private const int AutoToneSatBins = 64;
         private const float AutoToneGapFloorFrac = 0.0005f; // V ヒストグラムの「空の谷」判定床(総数比)
 
         // vConnHiBin: V 連結領域ゲートで確定した「サンプルのトーン連結域」の V bin 範囲の上端
@@ -385,12 +425,13 @@ namespace Iroca
         // ツヤとみなす上限に使う。ヒストグラムが作れず範囲を確定できなかったときは -1(無効)。
         private static List<Color> DeriveAutoTonalSamples(Color32* pixels, int w, int h,
             ColorZone zone, bool* excluded, int maskW, int maskH,
-            HsvGrid hsv, out int vConnHiBin)
-        {
+            HsvGrid hsv, out int vConnHiBin) {
             vConnHiBin = -1;
             var samples = new List<Color>();
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
-            if (sS < AchromaSampleSatMax) return samples; // 無彩は対象外
+            if (sS < AchromaSampleSatMax) {
+                return samples; // 無彩は対象外
+            }
 
             int stride = hsv.stride;
 
@@ -404,28 +445,38 @@ namespace Iroca
             var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, gw, hsv.gh);
             // [0, AutoToneSatBins) = 彩度、[oCoreH, oCoreH + ForeignHueBins) = core の色相、その後ろに near と core の個数
             int oNear = AutoToneSatBins, oCoreH = oNear + 1, oCoreN = oCoreH + ForeignHueBins;
-            var acc = ParallelGridCounts(hsv, oCoreN + 1, (gy, local) =>
-            {
+            var acc = ParallelGridCounts(hsv, oCoreN + 1, (gy, local) => {
                 int y = gy * stride;
                 int rowStart = y * w;
                 int grow = gy * gw;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                {
+                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
-                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                        continue;
+                    }
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
+                        continue;
+                    }
                     float pH = gH[grow + gx], pS = gS[grow + gx], pV = gV[grow + gx];
-                    float hd0 = Mathf.Abs(pH - sH); if (hd0 > 0.5f) hd0 = 1f - hd0;
-                    if (hd0 >= NearHueDist) continue;
-                    if (Mathf.Abs(pS - sS) >= NearSatDist) continue;
-                    if (Mathf.Abs(pV - sV) >= NearValDist) continue;
+                    float hd0 = Mathf.Abs(pH - sH);
+                    if (hd0 > 0.5f) {
+                        hd0 = 1f - hd0;
+                    }
+                    if (hd0 >= NearHueDist) {
+                        continue;
+                    }
+                    if (Mathf.Abs(pS - sS) >= NearSatDist) {
+                        continue;
+                    }
+                    if (Mathf.Abs(pV - sV) >= NearValDist) {
+                        continue;
+                    }
                     int sb = Mathf.Clamp((int)(pS * AutoToneSatBins), 0, AutoToneSatBins - 1);
                     local[sb]++; local[oNear]++;
                     if (pS >= sS * ChromaClusterSatFrac
                         && hd0 < CoreHueWindow
                         && Mathf.Abs(pS - sS) < CoreSatWindow
-                        && Mathf.Abs(pV - sV) < CoreValWindow)
-                    {
+                        && Mathf.Abs(pV - sV) < CoreValWindow) {
                         int cb = Mathf.Clamp((int)(hd0 / NearHueDist * ForeignHueBins), 0, ForeignHueBins - 1);
                         local[oCoreH + cb]++;
                         local[oCoreN]++;
@@ -437,11 +488,9 @@ namespace Iroca
             var coreHueBins = Slice(acc, oCoreH, ForeignHueBins);
             int coreHueCount = acc[oCoreN];
             float nearSatP10 = 0f;
-            if (nearCount >= MinNearSampleCount)
-            {
+            if (nearCount >= MinNearSampleCount) {
                 int tgt = Mathf.CeilToInt(nearCount * 0.10f), cum0 = 0;
-                for (int i = 0; i < AutoToneSatBins; i++)
-                {
+                for (int i = 0; i < AutoToneSatBins; i++) {
                     cum0 += satBins[i];
                     if (cum0 >= tgt) { nearSatP10 = i / (float)AutoToneSatBins; break; }
                 }
@@ -463,45 +512,64 @@ namespace Iroca
             var sumG = new double[VB];
             var sumB = new double[VB];
             int total = 0;
-            for (int y = 0, gy = 0; y < h; y += stride, gy++)
-            {
+            for (int y = 0, gy = 0; y < h; y += stride, gy++) {
                 int rowStart = y * w;
                 int grow = gy * hsv.gw;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                {
+                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
-                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                        continue;
+                    }
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
+                        continue;
+                    }
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
-                    if (pS < satFloor) continue;                   // パーツの彩度バンド外(別マテリアル/脱彩)を除外
-                    float hd = Mathf.Abs(pH - sH); if (hd > 0.5f) hd = 1f - hd;
-                    if (hd >= AutoToneHueBand) continue;              // 別色相パーツを除外
+                    if (pS < satFloor) {
+                        continue;                   // パーツの彩度バンド外(別マテリアル/脱彩)を除外
+                    }
+                    float hd = Mathf.Abs(pH - sH);
+                    if (hd > 0.5f) {
+                        hd = 1f - hd;
+                    }
+                    if (hd >= AutoToneHueBand) {
+                        continue;              // 別色相パーツを除外
+                    }
                     int vb = Mathf.Clamp((int)(pV * VB), 0, VB - 1);
                     cnt[vb]++; sumR[vb] += r; sumG[vb] += g; sumB[vb] += b; total++;
                 }
             }
-            if (total < AutoToneMinPixels) return samples;
+            if (total < AutoToneMinPixels) {
+                return samples;
+            }
 
             // ── V 連結領域ゲート: 代表色はサンプル自身のトーン連結域からのみ選ぶ ──
             // 連結域の求め方は TryConnectedValueRange（スポイト位置の正規化と共用）が正。
             // 同色相・彩度バンド内でもベース明度が段違いの別パーツから明部/暗部代表を取ると、
             // 和集合マッチがそのパーツ全体を巻き込む(実測例: 選択面積が正解の 5 倍まで膨張)。
-            if (!TryConnectedValueRange(cnt, total, sV, out int loBin, out int hiBin)) return samples;
-            if (loBin > 0 || hiBin < VB - 1)
-            {
+            if (!TryConnectedValueRange(cnt, total, sV, out int loBin, out int hiBin)) {
+                return samples;
+            }
+            if (loBin > 0 || hiBin < VB - 1) {
                 int regionTotal = 0;
-                for (int i = loBin; i <= hiBin; i++) regionTotal += cnt[i];
-                if (regionTotal < AutoToneMinPixels) return samples;
-                for (int i = 0; i < loBin; i++) cnt[i] = 0;
-                for (int i = hiBin + 1; i < VB; i++) cnt[i] = 0;
+                for (int i = loBin; i <= hiBin; i++) {
+                    regionTotal += cnt[i];
+                }
+                if (regionTotal < AutoToneMinPixels) {
+                    return samples;
+                }
+                for (int i = 0; i < loBin; i++) {
+                    cnt[i] = 0;
+                }
+                for (int i = hiBin + 1; i < VB; i++) {
+                    cnt[i] = 0;
+                }
                 total = regionTotal;
             }
             vConnHiBin = hiBin;
 
             // 指定パーセンタイルの V バンドの平均色を代表色として取る。
-            Color RepAtPct(float pct)
-            {
+            Color RepAtPct(float pct) {
                 int targetCount = Mathf.Clamp(Mathf.RoundToInt(pct * total), 1, total);
                 int cum = 0, bin = VB - 1;
                 for (int i = 0; i < VB; i++) { cum += cnt[i]; if (cum >= targetCount) { bin = i; break; } }
@@ -509,19 +577,29 @@ namespace Iroca
                 double inv = 1.0 / cnt[bin];
                 return new Color((float)(sumR[bin] * inv), (float)(sumG[bin] * inv), (float)(sumB[bin] * inv), 1f);
             }
-            void TryAdd(float pct)
-            {
+            void TryAdd(float pct) {
                 Color rep = RepAtPct(pct);
-                if (ColorDist(rep, zone.sampleColor) < AutoToneMinSep) return; // クリック色と重複
-                foreach (var s in samples) if (ColorDist(rep, s) < AutoToneMinSep) return; // 既存代表と重複
+                if (ColorDist(rep, zone.sampleColor) < AutoToneMinSep) {
+                    return; // クリック色と重複
+                }
+                foreach (var s in samples) {
+                    if (ColorDist(rep, s) < AutoToneMinSep) {
+                        return; // 既存代表と重複
+                    }
+                }
                 // hue 純度ゲート: 代表色(bin 平均)の hue がサンプルの core hue 広がり由来のゲートを
                 // 超えて外れる場合、その bin は hue 帯(AutoToneHueBand)内に同居する近色相の
                 // 「別パーツ」に支配されている(例: 同 V 帯を占める hue差0.05 の隣接パーツが
                 // V 連結ゲートの再正規化後に暗部/明部パーセンタイルを乗っ取る)。同一パーツの
                 // 暗部/明部代表は hue≈サンプルなので影響しない。棄却=安全側(単一サンプル挙動へ)。
                 Color.RGBToHSV(rep, out float repH, out _, out _);
-                float repHd = Mathf.Abs(repH - sH); if (repHd > 0.5f) repHd = 1f - repHd;
-                if (repHd >= repHueGate) return;
+                float repHd = Mathf.Abs(repH - sH);
+                if (repHd > 0.5f) {
+                    repHd = 1f - repHd;
+                }
+                if (repHd >= repHueGate) {
+                    return;
+                }
                 samples.Add(rep);
             }
             TryAdd(AutoToneDarkPct);
@@ -530,14 +608,12 @@ namespace Iroca
             return samples;
         }
 
-        private static float ColorDist(Color a, Color b)
-        {
+        private static float ColorDist(Color a, Color b) {
             float dr = a.r - b.r, dg = a.g - b.g, db = a.b - b.b;
             return Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
         }
 
-        private static SampleHSV MakeSampleHSV(Color c)
-        {
+        private static SampleHSV MakeSampleHSV(Color c) {
             SampleHSV s;
             s.r = c.r; s.g = c.g; s.b = c.b;
             Color.RGBToHSV(c, out s.h, out s.s, out s.v);
@@ -551,8 +627,7 @@ namespace Iroca
         // core に対し多いとき、その最小距離手前で tolerance を止める（単一経路と同じ思想を和集合化）。
         private static bool TryDeriveChromaticToleranceMulti(Color32* pixels, int w, int h,
             ColorZone zone, SampleHSV[] samples, bool* excluded, int maskW, int maskH,
-            HsvGrid hsv, out float tolerance, out bool foreignCapped)
-        {
+            HsvGrid hsv, out float tolerance, out bool foreignCapped) {
             tolerance = 0f;
             foreignCapped = false;
             float satDistW = zone.satDistWeight;
@@ -560,8 +635,7 @@ namespace Iroca
             int stride = hsv.stride;
 
             // ── 事前パス: 各サンプルの core hue 広がり(P90)→ effHueGate を導出 ──
-            for (int si = 0; si < samples.Length; si++)
-            {
+            for (int si = 0; si < samples.Length; si++) {
                 var sm = samples[si];
                 if (sm.s < AchromaSampleSatMax) { samples[si].effHueGate = ForeignGateMin; continue; }
                 samples[si].effHueGate = CoreHueGate(pixels, w, h, excluded, maskW, maskH, hsv, sm.h, sm.s, sm.v);
@@ -573,42 +647,61 @@ namespace Iroca
             var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, gw, hsv.gh);
             // 並びは単一経路(TryDeriveChromaticTolerance)と同じ
             int oCount = 2 * DistBins, oFgn = oCount + 1, oCore = oCount + 2;
-            var acc = ParallelGridCounts(hsv, oCount + 3, (gy, local) =>
-            {
+            var acc = ParallelGridCounts(hsv, oCount + 3, (gy, local) => {
                 int y = gy * stride;
                 int rowStart = y * w;
                 int grow = gy * gw;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                {
+                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
-                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                        continue;
+                    }
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
+                        continue;
+                    }
                     float pH = gH[grow + gx], pS = gS[grow + gx], pV = gV[grow + gx];
 
                     float minDist = float.MaxValue;
                     bool inAnyNear = false, isCore = false;
-                    for (int si = 0; si < samples.Length; si++)
-                    {
+                    for (int si = 0; si < samples.Length; si++) {
                         var sm = samples[si];
-                        float hd = Mathf.Abs(pH - sm.h); if (hd > 0.5f) hd = 1f - hd;
-                        if (hd >= NearHueDist) continue;
-                        if (Mathf.Abs(pS - sm.s) >= NearSatDist) continue;
-                        if (Mathf.Abs(pV - sm.v) >= NearValDist) continue;
-                        if (pS < sm.s * ChromaClusterSatFrac) continue; // 無彩寄り画素を除外
+                        float hd = Mathf.Abs(pH - sm.h);
+                        if (hd > 0.5f) {
+                            hd = 1f - hd;
+                        }
+                        if (hd >= NearHueDist) {
+                            continue;
+                        }
+                        if (Mathf.Abs(pS - sm.s) >= NearSatDist) {
+                            continue;
+                        }
+                        if (Mathf.Abs(pV - sm.v) >= NearValDist) {
+                            continue;
+                        }
+                        if (pS < sm.s * ChromaClusterSatFrac) {
+                            continue; // 無彩寄り画素を除外
+                        }
                         inAnyNear = true;
                         float sd = Mathf.Abs(pS - sm.s);
                         float vd = Mathf.Abs(pV - sm.v);
                         float sRatio = (sm.s > 0.01f) ? Mathf.Clamp01(pS / sm.s) : 1f;
                         float d = hd + sd * satDistW + vd * valueW * (1f - sRatio);
-                        if (d < minDist) minDist = d;
-                        if (hd < sm.effHueGate) isCore = true; // どれかのサンプル core hue 内なら core
+                        if (d < minDist) {
+                            minDist = d;
+                        }
+                        if (hd < sm.effHueGate) {
+                            isCore = true; // どれかのサンプル core hue 内なら core
+                        }
                     }
-                    if (!inAnyNear) continue;
+                    if (!inAnyNear) {
+                        continue;
+                    }
                     int bi = Mathf.Clamp((int)(minDist / DistMax * DistBins), 0, DistBins - 1);
                     local[bi]++;
                     local[oCount]++;
-                    if (isCore) local[oCore]++;
-                    else { local[DistBins + bi]++; local[oFgn]++; }
+                    if (isCore) {
+                        local[oCore]++;
+                    } else { local[DistBins + bi]++; local[oFgn]++; }
                 }
             });
             // P95 + margin と foreign 打ち切りは単一経路と共通

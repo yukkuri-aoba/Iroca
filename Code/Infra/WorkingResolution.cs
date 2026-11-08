@@ -6,8 +6,7 @@ using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 編集の作業解像度。プレビュー・スポイト・AI 提案・自動調整・非破壊ビルド(NDMF)は、元ファイルの解像度の
     /// 画素で処理する。PNG の書き出し(単体・一括)と同じ解像度で処理するので、どの経路でも色替えの中身は同じになる
@@ -22,16 +21,14 @@ namespace Iroca
     /// マスクの土台は元ファイルの寸法。処理側はマスクと画素の寸法が違っても対応する画素を引く
     /// (PixelProcessor.BuildMaskIndexMap)。縮小は面積平均。
     /// </summary>
-    internal static class WorkingResolution
-    {
+    internal static class WorkingResolution {
         /// <summary>元ファイルのまま処理する辺の上限(画素)。これを超える元ファイルは取り込み後の寸法で処理する。</summary>
         public const int MaxSourceSide = 8192;
 
         /// <summary>
         /// 元ファイル(fileW×fileH)を編集する寸法。取り込み済みテクスチャが無ければ元ファイルのまま。
         /// </summary>
-        public static void Size(int fileW, int fileH, Texture2D imported, out int w, out int h)
-        {
+        public static void Size(int fileW, int fileH, Texture2D imported, out int w, out int h) {
             if (imported == null) { w = fileW; h = fileH; return; }
             Size(fileW, fileH, imported.width, imported.height, out w, out h);
         }
@@ -44,11 +41,12 @@ namespace Iroca
         /// 小さくなっていれば取り込み後の寸法そのもの(2 のべき乗へ丸める取り込みで縦横比が変わっても従う。ゲームに
         /// 出るのもその寸法)。取り込みで小さくならないなら元ファイルのまま(引き伸ばさない)。
         /// </summary>
-        internal static void Size(int fileW, int fileH, int importW, int importH, out int w, out int h)
-        {
+        internal static void Size(int fileW, int fileH, int importW, int importH, out int w, out int h) {
             w = fileW;
             h = fileH;
-            if (!ExceedsLimit(fileW, fileH)) return;
+            if (!ExceedsLimit(fileW, fileH)) {
+                return;
+            }
             ShrinkToImport(fileW, fileH, importW, importH, ref w, ref h);
         }
 
@@ -56,18 +54,17 @@ namespace Iroca
         /// 作業解像度(workW×workH)で処理した結果を、プレビューの拡大表示に映す寸法。取り込みで小さくなるなら
         /// 取り込み後の寸法(ゲームに出る寸法)、そうでなければ作業解像度のまま。
         /// </summary>
-        internal static void DisplaySize(int workW, int workH, int importW, int importH, out int w, out int h)
-        {
+        internal static void DisplaySize(int workW, int workH, int importW, int importH, out int w, out int h) {
             w = workW;
             h = workH;
             ShrinkToImport(workW, workH, importW, importH, ref w, ref h);
         }
 
-        private static void ShrinkToImport(int fileW, int fileH, int importW, int importH, ref int w, ref int h)
-        {
-            if (importW <= 0 || importH <= 0) return;
-            if ((long)importW * importH < (long)fileW * fileH)
-            {
+        private static void ShrinkToImport(int fileW, int fileH, int importW, int importH, ref int w, ref int h) {
+            if (importW <= 0 || importH <= 0) {
+                return;
+            }
+            if ((long)importW * importH < (long)fileW * fileH) {
                 w = importW;
                 h = importH;
             }
@@ -78,13 +75,15 @@ namespace Iroca
         /// マネージドの配列へ丸ごと写さずに読む。8K なら 256MB の一時配列を Mono のヒープに作らない
         /// (Mono のヒープは一度広がると Unity を閉じるまで縮まない)。
         /// </summary>
-        public static Color32[] PixelsOf(Texture2D decoded, Texture2D imported, out int w, out int h)
-        {
+        public static Color32[] PixelsOf(Texture2D decoded, Texture2D imported, out int w, out int h) {
             int fw = decoded.width, fh = decoded.height;
             Size(fw, fh, imported, out w, out h);
-            if (w == fw && h == fh) return decoded.GetPixels32();
-            if (TryLayout(decoded.format, out var layout))
+            if (w == fw && h == fh) {
+                return decoded.GetPixels32();
+            }
+            if (TryLayout(decoded.format, out var layout)) {
                 return ResizeArea(decoded.GetPixelData<byte>(0), layout, fw, fh, w, h);
+            }
             return ResizeArea(decoded.GetPixels32(), fw, fh, w, h);
         }
 
@@ -98,26 +97,22 @@ namespace Iroca
         /// <summary>
         /// 上と同じで、取り込み後の寸法を値で受け取る(Texture2D を触らないので、どのスレッドからでもよい)。
         /// </summary>
-        public static unsafe NativePixels FitToWorkingSize(NativePixels source, int importW, int importH)
-        {
+        public static unsafe NativePixels FitToWorkingSize(NativePixels source, int importW, int importH) {
             int fw = source.Width, fh = source.Height;
             Size(fw, fh, importW, importH, out int w, out int h);
-            if (w == fw && h == fh) return source;
-            try
-            {
+            if (w == fw && h == fh) {
+                return source;
+            }
+            try {
                 var dst = NativePixels.Allocate(w, h);
-                try
-                {
+                try {
                     ResizeArea(source.Ptr, fw, fh, w, h, dst.Ptr);
-                }
-                catch
-                {
+                } catch {
                     dst.Release();
                     throw;
                 }
                 return dst;
-            }
-            finally { source.Release(); }
+            } finally { source.Release(); }
         }
 
         /// <summary>
@@ -127,27 +122,25 @@ namespace Iroca
         /// 直接書き、管理配列の一時配列も作らない。圧縮された形式は GPU で展開して読む(<see cref="TryExpandOnGpu"/>)。
         /// どちらもできなければ GetPixels32 を経由する。
         /// </summary>
-        public static unsafe NativePixels NativePixelsOf(Texture2D decoded, Texture2D imported)
-        {
+        public static unsafe NativePixels NativePixelsOf(Texture2D decoded, Texture2D imported) {
             int fw = decoded.width, fh = decoded.height;
             Size(fw, fh, imported, out int w, out int h);
-            if (!TryLayout(decoded.format, out var layout))
-            {
+            if (!TryLayout(decoded.format, out var layout)) {
                 var expanded = TryExpandOnGpu(decoded);
-                if (expanded == null)
+                if (expanded == null) {
                     return NativePixels.CopyOf(PixelsOf(decoded, imported, out w, out h), w, h);
-                try { return NativePixelsOf(expanded, imported); }
-                finally { UnityEngine.Object.DestroyImmediate(expanded); }
+                }
+                try { return NativePixelsOf(expanded, imported); } finally { UnityEngine.Object.DestroyImmediate(expanded); }
             }
             var raw = decoded.GetPixelData<byte>(0);
             var dst = NativePixels.Allocate(w, h);
-            try
-            {
-                if (w == fw && h == fh) ConvertLayout(raw, layout, fw, fh, dst.Ptr);
-                else ResizeArea(raw, layout, fw, fh, w, h, dst.Ptr);
-            }
-            catch
-            {
+            try {
+                if (w == fw && h == fh) {
+                    ConvertLayout(raw, layout, fw, fh, dst.Ptr);
+                } else {
+                    ResizeArea(raw, layout, fw, fh, w, h, dst.Ptr);
+                }
+            } catch {
                 dst.Release();
                 throw;
             }
@@ -156,10 +149,8 @@ namespace Iroca
 
         // GPU で展開するテクスチャの形式。GetPixels32 との差は、DXT1・DXT5(Crunch を含む)が GPU の丸めで最大 1 段、BC7 と RGBAHalf は 0
         // (WorkingResolutionTests)。BC4・BC5 のように GPU と GetPixels32 でチャンネルの割り当てが違う形式は入れない。
-        private static bool ExpandsOnGpu(TextureFormat f)
-        {
-            switch (f)
-            {
+        private static bool ExpandsOnGpu(TextureFormat f) {
+            switch (f) {
                 case TextureFormat.DXT1:
                 case TextureFormat.DXT5:
                 case TextureFormat.DXT1Crunched:
@@ -179,47 +170,41 @@ namespace Iroca
         /// GetPixels32 は全画素の管理配列(4K で 64MB)を毎回作り、Mono のヒープは縮まない。領域を指定する GetPixels は同じ値を返すが、
         /// 4K で 2 秒かかり、Crunch は読めない(GPU は 50ms)。
         /// </summary>
-        private static Texture2D TryExpandOnGpu(Texture2D source)
-        {
-            if (!ExpandsOnGpu(source.format) || SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) return null;
+        private static Texture2D TryExpandOnGpu(Texture2D source) {
+            if (!ExpandsOnGpu(source.format) || SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) {
+                return null;
+            }
             int w = source.width, h = source.height;
             bool srgb = source.isDataSRGB;
             var rt = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32,
                 srgb ? RenderTextureReadWrite.sRGB : RenderTextureReadWrite.Linear);
             var active = RenderTexture.active;
-            try
-            {
+            try {
                 Graphics.Blit(source, rt);
                 RenderTexture.active = rt;
                 var result = new Texture2D(w, h, TextureFormat.RGBA32, false, !srgb);
                 result.ReadPixels(new Rect(0, 0, w, h), 0, 0, false);
                 return result;
-            }
-            finally
-            {
+            } finally {
                 RenderTexture.active = active;
                 RenderTexture.ReleaseTemporary(rt);
             }
         }
 
         // 縮めないときの写し(GetPixels32 と同じ値。RGBA32 はそのまま写す)。
-        private static unsafe void ConvertLayout(NativeArray<byte> src, Layout layout, int w, int h, Color32* dst)
-        {
+        private static unsafe void ConvertLayout(NativeArray<byte> src, Layout layout, int w, int h, Color32* dst) {
             byte* s = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(src);
             long n = (long)w * h;
-            if (layout.bpp == 4 && layout.r == 0 && layout.g == 1 && layout.b == 2 && layout.a == 3)
-            {
+            if (layout.bpp == 4 && layout.r == 0 && layout.g == 1 && layout.b == 2 && layout.a == 3) {
                 Buffer.MemoryCopy(s, dst, n * 4, n * 4);
                 return;
             }
             int bpp = layout.bpp, ro = layout.r, go = layout.g, bo = layout.b, ao = layout.a;
             // 呼び出し元(メインスレッド)は返るまで待つので、テクスチャのデータはこの間ずっと読める。
-            Parallel.For(0, h, WorkOptions(), y =>
-            {
+            Parallel.For(0, h, WorkOptions(), y => {
                 byte* row = s + (long)y * w * bpp;
                 Color32* d = dst + (long)y * w;
-                for (int x = 0; x < w; x++)
-                {
+                for (int x = 0; x < w; x++) {
                     byte* p = row + x * bpp;
                     d[x] = new Color32(p[ro], p[go], p[bo], ao >= 0 ? p[ao] : (byte)255);
                 }
@@ -232,13 +217,15 @@ namespace Iroca
         /// 面積平均で縮小する(整数倍ならボックスフィルタと同じ)。拡大方向のときは最近傍。
         /// 行 0 = 画像下端の並び(Unity の画素順)のまま扱う。
         /// </summary>
-        internal static unsafe Color32[] ResizeArea(Color32[] src, int sw, int sh, int dw, int dh)
-        {
-            if (src.Length < (long)sw * sh) throw new ArgumentException($"src.Length({src.Length}) < {sw}x{sh}", nameof(src));
+        internal static unsafe Color32[] ResizeArea(Color32[] src, int sw, int sh, int dw, int dh) {
+            if (src.Length < (long)sw * sh) {
+                throw new ArgumentException($"src.Length({src.Length}) < {sw}x{sh}", nameof(src));
+            }
             var dst = new Color32[dw * dh];
             fixed (Color32* s = src)
-            fixed (Color32* d = dst)
+            fixed (Color32* d = dst) {
                 ResizeArea(s, sw, sh, dw, dh, d);
+            }
             return dst;
         }
 
@@ -247,21 +234,16 @@ namespace Iroca
         /// Mono のヒープの外の画素からテクスチャのデータへ直接書く)。出力の行ごとに並列(結果は行の順に依らない)。
         /// 呼び出し側は返るまで両方の領域を保つこと。
         /// </summary>
-        internal static unsafe void ResizeArea(Color32* src, int sw, int sh, int dw, int dh, Color32* dst)
-        {
-            Parallel.For(0, dh, WorkOptions(), y =>
-            {
+        internal static unsafe void ResizeArea(Color32* src, int sw, int sh, int dw, int dh, Color32* dst) {
+            Parallel.For(0, dh, WorkOptions(), y => {
                 int y0 = SrcRow0(y, sh, dh), y1 = SrcRow1(y, y0, sh, dh);
-                for (int x = 0; x < dw; x++)
-                {
+                for (int x = 0; x < dw; x++) {
                     int x0 = (int)((long)x * sw / dw);
                     int x1 = Math.Max(x0 + 1, (int)(((long)x + 1) * sw / dw));
                     int r = 0, g = 0, b = 0, a = 0, n = 0;
-                    for (int yy = y0; yy < y1; yy++)
-                    {
+                    for (int yy = y0; yy < y1; yy++) {
                         Color32* row = src + (long)yy * sw;
-                        for (int xx = x0; xx < x1; xx++)
-                        {
+                        for (int xx = x0; xx < x1; xx++) {
                             var c = row[xx];
                             r += c.r; g += c.g; b += c.b; a += c.a; n++;
                         }
@@ -272,20 +254,17 @@ namespace Iroca
         }
 
         // GetPixelData<byte> の 1 画素の並び(a < 0 は α なし = 255。GetPixels32 と同じ値になる)。
-        internal struct Layout
-        {
+        internal struct Layout {
             public int bpp, r, g, b, a;
         }
 
         // 8bit の非圧縮形式だけ。それ以外(16bit の PNG など)は GetPixels32 に任せる。
-        internal static bool TryLayout(TextureFormat f, out Layout l)
-        {
-            switch (f)
-            {
+        internal static bool TryLayout(TextureFormat f, out Layout l) {
+            switch (f) {
                 case TextureFormat.RGBA32: l = new Layout { bpp = 4, r = 0, g = 1, b = 2, a = 3 }; return true;
                 case TextureFormat.ARGB32: l = new Layout { bpp = 4, a = 0, r = 1, g = 2, b = 3 }; return true;
                 case TextureFormat.BGRA32: l = new Layout { bpp = 4, b = 0, g = 1, r = 2, a = 3 }; return true;
-                case TextureFormat.RGB24:  l = new Layout { bpp = 3, r = 0, g = 1, b = 2, a = -1 }; return true;
+                case TextureFormat.RGB24: l = new Layout { bpp = 3, r = 0, g = 1, b = 2, a = -1 }; return true;
                 default: l = default; return false;
             }
         }
@@ -294,34 +273,30 @@ namespace Iroca
         /// <see cref="ResizeArea(Color32[], int, int, int, int)"/> と同じ縮小を、テクスチャの生データ
         /// (<paramref name="layout"/> の並び)から行う。出力の行ごとに並列で平均する(結果は行の順に依らない)。
         /// </summary>
-        internal static unsafe Color32[] ResizeArea(NativeArray<byte> src, Layout layout, int sw, int sh, int dw, int dh)
-        {
+        internal static unsafe Color32[] ResizeArea(NativeArray<byte> src, Layout layout, int sw, int sh, int dw, int dh) {
             var dst = new Color32[dw * dh];
-            fixed (Color32* d = dst) ResizeArea(src, layout, sw, sh, dw, dh, d);
+            fixed (Color32* d = dst) {
+                ResizeArea(src, layout, sw, sh, dw, dh, d);
+            }
             return dst;
         }
 
         // 上の縮小を、呼び出し側が用意した dw*dh 画素の領域へ書く(プレビューの原本をネイティブへ直接作る)。
         private static unsafe void ResizeArea(NativeArray<byte> src, Layout layout, int sw, int sh, int dw, int dh,
-            Color32* dst)
-        {
+            Color32* dst) {
             // 呼び出し元(メインスレッド)は返るまで待つので、テクスチャのデータはこの間ずっと読める。
             byte* s = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(src);
             long rowBytes = (long)sw * layout.bpp;
-            Parallel.For(0, dh, WorkOptions(), y =>
-            {
+            Parallel.For(0, dh, WorkOptions(), y => {
                 int bpp = layout.bpp, ro = layout.r, go = layout.g, bo = layout.b, ao = layout.a;
                 int y0 = SrcRow0(y, sh, dh), y1 = SrcRow1(y, y0, sh, dh);
-                for (int x = 0; x < dw; x++)
-                {
+                for (int x = 0; x < dw; x++) {
                     int x0 = (int)((long)x * sw / dw);
                     int x1 = Math.Max(x0 + 1, (int)(((long)x + 1) * sw / dw));
                     int r = 0, g = 0, b = 0, a = 0, n = 0;
-                    for (int yy = y0; yy < y1; yy++)
-                    {
+                    for (int yy = y0; yy < y1; yy++) {
                         byte* row = s + yy * rowBytes;
-                        for (int xx = x0; xx < x1; xx++)
-                        {
+                        for (int xx = x0; xx < x1; xx++) {
                             byte* o = row + xx * bpp;
                             r += o[ro];
                             g += o[go];
@@ -344,8 +319,7 @@ namespace Iroca
         private static int SrcRow0(int y, int sh, int dh) => (int)((long)y * sh / dh);
         private static int SrcRow1(int y, int y0, int sh, int dh) => Math.Max(y0 + 1, (int)(((long)y + 1) * sh / dh));
 
-        private static Color32 Average(int r, int g, int b, int a, int n)
-        {
+        private static Color32 Average(int r, int g, int b, int a, int n) {
             int half = n / 2;
             return new Color32(
                 (byte)((r + half) / n), (byte)((g + half) / n),

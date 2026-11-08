@@ -3,8 +3,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 非破壊の色替えをアバターの複製に当てる本体。NDMF のパス(Iroca.NdmfIntegration)から呼ばれるが、
     /// NDMF には依存しない(EditMode テストから直接叩けるようにするため)。
@@ -33,10 +32,8 @@ namespace Iroca
     /// 元のアセット(テクスチャ・マテリアル)には一切書き込まない。
     /// </para>
     /// </summary>
-    internal static class NonDestructiveApplier
-    {
-        internal enum Problem
-        {
+    internal static class NonDestructiveApplier {
+        internal enum Problem {
             /// <summary>コンポーネントにレシピが設定されていない。</summary>
             MissingRecipe,
             /// <summary>設定したレシピのアセットが無い(Missing)。元の色のまま上がらないように止める。</summary>
@@ -48,8 +45,7 @@ namespace Iroca
         }
 
         /// <summary>ビルド環境(NDMF なら BuildContext)への橋渡し。</summary>
-        internal interface IHost
-        {
+        internal interface IHost {
             /// <summary>レシピから差し替え用テクスチャを作る(失敗は null)。</summary>
             Texture2D BuildTexture(IrocaRecipe recipe, out RecipeTextureBuilder.Failure failure);
             /// <summary>生成物(テクスチャ・マテリアル)をビルドの成果物として保存する。</summary>
@@ -70,8 +66,7 @@ namespace Iroca
         internal static event System.Action BeforeApply;
 
         /// <summary>どの段で当てるか。</summary>
-        internal enum Stage
-        {
+        internal enum Stage {
             /// <summary>1 回で全部(テスト・NDMF を通さない呼び出し)。</summary>
             Single,
             /// <summary>1 段目: 設定の問題を報告し、コンポーネントは残す。</summary>
@@ -81,8 +76,7 @@ namespace Iroca
         }
 
         /// <summary>段をまたいで持ち越す状態(NDMF では BuildContext.GetState で 1 ビルドに 1 つ)。</summary>
-        internal sealed class BuildState
-        {
+        internal sealed class BuildState {
             /// <summary>レシピ → 色替え済みテクスチャ(2 段目も同じものを使う)。</summary>
             internal readonly Dictionary<IrocaRecipe, Texture2D> built = new Dictionary<IrocaRecipe, Texture2D>();
             /// <summary>作れなかったレシピ(2 段目は試さず、報告もしない)。</summary>
@@ -117,10 +111,10 @@ namespace Iroca
         /// (シーンのプレビューとインスペクタは編集中の親子関係で範囲を見るので、色が変わって見えていた)。
         /// 1・2 段目では、その時点の子と、ここで記録したものを合わせて範囲にする。
         /// </summary>
-        public static void RecordScopes(GameObject root, BuildState state)
-        {
-            foreach (var component in root.GetComponentsInChildren<IrocaRecolor>(true))
+        public static void RecordScopes(GameObject root, BuildState state) {
+            foreach (var component in root.GetComponentsInChildren<IrocaRecolor>(true)) {
                 state.recordedScopes[component] = component.GetComponentsInChildren<Renderer>(true);
+            }
         }
 
         /// <summary>
@@ -132,98 +126,104 @@ namespace Iroca
         // テストがビルドせずに書き出しの合図を出す。
         internal static void RaiseBeforeApplyForTests() => BeforeApply?.Invoke();
 
-        public static int Apply(GameObject root, IHost host, BuildState state, Stage stage)
-        {
+        public static int Apply(GameObject root, IHost host, BuildState state, Stage stage) {
             // 開いているいろかウィンドウの編集中の内容をレシピへ書き出させる(直前の編集をビルドに乗せる)。
-            if (stage != Stage.Late) BeforeApply?.Invoke();
+            if (stage != Stage.Late) {
+                BeforeApply?.Invoke();
+            }
 
             var components = new List<IrocaRecolor>(root.GetComponentsInChildren<IrocaRecolor>(true));
             int replaced = 0;
             // レシピを何枚作っても作業配列は使い回し、この段が終わったらまとめて手放す。
             var keepWorkBuffers = RecipeTextureBuilder.KeepWorkBuffers();
-            try
-            {
+            try {
                 // 深い順(同じ深さは見つかった順)。1 つのコンポーネントのレシピは並び順。
                 var order = new List<(int depth, int index, IrocaRecolor c)>();
-                for (int i = 0; i < components.Count; i++)
+                for (int i = 0; i < components.Count; i++) {
                     order.Add((Depth(components[i].transform, root.transform), i, components[i]));
+                }
                 order.Sort((a, b) => a.depth != b.depth ? b.depth.CompareTo(a.depth) : a.index.CompareTo(b.index));
 
-                foreach (var (_, _, component) in order)
-                {
+                foreach (var (_, _, component) in order) {
                     var recipes = component.recipes;
-                    if (recipes == null || recipes.Count == 0)
-                    {
-                        if (stage != Stage.Late)
+                    if (recipes == null || recipes.Count == 0) {
+                        if (stage != Stage.Late) {
                             host.Report(Problem.MissingRecipe, component, null, RecipeTextureBuilder.Failure.None);
+                        }
                         continue;
                     }
-                    for (int i = 0; i < recipes.Count; i++)
-                    {
+                    for (int i = 0; i < recipes.Count; i++) {
                         // 消えたレシピへの参照は、空の欄(利用者が外している)と違って色替えしたかった印。
-                        if (recipes[i] == null && stage != Stage.Late && IsLostReference(component, i))
+                        if (recipes[i] == null && stage != Stage.Late && IsLostReference(component, i)) {
                             host.Report(Problem.LostRecipe, component, null, RecipeTextureBuilder.Failure.None);
-                        else
+                        } else {
                             replaced += ApplyOne(component, recipes[i], host, state, stage);
+                        }
                     }
                 }
-            }
-            finally
-            {
+            } finally {
                 keepWorkBuffers.Dispose();
                 // 1 段目はコンポーネントを残す(2 段目が範囲を知るため)。残っても VRChat SDK が
                 // EditorOnly として外すので、2 段目が走らない経路でもアバターには残らない。
-                if (stage != Stage.First)
-                    foreach (var c in components)
-                        if (c != null) Object.DestroyImmediate(c);
+                if (stage != Stage.First) {
+                    foreach (var c in components) {
+                        if (c != null) {
+                            Object.DestroyImmediate(c);
+                        }
+                    }
+                }
             }
             return replaced;
         }
 
         // 欄に参照はあるのにアセットが無い(Missing)か。
-        internal static bool IsLostReference(IrocaRecolor component, int index)
-        {
-            using (var so = new UnityEditor.SerializedObject(component))
-            {
+        internal static bool IsLostReference(IrocaRecolor component, int index) {
+            using (var so = new UnityEditor.SerializedObject(component)) {
                 var list = so.FindProperty(nameof(IrocaRecolor.recipes));
-                if (list == null || index >= list.arraySize) return false;
+                if (list == null || index >= list.arraySize) {
+                    return false;
+                }
                 var element = list.GetArrayElementAtIndex(index);
                 return element.objectReferenceValue == null && element.objectReferenceInstanceIDValue != 0;
             }
         }
 
         private static int ApplyOne(IrocaRecolor component, IrocaRecipe recipe, IHost host, BuildState state,
-            Stage stage)
-        {
+            Stage stage) {
             // 設定の問題は 1 回だけ報告する(2 段目では黙って飛ばす)。
             bool reportSetup = stage != Stage.Late;
-            if (recipe == null)
-            {
-                if (reportSetup) host.Report(Problem.MissingRecipe, component, null, RecipeTextureBuilder.Failure.None);
+            if (recipe == null) {
+                if (reportSetup) {
+                    host.Report(Problem.MissingRecipe, component, null, RecipeTextureBuilder.Failure.None);
+                }
                 return 0;
             }
             var source = recipe.sourceTexture;
-            if (source == null)
-            {
-                if (reportSetup) host.Report(Problem.BuildFailed, component, recipe, RecipeTextureBuilder.Failure.NoSourceTexture);
+            if (source == null) {
+                if (reportSetup) {
+                    host.Report(Problem.BuildFailed, component, recipe, RecipeTextureBuilder.Failure.NoSourceTexture);
+                }
                 return 0;
             }
-            if (state.failed.Contains(recipe)) return 0;
+            if (state.failed.Contains(recipe)) {
+                return 0;
+            }
 
             // 元マテリアル → 複製(null = 元テクスチャを参照していないので触らない)。2 段目も、同じレシピの
             // ほかのコンポーネントも同じ表を使う。
             var key = (component, recipe);
-            if (!state.clones.TryGetValue(recipe, out var clones))
+            if (!state.clones.TryGetValue(recipe, out var clones)) {
                 state.clones[recipe] = clones = new Dictionary<Material, Material>();
-            if (!state.shadowMatchedClones.TryGetValue(recipe, out var shadowMatched))
+            }
+            if (!state.shadowMatchedClones.TryGetValue(recipe, out var shadowMatched)) {
                 state.shadowMatchedClones[recipe] = shadowMatched = new Dictionary<Material, Material>();
+            }
             state.built.TryGetValue(recipe, out var recolored);
             bool failed = false;
             int replaced = 0;
 
             // このコンポーネントで影の色を合わせると選ばれた、このレシピのメインテクスチャのマテリアルか。
-            bool MatchesShadow(Material material, out Material root)
-            {
+            bool MatchesShadow(Material material, out Material root) {
                 root = state.cloneRoots.TryGetValue(material, out var r) ? r : material;
                 return component.shadowMatchMaterials != null && component.shadowMatchMaterials.Contains(root)
                        && MaterialShadowColors.MainTextureIs(root, source);
@@ -231,25 +231,24 @@ namespace Iroca
 
             // 元テクスチャを参照していれば複製して差し替えたものを返す(参照していなければ null)。
             // Renderer の欄とアニメーションのキーフレームの両方から呼ぶ(同じマテリアルは同じ複製になる)。
-            Material Swap(Material original)
-            {
-                if (original == null || failed) return null;
+            Material Swap(Material original) {
+                if (original == null || failed) {
+                    return null;
+                }
                 bool matchShadow = MatchesShadow(original, out var root);
                 var table = matchShadow ? shadowMatched : clones;
-                if (table.TryGetValue(original, out var known))
-                {
-                    if (known != null) state.used.Add(key);   // 先に作られた複製を使った(このコンポーネントの範囲でも使われている)
+                if (table.TryGetValue(original, out var known)) {
+                    if (known != null) {
+                        state.used.Add(key);   // 先に作られた複製を使った(このコンポーネントの範囲でも使われている)
+                    }
                     return known;
                 }
                 Material clone = null;
-                if (References(original, source))
-                {
+                if (References(original, source)) {
                     state.used.Add(key);
-                    if (recolored == null)
-                    {
+                    if (recolored == null) {
                         recolored = host.BuildTexture(recipe, out var failure);
-                        if (recolored == null)
-                        {
+                        if (recolored == null) {
                             failed = true;
                             state.failed.Add(recipe);
                             host.Report(Problem.BuildFailed, component, recipe, failure);
@@ -269,8 +268,9 @@ namespace Iroca
                     clone.name = original.name;
                     ReplaceTexture(clone, source, recolored);
                     state.cloneRoots[clone] = root;
-                    if (matchShadow && MaterialShadowColors.TryGetColors(recipe, out var sample, out var target))
+                    if (matchShadow && MaterialShadowColors.TryGetColors(recipe, out var sample, out var target)) {
                         MaterialShadowColors.Apply(clone, root, sample, target);
+                    }
                     host.SaveAsset(clone);
                     host.RegisterReplaced(original, clone);
                     replaced++;
@@ -283,60 +283,74 @@ namespace Iroca
             var scope = component.transform;
             var renderers = new List<Renderer>(component.GetComponentsInChildren<Renderer>(true));
             HashSet<Transform> moved = null;
-            if (state.recordedScopes.TryGetValue(component, out var recorded))
-            {
-                foreach (var r in recorded)
-                {
-                    if (r == null || r.transform.IsChildOf(scope)) continue;
+            if (state.recordedScopes.TryGetValue(component, out var recorded)) {
+                foreach (var r in recorded) {
+                    if (r == null || r.transform.IsChildOf(scope)) {
+                        continue;
+                    }
                     moved ??= new HashSet<Transform>();
-                    if (moved.Add(r.transform)) renderers.Add(r);
+                    if (moved.Add(r.transform)) {
+                        renderers.Add(r);
+                    }
                 }
             }
 
-            foreach (var renderer in renderers)
-            {
+            foreach (var renderer in renderers) {
                 var mats = renderer.sharedMaterials;
                 bool changed = false;
-                for (int i = 0; i < mats.Length; i++)
-                {
+                for (int i = 0; i < mats.Length; i++) {
                     var clone = Swap(mats[i]);
-                    if (clone == null) continue;
+                    if (clone == null) {
+                        continue;
+                    }
                     mats[i] = clone;
                     changed = true;
                 }
-                if (failed) return replaced;
-                if (changed) renderer.sharedMaterials = mats;
+                if (failed) {
+                    return replaced;
+                }
+                if (changed) {
+                    renderer.sharedMaterials = mats;
+                }
             }
 
             // 衣装・表情のトグルなど、アニメーションで後から切り替わるマテリアルも同じ規則で差し替える。
             host.RewriteAnimatedMaterials(t => t.IsChildOf(scope) || (moved != null && moved.Contains(t)),
                 m => Swap(m) ?? m);
-            if (failed) return replaced;
+            if (failed) {
+                return replaced;
+            }
 
             // 「使っていない」は最後の段で判断する(2 段目で入ったマテリアルで使われることがある)。
-            if (stage != Stage.First && !state.used.Contains(key))
+            if (stage != Stage.First && !state.used.Contains(key)) {
                 host.Report(Problem.TextureNotUsedInScope, component, recipe, RecipeTextureBuilder.Failure.None);
+            }
             return replaced;
         }
 
         /// <summary>マテリアルがいずれかのテクスチャ枠で <paramref name="texture"/> を参照しているか。</summary>
-        internal static bool References(Material material, Texture texture)
-        {
-            foreach (int id in material.GetTexturePropertyNameIDs())
-                if (material.GetTexture(id) == texture) return true;
+        internal static bool References(Material material, Texture texture) {
+            foreach (int id in material.GetTexturePropertyNameIDs()) {
+                if (material.GetTexture(id) == texture) {
+                    return true;
+                }
+            }
             return false;
         }
 
-        private static void ReplaceTexture(Material material, Texture from, Texture to)
-        {
-            foreach (int id in material.GetTexturePropertyNameIDs())
-                if (material.GetTexture(id) == from) material.SetTexture(id, to);
+        private static void ReplaceTexture(Material material, Texture from, Texture to) {
+            foreach (int id in material.GetTexturePropertyNameIDs()) {
+                if (material.GetTexture(id) == from) {
+                    material.SetTexture(id, to);
+                }
+            }
         }
 
-        private static int Depth(Transform t, Transform root)
-        {
+        private static int Depth(Transform t, Transform root) {
             int d = 0;
-            for (var p = t; p != null && p != root; p = p.parent) d++;
+            for (var p = t; p != null && p != root; p = p.parent) {
+                d++;
+            }
             return d;
         }
     }

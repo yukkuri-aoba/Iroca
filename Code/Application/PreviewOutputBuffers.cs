@@ -2,8 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// フル段プレビューの出力バッファ(フル解像度。4K で 64MB)を使い回す。毎回確保すると、置き換えられた前の出力の
     /// 解放と新しい確保が 1 回ごとに起きる(0.3.0 より前は管理配列で、Unity の Mono(Boehm)はゴミが溜まると
@@ -19,8 +18,7 @@ namespace Iroca
     /// </list>
     /// 置いておくのは 1 本だけ(それ以上は手放す)。出力の内容はどのバッファでも同じ。
     /// </summary>
-    internal sealed class PreviewOutputBuffers
-    {
+    internal sealed class PreviewOutputBuffers {
         private const int MaxRetired = 1;
 
         private readonly object _gate = new object();
@@ -32,15 +30,16 @@ namespace Iroca
         /// 寸法が同じで、ほかに持ち主のいないバッファを取り出す(参照を 1 つ持たせて返す)。無ければ null(呼び出し側が確保する)。
         /// 参照はメインスレッドでしか足されないので、メインスレッドから呼べば、取り出した後に別の持ち主が現れることはない。
         /// </summary>
-        public NativePixels Take(int width, int height)
-        {
-            lock (_gate)
-            {
-                for (int i = 0; i < _retired.Count; i++)
-                {
+        public NativePixels Take(int width, int height) {
+            lock (_gate) {
+                for (int i = 0; i < _retired.Count; i++) {
                     var b = _retired[i];
-                    if (b.Width != width || b.Height != height) continue;
-                    if (b.RefCount != 1) continue;
+                    if (b.Width != width || b.Height != height) {
+                        continue;
+                    }
+                    if (b.RefCount != 1) {
+                        continue;
+                    }
                     _retired.RemoveAt(i);
                     return b;
                 }
@@ -49,19 +48,18 @@ namespace Iroca
         }
 
         /// <summary>もう書き込まれないバッファを置く(渡した側の参照を引き取る。どのスレッドからでもよい)。</summary>
-        public void Retire(NativePixels buffer)
-        {
-            if (buffer == null) return;
+        public void Retire(NativePixels buffer) {
+            if (buffer == null) {
+                return;
+            }
             NativePixels drop = null;
-            lock (_gate)
-            {
+            lock (_gate) {
                 // 閉じた後か、同じものを 2 回置かれた(参照も 2 つ渡された)ときは置かない(置くのは 1 回分だけ)。
-                if (_closed || _retired.Contains(buffer)) drop = buffer;
-                else
-                {
+                if (_closed || _retired.Contains(buffer)) {
+                    drop = buffer;
+                } else {
                     _retired.Add(buffer);
-                    if (_retired.Count > MaxRetired)
-                    {
+                    if (_retired.Count > MaxRetired) {
                         drop = _retired[0];
                         _retired.RemoveAt(0);
                     }
@@ -76,16 +74,18 @@ namespace Iroca
         /// <summary>置いてあるバッファを手放し、以後に戻ってきたものもすぐ手放す(ウィンドウを閉じるとき)。</summary>
         public void Close() => Drain(close: true);
 
-        private void Drain(bool close)
-        {
+        private void Drain(bool close) {
             NativePixels[] drop;
-            lock (_gate)
-            {
-                if (close) _closed = true;
+            lock (_gate) {
+                if (close) {
+                    _closed = true;
+                }
                 drop = _retired.ToArray();
                 _retired.Clear();
             }
-            foreach (var b in drop) b.Release();
+            foreach (var b in drop) {
+                b.Release();
+            }
         }
     }
 }

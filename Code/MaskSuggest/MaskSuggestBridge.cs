@@ -2,11 +2,9 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>AI マスク提案サービスの状態。</summary>
-    internal enum MaskSuggestPhase
-    {
+    internal enum MaskSuggestPhase {
         /// <summary>モデルファイル未配置(UI は導入案内を出す)。</summary>
         NoModel,
         /// <summary>
@@ -34,8 +32,7 @@ namespace Iroca
     /// 受け取り先を呼んだ後に <see cref="Release"/> する。持ち続けるなら写すか、範囲の参照を足す。
     /// サービスから直接受け取った側は、自分で Release する。
     /// </summary>
-    internal sealed class MaskSuggestProposal
-    {
+    internal sealed class MaskSuggestProposal {
         /// <summary>下原点(GetPixels32 順) width*height の提案領域(この提案が参照を 1 つ持つ)。</summary>
         public NativeBools mask;
         public int width;
@@ -48,8 +45,7 @@ namespace Iroca
         public bool floodWarning;
 
         /// <summary>範囲の参照を返す(2 回目からは何もしない)。</summary>
-        public void Release()
-        {
+        public void Release() {
             var m = mask;
             mask = null;
             m?.Release();
@@ -64,8 +60,7 @@ namespace Iroca
     /// スレッド規約: 全メソッドはメインスレッドから呼ぶ。重い処理は実装側が内部で
     /// 分割実行し、状態変化を StateChanged で通知する(購読側は Repaint に使う)。
     /// </summary>
-    internal interface IMaskSuggestService
-    {
+    internal interface IMaskSuggestService {
         MaskSuggestPhase Phase { get; }
         /// <summary>Encoding/LoadingModel 中の進捗 0..1(不明時は 0)。</summary>
         float Progress { get; }
@@ -142,8 +137,7 @@ namespace Iroca
     /// 本体アセンブリと Sentis 統合アセンブリの結合点。
     /// 依存方向は SentisIntegration → 本体のみ(逆参照なし)。
     /// </summary>
-    internal static class MaskSuggestBridge
-    {
+    internal static class MaskSuggestBridge {
         /// <summary>登録済みサービス(null = Sentis 不在 = 機能 OFF)。</summary>
         public static IMaskSuggestService Service;
 
@@ -161,15 +155,14 @@ namespace Iroca
         /// 保存先: Windows は %LOCALAPPDATA%\Iroca\Models、mac/Linux は ~/.local/share 等。
         /// (取得できない特殊環境ではプロジェクト内 UserSettings/Iroca/Models へフォールバック)
         /// </summary>
-        public static string ModelsDirectory
-        {
-            get
-            {
+        public static string ModelsDirectory {
+            get {
                 string root = System.Environment.GetFolderPath(
                     System.Environment.SpecialFolder.LocalApplicationData);
-                if (!string.IsNullOrEmpty(root))
+                if (!string.IsNullOrEmpty(root)) {
                     return System.IO.Path.GetFullPath(
                         System.IO.Path.Combine(root, "Iroca", "Models"));
+                }
                 return LegacyProjectModelsDirectory;
             }
         }
@@ -179,17 +172,13 @@ namespace Iroca
         /// ModelsPresent と同じ判定を本体側で行う(Sentis 不在でも「モデルが要る」案内を
         /// 出せるように)。ロードはしない。
         /// </summary>
-        public static bool ModelFilesPresent
-        {
-            get
-            {
-                try
-                {
+        public static bool ModelFilesPresent {
+            get {
+                try {
                     string d = ModelsDirectory;
                     return System.IO.File.Exists(System.IO.Path.Combine(d, EncoderFileName))
                         && System.IO.File.Exists(System.IO.Path.Combine(d, DecoderFileName));
-                }
-                catch { return false; }
+                } catch { return false; }
             }
         }
 
@@ -210,34 +199,39 @@ namespace Iroca
         /// 非破壊(旧フォルダは消さない・既存の共有ファイルは上書きしない)かつベストエフォート
         /// (失敗してもダウンロード導線で復帰できる)。セッション中 1 回だけ実行する。
         /// </summary>
-        public static void MigrateLegacyModelsIfNeeded()
-        {
-            if (_legacyMigrationDone) return;
+        public static void MigrateLegacyModelsIfNeeded() {
+            if (_legacyMigrationDone) {
+                return;
+            }
             _legacyMigrationDone = true;
-            try
-            {
+            try {
                 string shared = ModelsDirectory;
                 string legacy = LegacyProjectModelsDirectory;
-                if (string.Equals(shared, legacy, System.StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(shared, legacy, System.StringComparison.OrdinalIgnoreCase)) {
                     return; // 共有先＝旧先の環境(LocalAppData 取得不可)は移行不要
+                }
 
                 string sharedEnc = System.IO.Path.Combine(shared, EncoderFileName);
                 string sharedDec = System.IO.Path.Combine(shared, DecoderFileName);
-                if (System.IO.File.Exists(sharedEnc) && System.IO.File.Exists(sharedDec))
+                if (System.IO.File.Exists(sharedEnc) && System.IO.File.Exists(sharedDec)) {
                     return; // 既に共有先にある(移行済み or ダウンロード済み)
+                }
 
                 string legacyEnc = System.IO.Path.Combine(legacy, EncoderFileName);
                 string legacyDec = System.IO.Path.Combine(legacy, DecoderFileName);
-                if (!System.IO.File.Exists(legacyEnc) || !System.IO.File.Exists(legacyDec))
+                if (!System.IO.File.Exists(legacyEnc) || !System.IO.File.Exists(legacyDec)) {
                     return; // 引き継ぐモデルが無い
+                }
 
                 System.IO.Directory.CreateDirectory(shared);
-                if (!System.IO.File.Exists(sharedEnc)) System.IO.File.Copy(legacyEnc, sharedEnc);
-                if (!System.IO.File.Exists(sharedDec)) System.IO.File.Copy(legacyDec, sharedDec);
+                if (!System.IO.File.Exists(sharedEnc)) {
+                    System.IO.File.Copy(legacyEnc, sharedEnc);
+                }
+                if (!System.IO.File.Exists(sharedDec)) {
+                    System.IO.File.Copy(legacyDec, sharedDec);
+                }
                 Debug.Log($"[Iroca] 旧フォルダの AI モデルを共有フォルダへ引き継ぎました: {legacy} → {shared}");
-            }
-            catch (System.Exception e)
-            {
+            } catch (System.Exception e) {
                 Debug.LogWarning(
                     $"[Iroca] AI モデルの共有フォルダ移行に失敗しました(ダウンロードで復帰できます): {e.Message}");
             }

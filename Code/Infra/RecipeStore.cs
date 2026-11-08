@@ -6,16 +6,14 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// レシピ(<see cref="IrocaRecipe"/>)の読み書きと検索。中身は編集状態
     /// (<see cref="IrocaSessionState"/>: ゾーン・処理設定・マスク)の JSON で、
     /// <see cref="SessionFileStore"/>(UserSettings、マスク抜き)と違いマスクまで丸ごと持つ。
     /// アバターと一緒に持ち運ぶ「正」はこちら。
     /// </summary>
-    internal static class RecipeStore
-    {
+    internal static class RecipeStore {
         /// <summary>新しく作るレシピの置き場所(既定)。元テクスチャのフォルダ(配布元の素材フォルダ)を汚さない。</summary>
         internal const string DefaultFolder = "Assets/Iroca/Recipes";
 
@@ -23,24 +21,27 @@ namespace Iroca
         /// レシピの中身を読む。空・壊れている・未対応の版なら null。
         /// 戻り値は毎回新しいオブジェクト(呼び出し側が自由に変更してよい)。
         /// </summary>
-        public static IrocaSessionState Load(IrocaRecipe recipe)
-        {
-            if (recipe == null || string.IsNullOrEmpty(recipe.sessionJson)) return null;
-            if (recipe.formatVersion > IrocaRecipe.CurrentFormatVersion)
-            {
+        public static IrocaSessionState Load(IrocaRecipe recipe) {
+            if (recipe == null || string.IsNullOrEmpty(recipe.sessionJson)) {
+                return null;
+            }
+            if (recipe.formatVersion > IrocaRecipe.CurrentFormatVersion) {
                 Debug.LogWarning($"[Iroca] レシピ '{recipe.name}' はこの版のいろかより新しい形式です(形式 {recipe.formatVersion})。いろかを更新してください。");
                 return null;
             }
-            try
-            {
+            try {
                 var state = JsonUtility.FromJson<IrocaSessionState>(recipe.sessionJson);
-                if (state == null) return null;
-                if (state.zones == null) state.zones = new List<ColorZone>();
-                if (state.maskState == null) state.maskState = new MaskState();
+                if (state == null) {
+                    return null;
+                }
+                if (state.zones == null) {
+                    state.zones = new List<ColorZone>();
+                }
+                if (state.maskState == null) {
+                    state.maskState = new MaskState();
+                }
                 return state;
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca] レシピ '{recipe.name}' を読めませんでした: {ex.Message}");
                 return null;
             }
@@ -59,14 +60,17 @@ namespace Iroca
         /// </summary>
         public static bool SaveUnlessUnreadable(IrocaRecipe recipe, IrocaSessionState state) => Save(recipe, state, keepUnreadable: true);
 
-        private static bool Save(IrocaRecipe recipe, IrocaSessionState state, bool keepUnreadable)
-        {
-            if (recipe == null || state == null) return false;
+        private static bool Save(IrocaRecipe recipe, IrocaSessionState state, bool keepUnreadable) {
+            if (recipe == null || state == null) {
+                return false;
+            }
             string json = JsonUtility.ToJson(state);
-            if (json == recipe.sessionJson && recipe.formatVersion == IrocaRecipe.CurrentFormatVersion)
+            if (json == recipe.sessionJson && recipe.formatVersion == IrocaRecipe.CurrentFormatVersion) {
                 return false;
-            if (keepUnreadable && !string.IsNullOrEmpty(recipe.sessionJson) && Load(recipe) == null)
+            }
+            if (keepUnreadable && !string.IsNullOrEmpty(recipe.sessionJson) && Load(recipe) == null) {
                 return false;
+            }
             // Undo には積まない(編集の Undo はウィンドウの編集状態側が持つ。自動保存のたびに
             // アセットの記録が積まれると、ウィンドウの Undo と二重になる)。
             recipe.sessionJson = json;
@@ -77,13 +81,15 @@ namespace Iroca
         }
 
         /// <summary>指定テクスチャを元にするレシピを全部探す(パス順)。</summary>
-        public static List<IrocaRecipe> FindForTexture(Texture2D texture)
-        {
+        public static List<IrocaRecipe> FindForTexture(Texture2D texture) {
             var found = new List<IrocaRecipe>();
-            if (texture == null) return found;
+            if (texture == null) {
+                return found;
+            }
             var paths = new List<string>();
-            foreach (var guid in AssetDatabase.FindAssets("t:" + nameof(IrocaRecipe)))
+            foreach (var guid in AssetDatabase.FindAssets("t:" + nameof(IrocaRecipe))) {
                 paths.Add(AssetDatabase.GUIDToAssetPath(guid));
+            }
             paths.Sort(StringComparer.Ordinal);
             // レシピはマスク込みの編集状態(4K で数 MB の文字列)を持つので、全部を読み込むと重い。読み込む前に、
             // ファイルの参照先(GetDependencies。読み込まずに引ける)にテクスチャがあるものへ絞る。読み込み済みの
@@ -91,18 +97,21 @@ namespace Iroca
             // (読み込み済みなので軽い)。最後はどれも今の中身(sourceTexture)で決めるので、結果は全部を読んだときと同じ。
             string texturePath = AssetDatabase.GetAssetPath(texture);
             HashSet<string> loaded = null;
-            foreach (var r in Resources.FindObjectsOfTypeAll<IrocaRecipe>())
-            {
+            foreach (var r in Resources.FindObjectsOfTypeAll<IrocaRecipe>()) {
                 string p = AssetDatabase.GetAssetPath(r);
-                if (!string.IsNullOrEmpty(p)) (loaded ??= new HashSet<string>(StringComparer.Ordinal)).Add(p);
+                if (!string.IsNullOrEmpty(p)) {
+                    (loaded ??= new HashSet<string>(StringComparer.Ordinal)).Add(p);
+                }
             }
-            foreach (var path in paths)
-            {
+            foreach (var path in paths) {
                 if (!string.IsNullOrEmpty(texturePath) && (loaded == null || !loaded.Contains(path))
-                    && Array.IndexOf(AssetDatabase.GetDependencies(path, false), texturePath) < 0)
+                    && Array.IndexOf(AssetDatabase.GetDependencies(path, false), texturePath) < 0) {
                     continue;
+                }
                 var recipe = AssetDatabase.LoadAssetAtPath<IrocaRecipe>(path);
-                if (recipe != null && recipe.sourceTexture == texture) found.Add(recipe);
+                if (recipe != null && recipe.sourceTexture == texture) {
+                    found.Add(recipe);
+                }
             }
             return found;
         }
@@ -112,9 +121,10 @@ namespace Iroca
         /// 別フォルダの同名テクスチャのレシピなどと重なれば連番になる。登録の確認に出すパスと
         /// 実際にできるパスを同じ規則で求めるため、ここ 1 か所にまとめる。
         /// </summary>
-        public static string PathForNew(Texture2D texture, string folder = DefaultFolder)
-        {
-            if (texture == null) throw new ArgumentNullException(nameof(texture));
+        public static string PathForNew(Texture2D texture, string folder = DefaultFolder) {
+            if (texture == null) {
+                throw new ArgumentNullException(nameof(texture));
+            }
             string path = $"{folder}/{PathUtils.SanitizeFileName(texture.name, "recipe")}.asset";
             // フォルダがまだ無ければ重なる物も無い(GenerateUniqueAssetPath は無いフォルダに空文字を返す)。
             return AssetDatabase.IsValidFolder(folder) ? AssetDatabase.GenerateUniqueAssetPath(path) : path;
@@ -123,9 +133,10 @@ namespace Iroca
         /// <summary>
         /// 新しいレシピを作る(既定の置き場所は <see cref="DefaultFolder"/>)。名前は元テクスチャ名(重複したら連番)。
         /// </summary>
-        public static IrocaRecipe Create(Texture2D texture, IrocaSessionState state, string folder = DefaultFolder)
-        {
-            if (texture == null) throw new ArgumentNullException(nameof(texture));
+        public static IrocaRecipe Create(Texture2D texture, IrocaSessionState state, string folder = DefaultFolder) {
+            if (texture == null) {
+                throw new ArgumentNullException(nameof(texture));
+            }
             EnsureFolder(folder);
             string path = PathForNew(texture, folder);
             var recipe = ScriptableObject.CreateInstance<IrocaRecipe>();
@@ -138,12 +149,14 @@ namespace Iroca
             return recipe;
         }
 
-        private static void EnsureFolder(string assetFolder)
-        {
-            if (AssetDatabase.IsValidFolder(assetFolder)) return;
+        private static void EnsureFolder(string assetFolder) {
+            if (AssetDatabase.IsValidFolder(assetFolder)) {
+                return;
+            }
             string parent = Path.GetDirectoryName(assetFolder)?.Replace('\\', '/');
-            if (!string.IsNullOrEmpty(parent) && !AssetDatabase.IsValidFolder(parent))
+            if (!string.IsNullOrEmpty(parent) && !AssetDatabase.IsValidFolder(parent)) {
                 EnsureFolder(parent);
+            }
             AssetDatabase.CreateFolder(parent, Path.GetFileName(assetFolder));
         }
     }

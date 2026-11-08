@@ -9,8 +9,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 編集を Unity の Undo に記録する手間と、自動保存の各段の時間を測る(0.3.0。0.4.0 のフェーズ 5 で文書とマスクの履歴の形にした)。
     /// スライダーは文書(ゾーンと設定)だけを記録する。ストロークは文書の記録と、離したときのマスクの履歴への記録。Undo は文書の書き戻しと、
@@ -18,8 +17,7 @@ namespace Iroca.EditorTests
     /// 普段は IROCA_UNDO_BENCH_REPORT が無いので Ignore。実行は <c>Run-EditorTests.ps1 -UndoBench</c>。
     /// </summary>
     [Category("UndoBench")]
-    public class UndoBenchTests
-    {
+    public class UndoBenchTests {
         private const int W = 4096, H = 4096;
         private const int Reps = 15;
 
@@ -27,33 +25,34 @@ namespace Iroca.EditorTests
         private EditingSession _editing;
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             Undo.ClearAll();
             _editing?.Masks.Clear();
             _editing?.MaskHistory.Clear();
-            if (_host != null) UnityEngine.Object.DestroyImmediate(_host);
+            if (_host != null) {
+                UnityEngine.Object.DestroyImmediate(_host);
+            }
         }
 
-        private static bool[] Discs(int seed, int count, int rMin, int rMax)
-        {
+        private static bool[] Discs(int seed, int count, int rMin, int rMax) {
             var rng = new System.Random(seed);
             var m = new bool[W * H];
-            for (int i = 0; i < count; i++)
-            {
+            for (int i = 0; i < count; i++) {
                 int cx = rng.Next(W), cy = rng.Next(H), r = rng.Next(rMin, rMax);
-                for (int y = Math.Max(0, cy - r); y < Math.Min(H, cy + r + 1); y++)
-                    for (int x = Math.Max(0, cx - r); x < Math.Min(W, cx + r + 1); x++)
-                        if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r) m[y * W + x] = true;
+                for (int y = Math.Max(0, cy - r); y < Math.Min(H, cy + r + 1); y++) {
+                    for (int x = Math.Max(0, cx - r); x < Math.Min(W, cx + r + 1); x++) {
+                        if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r) {
+                            m[y * W + x] = true;
+                        }
+                    }
+                }
             }
             return m;
         }
 
-        private IrocaSessionState Session(string kind)
-        {
+        private IrocaSessionState Session(string kind) {
             var s = IrocaSessionState.CreateDefault();
-            for (int i = 0; i < 4; i++)
-            {
+            for (int i = 0; i < 4; i++) {
                 var z = new ColorZone { name = "zone" + i };
                 z.EnsureId();
                 s.zones.Add(z);
@@ -61,88 +60,90 @@ namespace Iroca.EditorTests
             bool[] common = null;
             var zones = new Dictionary<string, bool[]>();
             var includes = new Dictionary<string, bool[]>();
-            if (kind == "typical")
-            {
+            if (kind == "typical") {
                 common = Discs(1, 3, 150, 400);
                 zones[s.zones[0].id] = Discs(2, 4, 100, 300);
                 includes[s.zones[1].id] = Discs(3, 2, 80, 200);
-            }
-            else if (kind == "heavy")
-            {
+            } else if (kind == "heavy") {
                 common = Discs(4, 2500, 3, 25);
-                for (int i = 0; i < 3; i++) zones[s.zones[i].id] = Discs(5 + i, 2500, 3, 25);
+                for (int i = 0; i < 3; i++) {
+                    zones[s.zones[i].id] = Discs(5 + i, 2500, 3, 25);
+                }
             }
             MaskStateCodec.Encode(s.maskState, W, H, common, zones, includes);
             return s;
         }
 
-        private static double Median(List<double> v)
-        {
+        private static double Median(List<double> v) {
             v.Sort();
             return v[v.Count / 2];
         }
 
-        private static double Time(Action a)
-        {
+        private static double Time(Action a) {
             var sw = Stopwatch.StartNew();
             a();
             return sw.Elapsed.TotalMilliseconds;
         }
 
         [Test]
-        public void Undo_And_Autosave_Costs()
-        {
+        public void Undo_And_Autosave_Costs() {
             string report = Environment.GetEnvironmentVariable("IROCA_UNDO_BENCH_REPORT");
-            if (string.IsNullOrEmpty(report)) Assert.Ignore("IROCA_UNDO_BENCH_REPORT が未設定です（Run-EditorTests.ps1 -UndoBench で明示実行）");
+            if (string.IsNullOrEmpty(report)) {
+                Assert.Ignore("IROCA_UNDO_BENCH_REPORT が未設定です（Run-EditorTests.ps1 -UndoBench で明示実行）");
+            }
 
             string tmpDir = Path.Combine(Path.GetTempPath(), "iroca_undobench_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tmpDir);
             var sb = new StringBuilder();
-            try
-            {
-                foreach (var kind in new[] { "none", "typical", "heavy" })
-                {
+            try {
+                foreach (var kind in new[] { "none", "typical", "heavy" }) {
                     _host = ScriptableObject.CreateInstance<IrocaEditingDocument>();
                     _host.session = Session(kind);
                     _editing = new EditingSession(_host);
                     var ms = _host.session.maskState;
                     _host.session.maskState = new MaskState();
-                    if (ms.width > 0) _editing.Masks.DecodeFrom(ms);
-                    else _editing.Masks.Reset(W, H);
+                    if (ms.width > 0) {
+                        _editing.Masks.DecodeFrom(ms);
+                    } else {
+                        _editing.Masks.Reset(W, H);
+                    }
                     _editing.CommitMaskEdit();
                     Undo.ClearAll();
                     long maskChars = (ms.commonMaskBase64?.Length ?? 0);
-                    foreach (var e in ms.zones) maskChars += e.maskBase64.Length;
-                    foreach (var e in ms.zoneIncludes) maskChars += e.maskBase64.Length;
+                    foreach (var e in ms.zones) {
+                        maskChars += e.maskBase64.Length;
+                    }
+                    foreach (var e in ms.zoneIncludes) {
+                        maskChars += e.maskBase64.Length;
+                    }
                     int windowJson = EditorJsonUtility.ToJson(_host).Length;
 
                     // スライダーのドラッグ 1 フレーム: 代入前に RecordObject、フレームの終わりで差分を取る(Flush で再現)。
                     var slider = new List<double>();
                     Undo.IncrementCurrentGroup();
-                    for (int i = 0; i < Reps + 2; i++)
-                    {
-                        double t = Time(() =>
-                        {
+                    for (int i = 0; i < Reps + 2; i++) {
+                        double t = Time(() => {
                             Undo.RecordObject(_host, "Iroca Edit");
                             _host.session.zones[0].tolerance += 0.0001f;
                             Undo.FlushUndoRecordObjects();
                         });
-                        if (i >= 2) slider.Add(t);
+                        if (i >= 2) {
+                            slider.Add(t);
+                        }
                     }
 
                     // 実際のドラッグに近い形: 1 回の操作の中では毎フレーム RecordObject するだけで、記録の確定
                     // (差分を取る)はマウスを離したときの 1 回(Unity が自動で行う。ここでは Flush で再現)。
                     var dragFrame = new List<double>();
                     var dragRelease = new List<double>();
-                    for (int g = 0; g < 5; g++)
-                    {
+                    for (int g = 0; g < 5; g++) {
                         Undo.IncrementCurrentGroup();
-                        for (int i = 0; i < Reps; i++)
-                            dragFrame.Add(Time(() =>
-                            {
+                        for (int i = 0; i < Reps; i++) {
+                            dragFrame.Add(Time(() => {
                                 Undo.RecordObject(_host, "Iroca Edit");
                                 _host.session.zones[0].tolerance += 0.0001f;
                             }));
+                        }
                         dragRelease.Add(Time(Undo.FlushUndoRecordObjects));
                     }
 
@@ -151,8 +152,7 @@ namespace Iroca.EditorTests
                     var strokeEnd = new List<double>();
                     var undo = new List<double>();
                     var redo = new List<double>();
-                    for (int i = 0; i < Reps; i++)
-                    {
+                    for (int i = 0; i < Reps; i++) {
                         Undo.IncrementCurrentGroup();
                         stroke.Add(Time(() => _editing.RecordMaskEdit("Paint Mask Stroke")));
                         _editing.Masks.WritableCommon().Set(i * 977 % (W * H), true);
@@ -171,8 +171,7 @@ namespace Iroca.EditorTests
                     var recipeParse = new List<double>();
                     string json = null, fullJson = null;
                     var encode = new List<double>();
-                    for (int i = 0; i < Reps; i++)
-                    {
+                    for (int i = 0; i < Reps; i++) {
                         encode.Add(Time(() => ms = _editing.ToSaveState().maskState));
                         maskJson.Add(Time(() => json = JsonUtility.ToJson(ms)));
                         // 毎回 1 文字変えて書く(実際に書く場合)・同じ中身(書かない場合)。
@@ -208,9 +207,7 @@ namespace Iroca.EditorTests
                     UnityEngine.Object.DestroyImmediate(_host);
                     _host = null;
                 }
-            }
-            finally
-            {
+            } finally {
                 try { Directory.Delete(tmpDir, true); } catch { }
             }
             File.AppendAllText(report, sb.ToString());

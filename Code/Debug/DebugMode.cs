@@ -2,8 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEditor;
 
-namespace Iroca.DebugTools
-{
+namespace Iroca.DebugTools {
     /// <summary>
     /// 「デバッグモード」のマスタースイッチ（EditorPrefs で永続化）。
     ///
@@ -15,28 +14,28 @@ namespace Iroca.DebugTools
     /// <see cref="DebugView"/>（キャプチャの実行可否ゲート）が共有する。
     /// Debug asmdef ごと削除すればフラグごと消え、本体には影響しない。
     /// </summary>
-    internal static class DebugMode
-    {
+    internal static class DebugMode {
         private const string PrefKey = IrocaPrefs.DebugMasterEnabled;
 
         private static bool s_loaded;
         private static bool s_enabled;
 
-        internal static bool IsEnabled
-        {
+        internal static bool IsEnabled {
             get { EnsureLoaded(); return s_enabled; }
-            set
-            {
+            set {
                 EnsureLoaded();
-                if (s_enabled == value) return;
+                if (s_enabled == value) {
+                    return;
+                }
                 s_enabled = value;
                 EditorPrefs.SetBool(PrefKey, value);
             }
         }
 
-        private static void EnsureLoaded()
-        {
-            if (s_loaded) return;
+        private static void EnsureLoaded() {
+            if (s_loaded) {
+                return;
+            }
             s_loaded = true;
             s_enabled = EditorPrefs.GetBool(PrefKey, false);
         }

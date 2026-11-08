@@ -4,17 +4,14 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Iroca
-{
-    public enum SelectionMode
-    {
+namespace Iroca {
+    public enum SelectionMode {
         ColorPick,
         Rect
     }
 
     [Serializable]
-    public partial class ColorZone
-    {
+    public partial class ColorZone {
         // 選択済み判定の strength 床。PixelProcessor 側の後段ゲート
         // (ApplyChromaCeilingGate / RecoverEnclosedNeutral / NeutralReject / SolidifyAchromaInterior)が
         // それぞれローカル const 0.05f を持っていたため一本化(値の意味: これ以下は「未選択」扱い)。
@@ -215,10 +212,10 @@ namespace Iroca
         /// </summary>
         public bool HasTargetColor => targetColorSet || targetColor != Color.white;
 
-        public void EnsureId()
-        {
-            if (string.IsNullOrEmpty(id))
+        public void EnsureId() {
+            if (string.IsNullOrEmpty(id)) {
                 id = Guid.NewGuid().ToString();
+            }
         }
 
         // 照合のキャッシュ(Selection/Legacy の ColorZone.Match.cs)を複製から切り離す。旧の照合を消したら呼ばれない。
@@ -231,8 +228,7 @@ namespace Iroca
         /// extraSamples は可変リストなので、クローン間で共有しないよう深いコピーにし、
         /// キャッシュのスナップショット参照も切り離して各クローンが独立に再計算するようにします。
         /// </summary>
-        public ColorZone Clone()
-        {
+        public ColorZone Clone() {
             var c = (ColorZone)MemberwiseClone();
             c.extraSamples = (extraSamples != null) ? new List<Color>(extraSamples) : new List<Color>();
             ResetMatchCache(c);
@@ -245,30 +241,29 @@ namespace Iroca
         /// 許容範囲）は保持し、上級モードで触る細かいパラメータのみリセットします。
         /// 試行錯誤で詳細値を壊したときに、ゾーンを作り直さずに復旧できるようにするためのもの。
         /// </summary>
-        public void ResetTuningToDefault()
-        {
+        public void ResetTuningToDefault() {
             var d = new ColorZone();
-            valueBlend              = d.valueBlend;
-            outputSaturation        = d.outputSaturation;
-            edgeSoftness            = d.edgeSoftness;
-            saturationStrictness    = d.saturationStrictness;
-            saturationGuard         = d.saturationGuard;
-            highlightRecovery       = d.highlightRecovery;
-            highlightBandExpand     = d.highlightBandExpand;
-            applyHighlightWash      = d.applyHighlightWash;
-            autoHighlightSample     = d.autoHighlightSample;
-            autoRecolorAnchor       = d.autoRecolorAnchor;
-            shadowDesaturation      = d.shadowDesaturation;
+            valueBlend = d.valueBlend;
+            outputSaturation = d.outputSaturation;
+            edgeSoftness = d.edgeSoftness;
+            saturationStrictness = d.saturationStrictness;
+            saturationGuard = d.saturationGuard;
+            highlightRecovery = d.highlightRecovery;
+            highlightBandExpand = d.highlightBandExpand;
+            applyHighlightWash = d.applyHighlightWash;
+            autoHighlightSample = d.autoHighlightSample;
+            autoRecolorAnchor = d.autoRecolorAnchor;
+            shadowDesaturation = d.shadowDesaturation;
             shadowForgivenessSatMin = d.shadowForgivenessSatMin;
-            shadowValueFloor        = d.shadowValueFloor;
-            partSatCeiling          = d.partSatCeiling;
-            partHueBand             = d.partHueBand;
-            chromaCeiling           = d.chromaCeiling;
-            holeFillMargin          = d.holeFillMargin;
-            chromaThreshold         = d.chromaThreshold;
-            valueWeight             = d.valueWeight;
-            satDistWeight           = d.satDistWeight;
-            satRampScale            = d.satRampScale;
+            shadowValueFloor = d.shadowValueFloor;
+            partSatCeiling = d.partSatCeiling;
+            partHueBand = d.partHueBand;
+            chromaCeiling = d.chromaCeiling;
+            holeFillMargin = d.holeFillMargin;
+            chromaThreshold = d.chromaThreshold;
+            valueWeight = d.valueWeight;
+            satDistWeight = d.satDistWeight;
+            satRampScale = d.satRampScale;
         }
     }
 }

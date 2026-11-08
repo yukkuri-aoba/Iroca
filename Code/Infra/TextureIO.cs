@@ -8,8 +8,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// Unity との境目で、画素をヒープの外(<see cref="NativePixels"/>)のまま読み書きする口(0.4.0 の計画の 2-4)。
     /// Unity 2022.3 の <c>GetPixels32</c>・<c>EncodeToPNG</c>・<c>ImageConversion.EncodeArrayToPNG</c> は管理配列しか
@@ -21,13 +20,11 @@ namespace Iroca
     /// 計画の 3.4.3 で T3 の例外)だけ。元ファイルをデコードできないもの(PSD など)は、取り込み済みテクスチャを
     /// 呼び出し側が読む(圧縮された中身を GPU の形式で持っているので <c>GetPixels32</c> で戻す。ここでは扱わない)。
     /// </summary>
-    internal static unsafe class TextureIO
-    {
+    internal static unsafe class TextureIO {
         /// <summary>
         /// CPU 側から画素を読めるテクスチャか(0.4.0 の計画の 4-1 で IrocaWindow から移した)。
         /// </summary>
-        internal static bool IsReadable(Texture2D tex)
-        {
+        internal static bool IsReadable(Texture2D tex) {
             // isReadable は CPU 側からピクセル読み取り可能かを示すネイティブプロパティ。
             // 旧実装の GetPixel(0,0)+例外捕捉(Read/Write 無効テクスチャで UnityException を
             // 投げる)と等価で、Read/Write 無効アセット=false、LoadImage 生成の一時テクスチャ=
@@ -40,13 +37,16 @@ namespace Iroca
         /// テクスチャの取り込み設定で Read/Write を有効にする(確かめのダイアログを出す。0.4.0 の計画の 4-1 で
         /// IrocaWindow から移した)。アセットでないテクスチャ・テクスチャの取り込みでないものは何もしない。
         /// </summary>
-        internal static void EnableReadWrite(Texture2D tex)
-        {
+        internal static void EnableReadWrite(Texture2D tex) {
             string path = UnityEditor.AssetDatabase.GetAssetPath(tex);
-            if (string.IsNullOrEmpty(path)) return;
+            if (string.IsNullOrEmpty(path)) {
+                return;
+            }
 
             var importer = UnityEditor.AssetImporter.GetAtPath(path) as UnityEditor.TextureImporter;
-            if (importer == null) return;
+            if (importer == null) {
+                return;
+            }
 
             // SaveAndReimport はディスク上の import 設定を書き換えるため Undo 不可。
             // 不可逆な操作として明示確認を取る。
@@ -54,8 +54,7 @@ namespace Iroca
                     Localization.Confirm,
                     Localization.EnableReadWriteConfirm,
                     Localization.OK,
-                    Localization.Cancel))
-            {
+                    Localization.Cancel)) {
                 return;
             }
 
@@ -80,26 +79,28 @@ namespace Iroca
         /// 全部を管理配列へ読んでいた)。PNG はヒープの外へ直接デコードする(<see cref="PngFileDecoder"/>)。JPG と、PNG のうち
         /// 扱わない形式は LoadImage で読む(管理配列しか受け取らないので、ファイルの大きさの配列を作る)。
         /// </summary>
-        public static NativePixels DecodeSourceFile(string srcPath, Texture2D workingFor)
-        {
+        public static NativePixels DecodeSourceFile(string srcPath, Texture2D workingFor) {
             var kind = SniffImage(srcPath);
-            if (kind == ImageKind.Other) return null;
-            if (kind == ImageKind.Png)
-            {
+            if (kind == ImageKind.Other) {
+                return null;
+            }
+            if (kind == ImageKind.Png) {
                 var decoded = PngFileDecoder.TryDecode(srcPath);
-                if (decoded != null) return WorkingResolution.FitToWorkingSize(decoded, workingFor);
+                if (decoded != null) {
+                    return WorkingResolution.FitToWorkingSize(decoded, workingFor);
+                }
             }
             Texture2D loadTex = null;
-            try
-            {
+            try {
                 byte[] srcBytes = File.ReadAllBytes(srcPath);
                 loadTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (loadTex.LoadImage(srcBytes))
+                if (loadTex.LoadImage(srcBytes)) {
                     return WorkingResolution.NativePixelsOf(loadTex, workingFor);
-            }
-            finally
-            {
-                if (loadTex != null) UnityEngine.Object.DestroyImmediate(loadTex);
+                }
+            } finally {
+                if (loadTex != null) {
+                    UnityEngine.Object.DestroyImmediate(loadTex);
+                }
             }
             return null;
         }
@@ -111,8 +112,7 @@ namespace Iroca
         /// 取り込み済みテクスチャから読む(LoadImage と GPU の展開はメインスレッド専用)。読んでいる間、Mono のヒープには
         /// 行の控えしか置かない。取り消されたら画素を手放して OperationCanceledException を投げる。
         /// </summary>
-        public static NativePixels TryDecodePngOffMainThread(string srcPath, int importW, int importH, CancellationToken cancel)
-        {
+        public static NativePixels TryDecodePngOffMainThread(string srcPath, int importW, int importH, CancellationToken cancel) {
             var decoded = PngFileDecoder.TryDecode(srcPath, cancel);
             return decoded == null ? null : WorkingResolution.FitToWorkingSize(decoded, importW, importH);
         }
@@ -120,17 +120,21 @@ namespace Iroca
         private enum ImageKind { Png, Jpeg, Other }
 
         // ファイルの先頭で見分ける(拡張子は当てにならない。中身が PNG の .tga や、大文字の .PNG がある)。
-        private static ImageKind SniffImage(string path)
-        {
+        private static ImageKind SniffImage(string path) {
             var head = new byte[8];
             int got = 0;
-            using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 8))
-            {
+            using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 8)) {
                 int n;
-                while (got < head.Length && (n = file.Read(head, got, head.Length - got)) > 0) got += n;
+                while (got < head.Length && (n = file.Read(head, got, head.Length - got)) > 0) {
+                    got += n;
+                }
             }
-            if (got < 8) return ImageKind.Other;
-            if (IsPngSignature(head)) return ImageKind.Png;
+            if (got < 8) {
+                return ImageKind.Other;
+            }
+            if (IsPngSignature(head)) {
+                return ImageKind.Png;
+            }
             return head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF ? ImageKind.Jpeg : ImageKind.Other;
         }
 
@@ -142,17 +146,18 @@ namespace Iroca
         /// 呼び出し側が Dispose する。画素は返るまで呼び出し側が持つこと。どのスレッドから呼んでもよいか
         /// (<c>EncodeNativeArrayToPNG</c> がスレッドセーフか)は EditMode テストで確かめる(TextureIOTests)。
         /// </summary>
-        public static NativeArray<byte> EncodePng(NativePixels pixels)
-        {
-            if (pixels == null) throw new ArgumentNullException(nameof(pixels));
-            using (var view = NativeView<byte>.Over(pixels.Ptr, pixels.Length * sizeof(Color32)))
-            {
+        public static NativeArray<byte> EncodePng(NativePixels pixels) {
+            if (pixels == null) {
+                throw new ArgumentNullException(nameof(pixels));
+            }
+            using (var view = NativeView<byte>.Over(pixels.Ptr, pixels.Length * sizeof(Color32))) {
                 // Color32 は sRGB のバイト値なので R8G8B8A8_SRGB(ExportPipeline.EncodePng と同じ指定)。
                 var png = ImageConversion.EncodeNativeArrayToPNG(view.Array, GraphicsFormat.R8G8B8A8_SRGB,
                     (uint)pixels.Width, (uint)pixels.Height);
-                if (!png.IsCreated || png.Length == 0)
-                {
-                    if (png.IsCreated) png.Dispose();
+                if (!png.IsCreated || png.Length == 0) {
+                    if (png.IsCreated) {
+                        png.Dispose();
+                    }
                     // 文言は呼び出し側(UI)が出す(Infra からは Localization を見ない)。
                     throw new InvalidOperationException("EncodeNativeArrayToPNG returned no data");
                 }
@@ -168,15 +173,14 @@ namespace Iroca
         /// (<see cref="AtomicFile.WriteAllBytes"/> と同じ置き換え方。途中で落ちても既存のファイルを壊さない)。
         /// 出力先のフォルダが無ければ作る。
         /// </summary>
-        public static void WriteAllBytes(string path, NativeArray<byte> bytes)
-        {
+        public static void WriteAllBytes(string path, NativeArray<byte> bytes) {
             string dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            AtomicFile.WriteAll(path, fs =>
-            {
+            if (!string.IsNullOrEmpty(dir)) {
+                Directory.CreateDirectory(dir);
+            }
+            AtomicFile.WriteAll(path, fs => {
                 var chunk = new byte[StreamChunkBytes];
-                for (int off = 0; off < bytes.Length; off += chunk.Length)
-                {
+                for (int off = 0; off < bytes.Length; off += chunk.Length) {
                     int n = Math.Min(chunk.Length, bytes.Length - off);
                     NativeArray<byte>.Copy(bytes, off, chunk, 0, n);
                     fs.Write(chunk, 0, n);
@@ -188,18 +192,17 @@ namespace Iroca
         /// ヒープの外の領域を <see cref="NativeArray{T}"/> に見せる(写さない)。エディタでは安全ハンドルを作り、
         /// Dispose で手放す(領域そのものは手放さない。持ち主は呼び出し側)。見せている間、領域を手放さないこと。
         /// </summary>
-        internal struct NativeView<T> : IDisposable where T : struct
-        {
+        internal struct NativeView<T> : IDisposable where T : struct {
             public NativeArray<T> Array;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             private AtomicSafetyHandle _safety;
 #endif
 
-            public static NativeView<T> Over(void* ptr, int length)
-            {
-                if (ptr == null) throw new ArgumentNullException(nameof(ptr));
-                var v = new NativeView<T>
-                {
+            public static NativeView<T> Over(void* ptr, int length) {
+                if (ptr == null) {
+                    throw new ArgumentNullException(nameof(ptr));
+                }
+                var v = new NativeView<T> {
                     Array = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<T>(ptr, length, Allocator.None),
                 };
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -209,8 +212,7 @@ namespace Iroca
                 return v;
             }
 
-            public void Dispose()
-            {
+            public void Dispose() {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 AtomicSafetyHandle.Release(_safety);
 #endif

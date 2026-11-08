@@ -2,18 +2,15 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Runtime.CompilerServices;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 1 画素 1 bit のビット列の下回り(0.4.0 の計画の 3-5 で、混色帯と選択キャッシュの鍵が別々に持っていた
     /// 実装を 1 つにした)。
     /// </summary>
-    internal static class Bits
-    {
+    internal static class Bits {
         /// <summary>立っているビットの数。</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static int PopCount(ulong v)
-        {
+        internal static int PopCount(ulong v) {
 #if NETCOREAPP3_0_OR_GREATER
             return System.Numerics.BitOperations.PopCount(v);
 #else

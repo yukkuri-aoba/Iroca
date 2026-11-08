@@ -3,8 +3,7 @@
 
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// マニュアルを開く。マニュアルはオンライン版(GitHub Pages)だけで配り、パッケージには入れない。
     /// <para>
@@ -12,8 +11,7 @@ namespace Iroca
     /// 手元に古い版が残らず、いつも最新の説明が開く(入れている版より新しい説明になることはある)。
     /// </para>
     /// </summary>
-    internal static class IrocaManual
-    {
+    internal static class IrocaManual {
         public const string OnlineUrl = "https://yukkuri-aoba.github.io/Iroca/manual/";
 
         public static void Open() => Application.OpenURL(OnlineUrl);

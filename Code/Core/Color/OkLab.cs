@@ -3,14 +3,12 @@
 using System;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// sRGB と OkLab の変換。再着色の中核(<see cref="PixelProcessor"/>)と、自動化の手がかり
     /// (<c>TextureColorSummary</c>)が同じ式を使う(0.4.0 の 3-5 で PixelProcessor から切り出した)。
     /// </summary>
-    internal static class OkLab
-    {
+    internal static class OkLab {
         // ───────────── OkLab 知覚色空間ヘルパー (リング除去の中核) ─────────────
         // リング(ドーナツ)の根本原因は「HSV の V/S は知覚的でないため、S/V を保持して
         // 色相だけ変えると元の単調な輝度 falloff が変換先の色の輝度応答で非単調化する」こと。
@@ -28,38 +26,40 @@ namespace Iroca
         private static readonly float[] s_srgbToLinearLut = BuildSrgbToLinearLut();
         private static readonly float[] s_linearToSrgbLut = BuildLinearToSrgbLut();
 
-        private static float[] BuildSrgbToLinearLut()
-        {
+        private static float[] BuildSrgbToLinearLut() {
             var lut = new float[256];
-            for (int i = 0; i < 256; i++) lut[i] = SrgbToLinear(i / 255f);
+            for (int i = 0; i < 256; i++) {
+                lut[i] = SrgbToLinear(i / 255f);
+            }
             return lut;
         }
 
-        private static float[] BuildLinearToSrgbLut()
-        {
+        private static float[] BuildLinearToSrgbLut() {
             // インデックス k は線形値 k/LinToSrgbLutSize に対応。線形補間用に末尾 +1 エントリ。
             var lut = new float[LinToSrgbLutSize + 1];
-            for (int k = 0; k <= LinToSrgbLutSize; k++)
+            for (int k = 0; k <= LinToSrgbLutSize; k++) {
                 lut[k] = LinearToSrgbExact((float)k / LinToSrgbLutSize);
+            }
             return lut;
         }
 
-        private static float SrgbToLinear(float c)
-        {
+        private static float SrgbToLinear(float c) {
             c = Mathf.Clamp01(c);
             return c <= 0.04045f ? c / 12.92f : Mathf.Pow((c + 0.055f) / 1.055f, 2.4f);
         }
 
-        private static float LinearToSrgbExact(float c)
-        {
+        private static float LinearToSrgbExact(float c) {
             c = Mathf.Clamp01(c);
             return c <= 0.0031308f ? c * 12.92f : 1.055f * Mathf.Pow(c, 1f / 2.4f) - 0.055f;
         }
 
-        private static float LinearToSrgb(float c)
-        {
-            if (c <= 0f) return 0f;
-            if (c >= 1f) return 1f;
+        private static float LinearToSrgb(float c) {
+            if (c <= 0f) {
+                return 0f;
+            }
+            if (c >= 1f) {
+                return 1f;
+            }
             float f = c * LinToSrgbLutSize;
             int k = (int)f;                 // c<1 なので 0..LinToSrgbLutSize-1
             float frac = f - k;
@@ -67,15 +67,13 @@ namespace Iroca
             return a + (s_linearToSrgbLut[k + 1] - a) * frac;
         }
 
-        private static float Cbrt(float x)
-        {
+        private static float Cbrt(float x) {
             // MathF.Cbrt は負値も正しく扱い、Mathf.Pow(x,1/3) より高精度。
             return MathF.Cbrt(x);
         }
 
         private static void OklabFromLinear(float lr, float lg, float lb,
-            out float L, out float a, out float bb)
-        {
+            out float L, out float a, out float bb) {
             float l = 0.4122214708f * lr + 0.5363325363f * lg + 0.0514459929f * lb;
             float m = 0.2119034982f * lr + 0.6806995451f * lg + 0.1073969566f * lb;
             float s = 0.0883024619f * lr + 0.2817188376f * lg + 0.6299787005f * lb;
@@ -87,23 +85,20 @@ namespace Iroca
 
         // 任意 float 入力版(ゾーン定数: sample/target 色)。
         internal static void RgbToOklab(float r, float g, float b,
-            out float L, out float a, out float bb)
-        {
+            out float L, out float a, out float bb) {
             OklabFromLinear(SrgbToLinear(r), SrgbToLinear(g), SrgbToLinear(b), out L, out a, out bb);
         }
 
         // byte 入力版(per-pixel 経路)。SrgbToLinear を 256 エントリ LUT で厳密に表引きする。
         internal static void RgbToOklab(byte r, byte g, byte b,
-            out float L, out float a, out float bb)
-        {
+            out float L, out float a, out float bb) {
             OklabFromLinear(s_srgbToLinearLut[r], s_srgbToLinearLut[g], s_srgbToLinearLut[b],
                 out L, out a, out bb);
         }
 
         // OkLab → 線形 sRGB(切り詰めなし)。範囲の判定と変換で同じ値を使うために分けてある。
         private static void OklabToLinear(float L, float a, float b,
-            out float lr, out float lg, out float lb)
-        {
+            out float lr, out float lg, out float lb) {
             float l_ = L + 0.3963377774f * a + 0.2158037573f * b;
             float m_ = L - 0.1055613458f * a - 0.0638541728f * b;
             float s_ = L - 0.0894841775f * a - 1.2914855480f * b;
@@ -114,8 +109,7 @@ namespace Iroca
         }
 
         internal static void OklabToRgb(float L, float a, float b,
-            out float r, out float g, out float bb)
-        {
+            out float r, out float g, out float bb) {
             OklabToLinear(L, a, b, out float lr, out float lg, out float lb);
             r = LinearToSrgb(lr);
             g = LinearToSrgb(lg);
@@ -137,17 +131,18 @@ namespace Iroca
             && lb >= -GamutEps && lb <= 1f + GamutEps;
 
         internal static void OklabToRgbInGamut(float L, float a, float b,
-            out float r, out float g, out float bb)
-        {
+            out float r, out float g, out float bb) {
             OklabToLinear(L, a, b, out float lr, out float lg, out float lb);
-            if (!InLinearGamut(lr, lg, lb))
-            {
+            if (!InLinearGamut(lr, lg, lb)) {
                 float lo = 0f, hi = 1f;
-                for (int it = 0; it < GamutBisectSteps; it++)
-                {
+                for (int it = 0; it < GamutBisectSteps; it++) {
                     float k = (lo + hi) * 0.5f;
                     OklabToLinear(L, a * k, b * k, out float tr, out float tg, out float tb);
-                    if (InLinearGamut(tr, tg, tb)) lo = k; else hi = k;
+                    if (InLinearGamut(tr, tg, tb)) {
+                        lo = k;
+                    } else {
+                        hi = k;
+                    }
                 }
                 OklabToLinear(L, a * lo, b * lo, out lr, out lg, out lb);
             }

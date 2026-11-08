@@ -2,8 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// いろかの「レシピ」: 1 枚の元テクスチャに対する色替えの編集内容(ゾーン・処理設定・マスク)。
     /// Assets にアセットとして置き、<see cref="IrocaRecolor"/> から参照する。中身はいろかウィンドウで
@@ -14,8 +13,7 @@ namespace Iroca
     /// スクリプトの GUID は .meta を追跡して固定している(アセットが GUID で参照するため)。
     /// </para>
     /// </summary>
-    public sealed class IrocaRecipe : ScriptableObject
-    {
+    public sealed class IrocaRecipe : ScriptableObject {
         /// <summary>保存形式の版。読み書きの分岐が要るように形式を変えたら上げる。</summary>
         public const int CurrentFormatVersion = 1;
 

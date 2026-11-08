@@ -2,8 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 俯瞰スポイト補正: ハイライト合成(wash)に使う実効サンプル色を、テクスチャ全体から自動導出する。
     ///
@@ -16,28 +15,30 @@ namespace Iroca
     /// 鏡面グラデが潰れない。**match / base は元の sampleColor のまま**なので再着色範囲は不変
     /// (= 新規の誤検出は増えない)。
     /// </summary>
-    internal static unsafe class HighlightSampleCorrector
-    {
-        private const float MinSampleSat   = 0.20f;  // 源色がこれ未満(灰色寄り)なら補正しない(色相が不安定)
-        private const float BodySatFrac    = 0.50f;  // 地色とみなす彩度下限(源色相対)。脱彩した wash 済み明部を除外
-        private const float HueBand        = 0.15f;  // 同色相とみなす色相帯(許容値非依存の緩め)
+    internal static unsafe class HighlightSampleCorrector {
+        private const float MinSampleSat = 0.20f;  // 源色がこれ未満(灰色寄り)なら補正しない(色相が不安定)
+        private const float BodySatFrac = 0.50f;  // 地色とみなす彩度下限(源色相対)。脱彩した wash 済み明部を除外
+        private const float HueBand = 0.15f;  // 同色相とみなす色相帯(許容値非依存の緩め)
         private const float HighlightGatePct = 0.75f; // スポイトVが地色Vのこのpercentileより上のときだけ補正
-        private const float TargetPct        = 0.60f; // 補正時の washV = 地色Vのこのpercentile(上位~40%だけ白寄せ)
-        private const int   MinBodyPixels    = 100;   // 地色画素がこれ未満なら補正しない(PixelProcessor.AnchorMinPixels と同基準)
+        private const float TargetPct = 0.60f; // 補正時の washV = 地色Vのこのpercentile(上位~40%だけ白寄せ)
+        private const int MinBodyPixels = 100;   // 地色画素がこれ未満なら補正しない(PixelProcessor.AnchorMinPixels と同基準)
 
         /// <summary>
         /// wash 用サンプル色を返す。autoHighlightSample=false / 低彩度源色 / 地色画素が少ない場合は
         /// zone.sampleColor をそのまま返す(= 従来挙動)。
         /// </summary>
         public static Color ComputeWashSample(
-            Color32* px, PixelProcessor.PixelHsv hsv, int w, int h, ColorZone zone)
-        {
+            Color32* px, PixelProcessor.PixelHsv hsv, int w, int h, ColorZone zone) {
             float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             Color sample = zone.sampleColor;
-            if (!zone.applyHighlightWash || !zone.autoHighlightSample) return sample;
+            if (!zone.applyHighlightWash || !zone.autoHighlightSample) {
+                return sample;
+            }
 
             Color.RGBToHSV(sample, out float sH, out float sS, out float sV);
-            if (sS < MinSampleSat) return sample;
+            if (sS < MinSampleSat) {
+                return sample;
+            }
 
             float satFloor = sS * BodySatFrac;
 
@@ -45,32 +46,41 @@ namespace Iroca
             // ヒストグラムは整数加算だけで集計順に依存しないため行並列化できる(結果は逐次版と同値)。
             // 4K では全画素 1670 万回の逐次ループで、再着色パラメータを変えるたびに毎回走っていた。
             var vHist = new int[256];
-            int body = Histogram.AccumulateParallelRows(0, h, vHist, (y0, y1, hist) =>
-            {
+            int body = Histogram.AccumulateParallelRows(0, h, vHist, (y0, y1, hist) => {
                 int n = 0;
-                for (int y = y0; y < y1; y++)
-                {
+                for (int y = y0; y < y1; y++) {
                     int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
+                    for (int x = 0; x < w; x++) {
                         int i = rowOff + x;
-                        if (px[i].a < PixelProcessor.OpaqueAlphaMin) continue;
-                        if (pixS[PixelProcessor.HsvSlot(pixIdx, i)] < satFloor) continue;
+                        if (px[i].a < PixelProcessor.OpaqueAlphaMin) {
+                            continue;
+                        }
+                        if (pixS[PixelProcessor.HsvSlot(pixIdx, i)] < satFloor) {
+                            continue;
+                        }
                         float hd = Mathf.Abs(pixH[PixelProcessor.HsvSlot(pixIdx, i)] - sH);
-                        if (hd > 0.5f) hd = 1f - hd;
-                        if (hd >= HueBand) continue;
+                        if (hd > 0.5f) {
+                            hd = 1f - hd;
+                        }
+                        if (hd >= HueBand) {
+                            continue;
+                        }
                         n++;
                         hist[Mathf.Clamp((int)(pixV[PixelProcessor.HsvSlot(pixIdx, i)] * 255f), 0, 255)]++;
                     }
                 }
                 return n;
             });
-            if (body < MinBodyPixels) return sample;
+            if (body < MinBodyPixels) {
+                return sample;
+            }
 
             // スポイトが地色帯の高 percentile より上＝明らかにハイライトを取った時だけ補正する。
             // 地色帯内のスポイト(ハイライトでない)は補正しない＝房の多いテクスチャ等での過剰白寄せを防ぐ。
             float gateV = Histogram.ValueAtPercentile(vHist, body, HighlightGatePct, 1f);
-            if (sV <= gateV) return sample;
+            if (sV <= gateV) {
+                return sample;
+            }
 
             // 補正時の wash しきい(washV)= 地色帯上部(TargetPct)。中央値まで下げない(=上位~40%だけ白寄せ)。
             float targetV = Histogram.ValueAtPercentile(vHist, body, TargetPct, 1f);

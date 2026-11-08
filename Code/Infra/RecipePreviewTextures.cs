@@ -6,8 +6,7 @@ using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// シーン上のプレビューで、登録済みのレシピ(いろかウィンドウで編集していないもの)を映すための
     /// 色替え済みテクスチャの貸し借り。作り方は非破壊ビルドと同じで(<see cref="RecipeTextureBuilder.BuildAsync"/>)、
@@ -21,10 +20,8 @@ namespace Iroca
     /// 作り直す(取り消した作りかけを、後から借りた人に貸さない)。
     /// </para>
     /// </summary>
-    internal static class RecipePreviewTextures
-    {
-        private sealed class Entry
-        {
+    internal static class RecipePreviewTextures {
+        private sealed class Entry {
             public Texture2D texture;
             // 出来上がり(作れなければ null)。完了はメインスレッド。
             public Task<Texture2D> ready;
@@ -43,8 +40,7 @@ namespace Iroca
         private static readonly Dictionary<string, Entry> Entries = new Dictionary<string, Entry>();
 
         [InitializeOnLoadMethod]
-        private static void Install()
-        {
+        private static void Install() {
             AssemblyReloadEvents.beforeAssemblyReload -= ReleaseAll;
             AssemblyReloadEvents.beforeAssemblyReload += ReleaseAll;
         }
@@ -54,26 +50,25 @@ namespace Iroca
         /// 読めない)null。キャッシュがあれば完了済みの Task を返す。返すときは <paramref name="key"/>
         /// (作れないと最初から分かっているときは null)を <see cref="Release"/> に渡す。
         /// </summary>
-        public static Task<Texture2D> Acquire(IrocaRecipe recipe, out string key)
-        {
+        public static Task<Texture2D> Acquire(IrocaRecipe recipe, out string key) {
             key = null;
             var like = recipe != null ? recipe.sourceTexture : null;
-            if (like == null) return Nothing;
+            if (like == null) {
+                return Nothing;
+            }
             string k = RecipeTextureBuilder.CacheKey(recipe, like);
-            if (Entries.TryGetValue(k, out var entry))
-            {
+            if (Entries.TryGetValue(k, out var entry)) {
                 // 手元にある・作っている途中なら、それを共有する。
-                if (entry.texture != null || entry.Building)
-                {
+                if (entry.texture != null || entry.Building) {
                     entry.refs++;
-                    if (!entry.ready.IsCompleted) entry.waiting++;
+                    if (!entry.ready.IsCompleted) {
+                        entry.waiting++;
+                    }
                     key = k;
                     return entry.ready;
                 }
                 // 作れなかった・取り消した(または外から消された)ものは作り直す。借り手の数はそのまま引き継ぐ。
-            }
-            else
-            {
+            } else {
                 entry = new Entry();
                 Entries[k] = entry;
             }
@@ -84,23 +79,24 @@ namespace Iroca
             entry.ready = ready.Task;
             entry.cancel = cancel;
             entry.waiting = 1;
-            RecipeTextureBuilder.BuildAsync(recipe, cancel.Token, texture =>
-            {
+            RecipeTextureBuilder.BuildAsync(recipe, cancel.Token, texture => {
                 // 作っている間に借り手が全員返していたら(またはまとめて捨てられたら)、または取り消して作り直して
                 // いる(別の作りかけに替わった)なら、出来上がりは捨てる。
-                if (!Entries.TryGetValue(k, out var current) || current != entry || current.ready != ready.Task)
-                {
-                    if (texture != null) Object.DestroyImmediate(texture);
+                if (!Entries.TryGetValue(k, out var current) || current != entry || current.ready != ready.Task) {
+                    if (texture != null) {
+                        Object.DestroyImmediate(texture);
+                    }
                     ready.SetResult(null);
                     return;
                 }
-                if (texture != null) texture.hideFlags = HideFlags.HideAndDontSave;
+                if (texture != null) {
+                    texture.hideFlags = HideFlags.HideAndDontSave;
+                }
                 entry.texture = texture;
                 ready.SetResult(texture);
             });
 
-            if (ready.Task.IsCompleted && ready.Task.Result == null)
-            {
+            if (ready.Task.IsCompleted && ready.Task.Result == null) {
                 // その場で作れないと分かった。借りたことにしない。
                 Release(k);
                 return Nothing;
@@ -109,12 +105,19 @@ namespace Iroca
             return ready.Task;
         }
 
-        public static void Release(string key)
-        {
-            if (key == null || !Entries.TryGetValue(key, out var entry)) return;
-            if (--entry.refs > 0) return;
-            if (!entry.ready.IsCompleted) entry.cancel.Cancel();   // 誰も使わない作りかけは止める
-            if (entry.texture != null) Object.DestroyImmediate(entry.texture);
+        public static void Release(string key) {
+            if (key == null || !Entries.TryGetValue(key, out var entry)) {
+                return;
+            }
+            if (--entry.refs > 0) {
+                return;
+            }
+            if (!entry.ready.IsCompleted) {
+                entry.cancel.Cancel();   // 誰も使わない作りかけは止める
+            }
+            if (entry.texture != null) {
+                Object.DestroyImmediate(entry.texture);
+            }
             Entries.Remove(key);
         }
 
@@ -124,11 +127,16 @@ namespace Iroca
         /// いなくなったら作りかけを取り消し、<paramref name="ready"/> はすぐ null で完了する。ほかの借り手が待って
         /// いれば取り消さない。出来上がった後や、作り直した後の作りかけには何もしない。
         /// </summary>
-        public static void Abandon(string key, Task<Texture2D> ready)
-        {
-            if (key == null || ready == null || ready.IsCompleted) return;
-            if (!Entries.TryGetValue(key, out var entry) || entry.ready != ready) return;
-            if (--entry.waiting > 0) return;
+        public static void Abandon(string key, Task<Texture2D> ready) {
+            if (key == null || ready == null || ready.IsCompleted) {
+                return;
+            }
+            if (!Entries.TryGetValue(key, out var entry) || entry.ready != ready) {
+                return;
+            }
+            if (--entry.waiting > 0) {
+                return;
+            }
             entry.cancel.Cancel();
         }
 
@@ -137,22 +145,20 @@ namespace Iroca
 
         // リロードの前に呼ばれる。1 つ捨てるのに失敗しても残りを捨て、例外を外へ出さない(Unity は購読者を順に
         // 呼ぶだけで、ここで投げると他ツールのリロード前の後始末が呼ばれない)。
-        private static void ReleaseAll()
-        {
-            try
-            {
-                foreach (var entry in Entries.Values)
-                {
-                    try
-                    {
+        private static void ReleaseAll() {
+            try {
+                foreach (var entry in Entries.Values) {
+                    try {
                         // 作りかけの計算も止める(リロードの後には受け取り手がいない)。
-                        if (!entry.ready.IsCompleted) entry.cancel.Cancel();
-                        if (entry.texture != null) Object.DestroyImmediate(entry.texture);
-                    }
-                    catch (System.Exception e) { Debug.LogException(e); }
+                        if (!entry.ready.IsCompleted) {
+                            entry.cancel.Cancel();
+                        }
+                        if (entry.texture != null) {
+                            Object.DestroyImmediate(entry.texture);
+                        }
+                    } catch (System.Exception e) { Debug.LogException(e); }
                 }
-            }
-            finally { Entries.Clear(); }
+            } finally { Entries.Clear(); }
         }
     }
 }

@@ -17,8 +17,7 @@
 using Newtonsoft.Json.Linq;
 using MCPForUnity.Editor.Tools;
 
-namespace Iroca.McpIntegration
-{
+namespace Iroca.McpIntegration {
     /// <summary>
     /// 色替えの対象を調べるツール（<see cref="IrocaAutomation.Inspect"/>）。シーンのアバター一覧・
     /// オブジェクトが使うテクスチャ・テクスチャの主な色と代表点（印付きの縮小画像つき）を返す。
@@ -32,10 +31,8 @@ namespace Iroca.McpIntegration
         + "reports whether NDMF and the AI can be used, and the preset names. To check a result, pass 'points' ([[u,v],...]): for each spot it "
         + "returns the color before and after, the zone painting it, each zone's selection strength and masks, and its mesh and UV island. "
         + "'points' or coverage=true runs the recolor once, which takes a moment on a large texture.")]
-    public static class IrocaInspectTool
-    {
-        public class Parameters
-        {
+    public static class IrocaInspectTool {
+        public class Parameters {
             [ToolParameter("Scene object path/name/'#instanceID', or a texture/material asset path (Assets/...). Omit to list the scene.", Required = false)]
             public string target { get; set; }
 
@@ -49,35 +46,39 @@ namespace Iroca.McpIntegration
             public bool? coverage { get; set; }
         }
 
-        public static object HandleCommand(JObject @params)
-        {
+        public static object HandleCommand(JObject @params) {
             var p = @params != null ? @params.ToObject<Parameters>() : new Parameters();
-            if (!TryReadPoints(p.points, out float[] points))
+            if (!TryReadPoints(p.points, out float[] points)) {
                 return McpResponses.Error("'points' must be an array of [u, v] pairs, like [[0.5,0.25],[0.1,0.9]].");
+            }
             return McpResponses.FromAutomationResult(
                 IrocaAutomation.Inspect(p.target, p.max_colors ?? 0, points, p.coverage ?? false), "inspect failed");
         }
 
         // [[u,v],...](文字列で送ってくるクライアントもある)を u, v の並びにする。
-        private static bool TryReadPoints(JToken token, out float[] points)
-        {
+        private static bool TryReadPoints(JToken token, out float[] points) {
             points = null;
-            if (token == null || token.Type == JTokenType.Null) return true;
-            try
-            {
-                if (token.Type == JTokenType.String) token = JToken.Parse((string)token);
-                if (!(token is JArray list)) return false;
+            if (token == null || token.Type == JTokenType.Null) {
+                return true;
+            }
+            try {
+                if (token.Type == JTokenType.String) {
+                    token = JToken.Parse((string)token);
+                }
+                if (!(token is JArray list)) {
+                    return false;
+                }
                 var flat = new System.Collections.Generic.List<float>();
-                foreach (var item in list)
-                {
-                    if (!(item is JArray pair) || pair.Count != 2) return false;
+                foreach (var item in list) {
+                    if (!(item is JArray pair) || pair.Count != 2) {
+                        return false;
+                    }
                     flat.Add((float)pair[0]);
                     flat.Add((float)pair[1]);
                 }
                 points = flat.ToArray();
                 return true;
-            }
-            catch (System.Exception) { return false; }
+            } catch (System.Exception) { return false; }
         }
     }
 
@@ -99,10 +100,8 @@ namespace Iroca.McpIntegration
         + "returned 'preview' image (left=before, middle=after, right=changed pixels in magenta) to check. Call it one at a time: "
         + "a call made while another is running is refused.",
         RequiresPolling = true, PollAction = "status", MaxPollSeconds = 600)]
-    public static class IrocaRecolorTool
-    {
-        public class Parameters
-        {
+    public static class IrocaRecolorTool {
+        public class Parameters {
             [ToolParameter("Texture or material asset path (Assets/...).")]
             public string texture { get; set; }
 
@@ -141,19 +140,16 @@ namespace Iroca.McpIntegration
         // あるので短めにする。
         private const double PollIntervalSeconds = 0.25;
 
-        public static object HandleCommand(JObject @params)
-        {
+        public static object HandleCommand(JObject @params) {
             // サーバーは途中経過(pending)を受けると、同じ引数に action="status" を足して問い合わせ直してくる。
-            if (@params != null && (string)@params["action"] == "status")
+            if (@params != null && (string)@params["action"] == "status") {
                 return McpResponses.FromAutomationPendingOrResult(IrocaAutomation.RecolorStatus(), PollIntervalSeconds, "recolor failed");
+            }
 
             var request = @params != null ? (JObject)@params.DeepClone() : new JObject();
-            foreach (var key in new[] { "changes", "masks", "remove" })
-            {
-                if (request[key] is JValue v && v.Type == JTokenType.String)
-                {
-                    try { request[key] = JToken.Parse((string)v); }
-                    catch { return McpResponses.Error($"'{key}' must be a JSON array."); }
+            foreach (var key in new[] { "changes", "masks", "remove" }) {
+                if (request[key] is JValue v && v.Type == JTokenType.String) {
+                    try { request[key] = JToken.Parse((string)v); } catch { return McpResponses.Error($"'{key}' must be a JSON array."); }
                 }
             }
             return McpResponses.FromAutomationPendingOrResult(IrocaAutomation.Recolor(request.ToString()), PollIntervalSeconds, "recolor failed");
@@ -164,16 +160,13 @@ namespace Iroca.McpIntegration
     [McpForUnityTool("iroca_open", Description =
         "Iroca step 3 (optional): open a texture in the Iroca window so the user can fine-tune it by hand. "
         + "Target: a recipe, texture or material asset path, or a scene object that has one Iroca recipe.")]
-    public static class IrocaOpenTool
-    {
-        public class Parameters
-        {
+    public static class IrocaOpenTool {
+        public class Parameters {
             [ToolParameter("Recipe/texture/material asset path, or a scene object with an Iroca recipe.")]
             public string target { get; set; }
         }
 
-        public static object HandleCommand(JObject @params)
-        {
+        public static object HandleCommand(JObject @params) {
             var p = @params != null ? @params.ToObject<Parameters>() : new Parameters();
             return McpResponses.FromAutomationResult(IrocaAutomation.Open(p.target), "open failed");
         }

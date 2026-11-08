@@ -5,23 +5,20 @@ using System.Threading;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 自動調整の流れ(<see cref="AutoTuneService"/>)。ウィンドウと自動化が同じ手順を使う: 位置の無いゾーンは証拠なし、
     /// 位置があれば AI の提案を待って証拠つき、背景まで広がった提案は証拠なし、AI が無ければ中止。結果は Core の解析を
     /// 直接呼んだものと同じ。AI は偽物(<see cref="FakeMaskSuggestService"/>)に差し替えるので Sentis の無いホストでも走る。
     /// </summary>
-    public class AutoTuneServiceTests
-    {
+    public class AutoTuneServiceTests {
         private const int W = 64, H = 64;
         private IMaskSuggestService _saved;
         private FakeMaskSuggestService _svc;
         private NativePixels _pixels;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _saved = MaskSuggestBridge.Service;
             _svc = new FakeMaskSuggestService();
             MaskSuggestBridge.Service = _svc;
@@ -30,38 +27,36 @@ namespace Iroca.EditorTests
         }
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             _pixels.Release();
             MaskSuggestBridge.Service = _saved;
             AiSuggestBroker.EnsureSubscribed();
         }
 
         // 左半分は陰影のある赤、右半分は青(下原点)。
-        private static Color32[] Halves()
-        {
+        private static Color32[] Halves() {
             var px = new Color32[W * H];
-            for (int y = 0; y < H; y++)
-            for (int x = 0; x < W; x++)
-            {
-                byte shade = (byte)(150 + (x * 7 + y * 3) % 70);
-                px[y * W + x] = x < W / 2 ? new Color32(shade, 30, 30, 255) : new Color32(30, 40, 200, 255);
+            for (int y = 0; y < H; y++) {
+                for (int x = 0; x < W; x++) {
+                    byte shade = (byte)(150 + (x * 7 + y * 3) % 70);
+                    px[y * W + x] = x < W / 2 ? new Color32(shade, 30, 30, 255) : new Color32(30, 40, 200, 255);
+                }
             }
             return px;
         }
 
-        private static ColorZone RedZone(bool clicked)
-        {
+        private static ColorZone RedZone(bool clicked) {
             var z = EditingSession.NewZone(new System.Collections.Generic.List<ColorZone>());
             z.sampleColor = new Color32(185, 30, 30, 255);
             z.targetColor = new Color(0.1f, 0.2f, 0.6f);
-            if (clicked) z.sampleUV = new Vector2(0.25f, 0.5f);
+            if (clicked) {
+                z.sampleUV = new Vector2(0.25f, 0.5f);
+            }
             z.EnsureId();
             return z;
         }
 
-        private static IrocaSessionState Session(ColorZone zone)
-        {
+        private static IrocaSessionState Session(ColorZone zone) {
             var s = IrocaSessionState.CreateDefault();
             s.zones.Clear();
             s.zones.Add(zone);
@@ -69,12 +64,13 @@ namespace Iroca.EditorTests
         }
 
         // 左半分(赤)を素材とする証拠。
-        private static bool[] LeftHalfMask()
-        {
+        private static bool[] LeftHalfMask() {
             var m = new bool[W * H];
-            for (int y = 0; y < H; y++)
-            for (int x = 0; x < W / 2; x++)
-                m[y * W + x] = true;
+            for (int y = 0; y < H; y++) {
+                for (int x = 0; x < W / 2; x++) {
+                    m[y * W + x] = true;
+                }
+            }
             return m;
         }
 
@@ -82,11 +78,9 @@ namespace Iroca.EditorTests
         private static MaskSuggestProposal LeftHalf(bool flood = false)
             => new MaskSuggestProposal { mask = NativeBools.CopyOf(LeftHalfMask(), W, H), width = W, height = H, floodWarning = flood };
 
-        private static void WaitForAnalysis(AutoTuneService.Run run)
-        {
+        private static void WaitForAnalysis(AutoTuneService.Run run) {
             var sw = Stopwatch.StartNew();
-            while (run.Status == AutoTuneService.Status.Analyzing)
-            {
+            while (run.Status == AutoTuneService.Status.Analyzing) {
                 Assert.Less(sw.Elapsed.TotalSeconds, 60, "解析が終わらない");
                 run.Advance();
                 Thread.Sleep(5);
@@ -95,8 +89,7 @@ namespace Iroca.EditorTests
 
         // 結果を当てたゾーンの導出値が、Core の解析を直接呼んだ結果と同じか。
         private static void AssertSameAsCore(AutoTuneService.Run run, ColorZone zone, IrocaSessionState session,
-            ZoneAutoTuner.TuneResult expected)
-        {
+            ZoneAutoTuner.TuneResult expected) {
             Assert.AreEqual(AutoTuneService.Status.Done, run.Status, run.Failure + " " + run.FailureDetail);
             var applied = zone.Clone();
             run.ApplyTo(applied, session);
@@ -106,8 +99,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public unsafe void ZoneWithoutPosition_IsAnalysedWithoutEvidence_AndWithoutAskingTheAi()
-        {
+        public unsafe void ZoneWithoutPosition_IsAnalysedWithoutEvidence_AndWithoutAskingTheAi() {
             var zone = RedZone(clicked: false);
             var session = Session(zone);
             var run = AutoTuneService.Start(zone, session, _pixels, "k", null, 0, 0);
@@ -125,8 +117,7 @@ namespace Iroca.EditorTests
 
         // 前の推論のエラーが残っていても、自動調整を押し直せば AI をもう一度試す。
         [Test]
-        public void ClickedZone_AfterAnAiError_RetriesTheAi()
-        {
+        public void ClickedZone_AfterAnAiError_RetriesTheAi() {
             _svc.Set(MaskSuggestPhase.Error);
             var zone = RedZone(clicked: true);
             var run = AutoTuneService.Start(zone, Session(zone), _pixels, "k", null, 0, 0);
@@ -136,8 +127,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public unsafe void ClickedZone_WaitsForTheAiAndUsesItsRegionAsEvidence()
-        {
+        public unsafe void ClickedZone_WaitsForTheAiAndUsesItsRegionAsEvidence() {
             var zone = RedZone(clicked: true);
             var session = Session(zone);
             var run = AutoTuneService.Start(zone, session, _pixels, "k", null, 0, 0);
@@ -165,8 +155,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void RegionThatSpreadToTheBackground_IsNotUsedAsEvidence()
-        {
+        public void RegionThatSpreadToTheBackground_IsNotUsedAsEvidence() {
             var zone = RedZone(clicked: true);
             var run = AutoTuneService.Start(zone, Session(zone), _pixels, "k", null, 0, 0);
             _svc.Finish(LeftHalf(flood: true));
@@ -177,8 +166,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void WaitsWhileTheAiPrepares()
-        {
+        public void WaitsWhileTheAiPrepares() {
             _svc.encodeOnNewSource = true;
             var zone = RedZone(clicked: true);
             var run = AutoTuneService.Start(zone, Session(zone), _pixels, "k", null, 0, 0);
@@ -194,8 +182,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void StopsWhenTheAiCannotBeUsed()
-        {
+        public void StopsWhenTheAiCannotBeUsed() {
             var zone = RedZone(clicked: true);
             var session = Session(zone);
 
@@ -214,8 +201,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void CancelAndLostProposals_DoNotAnalyse()
-        {
+        public void CancelAndLostProposals_DoNotAnalyse() {
             var zone = RedZone(clicked: true);
             var session = Session(zone);
             var run = AutoTuneService.Start(zone, session, _pixels, "k", null, 0, 0);
@@ -239,8 +225,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void UntouchedByUser_NewZoneAndLastAutoTune()
-        {
+        public void UntouchedByUser_NewZoneAndLastAutoTune() {
             var zone = RedZone(clicked: false);
             Assert.IsTrue(AutoTuneService.UntouchedByUser(zone, null), "新しいゾーンの初期値は手調整ではない");
             zone.saturationGuard += 0.2f;

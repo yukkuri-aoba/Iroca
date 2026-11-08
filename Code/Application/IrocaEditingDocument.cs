@@ -2,8 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 編集中の文書の中身(0.4.0 の計画のフェーズ 5)。Undo の対象はウィンドウでなくこのオブジェクトなので、Undo/Redo で
     /// 巻き戻るのは編集内容だけになる(ウィンドウを記録していたときは、ズーム・前後比較・開閉・書き出しの設定まで一緒に戻った)。
@@ -13,8 +12,7 @@ namespace Iroca
     /// 引くので、単独のファイルに置く。
     /// </para>
     /// </summary>
-    internal sealed class IrocaEditingDocument : ScriptableObject, ISerializationCallbackReceiver
-    {
+    internal sealed class IrocaEditingDocument : ScriptableObject, ISerializationCallbackReceiver {
         [SerializeField] internal IrocaSessionState session = IrocaSessionState.CreateDefault();
         [SerializeField] internal Texture2D sourceTexture;
         [SerializeField] internal IrocaRecipe boundRecipe;
@@ -27,8 +25,7 @@ namespace Iroca
         // シリアライザ経由で OnAfterDeserialize を通る(UndoRestoreSignalTests が実機で確かめている)。
         [System.NonSerialized] private bool _restoredByUnity;
 
-        internal static IrocaEditingDocument Create(IrocaSessionState session, Texture2D sourceTexture, IrocaRecipe boundRecipe)
-        {
+        internal static IrocaEditingDocument Create(IrocaSessionState session, Texture2D sourceTexture, IrocaRecipe boundRecipe) {
             var doc = CreateInstance<IrocaEditingDocument>();
             doc.hideFlags = HideFlags.HideAndDontSave;
             doc.session = session ?? IrocaSessionState.CreateDefault();
@@ -38,8 +35,7 @@ namespace Iroca
         }
 
         /// <summary>前に呼んでから Unity が中身を書き戻していれば true(印は消える)。</summary>
-        internal bool ConsumeRestored()
-        {
+        internal bool ConsumeRestored() {
             bool restored = _restoredByUnity;
             _restoredByUnity = false;
             return restored;

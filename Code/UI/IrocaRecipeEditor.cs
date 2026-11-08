@@ -3,16 +3,13 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>レシピ(<see cref="IrocaRecipe"/>)のインスペクタ。中身の要約と「いろかで開く」。</summary>
     [CustomEditor(typeof(IrocaRecipe))]
-    internal sealed class IrocaRecipeEditor : Editor
-    {
+    internal sealed class IrocaRecipeEditor : Editor {
         private readonly RecipeSummaryCache _summary = new RecipeSummaryCache();
 
-        public override void OnInspectorGUI()
-        {
+        public override void OnInspectorGUI() {
             var recipe = (IrocaRecipe)target;
             serializedObject.Update();
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(IrocaRecipe.sourceTexture)),
@@ -20,23 +17,21 @@ namespace Iroca
             serializedObject.ApplyModifiedProperties();
 
             var state = _summary.Get(recipe);
-            if (recipe.sourceTexture == null)
+            if (recipe.sourceTexture == null) {
                 EditorGUILayout.HelpBox(Localization.RecolorNoSource, MessageType.Warning);
-            if (state == null)
-            {
-                EditorGUILayout.HelpBox(Localization.RecolorUnreadable, MessageType.Warning);
             }
-            else
-            {
+            if (state == null) {
+                EditorGUILayout.HelpBox(Localization.RecolorUnreadable, MessageType.Warning);
+            } else {
                 int enabled = RecolorInput.CountEnabled(state.zones);
                 EditorGUILayout.LabelField(string.Format(Localization.RecipeInspectorZonesFormat,
                     state.zones.Count, enabled), EditorStyles.miniLabel);
             }
 
-            using (new EditorGUI.DisabledScope(recipe.sourceTexture == null))
-            {
-                if (GUILayout.Button(TempContent.Of(Localization.OpenInIroca, Localization.OpenInIrocaTooltip)))
+            using (new EditorGUI.DisabledScope(recipe.sourceTexture == null)) {
+                if (GUILayout.Button(TempContent.Of(Localization.OpenInIroca, Localization.OpenInIrocaTooltip))) {
                     IrocaWindow.OpenRecipe(recipe);
+                }
             }
         }
     }

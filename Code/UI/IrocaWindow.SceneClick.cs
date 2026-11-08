@@ -3,8 +3,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// Scene でモデルをクリックすると、その場所をプレビューで示す。
     /// <para>
@@ -23,8 +22,7 @@ namespace Iroca
     /// 見えない所で毎回走っていた。Play 中も見ない(Read/Write が無効のメッシュを読むと、Unity が
     /// コンソールにエラーを出しうる)。
     /// </summary>
-    public partial class IrocaWindow
-    {
+    public partial class IrocaWindow {
         // 押した位置と離した位置がこれ以上離れたら、クリックではなくドラッグ(範囲選択など)とみなす。
         private const float SceneClickSlopPx = 4f;
         private const string SceneClickUsedPrefKey = IrocaPrefs.SceneClickUsed;
@@ -40,12 +38,12 @@ namespace Iroca
         [System.NonSerialized] private SceneMeshPicker.Hit _sceneOtherHit;
 
         /// <summary>一度でも Scene のクリックで場所を表示したか(プレビュー上の使い方の案内を出すかどうか)。</summary>
-        internal static bool SceneClickUsed
-        {
+        internal static bool SceneClickUsed {
             get => s_sceneClickUsed ??= EditorPrefs.GetBool(SceneClickUsedPrefKey, false);
-            set
-            {
-                if (s_sceneClickUsed == value) return;
+            set {
+                if (s_sceneClickUsed == value) {
+                    return;
+                }
                 s_sceneClickUsed = value;
                 EditorPrefs.SetBool(SceneClickUsedPrefKey, value);
             }
@@ -68,34 +66,33 @@ namespace Iroca
         private bool SceneClickActive =>
             !EditorApplication.isPlayingOrWillChangePlaymode && (_windowShown || IrocaPreviewWindow.IsShown);
 
-        private void InstallSceneClick()
-        {
+        private void InstallSceneClick() {
             SceneView.duringSceneGui -= OnSceneGuiForClick;
             SceneView.duringSceneGui += OnSceneGuiForClick;
         }
 
-        private void UninstallSceneClick()
-        {
+        private void UninstallSceneClick() {
             SceneView.duringSceneGui -= OnSceneGuiForClick;
             _sceneDownArmed = false;
             _windowShown = false;
         }
 
-        private void OnSceneGuiForClick(SceneView view)
-        {
+        private void OnSceneGuiForClick(SceneView view) {
             var e = Event.current;
-            if (e == null) return;
+            if (e == null) {
+                return;
+            }
             // rawType: 先に誰かがイベントを使って(Use)いても、元の種類で判定する。こちらは使わない。
             var type = e.rawType;
-            if (type != EventType.MouseDown && type != EventType.MouseDrag && type != EventType.MouseUp) return;
-            if (!SceneClickActive)
-            {
+            if (type != EventType.MouseDown && type != EventType.MouseDrag && type != EventType.MouseUp) {
+                return;
+            }
+            if (!SceneClickActive) {
                 // 押している途中で隠れた・Play が始まったクリックは、戻ってから離しても拾わない。
                 _sceneDownArmed = false;
                 return;
             }
-            switch (type)
-            {
+            switch (type) {
                 case EventType.MouseDown:
                     // Alt+ドラッグは視点の回転。右・中ボタンも視点操作なので見ない。
                     _sceneDownArmed = e.button == 0 && !e.alt;
@@ -103,44 +100,48 @@ namespace Iroca
                     _sceneDownView = view;
                     break;
                 case EventType.MouseDrag:
-                    if (_sceneDownArmed && (e.mousePosition - _sceneDownPos).sqrMagnitude > SceneClickSlopPx * SceneClickSlopPx)
+                    if (_sceneDownArmed && (e.mousePosition - _sceneDownPos).sqrMagnitude > SceneClickSlopPx * SceneClickSlopPx) {
                         _sceneDownArmed = false;
+                    }
                     break;
                 case EventType.MouseUp:
-                    if (!_sceneDownArmed || e.button != 0) break;
+                    if (!_sceneDownArmed || e.button != 0) {
+                        break;
+                    }
                     _sceneDownArmed = false;
-                    if (view != _sceneDownView || e.alt) break;
-                    if ((e.mousePosition - _sceneDownPos).sqrMagnitude > SceneClickSlopPx * SceneClickSlopPx) break;
+                    if (view != _sceneDownView || e.alt) {
+                        break;
+                    }
+                    if ((e.mousePosition - _sceneDownPos).sqrMagnitude > SceneClickSlopPx * SceneClickSlopPx) {
+                        break;
+                    }
                     // Scene ビューの描画の途中なので、想定外の例外で Scene ビューやほかのツールの処理を止めない。
-                    try { HandleSceneClick(HandleUtility.GUIPointToWorldRay(e.mousePosition)); }
-                    catch (System.Exception ex) { Debug.LogException(ex); }
+                    try { HandleSceneClick(HandleUtility.GUIPointToWorldRay(e.mousePosition)); } catch (System.Exception ex) { Debug.LogException(ex); }
                     break;
             }
         }
 
         /// <summary>Scene の光線 1 本ぶんの処理(クリック 1 回)。</summary>
-        internal void HandleSceneClick(Ray ray)
-        {
+        internal void HandleSceneClick(Ray ray) {
             var hit = SceneMeshPicker.Pick(ray);
-            if (hit == null)
-            {
+            if (hit == null) {
                 ClearSceneClick();
                 return;
             }
 
             // 何も開いていなければ、クリックした部分のテクスチャを開く(作業中のものが切り替わる心配は無い)。
-            if (SourceTexture == null)
-            {
+            if (SourceTexture == null) {
                 var open = MeshUvLocator.EditableSourceOf(MeshUvLocator.MainTexture(hit.material));
-                if (open == null) return;
+                if (open == null) {
+                    return;
+                }
                 SwitchSourceTexture(open);
                 ShowNotification(new GUIContent(string.Format(Localization.NotifySceneClickOpenedFormat, open.name)));
             }
 
             _sceneOtherTexture = null;
             _sceneOtherHit = null;
-            if (!ShowSceneHit(hit))
-            {
+            if (!ShowSceneHit(hit)) {
                 // 別のテクスチャの部分。何のテクスチャか分からない物(地面の単色マテリアル等)は黙って消すだけ。
                 _previewView.ClearSceneHighlight();
                 _sceneOtherTexture = MeshUvLocator.EditableSourceOf(MeshUvLocator.MainTexture(hit.material));
@@ -151,11 +152,14 @@ namespace Iroca
         }
 
         /// <summary>当たった部分が開いているテクスチャを使っていれば、その場所をプレビューに出して true。</summary>
-        private bool ShowSceneHit(SceneMeshPicker.Hit hit)
-        {
-            if (SourceTexture == null || hit?.material == null) return false;
+        private bool ShowSceneHit(SceneMeshPicker.Hit hit) {
+            if (SourceTexture == null || hit?.material == null) {
+                return false;
+            }
             var targets = MeshUvLocator.TargetTextures(SourceTexture);
-            if (!MeshUvLocator.UsesTexture(hit.material, targets, out string prop)) return false;
+            if (!MeshUvLocator.UsesTexture(hit.material, targets, out string prop)) {
+                return false;
+            }
             _previewView.ShowSceneHighlight(SceneClickHighlight.Build(
                 SourceTexture, hit, hit.material.GetTextureScale(prop), hit.material.GetTextureOffset(prop)));
             SceneClickUsed = true;
@@ -163,20 +167,22 @@ namespace Iroca
         }
 
         /// <summary>プレビュー上の案内の「開く」: 直前にクリックした部分のテクスチャを開き、その場所を示す。</summary>
-        internal void OpenSceneOtherTexture()
-        {
+        internal void OpenSceneOtherTexture() {
             var tex = SceneOtherTexture;
             var hit = _sceneOtherHit;
-            if (tex == null) return;
+            if (tex == null) {
+                return;
+            }
             _sceneOtherTexture = null;
             _sceneOtherHit = null;
             SwitchSourceTexture(tex);
-            if (hit != null) ShowSceneHit(hit);
+            if (hit != null) {
+                ShowSceneHit(hit);
+            }
             RequestRepaint();
         }
 
-        private void ClearSceneClick()
-        {
+        private void ClearSceneClick() {
             _previewView?.ClearSceneHighlight();
             _sceneOtherTexture = null;
             _sceneOtherHit = null;

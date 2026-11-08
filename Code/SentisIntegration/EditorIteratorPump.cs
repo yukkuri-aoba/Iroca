@@ -7,15 +7,13 @@ using System.Diagnostics;
 using UnityEditor;
 using UnityEditorInternal;
 
-namespace Iroca.SentisIntegration
-{
+namespace Iroca.SentisIntegration {
     /// <summary>
     /// IEnumerator(Worker.ScheduleIterable 等)を EditorApplication.update から
     /// 時間予算内で小刻みに進める。GPU ディスパッチはメインスレッド必須のため、
     /// Task.Run でなくこの方式でエディタの応答性を保つ。
     /// </summary>
-    internal sealed class EditorIteratorPump
-    {
+    internal sealed class EditorIteratorPump {
         const int BudgetMs = 8;
         // Unity が前面に無いとき。背面では update の回る間隔が延びるので、前面と同じ予算では埋め込みの計算が
         // 何倍も遅れる(MCP から頼んだ自動調整など、利用者が別のアプリにいる間に走る)。背面では誰もエディタを
@@ -42,8 +40,7 @@ namespace Iroca.SentisIntegration
 
         /// <summary>実行開始。totalSteps は進捗計算用(0 = 不定)。</summary>
         public void Start(IEnumerator iterator, int totalSteps,
-                          Action onDone, Action<Exception> onError, Action<float> onProgress)
-        {
+                          Action onDone, Action<Exception> onError, Action<float> onProgress) {
             Stop();
             _iterator = iterator;
             _totalSteps = totalSteps;
@@ -56,9 +53,10 @@ namespace Iroca.SentisIntegration
             EditorApplication.update += Tick;
         }
 
-        public void Stop()
-        {
-            if (!_running) return;
+        public void Stop() {
+            if (!_running) {
+                return;
+            }
             _running = false;
             EditorApplication.update -= Tick;
             _iterator = null;
@@ -69,29 +67,24 @@ namespace Iroca.SentisIntegration
             _onProgress = null;
         }
 
-        void Tick()
-        {
+        void Tick() {
             _ticks++;
             var sw = Stopwatch.StartNew();
             int budgetMs = InternalEditorUtility.isApplicationActive ? BudgetMs : BackgroundBudgetMs;
             Action done = null;
-            try
-            {
-                while (sw.ElapsedMilliseconds < budgetMs)
-                {
-                    if (!_iterator.MoveNext())
-                    {
+            try {
+                while (sw.ElapsedMilliseconds < budgetMs) {
+                    if (!_iterator.MoveNext()) {
                         done = _onDone ?? (() => { });
                         Stop();
                         break;
                     }
                     _steps++;
                 }
-                if (done == null && _totalSteps > 0)
+                if (done == null && _totalSteps > 0) {
                     _onProgress?.Invoke(_steps / (float)_totalSteps);
-            }
-            catch (Exception e)
-            {
+                }
+            } catch (Exception e) {
                 var onError = _onError;
                 Stop();
                 CallGuarded(() => onError?.Invoke(e));
@@ -99,15 +92,15 @@ namespace Iroca.SentisIntegration
             }
             // 完了の通知は推論の外で呼ぶ(中で投げたものを推論の失敗と取り違えない。以前は Stop が
             // onError を外した後だったので、黙って捨てられていた)。
-            if (done != null) CallGuarded(done);
+            if (done != null) {
+                CallGuarded(done);
+            }
         }
 
         // update から呼ばれる入口なので、通知先の例外はここで止める。漏らすと、同じフレームに並んだ
         // 他ツールの update が飛ばされる(Unity は購読者を順に呼ぶだけで例外を止めない)。
-        static void CallGuarded(Action a)
-        {
-            try { a(); }
-            catch (Exception e) { UnityEngine.Debug.LogException(e); }
+        static void CallGuarded(Action a) {
+            try { a(); } catch (Exception e) { UnityEngine.Debug.LogException(e); }
         }
     }
 }

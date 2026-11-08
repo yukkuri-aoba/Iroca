@@ -5,15 +5,13 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// プリセット JSON の保存・読込・削除と、保存先フォルダの解決を担う。
     /// UI / プレビュー状態 / マスク描画には依存しない。
     /// 既存 <see cref="IrocaPresetData"/> のスキーマはそのまま使う。
     /// </summary>
-    internal static class PresetStore
-    {
+    internal static class PresetStore {
         // プロジェクト保存先の固定パス(本体は Packages/ に入るが、プリセットは利用者のデータなので
         // Assets 配下に置く。無ければ保存時に作る)。自己探索を廃止して挙動の予測可能性を上げる。
         private const string ProjectPresetFolderRelative = "Assets/Iroca/Presets";
@@ -31,15 +29,22 @@ namespace Iroca
         /// プロジェクト保存フォルダ内に <paramref name="name"/>.json として書き出し、
         /// Assets 配下なら AssetDatabase に取り込む。成功したら true。
         /// </summary>
-        public static bool SaveToProject(string name, IrocaPresetData data)
-        {
-            if (data == null) return false;
-            if (!EnsureDirectory(ProjectPresetFolder)) return false;
+        public static bool SaveToProject(string name, IrocaPresetData data) {
+            if (data == null) {
+                return false;
+            }
+            if (!EnsureDirectory(ProjectPresetFolder)) {
+                return false;
+            }
             string path = PresetFilePath(ProjectPresetFolder, name);
-            if (!WriteJson(path, data)) return false;
+            if (!WriteJson(path, data)) {
+                return false;
+            }
 
             string rel = PathUtils.ToAssetsRelativeOrNull(path);
-            if (rel != null) AssetDatabase.ImportAsset(rel);
+            if (rel != null) {
+                AssetDatabase.ImportAsset(rel);
+            }
             return true;
         }
 
@@ -47,10 +52,13 @@ namespace Iroca
         /// ユーザー保存フォルダ（%APPDATA%/IrocaPresets）に書き出す。
         /// Assets 外なので AssetDatabase は触らない。成功したら true。
         /// </summary>
-        public static bool SaveToUser(string name, IrocaPresetData data)
-        {
-            if (data == null) return false;
-            if (!EnsureDirectory(UserPresetFolder)) return false;
+        public static bool SaveToUser(string name, IrocaPresetData data) {
+            if (data == null) {
+                return false;
+            }
+            if (!EnsureDirectory(UserPresetFolder)) {
+                return false;
+            }
             string path = PresetFilePath(UserPresetFolder, name);
             return WriteJson(path, data);
         }
@@ -58,9 +66,10 @@ namespace Iroca
         /// <summary>
         /// 任意の絶対パスへ書き出す（エクスポート用）。成功したら true。
         /// </summary>
-        public static bool SaveToPath(string path, IrocaPresetData data)
-        {
-            if (data == null || string.IsNullOrEmpty(path)) return false;
+        public static bool SaveToPath(string path, IrocaPresetData data) {
+            if (data == null || string.IsNullOrEmpty(path)) {
+                return false;
+            }
             return WriteJson(path, data);
         }
 
@@ -72,26 +81,27 @@ namespace Iroca
         /// プリセットの JSON を読む。プリセットでなければ null。JsonUtility はプリセットでない JSON でも例外を出さず、既定値のまま
         /// 返す。読み込むと全ゾーンが空で置き換わるので、ゾーンの項目が無ければ読めなかったものとして扱う。
         /// </summary>
-        public static IrocaPresetData Parse(string json)
-        {
+        public static IrocaPresetData Parse(string json) {
             var data = JsonUtility.FromJson<IrocaPresetData>(json);
-            if (data == null || json.IndexOf("\"zones\"", StringComparison.Ordinal) < 0) return null;
+            if (data == null || json.IndexOf("\"zones\"", StringComparison.Ordinal) < 0) {
+                return null;
+            }
             data.DropSamplePositions();
             return data;
         }
 
-        public static IrocaPresetData Load(string filePath)
-        {
-            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return null;
-            try
-            {
+        public static IrocaPresetData Load(string filePath) {
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) {
+                return null;
+            }
+            try {
                 string json = File.ReadAllText(filePath);
                 var data = Parse(json);
-                if (data == null) Debug.LogWarning($"[Iroca] Not a preset file: {filePath}");
+                if (data == null) {
+                    Debug.LogWarning($"[Iroca] Not a preset file: {filePath}");
+                }
                 return data;
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca] Preset load failed: {ex.Message}");
                 return null;
             }
@@ -101,18 +111,16 @@ namespace Iroca
         /// プリセットファイルを削除する。Assets 配下なら AssetDatabase 経由で消す。
         /// 成功したら true。
         /// </summary>
-        public static bool Delete(string filePath)
-        {
-            if (string.IsNullOrEmpty(filePath)) return false;
+        public static bool Delete(string filePath) {
+            if (string.IsNullOrEmpty(filePath)) {
+                return false;
+            }
             string rel = PathUtils.ToAssetsRelativeOrNull(filePath);
-            if (rel != null)
-            {
+            if (rel != null) {
                 return AssetDatabase.DeleteAsset(rel);
             }
-            if (File.Exists(filePath))
-            {
-                try { File.Delete(filePath); return true; }
-                catch (Exception ex) { Debug.LogWarning($"[Iroca] Preset delete failed: {ex.Message}"); return false; }
+            if (File.Exists(filePath)) {
+                try { File.Delete(filePath); return true; } catch (Exception ex) { Debug.LogWarning($"[Iroca] Preset delete failed: {ex.Message}"); return false; }
             }
             return false;
         }
@@ -124,50 +132,39 @@ namespace Iroca
         public static string PresetFilePath(string folder, string name)
             => Path.Combine(folder, SanitizeFileName(name) + ".json");
 
-        public static string[] ListJson(string folder)
-        {
+        public static string[] ListJson(string folder) {
             // 権限不足・読み取り専用・パス長超過などで例外になり得る。呼び出し元は
             // UI の描画中（プリセット一覧）や MCP なので、素通しすると OnGUI が壊れるか
             // JSON でなく例外が返る。空リスト扱いにして警告だけ残す。
-            try
-            {
+            try {
                 return Directory.Exists(folder)
                     ? Directory.GetFiles(folder, "*.json")
                     : Array.Empty<string>();
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca] Preset list failed ({folder}): {ex.Message}");
                 return Array.Empty<string>();
             }
         }
 
         /// <summary>保存先フォルダを用意する。失敗したら false（例外は呼び出し元へ流さない）。</summary>
-        private static bool EnsureDirectory(string folder)
-        {
-            try
-            {
-                if (!Directory.Exists(folder))
+        private static bool EnsureDirectory(string folder) {
+            try {
+                if (!Directory.Exists(folder)) {
                     Directory.CreateDirectory(folder);
+                }
                 return true;
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca] Preset folder create failed ({folder}): {ex.Message}");
                 return false;
             }
         }
 
-        private static bool WriteJson(string path, IrocaPresetData data)
-        {
-            try
-            {
+        private static bool WriteJson(string path, IrocaPresetData data) {
+            try {
                 data.schemaVersion = IrocaPresetData.CurrentSchemaVersion;
                 AtomicFile.WriteAllText(path, JsonUtility.ToJson(data, true));
                 return true;
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca] Preset save failed: {ex.Message}");
                 return false;
             }

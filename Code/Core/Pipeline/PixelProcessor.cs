@@ -9,15 +9,13 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// テクスチャの再着色アルゴリズム本体。
     /// UnityEditor / EditorWindow / AssetDatabase に依存しない純粋ロジックだけを保持する。
     /// バックグラウンドスレッドからの呼び出しを前提にしている。
     /// </summary>
-    internal static unsafe partial class PixelProcessor
-    {
+    internal static unsafe partial class PixelProcessor {
         // 並列度の規則と画素の決まりは Foundation(CoreParallelism・PixelRules)が持つ。ここは今の名前を残す転送役
         // (0.4.0 の計画の 3-4。呼び出しが多く、ハーネス・テスト・AI 提案の後処理もこの名前で呼ぶ)。
         internal static int ComputeDefaultParallelism(int processorCount) => CoreParallelism.ComputeDefault(processorCount);
@@ -33,8 +31,7 @@ namespace Iroca
         private const int PhHsv = 0, PhMatch = 1, PhHighlight = 2, PhFloodFill = 3,
             PhHoleFill = 4, PhBoundary = 5, PhBlur = 6, PhDecontam = 7,
             PhRegionStats = 8, PhRecolor = 9, PhaseCount = 10;
-        private static readonly string[] s_perfPhaseNames =
-        {
+        private static readonly string[] s_perfPhaseNames = {
             "HSV", "Match", "Highlight", "FloodFill", "HoleFill",
             "BoundaryRecover", "Blur", "Decontaminate", "RegionStats", "Recolor",
         };
@@ -47,8 +44,7 @@ namespace Iroca
             SpDecontam = 16, SpWashSample = 17, SpAnchor = 18, SpRegionLRange = 19, SpMedianLMap = 20,
             SpRecolorBBox = 21, SpRecolorLoop = 22, SpAchromaFringe = 23, SpPaletteHash = 24,
             SpPaletteIds = 25, SpPaletteRemap = 26, SpMixBand = 27, SubPhaseCount = 28;
-        private static readonly string[] s_perfSubPhaseNames =
-        {
+        private static readonly string[] s_perfSubPhaseNames = {
             "Alloc", "MatchLoop", "ChromaCeiling", "EnclosedNeutral",
             "HlPropagate", "HlBand", "HlEnclosed", "FfComponents",
             "PostBBox", "HoleFillGate", "HoleFill", "Boundary", "BlurReapply",
@@ -88,9 +84,10 @@ namespace Iroca
             => new Span<T>(p + start, count).Clear();
 
         // 作業配列の中身を管理配列へ写した複製(デバッグの記録用。debug があるときだけ呼ぶ)。
-        private static T[] ToManaged<T>(T* p, int count) where T : unmanaged
-        {
-            if (p == null) return null;
+        private static T[] ToManaged<T>(T* p, int count) where T : unmanaged {
+            if (p == null) {
+                return null;
+            }
             var a = new T[count];
             new ReadOnlySpan<T>(p, count).CopyTo(a);
             return a;
@@ -112,31 +109,35 @@ namespace Iroca
             CancellationToken cancellationToken = default,
             IDebugCapture debug = null,
             SelectionCache selectionCache = null,
-            Color32[] sourcePixels = null)
-        {
+            Color32[] sourcePixels = null) {
             // 引数検証。ここが無いと、不正な引数（null / 長さ不足）で Array.Copy が投げたとき
             // 直前に Rent したプール配列（4K で 64MB）が返却されずリークする。Rent は
             // finally が守る try の外にあるため、例外が出るなら Rent の前に出さないといけない
             // （レビュー §4 低）。
-            if (pixels == null) throw new System.ArgumentNullException(nameof(pixels));
+            if (pixels == null) {
+                throw new System.ArgumentNullException(nameof(pixels));
+            }
             long lenLong = CheckSize(w, h);
-            if (pixels.Length < lenLong)
+            if (pixels.Length < lenLong) {
                 throw new System.ArgumentException(
                     $"pixels.Length({pixels.Length}) < w*h({lenLong})", nameof(pixels));
-            if (sourcePixels != null)
-            {
+            }
+            if (sourcePixels != null) {
                 // pixels そのものは処理中に書き換わるので、入力の控えにはならない。
-                if (ReferenceEquals(sourcePixels, pixels))
+                if (ReferenceEquals(sourcePixels, pixels)) {
                     throw new System.ArgumentException("sourcePixels must not be the pixels array itself", nameof(sourcePixels));
-                if (sourcePixels.Length < lenLong)
+                }
+                if (sourcePixels.Length < lenLong) {
                     throw new System.ArgumentException(
                         $"sourcePixels.Length({sourcePixels.Length}) < w*h({lenLong})", nameof(sourcePixels));
+                }
             }
             // 処理の間だけ固定してポインタで読み書きする(出力の配列は呼び出し側の持ち物のまま)。
             fixed (Color32* px = pixels)
-            fixed (Color32* src = sourcePixels)
+            fixed (Color32* src = sourcePixels) {
                 ProcessPixelsArrayCore(px, w, h, masks, sortedZones, in settings,
                     cancellationToken, debug, selectionCache, src);
+            }
         }
 
         /// <summary>
@@ -153,24 +154,27 @@ namespace Iroca
             CancellationToken cancellationToken = default,
             IDebugCapture debug = null,
             SelectionCache selectionCache = null,
-            Color32* sourcePixels = null)
-        {
-            if (pixels == null) throw new System.ArgumentNullException(nameof(pixels));
+            Color32* sourcePixels = null) {
+            if (pixels == null) {
+                throw new System.ArgumentNullException(nameof(pixels));
+            }
             CheckSize(w, h);
-            if (sourcePixels == pixels)
+            if (sourcePixels == pixels) {
                 throw new System.ArgumentException("sourcePixels must not be the pixels buffer itself", nameof(sourcePixels));
+            }
             ProcessPixelsArrayCore(pixels, w, h, masks, sortedZones, in settings,
                 cancellationToken, debug, selectionCache, sourcePixels);
         }
 
         // 寸法の検証(画素数は int に収まること)。戻り値は画素数。
-        private static long CheckSize(int w, int h)
-        {
-            if (w <= 0 || h <= 0)
+        private static long CheckSize(int w, int h) {
+            if (w <= 0 || h <= 0) {
                 throw new System.ArgumentOutOfRangeException(nameof(w), $"invalid size: {w}x{h}");
+            }
             long lenLong = (long)w * h;
-            if (lenLong > int.MaxValue)
+            if (lenLong > int.MaxValue) {
                 throw new System.ArgumentOutOfRangeException(nameof(w), $"size too large: {w}x{h}");
+            }
             return lenLong;
         }
 
@@ -202,8 +206,7 @@ namespace Iroca
             CancellationToken cancellationToken,
             IDebugCapture debug,
             SelectionCache selectionCache,
-            Color32* sourcePixels)
-        {
+            Color32* sourcePixels) {
             // 全体設定を同じ名前のローカルへ展開する。in 引数はラムダから参照できないので、
             // 本体(ラムダを含む)はこのローカルだけを読み、settings は以降参照しない。
             float edgeFeather = settings.edgeFeather;
@@ -215,7 +218,9 @@ namespace Iroca
             bool useDecontamination = settings.useDecontamination;
             int decontaminationRadius = settings.decontaminationRadius;
 
-            if (sortedZones == null) throw new System.ArgumentNullException(nameof(sortedZones));
+            if (sortedZones == null) {
+                throw new System.ArgumentNullException(nameof(sortedZones));
+            }
             long lenLong = (long)w * h;
 
             // マスクスナップショットからローカル変数に展開(1bit/画素)
@@ -225,8 +230,9 @@ namespace Iroca
             // マスク(除外・含める)の判定表(作業座標の列・行 → マスクの画素)。拡縮の割り算を画素ごとでなく
             // 列と行ごとに 1 回だけにする。マスクが無ければ null(=除外なし・含めるなし)。
             int[] maskColOf = null, maskRowBase = null;
-            if (masks != null && maskW > 0 && maskH > 0)
+            if (masks != null && maskW > 0 && maskH > 0) {
                 BuildMaskIndexMap(w, h, maskW, maskH, out maskColOf, out maskRowBase);
+            }
 
             int len = (int)lenLong;
             // 入力のスナップショット。以降は読むだけなので、呼び出し側が同じ中身を持っていればそれを使う。
@@ -234,13 +240,10 @@ namespace Iroca
             // 写した分は末尾の finally で返す。
             bool ownsOriginal = sourcePixels == null;
             Color32* originalPixels;
-            if (ownsOriginal)
-            {
+            if (ownsOriginal) {
                 originalPixels = s_color32Pool.Rent(len);
                 Buffer.MemoryCopy(pixels, originalPixels, (long)len * sizeof(Color32), (long)len * sizeof(Color32));
-            }
-            else
-            {
+            } else {
                 originalPixels = sourcePixels;
             }
 
@@ -265,99 +268,117 @@ namespace Iroca
             // 色の種類の表(PixelProcessor.Palette.cs)。色だけで決まる計算を色ごとに 1 回で済ませる。
             // 種類が多い画像では null(画素ごとに計算する)。どちらでも出力はビット単位で同じ。
             ColorPalette palette = null;
-            try
-            {
-            if (sortedZones.Count > 1)
-            {
-                rb.Claimed = s_floatPool.Rent(len);
-                ClearWork(rb.Claimed, 0, len);
-            }
-            else
-            {
-                // ゾーンが 1 つ: 占有率は読むといつも 0 なので借りず、フチ消しが見る「占有したか」だけを持つ(RunBuffers)
-                rb.ClaimedFlag = s_boolPool.Rent(len);
-                new Span<bool>(rb.ClaimedFlag, len).Clear();
-            }
+            try {
+                if (sortedZones.Count > 1) {
+                    rb.Claimed = s_floatPool.Rent(len);
+                    ClearWork(rb.Claimed, 0, len);
+                } else {
+                    // ゾーンが 1 つ: 占有率は読むといつも 0 なので借りず、フチ消しが見る「占有したか」だけを持つ(RunBuffers)
+                    rb.ClaimedFlag = s_boolPool.Rent(len);
+                    new Span<bool>(rb.ClaimedFlag, len).Clear();
+                }
 
-            // po を HSV 計算 + foreach 内の全 Parallel.For で共用。
-            // MaxDegreeOfParallelism で Unity Editor のスレッドプール圧迫を防ぐ。
-            var po = new ParallelOptions
-            {
-                CancellationToken      = cancellationToken,
-                MaxDegreeOfParallelism = GetMaxParallelism(),
-            };
-            _sub.Restart();
-            palette = GetOrBuildPalette(originalPixels, w, h, po, _sub);
-            // 行並列(per-index デリゲートは 4K で 1670 万回の呼び出しになるため行単位に集約)。
-            // 各画素は独立・書き込みは自 index のみなので出力は逐次版とビット不変。
-            if (palette != null)
-            {
-                // 色ごとに求めた HSV を番号で引く(同じ色に同じ RGBToHSV を当てた値なのでビット単位で同じ)。
-                pixH = palette.H; pixS = palette.S; pixV = palette.V;
-                pixIdx = palette.Index;
-            }
-            else
-            {
-                hsvRented = true;
-                pixH = s_floatPool.Rent(len);
-                pixS = s_floatPool.Rent(len);
-                pixV = s_floatPool.Rent(len);
-                Parallel.For(0, h, po, y =>
-                {
-                    int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
-                        int i = rowOff + x;
-                        Color.RGBToHSV((Color)originalPixels[i], out pixH[i], out pixS[i], out pixV[i]);
-                    }
-                });
-            }
-            var hsv = new PixelHsv(pixH, pixS, pixV, pixIdx);
-            _phaseTicks[PhHsv] += Stopwatch.GetTimestamp() - _tp;
+                // po を HSV 計算 + foreach 内の全 Parallel.For で共用。
+                // MaxDegreeOfParallelism で Unity Editor のスレッドプール圧迫を防ぐ。
+                var po = new ParallelOptions {
+                    CancellationToken = cancellationToken,
+                    MaxDegreeOfParallelism = GetMaxParallelism(),
+                };
+                _sub.Restart();
+                palette = GetOrBuildPalette(originalPixels, w, h, po, _sub);
+                // 行並列(per-index デリゲートは 4K で 1670 万回の呼び出しになるため行単位に集約)。
+                // 各画素は独立・書き込みは自 index のみなので出力は逐次版とビット不変。
+                if (palette != null) {
+                    // 色ごとに求めた HSV を番号で引く(同じ色に同じ RGBToHSV を当てた値なのでビット単位で同じ)。
+                    pixH = palette.H; pixS = palette.S; pixV = palette.V;
+                    pixIdx = palette.Index;
+                } else {
+                    hsvRented = true;
+                    pixH = s_floatPool.Rent(len);
+                    pixS = s_floatPool.Rent(len);
+                    pixV = s_floatPool.Rent(len);
+                    Parallel.For(0, h, po, y => {
+                        int rowOff = y * w;
+                        for (int x = 0; x < w; x++) {
+                            int i = rowOff + x;
+                            Color.RGBToHSV((Color)originalPixels[i], out pixH[i], out pixS[i], out pixV[i]);
+                        }
+                    });
+                }
+                var hsv = new PixelHsv(pixH, pixS, pixV, pixIdx);
+                _phaseTicks[PhHsv] += Stopwatch.GetTimestamp() - _tp;
 
-            debug?.BeginCapture(w, h);
+                debug?.BeginCapture(w, h);
 
-            // デコンタミの 2 つのバッファはゾーンごとにプールから借りる(DecontamStage・ZoneBuffers)。借りた配列は
-            // ゼロ初期化されないが、どれも書いた位置しか読まない: aaMask は各ゾーン頭(DecontaminateAaBoundary)
-            // で全域クリア、decontaminatedPixels は aaMask=true / 混色帯の対象の位置だけ書いて読む、
-            // 除外フラグ(RunBuffers)は各ゾーンが自分の読む範囲を埋める(ゾーン間で使い回すので、もともと前のゾーンの
-            // 値が残っていても壊れない作り)。
+                // デコンタミの 2 つのバッファはゾーンごとにプールから借りる(DecontamStage・ZoneBuffers)。借りた配列は
+                // ゼロ初期化されないが、どれも書いた位置しか読まない: aaMask は各ゾーン頭(DecontaminateAaBoundary)
+                // で全域クリア、decontaminatedPixels は aaMask=true / 混色帯の対象の位置だけ書いて読む、
+                // 除外フラグ(RunBuffers)は各ゾーンが自分の読む範囲を埋める(ゾーン間で使い回すので、もともと前のゾーンの
+                // 値が残っていても壊れない作り)。
 
-            // ゾーンをまたいで変わらない入力。選択・マスクの契約へ渡す(RunLegacySelection・ApplyMaskContract)。
-            var run = new RunContext
-            {
-                W = w, H = h, Len = len,
-                Original = originalPixels, Pixels = pixels, Po = po, Ct = cancellationToken,
-                Palette = palette, Hsv = hsv, PixH = pixH, PixS = pixS, PixV = pixV, PixIdx = pixIdx,
-                CommonMask = commonMask, CommonBits = NativeBitMask.BitsOf(commonMask), MaskW = maskW, MaskH = maskH, MaskColOf = maskColOf, MaskRowBase = maskRowBase,
-                EdgeFeather = edgeFeather, RelaxedSatMin = relaxedSatMin, RelaxedSatRamp = relaxedSatRamp,
-                AntiAliasCleanup = antiAliasCleanup, HoleFillPasses = holeFillPasses,
-                HoleFillMinNeighbors = holeFillMinNeighbors,
-                UseDecontamination = useDecontamination, DecontaminationRadius = decontaminationRadius,
-                Buf = rb,
-                Debug = debug, SelectionCache = selectionCache,
-                PhaseTicks = _phaseTicks, PerfZones = _perfZones, Sub = _sub,
-            };
+                // ゾーンをまたいで変わらない入力。選択・マスクの契約へ渡す(RunLegacySelection・ApplyMaskContract)。
+                var run = new RunContext {
+                    W = w,
+                    H = h,
+                    Len = len,
+                    Original = originalPixels,
+                    Pixels = pixels,
+                    Po = po,
+                    Ct = cancellationToken,
+                    Palette = palette,
+                    Hsv = hsv,
+                    PixH = pixH,
+                    PixS = pixS,
+                    PixV = pixV,
+                    PixIdx = pixIdx,
+                    CommonMask = commonMask,
+                    CommonBits = NativeBitMask.BitsOf(commonMask),
+                    MaskW = maskW,
+                    MaskH = maskH,
+                    MaskColOf = maskColOf,
+                    MaskRowBase = maskRowBase,
+                    EdgeFeather = edgeFeather,
+                    RelaxedSatMin = relaxedSatMin,
+                    RelaxedSatRamp = relaxedSatRamp,
+                    AntiAliasCleanup = antiAliasCleanup,
+                    HoleFillPasses = holeFillPasses,
+                    HoleFillMinNeighbors = holeFillMinNeighbors,
+                    UseDecontamination = useDecontamination,
+                    DecontaminationRadius = decontaminationRadius,
+                    Buf = rb,
+                    Debug = debug,
+                    SelectionCache = selectionCache,
+                    PhaseTicks = _phaseTicks,
+                    PerfZones = _perfZones,
+                    Sub = _sub,
+                };
 
-            foreach (var zone in sortedZones)
-                RunZone(run, masks, zone);
+                foreach (var zone in sortedZones) {
+                    RunZone(run, masks, zone);
+                }
 
-            }
-            finally
-            {
+            } finally {
                 palette?.Release();
                 rb.ReturnAll();
-                if (hsvRented)
-                {
-                    if (pixV != null) s_floatPool.Return(pixV);
-                    if (pixS != null) s_floatPool.Return(pixS);
-                    if (pixH != null) s_floatPool.Return(pixH);
+                if (hsvRented) {
+                    if (pixV != null) {
+                        s_floatPool.Return(pixV);
+                    }
+                    if (pixS != null) {
+                        s_floatPool.Return(pixS);
+                    }
+                    if (pixH != null) {
+                        s_floatPool.Return(pixH);
+                    }
                 }
-                if (ownsOriginal) s_color32Pool.Return(originalPixels);
+                if (ownsOriginal) {
+                    s_color32Pool.Return(originalPixels);
+                }
             }
             var _perfPhases = new PhasePerfEntry[PhaseCount];
-            for (int p = 0; p < PhaseCount; p++)
+            for (int p = 0; p < PhaseCount; p++) {
                 _perfPhases[p] = new PhasePerfEntry(s_perfPhaseNames[p], TicksToMs(_phaseTicks[p]));
+            }
             DebugCaptureHooks.RaisePerfReport(
                 new PerfReport(TicksToMs(Stopwatch.GetTimestamp() - _t0), w, h, _perfZones, _perfPhases,
                     _sub.ToEntries(s_perfSubPhaseNames)));
@@ -370,8 +391,7 @@ namespace Iroca
         /// （呼び出し側が独自に丸めるとテストが製品と別の絵を測る）。
         /// </summary>
         public static void ComputeFitSize(int srcW, int srcH, int maxSize,
-            out int dstW, out int dstH, out float scale)
-        {
+            out int dstW, out int dstH, out float scale) {
             int srcLong = Mathf.Max(srcW, srcH);
             scale = maxSize >= srcLong ? 1f : maxSize / (float)srcLong;
             dstW = Mathf.Max(1, Mathf.RoundToInt(srcW * scale));
@@ -405,11 +425,13 @@ namespace Iroca
         /// フル解像度の出力から直接縮小するのに使う(4K の 125% 表示でクロップ 1 枚 ~43MB の複製を避ける)。
         /// </summary>
         public static Color32[] BoxDownsampleRegion(Color32[] src, int srcStride, int x0, int y0,
-            int regionW, int regionH, int dstW, int dstH, float scale)
-        {
-            if (src == null) throw new System.ArgumentNullException(nameof(src));
-            fixed (Color32* p = src)
+            int regionW, int regionH, int dstW, int dstH, float scale) {
+            if (src == null) {
+                throw new System.ArgumentNullException(nameof(src));
+            }
+            fixed (Color32* p = src) {
                 return BoxDownsampleRegion(p, src.Length, srcStride, x0, y0, regionW, regionH, dstW, dstH, scale);
+            }
         }
 
         /// <summary>
@@ -417,14 +439,15 @@ namespace Iroca
         /// srcLength は src の画素数(読む範囲がその中に収まるかを確かめる)。
         /// </summary>
         public static Color32[] BoxDownsampleRegion(Color32* src, long srcLength, int srcStride, int x0, int y0,
-            int regionW, int regionH, int dstW, int dstH, float scale)
-        {
-            if (dstW <= 0 || dstH <= 0)
+            int regionW, int regionH, int dstW, int dstH, float scale) {
+            if (dstW <= 0 || dstH <= 0) {
                 throw new System.ArgumentOutOfRangeException(nameof(scale),
                     $"invalid downsample params: src={regionW}x{regionH} dst={dstW}x{dstH} scale={scale}");
+            }
             Color32[] dst = new Color32[dstW * dstH];
-            fixed (Color32* d = dst)
+            fixed (Color32* d = dst) {
                 BoxDownsampleRegionInto(src, srcLength, srcStride, x0, y0, regionW, regionH, d, dstW, dstH, scale);
+            }
             return dst;
         }
 
@@ -433,23 +456,29 @@ namespace Iroca
         /// (dst。dstW*dstH 画素)を呼び出し側が持つ版。拡大表示のタイルと、プレビューの表示用の画素を Mono のヒープの外に置く。
         /// </summary>
         public static void BoxDownsampleRegionInto(Color32* src, long srcLength, int srcStride, int x0, int y0,
-            int regionW, int regionH, Color32* dst, int dstW, int dstH, float scale)
-        {
+            int regionW, int regionH, Color32* dst, int dstW, int dstH, float scale) {
             // scale と dst 寸法の整合を呼び出し側の契約に丸投げしており、不整合だと
             // src の範囲外を読んで IndexOutOfRange になっていた（レビュー §4 低）。
             // 読み出し位置を src 範囲にクランプして、契約違反を例外でなく劣化で吸収する。
-            if (src == null) throw new System.ArgumentNullException(nameof(src));
-            if (dst == null) throw new System.ArgumentNullException(nameof(dst));
+            if (src == null) {
+                throw new System.ArgumentNullException(nameof(src));
+            }
+            if (dst == null) {
+                throw new System.ArgumentNullException(nameof(dst));
+            }
             int srcW = regionW, srcH = regionH;
-            if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0 || scale <= 0f)
+            if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0 || scale <= 0f) {
                 throw new System.ArgumentOutOfRangeException(nameof(scale),
                     $"invalid downsample params: src={srcW}x{srcH} dst={dstW}x{dstH} scale={scale}");
-            if (x0 < 0 || y0 < 0 || x0 + srcW > srcStride)
+            }
+            if (x0 < 0 || y0 < 0 || x0 + srcW > srcStride) {
                 throw new System.ArgumentOutOfRangeException(nameof(x0),
                     $"invalid region: origin=({x0},{y0}) size={srcW}x{srcH} stride={srcStride}");
-            if (srcLength < (long)(y0 + srcH - 1) * srcStride + x0 + srcW)
+            }
+            if (srcLength < (long)(y0 + srcH - 1) * srcStride + x0 + srcW) {
                 throw new System.ArgumentException(
                     $"src.Length({srcLength}) < region end({(long)(y0 + srcH - 1) * srcStride + x0 + srcW})", nameof(src));
+            }
 
             // 合計値が int の範囲を超えないように long を使用。
             // 例: 8192x8192 の画像を 512x512 に縮小すると 1 ピクセル当たり 256 サンプル以上、
@@ -458,27 +487,25 @@ namespace Iroca
             // 行ごとに dst の異なる領域へ書き込み src は読み取り専用なので、y で行並列化できる
             // (出力ビット不変)。4K→512 で 16.8M 画素読みのためメインスレッド/ジョブどちらでも効く。
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
-            Parallel.For(0, dstH, po, y =>
-            {
+            Parallel.For(0, dstH, po, y => {
                 int sy0 = Mathf.Clamp(Mathf.FloorToInt(y / scale), 0, srcH - 1);
                 int sy1 = Mathf.Clamp(Mathf.CeilToInt((y + 1f) / scale) - 1, sy0, srcH - 1);
-                for (int x = 0; x < dstW; x++)
-                {
+                for (int x = 0; x < dstW; x++) {
                     int sx0 = Mathf.Clamp(Mathf.FloorToInt(x / scale), 0, srcW - 1);
                     int sx1 = Mathf.Clamp(Mathf.CeilToInt((x + 1f) / scale) - 1, sx0, srcW - 1);
                     long r = 0, g = 0, b = 0, a = 0;
                     int count = 0;
-                    for (int ky = sy0; ky <= sy1; ky++)
-                    {
+                    for (int ky = sy0; ky <= sy1; ky++) {
                         int rowBase = (y0 + ky) * srcStride + x0;
-                        for (int kx = sx0; kx <= sx1; kx++)
-                        {
+                        for (int kx = sx0; kx <= sx1; kx++) {
                             var p = src[rowBase + kx];
                             r += p.r; g += p.g; b += p.b; a += p.a;
                             count++;
                         }
                     }
-                    if (count <= 0) count = 1; // ゼロ除算ガード（理論上は到達しないが念のため）
+                    if (count <= 0) {
+                        count = 1; // ゼロ除算ガード（理論上は到達しないが念のため）
+                    }
                     dst[(long)y * dstW + x] = new Color32(
                         (byte)(r / count), (byte)(g / count),
                         (byte)(b / count), (byte)(a / count));

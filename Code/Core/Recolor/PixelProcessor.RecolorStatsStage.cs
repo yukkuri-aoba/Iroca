@@ -3,10 +3,8 @@
 using System.Diagnostics;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
         /// <summary>
         /// 再着色の段の 3 つ目「再着色の統計」(0.4.0 の計画の 3-7b で ProcessPixelsArrayCore から中身を書き換えずに
         /// 切り出した)。ハイライト合成の実効サンプル・OkLab のゾーン定数・地色アンカー・無彩パスの領域 L を求め、
@@ -14,10 +12,8 @@ namespace Iroca
         /// 成分ごとの地図)を書く。
         /// 地図はゾーンの作業配列(<see cref="ZoneBuffers"/>)の持ち物。
         /// </summary>
-        private static class RecolorStatsStage
-        {
-            internal static void Run(RunContext run, ZoneState z)
-            {
+        private static class RecolorStatsStage {
+            internal static void Run(RunContext run, ZoneState z) {
                 // ProcessPixelsArrayCore と同じ名前のローカルへ展開する(切り出した本体をそのまま読めるように)。
                 int w = run.W, h = run.H;
                 Color32* originalPixels = run.Original;
@@ -79,8 +75,7 @@ namespace Iroca
                     TryComputeRecolorAnchor(originalPixels, strength, w,
                         ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC,
                         zSL, zSa, zSb, sampS > ColorZone.ChromaGateActivateSat,
-                        includedPx, run.Buf.Claimed, cancellationToken, palette))
-                {
+                        includedPx, run.Buf.Claimed, cancellationToken, palette)) {
                     float zSC0 = zSC;
                     zSL = anchorL;
                     zGateC = anchorC;
@@ -94,8 +89,7 @@ namespace Iroca
                     // パーツは全体が閾値未満になり一律最大50%脱彩される(=入力明度で出力彩度
                     // が変わる)。閾値に地色アンカーの V(地色の代表明度)を乗じ「パーツ内の
                     // 相対的な暗部」だけを脱彩する。アンカー非採用時は従来の絶対閾値で完全互換。
-                    if (zEffShadowDesat > 0f)
-                    {
+                    if (zEffShadowDesat > 0f) {
                         OkLab.OklabToRgb(zSL,
                             zSa / Mathf.Max(zSC0, 1e-9f) * zGateC,
                             zSb / Mathf.Max(zSC0, 1e-9f) * zGateC,
@@ -106,13 +100,10 @@ namespace Iroca
                 }
                 _sub.Mark(SpAnchor);
                 float zOkMagScale = 0f, zOkGa = 0f, zOkGb = 0f;
-                if (zOkGray)
-                {
+                if (zOkGray) {
                     zOkGa = zTa * zOsat;
                     zOkGb = zTb * zOsat;
-                }
-                else
-                {
+                } else {
                     // na = |chroma| * (osat/sC) * zTa, nb = 同 zTb。oC=sC(sample) で (zTa,zTb)=target に一致。
                     zOkMagScale = zOsat / zSC;
                 }
@@ -121,11 +112,9 @@ namespace Iroca
                 // (okGray)・塗り先が無彩(tC≈0)なら全体の比例のまま。
                 bool zOkSplitChroma = false;
                 float zOkInvTC = 0f;
-                if (!zOkGray)
-                {
+                if (!zOkGray) {
                     float zTC = Mathf.Sqrt(zTa * zTa + zTb * zTb);
-                    if (zTC > 1e-4f && zTC * zOsat > zSC)
-                    {
+                    if (zTC > 1e-4f && zTC * zOsat > zSC) {
                         zOkSplitChroma = true;
                         zOkInvTC = 1f / zTC;
                     }
@@ -140,14 +129,12 @@ namespace Iroca
                 // zRegLmid(全体中央値)へフォールバック。
                 float* zRegMidMap = null;
                 float* zRegUpMap = null;
-                if (zAchromaWeight > AchromaWeightActiveMin)
-                {
+                if (zAchromaWeight > AchromaWeightActiveMin) {
                     zHasRegL = TryComputeRegionLRange(originalPixels, strength, w,
                         ppMinX, ppMinY, ppMaxX, ppMaxY,
                         out zRegLmid, includedPx, cancellationToken, palette);
-                        _sub.Mark(SpRegionLRange);
-                    if (zHasRegL)
-                    {
+                    _sub.Mark(SpRegionLRange);
+                    if (zHasRegL) {
                         // 地図はプールから借りる(ゾーンの終わりに返す)。
                         zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, ColorZone.MatchStrengthFloor, out zRegUpMap, cancellationToken,
                             palette);

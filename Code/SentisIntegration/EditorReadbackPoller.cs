@@ -9,8 +9,7 @@ using Unity.Sentis;
 #endif
 using UnityEditor;
 
-namespace Iroca.SentisIntegration
-{
+namespace Iroca.SentisIntegration {
     /// <summary>
     /// GPU→CPU のテンソル読出を EditorApplication.update のポーリングで待つ。
     /// 同期 ReadbackAndClone は GPU 実行完了までメインスレッドを停止させる
@@ -26,8 +25,7 @@ namespace Iroca.SentisIntegration
     /// ヒープの外の float の並び(<see cref="NativeBuffer"/>。参照 1)で渡し、受け取った側が持つ
     /// (0.4.0 の計画の B4。以前は 4.2MB の float[] を毎回作っていた)。
     /// </summary>
-    internal sealed class EditorReadbackPoller
-    {
+    internal sealed class EditorReadbackPoller {
         // GPU ハング等での永久待ちを避ける安全弁。通常は数十〜数百 ms で完了する。
         const double TimeoutMs = 15000;
 
@@ -41,15 +39,13 @@ namespace Iroca.SentisIntegration
 
         /// <summary>読出リクエストを発行しポーリングを開始する。tensor は Worker 所有の
         /// PeekOutput 返しを想定(こちらでは Dispose しない)。</summary>
-        public void Start(Tensor<float> tensor, Action<NativeBuffer> onDone, Action<Exception> onError)
-        {
-            Start(new Tensor[] { tensor }, () =>
-            {
+        public void Start(Tensor<float> tensor, Action<NativeBuffer> onDone, Action<Exception> onError) {
+            Start(new Tensor[] { tensor }, () => {
                 NativeBuffer data;
-                using (var t = tensor.ReadbackAndClone()) // 完了済みなので非ブロッキング
+                using (var t = tensor.ReadbackAndClone()) { // 完了済みなので非ブロッキング
                     data = SamNativeOps.CopyFloats(t.DownloadToNativeArray());
-                if (onDone == null)
-                {
+                }
+                if (onDone == null) {
                     data?.Release();
                     return null;
                 }
@@ -62,15 +58,13 @@ namespace Iroca.SentisIntegration
         /// ReadbackAndClone は待たない)。read は読んだ中身を受け取った通知を返し(null = 通知しない)、それを読み出しの
         /// 外で呼ぶ。read の例外と時間切れは onError へ。tensors は Worker 所有の PeekOutput 返しを想定(Dispose しない)。
         /// </summary>
-        public void Start(Tensor[] tensors, Func<Action> read, Action<Exception> onError)
-        {
+        public void Start(Tensor[] tensors, Func<Action> read, Action<Exception> onError) {
             Stop();
-            try
-            {
-                foreach (var t in tensors) t.ReadbackRequest();
-            }
-            catch (Exception e)
-            {
+            try {
+                foreach (var t in tensors) {
+                    t.ReadbackRequest();
+                }
+            } catch (Exception e) {
                 onError?.Invoke(e);
                 return;
             }
@@ -82,9 +76,10 @@ namespace Iroca.SentisIntegration
             EditorApplication.update += Tick;
         }
 
-        public void Stop()
-        {
-            if (!_running) return;
+        public void Stop() {
+            if (!_running) {
+                return;
+            }
             _running = false;
             EditorApplication.update -= Tick;
             // コールバックは埋め込み(4.2MB)や後続処理を捕捉したクロージャであり得る。
@@ -94,23 +89,21 @@ namespace Iroca.SentisIntegration
             _onError = null;
         }
 
-        void Tick()
-        {
+        void Tick() {
             Action done;
-            try
-            {
-                foreach (var t in _tensors)
-                {
-                    if (t.IsReadbackRequestDone()) continue;
-                    if (MaskSuggestPerf.MsSince(_startedAt) > TimeoutMs)
+            try {
+                foreach (var t in _tensors) {
+                    if (t.IsReadbackRequestDone()) {
+                        continue;
+                    }
+                    if (MaskSuggestPerf.MsSince(_startedAt) > TimeoutMs) {
                         throw new TimeoutException(Localization.AiErrReadbackTimeout);
+                    }
                     return;
                 }
                 done = _read();
                 Stop();
-            }
-            catch (Exception e)
-            {
+            } catch (Exception e) {
                 var onError = _onError;
                 Stop();
                 CallGuarded(() => onError?.Invoke(e));
@@ -118,15 +111,15 @@ namespace Iroca.SentisIntegration
             }
             // 完了の通知は読み出しの外で呼ぶ(中で投げたものを読み出しの失敗と取り違えない。以前は Stop が
             // onError を外した後だったので、黙って捨てられていた)。
-            if (done != null) CallGuarded(done);
+            if (done != null) {
+                CallGuarded(done);
+            }
         }
 
         // update から呼ばれる入口なので、通知先の例外はここで止める。漏らすと、同じフレームに並んだ
         // 他ツールの update が飛ばされる(Unity は購読者を順に呼ぶだけで例外を止めない)。
-        static void CallGuarded(Action a)
-        {
-            try { a(); }
-            catch (Exception e) { UnityEngine.Debug.LogException(e); }
+        static void CallGuarded(Action a) {
+            try { a(); } catch (Exception e) { UnityEngine.Debug.LogException(e); }
         }
     }
 }

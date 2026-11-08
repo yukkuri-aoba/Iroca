@@ -7,8 +7,7 @@ using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 製品の実行環境（Unity 2022.3 の Mono）とテストの実行環境（headless ハーネスの net8 JIT）で
     /// 再着色の出力が一致するかを測る。回帰テスト・golden・視覚レビューはすべてハーネスの出力を
@@ -21,19 +20,18 @@ namespace Iroca.EditorTests
     /// 判定は golden の CI と同じ許容（最大差 2・差のある画素 1% まで）。完全一致かどうかは
     /// 結果レポート（IROCA_PARITY_REPORT が指すファイル）に件ごとに残す。
     /// </summary>
-    public class RuntimeParityTests
-    {
+    public class RuntimeParityTests {
         private const int MaxAbsDiff = 2;
         private const double MaxDiffFrac = 0.01;
 
         private static string Repo => Environment.GetEnvironmentVariable("IROCA_REPO");
         private static string GoldenDir => Path.Combine(Repo ?? "", "scripts", "golden");
 
-        public static IEnumerable<string> Labels()
-        {
+        public static IEnumerable<string> Labels() {
             string dir = Path.Combine(GoldenDir, "cases");
-            if (string.IsNullOrEmpty(Repo) || !Directory.Exists(dir))
+            if (string.IsNullOrEmpty(Repo) || !Directory.Exists(dir)) {
                 return new[] { "(IROCA_REPO 未設定)" };
+            }
             return Directory.GetFiles(dir, "*.zones.json")
                 .Select(p => Path.GetFileName(p).Replace(".zones.json", ""))
                 .OrderBy(s => s, StringComparer.Ordinal)
@@ -46,10 +44,10 @@ namespace Iroca.EditorTests
         [TearDown] public void TearDown() => _assets.Dispose();
 
         [TestCaseSource(nameof(Labels))]
-        public void GoldenCase_MatchesHarness(string label)
-        {
-            if (string.IsNullOrEmpty(Repo))
+        public void GoldenCase_MatchesHarness(string label) {
+            if (string.IsNullOrEmpty(Repo)) {
                 Assert.Ignore("IROCA_REPO が未設定です。scripts/Run-EditorTests.ps1 から実行してください");
+            }
 
             string input = Path.Combine(GoldenDir, "cases", label + ".png");
             string zones = File.ReadAllText(Path.Combine(GoldenDir, "cases", label + ".zones.json"));
@@ -66,12 +64,15 @@ namespace Iroca.EditorTests
             Assert.AreEqual((ew, eh), (w, h), $"{label}: 寸法");
 
             int maxDiff = 0, diffPx = 0;
-            for (int i = 0; i < actual.Length; i++)
-            {
+            for (int i = 0; i < actual.Length; i++) {
                 int d = Math.Max(Math.Max(Math.Abs(actual[i].r - expected[i].r), Math.Abs(actual[i].g - expected[i].g)),
                                  Math.Max(Math.Abs(actual[i].b - expected[i].b), Math.Abs(actual[i].a - expected[i].a)));
-                if (d > 0) diffPx++;
-                if (d > maxDiff) maxDiff = d;
+                if (d > 0) {
+                    diffPx++;
+                }
+                if (d > maxDiff) {
+                    maxDiff = d;
+                }
             }
             double frac = diffPx / (double)actual.Length;
             Report(label, maxDiff, diffPx, actual.Length);
@@ -79,24 +80,22 @@ namespace Iroca.EditorTests
                 $"{label}: Unity(Mono) とハーネス(net8) の出力が食い違います: 最大差 {maxDiff}、差のある画素 {diffPx}/{actual.Length} ({frac:P2})");
         }
 
-        private static Color32[] Decode(byte[] png, out int w, out int h)
-        {
+        private static Color32[] Decode(byte[] png, out int w, out int h) {
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            try
-            {
+            try {
                 Assert.IsTrue(tex.LoadImage(png), "PNG を読めません");
                 w = tex.width; h = tex.height;
                 return tex.GetPixels32();
-            }
-            finally { UnityEngine.Object.DestroyImmediate(tex); }
+            } finally { UnityEngine.Object.DestroyImmediate(tex); }
         }
 
-        private static void Report(string label, int maxDiff, int diffPx, int total)
-        {
+        private static void Report(string label, int maxDiff, int diffPx, int total) {
             string line = $"{label}\t{(diffPx == 0 ? "exact" : "differs")}\tmax_diff={maxDiff}\tdiff_px={diffPx}/{total}";
             TestContext.WriteLine(line);
             string report = Environment.GetEnvironmentVariable("IROCA_PARITY_REPORT");
-            if (!string.IsNullOrEmpty(report)) File.AppendAllText(report, line + "\n");
+            if (!string.IsNullOrEmpty(report)) {
+                File.AppendAllText(report, line + "\n");
+            }
         }
     }
 }

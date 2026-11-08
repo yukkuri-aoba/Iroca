@@ -7,8 +7,7 @@ using UnityEditor.PackageManager;
 using UnityEditor.PackageManager.Requests;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// AI マスク提案が必要とする Unity Sentis パッケージを、ユーザーのボタン操作で
     /// Package Manager 経由でワンクリック導入する。
@@ -20,8 +19,7 @@ namespace Iroca
     /// 導入に成功すると Unity が自動でドメインリロード＋リコンパイルし、
     /// IROCA_SENTIS_PRESENT が定義されて Iroca.SentisIntegration がサービスを登録する(= 機能 ON)。
     /// </summary>
-    internal static class MaskSuggestInstall
-    {
+    internal static class MaskSuggestInstall {
 #if UNITY_6000_0_OR_NEWER
         // Unity 6 では com.unity.sentis は中継だけのパッケージ(type: shim)で、実体は com.unity.ai.inference
         // (Inference Engine, 名前空間 Unity.InferenceEngine)。中継を指定しても 2.1.x は入らない。
@@ -59,19 +57,17 @@ namespace Iroca
         /// (1.x や将来の 3.x)が既に入っている場合も含む。その状態で Add すると、他のツールの
         /// ために手動導入された Sentis を黙って差し替えてしまう。押す前に伝えるための判定。
         /// </summary>
-        public static string VersionThatWouldBeReplaced()
-        {
+        public static string VersionThatWouldBeReplaced() {
             // PackageInfo は UnityEditor 直下の同名(旧 AssetStore 用)と衝突するので完全修飾する。
             UnityEditor.PackageManager.PackageInfo found = null;
-            try
-            {
-                foreach (var p in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages())
-                {
+            try {
+                foreach (var p in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages()) {
                     if (p != null && p.name == SentisPackageId) { found = p; break; }
                 }
+            } catch { return null; }  // 情報が取れないだけで導入導線は塞がない
+            if (found == null || string.IsNullOrEmpty(found.version)) {
+                return null;
             }
-            catch { return null; }  // 情報が取れないだけで導入導線は塞がない
-            if (found == null || string.IsNullOrEmpty(found.version)) return null;
             return found.version == SentisPackageVersion ? null : found.version;
         }
 
@@ -89,47 +85,57 @@ namespace Iroca
         /// (<see cref="SentisPackageId"/>)は数えない(版の差し替えの案内が別に出る)。
         /// パッケージが変わるとドメインがリロードされるので、結果はドメインごとに 1 回だけ調べる。
         /// </summary>
-        public static IReadOnlyList<string> OnnxImporterConflicts()
-        {
-            if (s_onnxConflicts != null) return s_onnxConflicts;
-            var found = new List<string>();
-            try
-            {
-                foreach (var owner in OnnxImporterOwners())
-                    if (owner.Key != SentisPackageId) found.Add(owner.Value);
+        public static IReadOnlyList<string> OnnxImporterConflicts() {
+            if (s_onnxConflicts != null) {
+                return s_onnxConflicts;
             }
-            catch { /* 調べられないだけで導入の導線は塞がない */ }
+            var found = new List<string>();
+            try {
+                foreach (var owner in OnnxImporterOwners()) {
+                    if (owner.Key != SentisPackageId) {
+                        found.Add(owner.Value);
+                    }
+                }
+            } catch { /* 調べられないだけで導入の導線は塞がない */ }
             return s_onnxConflicts = found.ToArray();
         }
 
         /// <summary>
         /// .onnx を受け持つ取り込みを持つパッケージ(名前 → 表示用の名前。パッケージの外なら名前はアセンブリ名)。
         /// </summary>
-        internal static SortedDictionary<string, string> OnnxImporterOwners()
-        {
+        internal static SortedDictionary<string, string> OnnxImporterOwners() {
             var owners = new SortedDictionary<string, string>(System.StringComparer.Ordinal);
-            foreach (var t in TypeCache.GetTypesWithAttribute<ScriptedImporterAttribute>())
-            {
-                foreach (ScriptedImporterAttribute a in t.GetCustomAttributes(typeof(ScriptedImporterAttribute), false))
-                {
-                    if (!TargetsOnnx(a.fileExtensions)) continue;
+            foreach (var t in TypeCache.GetTypesWithAttribute<ScriptedImporterAttribute>()) {
+                foreach (ScriptedImporterAttribute a in t.GetCustomAttributes(typeof(ScriptedImporterAttribute), false)) {
+                    if (!TargetsOnnx(a.fileExtensions)) {
+                        continue;
+                    }
                     var pkg = UnityEditor.PackageManager.PackageInfo.FindForAssembly(t.Assembly);
-                    if (pkg != null) owners[pkg.name] = $"{pkg.displayName} ({pkg.name})";
-                    else owners[t.Assembly.GetName().Name] = t.Assembly.GetName().Name;
+                    if (pkg != null) {
+                        owners[pkg.name] = $"{pkg.displayName} ({pkg.name})";
+                    } else {
+                        owners[t.Assembly.GetName().Name] = t.Assembly.GetName().Name;
+                    }
                 }
             }
             // 取り込みの型がコンパイルできていなくても、Barracuda が入っていればぶつかる。
-            foreach (var p in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages())
-                if (p != null && p.name == BarracudaPackageId) owners[p.name] = $"{p.displayName} ({p.name})";
+            foreach (var p in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages()) {
+                if (p != null && p.name == BarracudaPackageId) {
+                    owners[p.name] = $"{p.displayName} ({p.name})";
+                }
+            }
             return owners;
         }
 
-        static bool TargetsOnnx(string[] extensions)
-        {
-            if (extensions == null) return false;
-            foreach (string e in extensions)
-                if (e != null && string.Equals(e.TrimStart('.'), "onnx", System.StringComparison.OrdinalIgnoreCase))
+        static bool TargetsOnnx(string[] extensions) {
+            if (extensions == null) {
+                return false;
+            }
+            foreach (string e in extensions) {
+                if (e != null && string.Equals(e.TrimStart('.'), "onnx", System.StringComparison.OrdinalIgnoreCase)) {
                     return true;
+                }
+            }
             return false;
         }
 
@@ -138,16 +144,20 @@ namespace Iroca
         /// 無ければ何も出さずに true。既定のボタン(Enter)と閉じる(Esc)は「導入しない」側にしてある。
         /// 戻り値 = 導入してよいか。
         /// </summary>
-        public static bool ConfirmDespiteOnnxConflicts()
-        {
+        public static bool ConfirmDespiteOnnxConflicts() {
             var conflicts = OnnxImporterConflicts();
-            if (conflicts.Count == 0) return true;
-            if (Application.isBatchMode) return false;
+            if (conflicts.Count == 0) {
+                return true;
+            }
+            if (Application.isBatchMode) {
+                return false;
+            }
             string body = string.Format(Localization.AiSetupOnnxConflictBody,
                 string.Join(Localization.AiOnnxConflictSeparator, conflicts), SentisPackageVersion);
             string replaced = VersionThatWouldBeReplaced();
-            if (replaced != null)
+            if (replaced != null) {
                 body += "\n\n" + string.Format(Localization.AiSuggestSentisVersionReplace, replaced, SentisPackageVersion);
+            }
             // DisplayDialogComplex: 0 = ok(既定), 1 = cancel(Esc・閉じる), 2 = alt。
             int choice = EditorUtility.DisplayDialogComplex(Localization.AiSetupTitle, body,
                 Localization.AiSetupDontInstall, Localization.Cancel, Localization.AiSetupInstallAnyway);
@@ -158,9 +168,10 @@ namespace Iroca
         public static string Error { get; private set; }
 
         /// <summary>Sentis の導入を開始する(進行中なら no-op)。完了/失敗は状態プロパティで観測する。</summary>
-        public static void StartInstall()
-        {
-            if (InProgress) return;
+        public static void StartInstall() {
+            if (InProgress) {
+                return;
+            }
             Error = null;
             _request = Client.Add(SentisPackageId + "@" + SentisPackageVersion);
             EditorApplication.update += Tick;
@@ -168,28 +179,26 @@ namespace Iroca
 
         // update から呼ばれる入口。例外を漏らすと同じフレームに並んだ他ツールの update が飛ばされ、
         // しかも毎フレーム繰り返すので、ログに出して見張りをやめる。
-        static void Tick()
-        {
-            try
-            {
-                if (_request == null)
-                {
+        static void Tick() {
+            try {
+                if (_request == null) {
                     EditorApplication.update -= Tick;
                     return;
                 }
-                if (!_request.IsCompleted) return;
+                if (!_request.IsCompleted) {
+                    return;
+                }
 
-                if (_request.Status == StatusCode.Failure)
+                if (_request.Status == StatusCode.Failure) {
                     Error = _request.Error != null ? _request.Error.message : Localization.AiUnknownError;
-                else if (_request.Status == StatusCode.Success)
+                } else if (_request.Status == StatusCode.Success) {
                     // 導入自体はパッケージ追加→自動リコンパイルで完了するが、その導入時のドメイン
                     // リロードでは Burst のコールドスタート失敗(関数ポインタ初期化例外)を踏むことがあり、
                     // その世代だけ Sentis の畳み込みが全滅して AI が動かない。確実に有効化するため
                     // 再起動を促すフラグを立てる(クリーンな Burst 初期化になる)。
                     SessionState.SetBool(RestartRecommendedKey, true);
-            }
-            catch (System.Exception e)
-            {
+                }
+            } catch (System.Exception e) {
                 Debug.LogException(e);
                 Error = e.Message;
             }

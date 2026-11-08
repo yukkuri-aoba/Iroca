@@ -5,8 +5,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 編集中のテクスチャを使っているメッシュを探し、UV チャート地図(<see cref="UvChartMap"/>)の入力を作る。
     /// 見つからなければ null を返し、呼び出し側は今まで通り(メッシュ情報なし)で動く。
@@ -20,13 +19,11 @@ namespace Iroca
     /// 元のテクスチャを開き直したときに、メッシュを見失わないため。
     /// たどれないとき(FBX の既定マテリアルのまま等)は <see cref="FromObject"/> で手動指定する。
     /// </summary>
-    internal static class MeshUvLocator
-    {
+    internal static class MeshUvLocator {
         /// <summary>メインテクスチャとして見るプロパティ(lilToon / 標準 / URP / HDRP)。</summary>
         private static readonly string[] MainTextureProperties = { "_MainTex", "_BaseMap", "_BaseColorMap" };
 
-        internal sealed class Found
-        {
+        internal sealed class Found {
             public UvChartSource source;
             /// <summary>シーン上のパスや Prefab のパスと Renderer 名(表示・報告用)。</summary>
             public string origin;
@@ -36,18 +33,18 @@ namespace Iroca
             public bool matchedTexture;
         }
 
-        internal sealed class Result
-        {
+        internal sealed class Result {
             public readonly List<Found> found = new List<Found>();
             /// <summary>UV か三角形を読めなかったサブメッシュの数(Read/Write 無効など)。</summary>
             public int unreadable;
             /// <summary>どこで見つけたか("scene" / "project" / "manual")。</summary>
             public string via;
 
-            public List<UvChartSource> Sources()
-            {
+            public List<UvChartSource> Sources() {
                 var list = new List<UvChartSource>(found.Count);
-                foreach (var f in found) list.Add(f.source);
+                foreach (var f in found) {
+                    list.Add(f.source);
+                }
                 return list;
             }
         }
@@ -56,29 +53,37 @@ namespace Iroca
         /// シーン → 同じ素材フォルダの Prefab の順に探す。使っているメッシュが無ければ null。
         /// あったが 1 つも読めなければ found が空で unreadable &gt; 0 の結果を返す(案内を出すため)。
         /// </summary>
-        public static Result FindForTexture(Texture2D texture)
-        {
-            if (texture == null) return null;
+        public static Result FindForTexture(Texture2D texture) {
+            if (texture == null) {
+                return null;
+            }
             var targets = TargetTextures(texture);
 
             var reads = new MeshReads();
             var scene = new Result { via = "scene" };
-            foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-            {
-                if (EditorUtility.IsPersistent(r)) continue;
+            foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None)) {
+                if (EditorUtility.IsPersistent(r)) {
+                    continue;
+                }
                 Collect(r, targets, scene, reads, requireMatch: true, originPrefix: ScenePath(r.transform));
             }
-            if (scene.found.Count > 0) return Dedup(scene);
+            if (scene.found.Count > 0) {
+                return Dedup(scene);
+            }
 
             var project = new Result { via = "project" };
-            foreach (var path in PrefabsUsing(AssetRoot(AssetDatabase.GetAssetPath(texture)), targets))
-            {
+            foreach (var path in PrefabsUsing(AssetRoot(AssetDatabase.GetAssetPath(texture)), targets)) {
                 var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-                if (go == null) continue;
-                foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+                if (go == null) {
+                    continue;
+                }
+                foreach (var r in go.GetComponentsInChildren<Renderer>(true)) {
                     Collect(r, targets, project, reads, requireMatch: true, originPrefix: path + ":" + r.name);
+                }
             }
-            if (project.found.Count > 0) return Dedup(project);
+            if (project.found.Count > 0) {
+                return Dedup(project);
+            }
             // 使っているメッシュはあったが読めなかった(Read/Write 無効など)。found は空で、件数だけ返す
             int unreadable = scene.unreadable + project.unreadable;
             return unreadable > 0 ? new Result { via = scene.unreadable > 0 ? "scene" : "project", unreadable = unreadable } : null;
@@ -99,25 +104,32 @@ namespace Iroca
         /// シーンにアバターが無いとテクスチャを開くたびにエディタが約 2 秒止まっていた(AssetDatabase はメインスレッド専用)。アバターの素材 69 枚で、
         /// 見つかるメッシュが全部たどったときと同じことを確かめてある(2026-11-01。依存の探索は 2777ms → 68ms)。
         /// </summary>
-        internal static List<string> PrefabsUsing(string root, HashSet<Texture> targets)
-        {
+        internal static List<string> PrefabsUsing(string root, HashSet<Texture> targets) {
             var result = new List<string>();
-            if (root == null || targets == null) return result;
-            var targetPaths = new HashSet<string>();
-            foreach (var t in targets)
-            {
-                string p = t != null ? AssetDatabase.GetAssetPath(t) : null;
-                if (!string.IsNullOrEmpty(p)) targetPaths.Add(p);
+            if (root == null || targets == null) {
+                return result;
             }
-            if (targetPaths.Count == 0) return result;
+            var targetPaths = new HashSet<string>();
+            foreach (var t in targets) {
+                string p = t != null ? AssetDatabase.GetAssetPath(t) : null;
+                if (!string.IsNullOrEmpty(p)) {
+                    targetPaths.Add(p);
+                }
+            }
+            if (targetPaths.Count == 0) {
+                return result;
+            }
 
             // 同じ FBX・マテリアルを共有する Prefab が多いので、直接の依存は 1 回の探索の間だけ覚える。
             var direct = new Dictionary<string, string[]>();
-            foreach (var guid in AssetDatabase.FindAssets("t:Prefab", new[] { root }))
-            {
+            foreach (var guid in AssetDatabase.FindAssets("t:Prefab", new[] { root })) {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
-                if (ReachesAny(path, targetPaths, direct)) result.Add(path);
-                if (result.Count >= MaxProjectPrefabs) break;
+                if (ReachesAny(path, targetPaths, direct)) {
+                    result.Add(path);
+                }
+                if (result.Count >= MaxProjectPrefabs) {
+                    break;
+                }
             }
             return result;
         }
@@ -125,28 +137,27 @@ namespace Iroca
         // Renderer のマテリアルを持ち得る種類(Prefab・ネストした Prefab・モデルの既定マテリアル・マテリアルの親・
         // ツールが .asset にまとめたマテリアル)。これ以外(.anim・.controller・.shader・.cs など)の先は、Renderer が
         // 直接使うマテリアルではないので、たどっても Collect で落ちる。
-        private static readonly HashSet<string> MaterialCarriers = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
-        {
+        private static readonly HashSet<string> MaterialCarriers = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase) {
             ".prefab", ".fbx", ".obj", ".dae", ".blend", ".3ds", ".max", ".ma", ".mb", ".dxf", ".mat", ".asset",
         };
 
-        private static bool ReachesAny(string start, HashSet<string> targets, Dictionary<string, string[]> direct)
-        {
+        private static bool ReachesAny(string start, HashSet<string> targets, Dictionary<string, string[]> direct) {
             var seen = new HashSet<string> { start };
             var stack = new Stack<string>();
             stack.Push(start);
-            while (stack.Count > 0)
-            {
+            while (stack.Count > 0) {
                 string current = stack.Pop();
-                if (!direct.TryGetValue(current, out var deps))
-                {
+                if (!direct.TryGetValue(current, out var deps)) {
                     deps = AssetDatabase.GetDependencies(current, false);
                     direct.Add(current, deps);
                 }
-                foreach (var dep in deps)
-                {
-                    if (targets.Contains(dep)) return true;
-                    if (MaterialCarriers.Contains(Path.GetExtension(dep)) && seen.Add(dep)) stack.Push(dep);
+                foreach (var dep in deps) {
+                    if (targets.Contains(dep)) {
+                        return true;
+                    }
+                    if (MaterialCarriers.Contains(Path.GetExtension(dep)) && seen.Add(dep)) {
+                        stack.Push(dep);
+                    }
                 }
             }
             return false;
@@ -158,33 +169,41 @@ namespace Iroca
         /// (2) 同じ名前のテクスチャを参照(FBX 付属のマテリアルが別フォルダの同名画像を指している場合)、
         /// (3) どれも無ければ全サブメッシュを matchedTexture = false で返す。
         /// </summary>
-        public static Result FromObject(Object obj, Texture2D texture)
-        {
+        public static Result FromObject(Object obj, Texture2D texture) {
             var go = obj as GameObject;
-            if (go == null && obj != null)
+            if (go == null && obj != null) {
                 go = AssetDatabase.LoadAssetAtPath<GameObject>(AssetDatabase.GetAssetPath(obj));
-            if (go == null) return null;
+            }
+            if (go == null) {
+                return null;
+            }
             var targets = texture != null ? TargetTextures(texture) : new HashSet<Texture>();
             string prefix = EditorUtility.IsPersistent(go) ? AssetDatabase.GetAssetPath(go) + ":" : "";
 
             var reads = new MeshReads();
             var matched = new Result { via = "manual" };
-            foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+            foreach (var r in go.GetComponentsInChildren<Renderer>(true)) {
                 Collect(r, targets, matched, reads, requireMatch: true, originPrefix: prefix + ScenePath(r.transform));
-            if (matched.found.Count > 0) return Dedup(matched);
+            }
+            if (matched.found.Count > 0) {
+                return Dedup(matched);
+            }
 
-            if (texture != null)
-            {
+            if (texture != null) {
                 var byName = new Result { via = "manual" };
-                foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+                foreach (var r in go.GetComponentsInChildren<Renderer>(true)) {
                     Collect(r, targets, byName, reads, requireMatch: true,
                             originPrefix: prefix + ScenePath(r.transform), nameStem: texture.name);
-                if (byName.found.Count > 0) return Dedup(byName);
+                }
+                if (byName.found.Count > 0) {
+                    return Dedup(byName);
+                }
             }
 
             var all = new Result { via = "manual" };
-            foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+            foreach (var r in go.GetComponentsInChildren<Renderer>(true)) {
                 Collect(r, targets, all, reads, requireMatch: false, originPrefix: prefix + ScenePath(r.transform));
+            }
             return all.found.Count > 0 || all.unreadable > 0 ? Dedup(all) : null;
         }
 
@@ -192,22 +211,29 @@ namespace Iroca
         /// このテクスチャ自身と、同じフォルダにある Iroca の書き出し物(&lt;名前&gt;_recolored*)。元が Assets の外
         /// (パッケージの中)なら、書き出しの置き場所(<see cref="PathUtils.ExportFolderFor"/>)にあるものも。
         /// </summary>
-        internal static HashSet<Texture> TargetTextures(Texture2D texture)
-        {
+        internal static HashSet<Texture> TargetTextures(Texture2D texture) {
             var set = new HashSet<Texture> { texture };
             string path = AssetDatabase.GetAssetPath(texture);
-            if (string.IsNullOrEmpty(path)) return set;
+            if (string.IsNullOrEmpty(path)) {
+                return set;
+            }
             string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
             string stem = Path.GetFileNameWithoutExtension(path) + PathUtils.RecoloredSuffix;
-            if (string.IsNullOrEmpty(dir)) return set;
+            if (string.IsNullOrEmpty(dir)) {
+                return set;
+            }
             string exportDir = PathUtils.ExportFolderFor(path);
             var dirs = exportDir != dir && AssetDatabase.IsValidFolder(exportDir) ? new[] { dir, exportDir } : new[] { dir };
-            foreach (var d in dirs)
-            foreach (var p in SiblingTexturePaths(d, stem))
-            {
-                if (!Path.GetFileNameWithoutExtension(p).StartsWith(stem, System.StringComparison.Ordinal)) continue;
-                var t = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
-                if (t != null) set.Add(t);
+            foreach (var d in dirs) {
+                foreach (var p in SiblingTexturePaths(d, stem)) {
+                    if (!Path.GetFileNameWithoutExtension(p).StartsWith(stem, System.StringComparison.Ordinal)) {
+                        continue;
+                    }
+                    var t = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
+                    if (t != null) {
+                        set.Add(t);
+                    }
+                }
             }
             return set;
         }
@@ -216,12 +242,12 @@ namespace Iroca
         /// dir 直下にあって名前検索(stem)に掛かったテクスチャのパス。遅延列挙なので、名前の条件での絞り込みと
         /// 見つけた時点での打ち切りは呼び出し側(<see cref="TargetTextures"/> / <see cref="EditableSourceOf"/>)が行う。
         /// </summary>
-        private static IEnumerable<string> SiblingTexturePaths(string dir, string stem)
-        {
-            foreach (var guid in AssetDatabase.FindAssets(stem + " t:Texture2D", new[] { dir }))
-            {
+        private static IEnumerable<string> SiblingTexturePaths(string dir, string stem) {
+            foreach (var guid in AssetDatabase.FindAssets(stem + " t:Texture2D", new[] { dir })) {
                 string p = AssetDatabase.GUIDToAssetPath(guid);
-                if (Path.GetDirectoryName(p)?.Replace('\\', '/') != dir) continue;
+                if (Path.GetDirectoryName(p)?.Replace('\\', '/') != dir) {
+                    continue;
+                }
                 yield return p;
             }
         }
@@ -230,11 +256,14 @@ namespace Iroca
         /// テクスチャの「素材フォルダ」= Assets/ 直下の 1 階層目(Assets/MyAvatar/Materials/... なら Assets/MyAvatar)。
         /// アバター素材は普通この単位で入っているので、プロジェクト全体を走査せずに済む。
         /// </summary>
-        internal static string AssetRoot(string assetPath)
-        {
-            if (string.IsNullOrEmpty(assetPath)) return null;
+        internal static string AssetRoot(string assetPath) {
+            if (string.IsNullOrEmpty(assetPath)) {
+                return null;
+            }
             var parts = assetPath.Replace('\\', '/').Split('/');
-            if (parts.Length < 3 || parts[0] != "Assets") return null;
+            if (parts.Length < 3 || parts[0] != "Assets") {
+                return null;
+            }
             return parts[0] + "/" + parts[1];
         }
 
@@ -242,24 +271,25 @@ namespace Iroca
         /// 1 回の探索の間だけ、メッシュから読んだ UV と、結果ごとに見たサブメッシュを覚える。同じメッシュを
         /// 複数の Renderer・複数のサブメッシュから読むたびに、頂点の数の UV を読み直していた。
         /// </summary>
-        private sealed class MeshReads
-        {
+        private sealed class MeshReads {
             // メッシュ(インスタンス ID) → UV0(null = 読めなかった・空)
             public readonly Dictionary<int, Vector2[]> uv = new Dictionary<int, Vector2[]>();
             private readonly Dictionary<Result, Dictionary<(int, int), bool>> _seen =
                 new Dictionary<Result, Dictionary<(int, int), bool>>();
 
             /// <summary>結果 result で見た (メッシュ, サブメッシュ) → 見つけたか(false = 読めなかった)。</summary>
-            public Dictionary<(int, int), bool> For(Result result)
-            {
-                if (!_seen.TryGetValue(result, out var seen)) _seen.Add(result, seen = new Dictionary<(int, int), bool>());
+            public Dictionary<(int, int), bool> For(Result result) {
+                if (!_seen.TryGetValue(result, out var seen)) {
+                    _seen.Add(result, seen = new Dictionary<(int, int), bool>());
+                }
                 return seen;
             }
 
-            public Vector2[] UvOf(Mesh mesh)
-            {
+            public Vector2[] UvOf(Mesh mesh) {
                 int id = mesh.GetInstanceID();
-                if (!uv.TryGetValue(id, out var arr)) uv.Add(id, arr = ReadUv(mesh));
+                if (!uv.TryGetValue(id, out var arr)) {
+                    uv.Add(id, arr = ReadUv(mesh));
+                }
                 return arr;
             }
         }
@@ -267,36 +297,41 @@ namespace Iroca
         // reads: 同じ探索の中で読んだもの(MeshReads)。同じ (メッシュ, サブメッシュ) が 2 度目に来たら読み直さない:
         // 見つけたものは Dedup が後から落とすので足さず、読めなかったものは読めない数だけを足す(以前と同じ数)。
         private static void Collect(Renderer r, HashSet<Texture> targets, Result result, MeshReads reads,
-                                    bool requireMatch, string originPrefix, string nameStem = null)
-        {
+                                    bool requireMatch, string originPrefix, string nameStem = null) {
             var seen = reads.For(result);
             Mesh mesh = SharedMeshOf(r);
-            if (mesh == null) return;
+            if (mesh == null) {
+                return;
+            }
             var mats = r.sharedMaterials;
             int n = Mathf.Min(mats.Length, mesh.subMeshCount);
-            for (int s = 0; s < n; s++)
-            {
+            for (int s = 0; s < n; s++) {
                 var mat = mats[s];
                 bool match = MainTextureOf(mat, targets, nameStem, out string prop);
-                if (requireMatch && !match) continue;
+                if (requireMatch && !match) {
+                    continue;
+                }
                 var key = (mesh.GetInstanceID(), s);
-                if (seen.TryGetValue(key, out bool foundBefore))
-                {
-                    if (!foundBefore) result.unreadable++;
+                if (seen.TryGetValue(key, out bool foundBefore)) {
+                    if (!foundBefore) {
+                        result.unreadable++;
+                    }
                     continue;
                 }
                 var src = Read(mesh, s, reads);
                 seen.Add(key, src != null);
                 if (src == null) { result.unreadable++; continue; }
                 src.name = r.name + (mesh.subMeshCount > 1 ? "[" + s + "]" : "");
-                if (match && mat != null)
-                {
+                if (match && mat != null) {
                     src.scale = mat.GetTextureScale(prop);
                     src.offset = mat.GetTextureOffset(prop);
                 }
-                result.found.Add(new Found
-                {
-                    source = src, origin = originPrefix, renderer = r, submesh = s, matchedTexture = match,
+                result.found.Add(new Found {
+                    source = src,
+                    origin = originPrefix,
+                    renderer = r,
+                    submesh = s,
+                    matchedTexture = match,
                 });
             }
         }
@@ -306,14 +341,18 @@ namespace Iroca
             => MainTextureOf(mat, targets, null, out property);
 
         /// <summary>マテリアルのメインテクスチャ(<see cref="MainTextureProperties"/> の最初に見つかったもの)。無ければ null。</summary>
-        internal static Texture MainTexture(Material mat)
-        {
-            if (mat == null) return null;
-            foreach (var p in MainTextureProperties)
-            {
-                if (!mat.HasProperty(p)) continue;
+        internal static Texture MainTexture(Material mat) {
+            if (mat == null) {
+                return null;
+            }
+            foreach (var p in MainTextureProperties) {
+                if (!mat.HasProperty(p)) {
+                    continue;
+                }
                 var t = mat.GetTexture(p);
-                if (t != null) return t;
+                if (t != null) {
+                    return t;
+                }
             }
             return null;
         }
@@ -323,24 +362,34 @@ namespace Iroca
         /// (書き出し物を開いて色を変えると二重に塗ることになる。<see cref="TargetTextures"/> の逆向き)。
         /// 画像のアセットでなければ null。
         /// </summary>
-        internal static Texture2D EditableSourceOf(Texture tex)
-        {
+        internal static Texture2D EditableSourceOf(Texture tex) {
             var tex2d = tex as Texture2D;
-            if (tex2d == null) return null;
+            if (tex2d == null) {
+                return null;
+            }
             string path = AssetDatabase.GetAssetPath(tex2d);
-            if (string.IsNullOrEmpty(path)) return null;
+            if (string.IsNullOrEmpty(path)) {
+                return null;
+            }
             string name = Path.GetFileNameWithoutExtension(path);
             int cut = name.IndexOf(PathUtils.RecoloredSuffix, System.StringComparison.Ordinal);
-            if (cut <= 0) return tex2d;
+            if (cut <= 0) {
+                return tex2d;
+            }
             string stem = name.Substring(0, cut);
             // パッケージの中の元の書き出しは Assets/Iroca/Exports の下にある(元のフォルダへ戻して探す)。
             string dir = PathUtils.SourceFolderOfExport(Path.GetDirectoryName(path)?.Replace('\\', '/'));
-            if (string.IsNullOrEmpty(dir) || !AssetDatabase.IsValidFolder(dir)) return tex2d;
-            foreach (var p in SiblingTexturePaths(dir, stem))
-            {
-                if (Path.GetFileNameWithoutExtension(p) != stem) continue;
+            if (string.IsNullOrEmpty(dir) || !AssetDatabase.IsValidFolder(dir)) {
+                return tex2d;
+            }
+            foreach (var p in SiblingTexturePaths(dir, stem)) {
+                if (Path.GetFileNameWithoutExtension(p) != stem) {
+                    continue;
+                }
                 var original = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
-                if (original != null) return original;
+                if (original != null) {
+                    return original;
+                }
             }
             return tex2d;
         }
@@ -349,15 +398,19 @@ namespace Iroca
         /// メインテクスチャが targets のどれかなら true。nameStem を渡すと、名前が同じ
         /// (か &lt;名前&gt;_recolored で始まる)テクスチャも対応とみなす(手動指定の 2 段目だけで使う)。
         /// </summary>
-        private static bool MainTextureOf(Material mat, HashSet<Texture> targets, string nameStem, out string property)
-        {
+        private static bool MainTextureOf(Material mat, HashSet<Texture> targets, string nameStem, out string property) {
             property = null;
-            if (mat == null) return false;
-            foreach (var p in MainTextureProperties)
-            {
-                if (!mat.HasProperty(p)) continue;
+            if (mat == null) {
+                return false;
+            }
+            foreach (var p in MainTextureProperties) {
+                if (!mat.HasProperty(p)) {
+                    continue;
+                }
                 var t = mat.GetTexture(p);
-                if (t == null) continue;
+                if (t == null) {
+                    continue;
+                }
                 bool hit = targets.Contains(t)
                     || (nameStem != null && (t.name == nameStem
                         || t.name.StartsWith(nameStem + PathUtils.RecoloredSuffix, System.StringComparison.Ordinal)));
@@ -371,46 +424,42 @@ namespace Iroca
         /// UV0 はメッシュで 1 つなので reads で 1 回だけ読み、同じメッシュのサブメッシュで同じ並びを共有する
         /// (UvChartSource の UV は読むだけ)。
         /// </summary>
-        private static UvChartSource Read(Mesh mesh, int submesh, MeshReads reads)
-        {
+        private static UvChartSource Read(Mesh mesh, int submesh, MeshReads reads) {
             var uv = reads.UvOf(mesh);
-            if (uv == null) return null;
-            try
-            {
-                var tris = mesh.GetTriangles(submesh);
-                if (tris == null || tris.Length < 3) return null;
-                return new UvChartSource { uv = uv, triangles = tris };
+            if (uv == null) {
+                return null;
             }
-            catch (System.Exception)
-            {
+            try {
+                var tris = mesh.GetTriangles(submesh);
+                if (tris == null || tris.Length < 3) {
+                    return null;
+                }
+                return new UvChartSource { uv = uv, triangles = tris };
+            } catch (System.Exception) {
                 return null;
             }
         }
 
         // UV0(読めない・空なら null)。
-        private static Vector2[] ReadUv(Mesh mesh)
-        {
-            try
-            {
+        private static Vector2[] ReadUv(Mesh mesh) {
+            try {
                 var uv = new List<Vector2>();
                 mesh.GetUVs(0, uv);
                 return uv.Count == 0 ? null : uv.ToArray();
-            }
-            catch (System.Exception)
-            {
+            } catch (System.Exception) {
                 return null;
             }
         }
 
         /// <summary>同じメッシュ・同じサブメッシュが複数の Renderer から見つかったら 1 つにする(UV は同じ)。</summary>
-        private static Result Dedup(Result r)
-        {
+        private static Result Dedup(Result r) {
             var seen = new HashSet<(int, int)>();
             var outR = new Result { via = r.via, unreadable = r.unreadable };
-            foreach (var f in r.found)
-            {
+            foreach (var f in r.found) {
                 Mesh mesh = SharedMeshOf(f.renderer);
-                if (mesh == null || seen.Add((mesh.GetInstanceID(), f.submesh))) outR.found.Add(f);
+                if (mesh == null || seen.Add((mesh.GetInstanceID(), f.submesh))) {
+                    outR.found.Add(f);
+                }
             }
             return outR;
         }
@@ -420,10 +469,11 @@ namespace Iroca
             => r is SkinnedMeshRenderer smr ? smr.sharedMesh
                 : r.TryGetComponent(out MeshFilter mf) ? mf.sharedMesh : null;
 
-        private static string ScenePath(Transform t)
-        {
+        private static string ScenePath(Transform t) {
             var names = new List<string>();
-            for (; t != null; t = t.parent) names.Add(t.name);
+            for (; t != null; t = t.parent) {
+                names.Add(t.name);
+            }
             names.Reverse();
             return string.Join("/", names);
         }

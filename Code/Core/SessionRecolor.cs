@@ -3,31 +3,27 @@
 using System.Threading;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 保存済みの編集状態(<see cref="IrocaSessionState"/>: ゾーン・処理設定・マスク)を
     /// そのまま画素へ適用する。UI を持たない経路(非破壊ビルド・自動化)の入口で、入力は「適用して保存」と
     /// 同じ組み立て(<see cref="RecolorInput.FromSaved"/>)を通して <see cref="PixelProcessor.ProcessPixelsArray"/> を呼ぶ。
     /// Texture2D も UnityEngine.Object も触らないので、バックグラウンドスレッドから呼んでよい。
     /// </summary>
-    internal static class SessionRecolor
-    {
+    internal static class SessionRecolor {
         /// <summary>
         /// 画素をその場で再着色する。有効なゾーンが無ければ何もせず false を返す。
         /// </summary>
         public static bool Apply(Color32[] pixels, int width, int height,
-            IrocaSessionState state, CancellationToken cancellationToken = default)
-        {
+            IrocaSessionState state, CancellationToken cancellationToken = default) {
             var input = RecolorInput.FromSaved(state);
-            if (input == null) return false;
-            try
-            {
+            if (input == null) {
+                return false;
+            }
+            try {
                 PixelProcessor.ProcessPixelsArray(pixels, width, height, input.Masks, input.Zones,
                     input.Settings, cancellationToken);
-            }
-            finally
-            {
+            } finally {
                 input.ReleaseMasks();
             }
             return true;
@@ -38,17 +34,15 @@ namespace Iroca
         /// 置いた画素(非破壊ビルド・シーンのプレビュー)を写さずに処理する。画素は処理が返るまで呼び出し側が保つこと。
         /// </summary>
         public static unsafe bool Apply(Color32* pixels, int width, int height,
-            IrocaSessionState state, CancellationToken cancellationToken = default)
-        {
+            IrocaSessionState state, CancellationToken cancellationToken = default) {
             var input = RecolorInput.FromSaved(state);
-            if (input == null) return false;
-            try
-            {
+            if (input == null) {
+                return false;
+            }
+            try {
                 PixelProcessor.ProcessPixelsNative(pixels, width, height, input.Masks, input.Zones,
                     input.Settings, cancellationToken);
-            }
-            finally
-            {
+            } finally {
                 input.ReleaseMasks();
             }
             return true;

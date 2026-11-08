@@ -6,15 +6,13 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Profiling;
 
-namespace Iroca.DebugTools
-{
+namespace Iroca.DebugTools {
     /// <summary>
     /// IrocaWindow に組み込まれる「スレッド数調整 + パフォーマンス表示」セクション。
     /// デバッグモード OFF は体感とコア処理の要約 2 行だけ、ON は区間・フェーズ・ゾーン別の内訳とメモリも出す。
     /// Debug asmdef ごと削除すれば <see cref="DebugBootstrap"/> の登録も消え、本体に影響なし。
     /// </summary>
-    internal static class PerfView
-    {
+    internal static class PerfView {
         private const string PrefKeyThreads = IrocaPrefs.PerfThreadOverride;
 
         private static bool s_prefsLoaded;
@@ -23,43 +21,40 @@ namespace Iroca.DebugTools
         private static PreviewLatencyReport s_shownLatency;
 
         private static readonly Color CoreColor = new Color(0.30f, 0.50f, 0.75f);
-        private static readonly Color JobColor  = new Color(0.50f, 0.68f, 0.86f);
+        private static readonly Color JobColor = new Color(0.50f, 0.68f, 0.86f);
         private static readonly Color WaitColor = new Color(0.42f, 0.42f, 0.42f);
         private static readonly Color MainColor = new Color(0.88f, 0.56f, 0.24f);
 
         private static readonly string[] LaneNames = { "操作→準備", "プロキシ", "フル", "拡大表示" };
 
-        internal static void Register()
-        {
+        internal static void Register() {
             EnsurePrefsLoaded();
             PreviewLatency.OnReport += HandleLatency;
         }
 
         private static void HandleLatency(PreviewLatencyReport report) => s_lastLatency = report;
 
-        internal static void Draw(IrocaWindow host)
-        {
+        internal static void Draw(IrocaWindow host) {
             EnsurePrefsLoaded();
             // 表示するレポートは Layout のときに固定する。レポートはプレビューの転送(同じ OnGUI の中)で
             // 差し替わるので、Layout と Repaint で別のものを描くと行数が食い違って IMGUI が例外を出す。
             // メモリも同じく Layout で読んだ値を Repaint でも描く。
             bool debug = DebugMode.IsEnabled;
-            if (Event.current.type == EventType.Layout)
-            {
+            if (Event.current.type == EventType.Layout) {
                 s_shownLatency = s_lastLatency;
-                if (debug) SampleMemory();
+                if (debug) {
+                    SampleMemory();
+                }
             }
             var shown = s_shownLatency;
 
             EditorGUILayout.Space(4);
-            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-            {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox)) {
                 // トグルは見出しの行に置く(オン/オフで中身の行数が変わっても位置が動かない)。
                 DrawHeader(host);
 
                 // 簡略表示(デバッグモード OFF)は体感とコア処理の要約を 1 行ずつだけ。
-                if (!debug)
-                {
+                if (!debug) {
                     DrawSummary(shown);
                     return;
                 }
@@ -80,15 +75,13 @@ namespace Iroca.DebugTools
             }
         }
 
-        private static void DrawHeader(IrocaWindow host)
-        {
+        private static void DrawHeader(IrocaWindow host) {
             var title = new GUIContent("パフォーマンス",
                 "プレビューの体感時間(操作から画面に出るまで)と、コア処理の実行時間を表示します。\n" +
                 "デバッグモードをオンにすると、体感時間の区間別タイムライン・フェーズ別/ゾーン別の詳細内訳・" +
                 "メモリ・スレッド数調整・段階ごとのキャプチャが使えます。\n" +
                 "このセクションは Debug asmdef ごと削除することで本体から切り離せます。");
-            using (new EditorGUILayout.HorizontalScope())
-            {
+            using (new EditorGUILayout.HorizontalScope()) {
                 // 見出しもトグルも中身の幅だけを取り、左に寄せる。既定の最小幅(ラベル幅＋フィールド幅)を
                 // 要求させると設定列より広い行になり、列全体の右端が切れる(DrawCoreRow を参照)。右寄せにすると、
                 // 列の右端が切れているときにトグルの文字が欠ける。
@@ -100,8 +93,7 @@ namespace Iroca.DebugTools
             }
         }
 
-        private static void DrawDebugModeToggle(IrocaWindow host)
-        {
+        private static void DrawDebugModeToggle(IrocaWindow host) {
             var content = new GUIContent(
                 "デバッグモード",
                 "オフ: 体感時間とコア処理の合計だけを 2 行で表示します。\n" +
@@ -112,17 +104,17 @@ namespace Iroca.DebugTools
             EditorGUI.BeginChangeCheck();
             bool prev = DebugMode.IsEnabled;
             bool now = EditorGUILayout.ToggleLeft(content, prev, GUILayout.Width(width));
-            if (EditorGUI.EndChangeCheck() && now != prev)
-            {
+            if (EditorGUI.EndChangeCheck() && now != prev) {
                 DebugMode.IsEnabled = now;
                 host.MarkPreviewDirty();
                 // デバッグモードを切ったらキャプチャ結果も破棄する（次回プレビューは非キャプチャで走る）。
-                if (!now) DebugView.ClearCapture(host);
+                if (!now) {
+                    DebugView.ClearCapture(host);
+                }
             }
         }
 
-        private static void DrawThreadControl(IrocaWindow host)
-        {
+        private static void DrawThreadControl(IrocaWindow host) {
             int cpuCount = Environment.ProcessorCount;
             int defaultCount = PixelProcessor.DefaultParallelism;
             bool isAuto = DebugCaptureHooks.ParallelismOverride <= 0;
@@ -136,15 +128,13 @@ namespace Iroca.DebugTools
                     "Unity Editor のスレッドプール圧迫を防ぐデフォルト設定です。\n" +
                     "OFF にするとスライダーで手動設定できます。"),
                 isAuto);
-            if (EditorGUI.EndChangeCheck() && newAuto != isAuto)
-            {
+            if (EditorGUI.EndChangeCheck() && newAuto != isAuto) {
                 DebugCaptureHooks.ParallelismOverride = newAuto ? 0 : displayCount;
                 EditorPrefs.SetInt(PrefKeyThreads, DebugCaptureHooks.ParallelismOverride);
                 host.MarkPreviewDirty();
             }
 
-            using (new EditorGUI.DisabledGroupScope(isAuto))
-            {
+            using (new EditorGUI.DisabledGroupScope(isAuto)) {
                 EditorGUI.BeginChangeCheck();
                 int newCount = EditorGUILayout.IntSlider(
                     new GUIContent("スレッド数",
@@ -152,8 +142,7 @@ namespace Iroca.DebugTools
                         "コア数を増やすと処理が速くなりますが、Unity Editor の UI が重くなる場合があります。\n" +
                         $"CPU コア数: {cpuCount}  /  推奨自動値: {defaultCount}"),
                     displayCount, 1, cpuCount);
-                if (EditorGUI.EndChangeCheck() && !isAuto)
-                {
+                if (EditorGUI.EndChangeCheck() && !isAuto) {
                     DebugCaptureHooks.ParallelismOverride = newCount;
                     EditorPrefs.SetInt(PrefKeyThreads, newCount);
                     host.MarkPreviewDirty();
@@ -162,10 +151,8 @@ namespace Iroca.DebugTools
         }
 
         // 簡略表示: 体感(操作 → 画面)とコア処理を 1 行ずつ。寸法や用語の説明はツールチップへ寄せる。
-        private static void DrawSummary(PreviewLatencyReport r)
-        {
-            if (r == null)
-            {
+        private static void DrawSummary(PreviewLatencyReport r) {
+            if (r == null) {
                 EditorGUILayout.LabelField(
                     "(プレビューを生成すると実行時間が表示されます)",
                     EditorStyles.miniLabel);
@@ -173,19 +160,20 @@ namespace Iroca.DebugTools
             }
 
             string latency;
-            if (r.ViewChange)
-            {
+            if (r.ViewChange) {
                 latency = $"体感  スクロール・ズーム → 拡大 {r.DetailShownMs:F0} ms";
-            }
-            else
-            {
+            } else {
                 latency = r.IsFinal
                     ? $"体感  初回 {r.FirstShownMs:F0} ・ 確定 {r.FinalShownMs:F0}"
                     : $"体感  初回 {r.FirstShownMs:F0} ・ 確定 待ち";
-                if (!double.IsNaN(r.DetailShownMs)) latency += $" ・ 拡大 {r.DetailShownMs:F0}";
+                if (!double.IsNaN(r.DetailShownMs)) {
+                    latency += $" ・ 拡大 {r.DetailShownMs:F0}";
+                }
                 latency += " ms";
             }
-            if (!r.HasInput) latency += " (操作なし)";
+            if (!r.HasInput) {
+                latency += " (操作なし)";
+            }
             // 折り返す(狭い設定列で末尾が切れて読めなくならないように)。
             EditorGUILayout.LabelField(
                 new GUIContent(latency,
@@ -200,21 +188,28 @@ namespace Iroca.DebugTools
                 EditorStyles.wordWrappedMiniLabel);
 
             string core;
-            if (r.ProxyCore == null && r.FullCore == null)
-            {
+            if (r.ProxyCore == null && r.FullCore == null) {
                 core = r.ViewChange ? "コア  なし(拡大表示は確定結果の切り出しだけ)" : "コア  なし";
-            }
-            else
-            {
+            } else {
                 core = "コア  ";
-                if (r.ProxyCore != null) core += $"プロキシ {r.ProxyCore.TotalMs:F0}";
-                if (r.ProxyCore != null && r.FullCore != null) core += " ・ ";
-                if (r.FullCore != null) core += $"フル {r.FullCore.TotalMs:F0}";
+                if (r.ProxyCore != null) {
+                    core += $"プロキシ {r.ProxyCore.TotalMs:F0}";
+                }
+                if (r.ProxyCore != null && r.FullCore != null) {
+                    core += " ・ ";
+                }
+                if (r.FullCore != null) {
+                    core += $"フル {r.FullCore.TotalMs:F0}";
+                }
                 core += " ms";
             }
             string dims = string.Empty;
-            if (r.ProxyCore != null) dims += $"\nプロキシ: {r.ProxyCore.Width}×{r.ProxyCore.Height}";
-            if (r.FullCore != null) dims += $"\nフル: {r.FullCore.Width}×{r.FullCore.Height}";
+            if (r.ProxyCore != null) {
+                dims += $"\nプロキシ: {r.ProxyCore.Width}×{r.ProxyCore.Height}";
+            }
+            if (r.FullCore != null) {
+                dims += $"\nフル: {r.FullCore.Width}×{r.FullCore.Height}";
+            }
             EditorGUILayout.LabelField(
                 new GUIContent(core,
                     "同じ操作で走った ProcessPixelsArray の実行時間。待ち・受け渡し・転送は含みません。\n" +
@@ -225,10 +220,8 @@ namespace Iroca.DebugTools
 
         // コア処理(ProcessPixelsArray)の実行時間。上の「体感」と同じ操作の、画面に出た段のものを出すので、
         // 操作のたびに体感と一緒に差し替わる(エクスポートなどプレビュー以外の処理のものは混ぜない)。
-        private static void DrawPerfReport(IrocaWindow host, PreviewLatencyReport r)
-        {
-            if (r == null)
-            {
+        private static void DrawPerfReport(IrocaWindow host, PreviewLatencyReport r) {
+            if (r == null) {
                 EditorGUILayout.LabelField(
                     "(プレビューを生成すると実行時間が表示されます)",
                     EditorStyles.miniLabel);
@@ -245,22 +238,24 @@ namespace Iroca.DebugTools
                 EditorStyles.boldLabel);
 
             var rep = r.FullCore ?? r.ProxyCore;
-            if (rep == null)
-            {
+            if (rep == null) {
                 EditorGUILayout.LabelField(
                     r.ViewChange ? "なし(拡大表示は確定結果の切り出しだけ)" : "なし",
                     EditorStyles.miniLabel);
                 return;
             }
-            if (r.ProxyCore != null) DrawCoreRow("プロキシ", r.ProxyCore);
-            if (r.FullCore != null) DrawCoreRow("フル", r.FullCore);
+            if (r.ProxyCore != null) {
+                DrawCoreRow("プロキシ", r.ProxyCore);
+            }
+            if (r.FullCore != null) {
+                DrawCoreRow("フル", r.FullCore);
+            }
 
             // 内訳は最後に画面に出た段のもの(確定前のドラッグの追従ならプロキシ、確定したらフル)。
             string stage = r.FullCore != null ? "フル" : "プロキシ";
 
             // フェーズ別内訳(全ゾーン合算)。どの段が重いかを把握して最適化対象を絞るための表示。
-            if (rep.Phases != null && rep.Phases.Length > 0)
-            {
+            if (rep.Phases != null && rep.Phases.Length > 0) {
                 EditorGUILayout.LabelField(
                     new GUIContent($"フェーズ別内訳({stage})",
                         "ProcessPixelsArray の各段(HSV/Match/FloodFill/穴埋め/境界/ブラー/デコンタミ/領域統計/再着色)\n" +
@@ -268,27 +263,35 @@ namespace Iroca.DebugTools
                     EditorStyles.miniBoldLabel);
 
                 double maxPhaseMs = 0.0;
-                foreach (var p in rep.Phases)
-                    if (p.TotalMs > maxPhaseMs) maxPhaseMs = p.TotalMs;
+                foreach (var p in rep.Phases) {
+                    if (p.TotalMs > maxPhaseMs) {
+                        maxPhaseMs = p.TotalMs;
+                    }
+                }
 
-                foreach (var p in rep.Phases)
+                foreach (var p in rep.Phases) {
                     DrawBarRow(p.Name, p.TotalMs, maxPhaseMs, new Color(0.30f, 0.50f, 0.75f),
                         $"フェーズ \"{p.Name}\" の所要時間(全ゾーン合算)");
+                }
                 EditorGUILayout.Space(2);
             }
 
-            if (rep.Zones == null || rep.Zones.Length == 0) return;
+            if (rep.Zones == null || rep.Zones.Length == 0) {
+                return;
+            }
 
             EditorGUILayout.LabelField(
                 new GUIContent($"ゾーン別内訳({stage})", "各ゾーンの処理時間。ゾーン数に比例して総時間が増えます。"),
                 EditorStyles.miniBoldLabel);
 
             float maxMs = 0f;
-            foreach (var z in rep.Zones)
-                if ((float)z.TotalMs > maxMs) maxMs = (float)z.TotalMs;
+            foreach (var z in rep.Zones) {
+                if ((float)z.TotalMs > maxMs) {
+                    maxMs = (float)z.TotalMs;
+                }
+            }
 
-            foreach (var z in rep.Zones)
-            {
+            foreach (var z in rep.Zones) {
                 string label = ZoneLabel(host, z.ZoneId);
                 DrawBarRow(label, z.TotalMs, maxMs, new Color(0.25f, 0.65f, 0.35f),
                     $"ゾーン \"{label}\" の処理時間\nID: {z.ZoneId}");
@@ -299,20 +302,25 @@ namespace Iroca.DebugTools
         /// 内訳の行の見出し。ゾーンの一覧での番号と名前(「2. 袖」)。今のゾーンに無い ID(計測のあとで消した
         /// など)は ID の先頭 8 文字。
         /// </summary>
-        internal static string ZoneLabel(IrocaWindow host, string zoneId)
-        {
-            if (string.IsNullOrEmpty(zoneId)) return "(unnamed)";
+        internal static string ZoneLabel(IrocaWindow host, string zoneId) {
+            if (string.IsNullOrEmpty(zoneId)) {
+                return "(unnamed)";
+            }
             var zones = host != null ? host.Session?.zones : null;
-            if (zones != null)
-                for (int i = 0; i < zones.Count; i++)
-                    if (zones[i] != null && zones[i].id == zoneId)
+            if (zones != null) {
+                for (int i = 0; i < zones.Count; i++) {
+                    if (zones[i] != null && zones[i].id == zoneId) {
                         return $"{i + 1}. {(string.IsNullOrEmpty(zones[i].name) ? "(名前なし)" : zones[i].name)}";
+                    }
+                }
+            }
             return zoneId.Length > 8 ? zoneId.Substring(0, 8) + "…" : zoneId;
         }
 
-        private static void DrawLatency(PreviewLatencyReport r)
-        {
-            if (r == null) return;
+        private static void DrawLatency(PreviewLatencyReport r) {
+            if (r == null) {
+                return;
+            }
 
             EditorGUILayout.LabelField(
                 new GUIContent("体感(操作 → 画面)",
@@ -322,18 +330,19 @@ namespace Iroca.DebugTools
                 EditorStyles.boldLabel);
 
             string line;
-            if (r.ViewChange)
-            {
+            if (r.ViewChange) {
                 line = $"スクロール・ズーム → 拡大 {r.DetailShownMs:F0} ms";
-            }
-            else
-            {
+            } else {
                 line = r.IsFinal
                     ? $"初回 {r.FirstShownMs:F0} ms ・ 確定 {r.FinalShownMs:F0} ms"
                     : $"初回 {r.FirstShownMs:F0} ms ・ 確定 待ち";
-                if (!double.IsNaN(r.DetailShownMs)) line += $" ・ 拡大 {r.DetailShownMs:F0} ms";
+                if (!double.IsNaN(r.DetailShownMs)) {
+                    line += $" ・ 拡大 {r.DetailShownMs:F0} ms";
+                }
             }
-            if (!r.HasInput) line += "  (操作なし: 起点は生成開始)";
+            if (!r.HasInput) {
+                line += "  (操作なし: 起点は生成開始)";
+            }
             // 折り返す(既定幅の設定列では 1 行に収まらず、末尾が切れて読めなかった)。
             EditorGUILayout.LabelField(
                 new GUIContent(line,
@@ -348,20 +357,19 @@ namespace Iroca.DebugTools
             DrawLatencyTimeline(r);
 
             // スクロール・ズームの間は縮小表示の引き伸ばしがすぐ追従するので、止まっていた時間は出さない。
-            if (!r.ViewChange)
+            if (!r.ViewChange) {
                 DrawLatencyValueRow("操作中に止まっていた時間", r.StaleMs,
                     "前回画面が更新されてから最初の操作 → 初回表示。\n" +
                     "ドラッグ中はプロキシだけを回して追従するので、追従 1 回ぶん(数十 ms)程度に収まるのが正常です。");
+            }
             DrawLatencyValueRow("UI が止まった時間", r.MainThreadMs,
                 "メインスレッドの処理(入力のスナップショット・テクスチャ転送)の合計。\n" +
                 "この間は Editor の操作・再描画が止まります。");
             EditorGUILayout.Space(4);
         }
 
-        private static void DrawCoreRow(string label, PerfReport rep)
-        {
-            using (new EditorGUILayout.HorizontalScope())
-            {
+        private static void DrawCoreRow(string label, PerfReport rep) {
+            using (new EditorGUILayout.HorizontalScope()) {
                 EditorGUILayout.LabelField(label, GUILayout.Width(150));
                 // MinWidth(0): 値の LabelField は既定で「ラベル幅＋フィールド幅」(~200px)を最小幅に
                 // 要求し、150px の段名と並ぶとこの行だけで ~360px になる。設定列(下限 320px)より広い行が
@@ -373,29 +381,34 @@ namespace Iroca.DebugTools
 
         // 起点(最後の操作)からの時間軸に、段ごとの区間を 1 行ずつ並べる。区間にカーソルを
         // 合わせると名前と長さが出る。行末の数値はその段が画面に出た時刻。
-        private static void DrawLatencyTimeline(PreviewLatencyReport r)
-        {
+        private static void DrawLatencyTimeline(PreviewLatencyReport r) {
             double span = r.LastShownMs;
-            if (span <= 0.0 || r.Segments == null) return;
+            if (span <= 0.0 || r.Segments == null) {
+                return;
+            }
 
-            for (int lane = 0; lane < PreviewLatencyReport.LaneCount; lane++)
-            {
+            for (int lane = 0; lane < PreviewLatencyReport.LaneCount; lane++) {
                 double laneEnd = -1.0;
-                foreach (var s in r.Segments)
-                    if (s.Lane == lane && s.EndMs > laneEnd) laneEnd = s.EndMs;
-                if (laneEnd < 0.0) continue;
+                foreach (var s in r.Segments) {
+                    if (s.Lane == lane && s.EndMs > laneEnd) {
+                        laneEnd = s.EndMs;
+                    }
+                }
+                if (laneEnd < 0.0) {
+                    continue;
+                }
 
-                using (new EditorGUILayout.HorizontalScope())
-                {
+                using (new EditorGUILayout.HorizontalScope()) {
                     EditorGUILayout.LabelField(
                         new GUIContent(LaneNames[lane], LaneTooltip(lane)), GUILayout.Width(150));
 
                     var barRect = GUILayoutUtility.GetRect(0, 14, GUILayout.ExpandWidth(true));
                     var track = new Rect(barRect.x, barRect.y + 2, barRect.width, barRect.height - 4);
                     EditorGUI.DrawRect(track, new Color(0.18f, 0.18f, 0.18f));
-                    foreach (var s in r.Segments)
-                    {
-                        if (s.Lane != lane) continue;
+                    foreach (var s in r.Segments) {
+                        if (s.Lane != lane) {
+                            continue;
+                        }
                         float x0 = track.x + track.width * (float)(Math.Max(0.0, s.StartMs) / span);
                         float x1 = track.x + track.width * (float)(Math.Min(span, s.EndMs) / span);
                         var segRect = new Rect(x0, track.y, Mathf.Max(1f, x1 - x0), track.height);
@@ -409,8 +422,7 @@ namespace Iroca.DebugTools
             }
 
             // 凡例は行頭から並べる(段名の列に合わせて字下げすると、狭い設定列で末尾が切れる)。
-            using (new EditorGUILayout.HorizontalScope())
-            {
+            using (new EditorGUILayout.HorizontalScope()) {
                 DrawLegend(CoreColor, "コア処理", "ProcessPixelsArray。上の「コア処理」が測っている部分。");
                 DrawLegend(JobColor, "複製・縮小", "ジョブ内のコア以外(入力の複製、表示寸法への縮小)。");
                 DrawLegend(WaitColor, "待ち", "誰も計算していない時間(デバウンス・スレッドプールの起動・update/再描画待ち)。");
@@ -420,10 +432,8 @@ namespace Iroca.DebugTools
             EditorGUILayout.Space(2);
         }
 
-        private static string LaneTooltip(int lane)
-        {
-            switch (lane)
-            {
+        private static string LaneTooltip(int lane) {
+            switch (lane) {
                 case PreviewLatencyReport.LaneRequest:
                     return "最後の操作から再生成を始めるまでの待ちと、入力(マスク・ゾーン設定)のスナップショット。\n" +
                            "スクロール・ズームでは、拡大表示の作り直しを始めるまでの待ち(前の作り直しが走っていたときだけ)。";
@@ -439,19 +449,16 @@ namespace Iroca.DebugTools
             }
         }
 
-        private static Color KindColor(LatencyKind kind)
-        {
-            switch (kind)
-            {
+        private static Color KindColor(LatencyKind kind) {
+            switch (kind) {
                 case LatencyKind.Core: return CoreColor;
-                case LatencyKind.Job:  return JobColor;
+                case LatencyKind.Job: return JobColor;
                 case LatencyKind.Main: return MainColor;
-                default:               return WaitColor;
+                default: return WaitColor;
             }
         }
 
-        private static void DrawLegend(Color color, string label, string tooltip)
-        {
+        private static void DrawLegend(Color color, string label, string tooltip) {
             var swatch = GUILayoutUtility.GetRect(10, 10, GUILayout.Width(10), GUILayout.Height(14));
             EditorGUI.DrawRect(new Rect(swatch.x, swatch.y + 3, 10, 8), color);
             var content = new GUIContent(label, tooltip);
@@ -462,10 +469,8 @@ namespace Iroca.DebugTools
         private static void DrawLatencyValueRow(string label, double ms, string tooltip) =>
             DrawValueRow(label, $"{ms:F0} ms", tooltip, 150f);
 
-        private static void DrawValueRow(string label, string value, string tooltip, float labelWidth)
-        {
-            using (new EditorGUILayout.HorizontalScope())
-            {
+        private static void DrawValueRow(string label, string value, string tooltip, float labelWidth) {
+            using (new EditorGUILayout.HorizontalScope()) {
                 EditorGUILayout.LabelField(new GUIContent(label, tooltip), GUILayout.Width(labelWidth));
                 // MinWidth(0) の理由は DrawCoreRow と同じ(設定列を押し広げない)。
                 EditorGUILayout.LabelField(value, EditorStyles.miniLabel, GUILayout.MinWidth(0f));
@@ -474,8 +479,7 @@ namespace Iroca.DebugTools
 
         // ---- メモリ(デバッグモード時のみ) ----
 
-        private struct MemorySample
-        {
+        private struct MemorySample {
             internal long MonoUsed, MonoHeap;             // Mono(マネージド)ヒープ
             internal long NativeUsed, NativeReserved;     // Unity の内部アロケータ
             internal long IrocaNative;                    // いろかが Mono の外に持つ分(IrocaNativeMemory)
@@ -488,8 +492,7 @@ namespace Iroca.DebugTools
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct ProcessMemoryCounters
-        {
+        private struct ProcessMemoryCounters {
             public uint cb, PageFaultCount;
             public UIntPtr PeakWorkingSetSize, WorkingSetSize, QuotaPeakPagedPoolUsage, QuotaPagedPoolUsage,
                 QuotaPeakNonPagedPoolUsage, QuotaNonPagedPoolUsage, PagefileUsage, PeakPagefileUsage;
@@ -505,14 +508,14 @@ namespace Iroca.DebugTools
         private static double s_memorySampledAt = double.NegativeInfinity;
         private static bool s_processMemoryUnavailable;
 
-        private static void SampleMemory()
-        {
+        private static void SampleMemory() {
             double now = EditorApplication.timeSinceStartup;
-            if (now - s_memorySampledAt < MemorySampleInterval) return;
+            if (now - s_memorySampledAt < MemorySampleInterval) {
+                return;
+            }
             s_memorySampledAt = now;
 
-            var m = new MemorySample
-            {
+            var m = new MemorySample {
                 MonoUsed = Profiler.GetMonoUsedSizeLong(),
                 MonoHeap = Profiler.GetMonoHeapSizeLong(),
                 NativeUsed = Profiler.GetTotalAllocatedMemoryLong(),
@@ -527,18 +530,18 @@ namespace Iroca.DebugTools
                            + WorkPools.Rgba32.FreeBytes + WorkPools.Int.FreeBytes,
                 GcCount = GC.CollectionCount(0),
             };
-            for (int u = 0; u < UsageCount; u++)
-            {
+            for (int u = 0; u < UsageCount; u++) {
                 m.UsageLive[u] = IrocaNativeMemory.LiveBytesOf((NativeUsage)u);
                 m.UsagePeak[u] = IrocaNativeMemory.PeakBytesOf((NativeUsage)u);
                 m.UsageFinalized[u] = IrocaNativeMemory.FinalizedCount((NativeUsage)u);
             }
             m.HasProcess = TryGetProcessMemory(out m.Private, out m.PeakPrivate, out m.WorkingSet);
             s_memory = m;
-            if (m.MonoUsed > s_monoUsedPeak) s_monoUsedPeak = m.MonoUsed;
+            if (m.MonoUsed > s_monoUsedPeak) {
+                s_monoUsedPeak = m.MonoUsed;
+            }
             // ヒープが広がった(Mono は縮めないので、増えたときだけ記録する)。初回は起点として控えるだけ。
-            if (s_monoHeapLast > 0 && m.MonoHeap > s_monoHeapLast)
-            {
+            if (s_monoHeapLast > 0 && m.MonoHeap > s_monoHeapLast) {
                 s_monoHeapGrowth = m.MonoHeap - s_monoHeapLast;
                 s_monoHeapGrewAt = now;
             }
@@ -552,8 +555,7 @@ namespace Iroca.DebugTools
         private static long s_gcBefore = -1, s_gcAfter = -1;
 
         /// <summary>完全な GC を走らせ、前後の Mono の使用量を控える(生きている量とゴミを分けて見るため)。</summary>
-        private static void CollectNow()
-        {
+        private static void CollectNow() {
             s_gcBefore = Profiler.GetMonoUsedSizeLong();
             GC.Collect();
             GC.WaitForPendingFinalizers();
@@ -563,21 +565,20 @@ namespace Iroca.DebugTools
         }
 
         // プロセスのメモリ(Windows の GetProcessMemoryInfo)。MemoryBenchTests と同じ値を読む。
-        private static bool TryGetProcessMemory(out long privateBytes, out long peakPrivate, out long workingSet)
-        {
+        private static bool TryGetProcessMemory(out long privateBytes, out long peakPrivate, out long workingSet) {
             privateBytes = peakPrivate = workingSet = 0;
-            if (s_processMemoryUnavailable || Application.platform != RuntimePlatform.WindowsEditor) return false;
-            try
-            {
-                if (!GetProcessMemoryInfo(GetCurrentProcess(), out var c, (uint)Marshal.SizeOf<ProcessMemoryCounters>()))
+            if (s_processMemoryUnavailable || Application.platform != RuntimePlatform.WindowsEditor) {
+                return false;
+            }
+            try {
+                if (!GetProcessMemoryInfo(GetCurrentProcess(), out var c, (uint)Marshal.SizeOf<ProcessMemoryCounters>())) {
                     return false;
+                }
                 privateBytes = (long)c.PagefileUsage.ToUInt64();
                 peakPrivate = (long)c.PeakPagefileUsage.ToUInt64();
                 workingSet = (long)c.WorkingSetSize.ToUInt64();
                 return true;
-            }
-            catch (Exception)
-            {
+            } catch (Exception) {
                 // DLL・関数が無い環境では以後読まない(行ごと出さない)。
                 s_processMemoryUnavailable = true;
                 return false;
@@ -586,8 +587,7 @@ namespace Iroca.DebugTools
 
         private static string Mb(long bytes) => (bytes / (1024.0 * 1024.0)).ToString("N0");
 
-        private static void DrawMemory()
-        {
+        private static void DrawMemory() {
             EditorGUILayout.LabelField(
                 new GUIContent("メモリ",
                     "Unity エディタのプロセス全体の値です(いろか以外のウィンドウやアセットも含みます)。\n" +
@@ -619,14 +619,14 @@ namespace Iroca.DebugTools
             DrawValueRow("　GC の方式", GarbageCollectorModeText(),
                 "Unity の GC の設定。インクリメンタルなら回収を複数フレームに分けて行うので、1 回の停止は短くなります。",
                 MemoryLabelWidth);
-            using (new EditorGUILayout.HorizontalScope())
-            {
+            using (new EditorGUILayout.HorizontalScope()) {
                 var collect = new GUIContent("試しに回収",
                     "いま完全なガベージコレクションを走らせ、前後の「使用」を表示します。\n" +
                     "回収後の値が、実際に生きているオブジェクトの量です(減った分はまだ回収されていなかったゴミ)。\n" +
                     "回収の間はエディタが少し止まります。確保(ヒープ全体)は減りません。");
-                if (GUILayout.Button(collect, EditorStyles.miniButton, GUILayout.Width(MemoryLabelWidth)))
+                if (GUILayout.Button(collect, EditorStyles.miniButton, GUILayout.Width(MemoryLabelWidth))) {
                     CollectNow();
+                }
                 string result = s_gcBefore >= 0
                     ? $"{Mb(s_gcBefore)} → {Mb(s_gcAfter)} MB (ゴミ {Mb(Math.Max(0L, s_gcBefore - s_gcAfter))} MB)"
                     : "(まだ回収していません)";
@@ -641,27 +641,27 @@ namespace Iroca.DebugTools
                 "いろかが Mono ヒープの外に置いている量(選択キャッシュなど)。\n" +
                 "Mono ヒープと違い、手放すとすぐ OS へ戻ります(テクスチャを替えたとき・ウィンドウを閉じたときなど)。",
                 MemoryLabelWidth);
-            if (m.UsageLive != null)
-            {
-                for (int u = 0; u < UsageCount; u++)
-                {
+            if (m.UsageLive != null) {
+                for (int u = 0; u < UsageCount; u++) {
                     string text = $"{Mb(m.UsageLive[u])} MB (最大 {Mb(m.UsagePeak[u])} MB)";
-                    if ((NativeUsage)u == NativeUsage.Work)
+                    if ((NativeUsage)u == NativeUsage.Work) {
                         text += $"　貸し出し中 {Mb(m.PoolRented)} / 空き {Mb(m.PoolFree)} MB";
-                    if (m.UsageFinalized[u] > 0) text += $"　返し忘れ {m.UsageFinalized[u]} 個";
+                    }
+                    if (m.UsageFinalized[u] > 0) {
+                        text += $"　返し忘れ {m.UsageFinalized[u]} 個";
+                    }
                     DrawValueRow("　" + UsageLabels[u], text, UsageTooltips[u], MemoryLabelWidth);
                 }
-                using (new EditorGUILayout.HorizontalScope())
-                {
+                using (new EditorGUILayout.HorizontalScope()) {
                     var reset = new GUIContent("最大をリセット",
                         "用途ごとの「最大」を今の量に戻します(操作の前に押すと、その操作で一番多く使った量が分かります)。\n" +
                         "作業配列のプールが手元に持つ量の上限(直近の最大の 1.5 倍)には影響しません。");
-                    if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.Width(MemoryLabelWidth)))
+                    if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.Width(MemoryLabelWidth))) {
                         IrocaNativeMemory.ResetPeaks();
+                    }
                 }
             }
-            if (m.HasProcess)
-            {
+            if (m.HasProcess) {
                 DrawValueRow("プロセス", $"{Mb(m.Private)} MB (最大 {Mb(m.PeakPrivate)} MB)",
                     "Unity エディタのプロセスがコミットしているメモリ(Private Bytes)。Mono ヒープとネイティブの両方を含みます。\n" +
                     "最大: プロセスを起動してからの最大値。",
@@ -680,8 +680,7 @@ namespace Iroca.DebugTools
 
         // NativeUsage の順。
         private static readonly string[] UsageLabels = { "作業配列", "画素", "色の表", "選択キャッシュ", "マスク", "そのほか" };
-        private static readonly string[] UsageTooltips =
-        {
+        private static readonly string[] UsageTooltips = {
             "処理の途中で借りる作業配列のプール。計算の間だけ借り、返した塊は次の計算で使い回します。\n" +
             "計算が 10 秒のあいだ無いと、空きを OS へ返します。返し忘れが出たら不具合です。",
             "プレビューの原本と出力、非破壊ビルド・書き出しの画素。ウィンドウを閉じる・テクスチャを替えると返します。",
@@ -691,18 +690,15 @@ namespace Iroca.DebugTools
             "どの用途にも入らないもの。",
         };
 
-        private static string GarbageCollectorModeText()
-        {
+        private static string GarbageCollectorModeText() {
             string mode = UnityEngine.Scripting.GarbageCollector.isIncremental ? "インクリメンタル" : "一括";
             return UnityEngine.Scripting.GarbageCollector.GCMode == UnityEngine.Scripting.GarbageCollector.Mode.Enabled
                 ? mode
                 : $"{mode} ({UnityEngine.Scripting.GarbageCollector.GCMode})";
         }
 
-        private static void DrawBarRow(string label, double ms, double maxMs, Color barColor, string tooltip)
-        {
-            using (new EditorGUILayout.HorizontalScope())
-            {
+        private static void DrawBarRow(string label, double ms, double maxMs, Color barColor, string tooltip) {
+            using (new EditorGUILayout.HorizontalScope()) {
                 EditorGUILayout.LabelField(new GUIContent(label, tooltip), GUILayout.Width(150));
 
                 var barRect = GUILayoutUtility.GetRect(0, 14, GUILayout.ExpandWidth(true));
@@ -710,18 +706,20 @@ namespace Iroca.DebugTools
                     new Rect(barRect.x, barRect.y + 2, barRect.width, barRect.height - 4),
                     new Color(0.18f, 0.18f, 0.18f));
                 float ratio = maxMs > 0.0 ? (float)(ms / maxMs) : 0f;
-                if (ratio > 0f)
+                if (ratio > 0f) {
                     EditorGUI.DrawRect(
                         new Rect(barRect.x, barRect.y + 2, barRect.width * ratio, barRect.height - 4),
                         barColor);
+                }
 
                 EditorGUILayout.LabelField($"{ms:F1} ms", EditorStyles.miniLabel, GUILayout.Width(58));
             }
         }
 
-        private static void EnsurePrefsLoaded()
-        {
-            if (s_prefsLoaded) return;
+        private static void EnsurePrefsLoaded() {
+            if (s_prefsLoaded) {
+                return;
+            }
             s_prefsLoaded = true;
             DebugCaptureHooks.ParallelismOverride = EditorPrefs.GetInt(PrefKeyThreads, 0);
         }

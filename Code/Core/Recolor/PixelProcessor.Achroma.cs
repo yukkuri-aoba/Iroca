@@ -9,10 +9,8 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
         // ───────── 無彩(achroma)パス: 無彩サンプル / 極端無彩ターゲットの再着色破綻対策 ─────────
         // 通常の再着色は sample 彩度 sC を「分母・基準」に使う前提(mag=oC/sC, 彩度ゲート
         // chromaFrac=oC/(sC·OklabRemapFullChromaFrac))。サンプルが無彩(白/黒/灰)だと前提が崩れ、白い地色→黒の
@@ -22,8 +20,8 @@ namespace Iroca
         // 倍する形維持リマップ / 彩度=uniform target chroma へ achromaWeight(ComputeAchromaWeight)で連続
         // ブレンドする。有彩×有彩では weight=0 で従来式とバイト不変。不変条件: 成分内で単調・順序保存。
         // 偏差の増幅は AchromaFormGain(知覚補償、下の定数コメント参照)だけ。
-        private const float AchromaSampleC  = 0.06f;  // sample OkLab chroma がこれ未満で無彩扱い(→1)
-        private const float AchromaTargetC  = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
+        private const float AchromaSampleC = 0.06f;  // sample OkLab chroma がこれ未満で無彩扱い(→1)
+        private const float AchromaTargetC = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
         private const float AchromaNeutralTargetC = 0.01f;  // 明るい塗り先を「純白に近い」とみなす彩度(これ以上は色味が見える。OkLab の見分けの目安 0.02 の半分)
         private const float OkLabMidL = 0.5f;  // 明るい塗り先と暗い塗り先の境(塗り先の極端さ 1 − 4·L·(1 − L) が 0 になる明度)
         // 形(立体感)維持版: 成分の地色基準を target 側 offset に置き、偏差を gain 倍して陰影を知覚可能に拡張。
@@ -65,21 +63,17 @@ namespace Iroca
         /// マッチして元色が残る「中央の段差」を消すための前処理。陰影は後段 recolor の無彩パスの
         /// 形維持リマップ(AchromaFormGain)が担う。
         /// </summary>
-        private static void SolidifyAchromaInterior(float* strength, int w, int h, float achromaWeight, CancellationToken ct = default)
-        {
+        private static void SolidifyAchromaInterior(float* strength, int w, int h, float achromaWeight, CancellationToken ct = default) {
             const float matchThr = ColorZone.MatchStrengthFloor;
             int len = w * h;
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             bool* m = s_boolPool.Rent(len);
-            try
-            {
+            try {
                 // マッチの印(書き換える前の strength で決める)。行並列(要素独立=ビット不変)。
                 var mInit = m;
-                Parallel.For(0, h, po, y =>
-                {
+                Parallel.For(0, h, po, y => {
                     int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
+                    for (int x = 0; x < w; x++) {
                         int i = rowOff + x;
                         mInit[i] = strength[i] > matchThr;
                     }
@@ -90,30 +84,29 @@ namespace Iroca
                 // 判定は印 m だけを読むので、同じパスで strength を書き換えてよい。
                 var mL = m;
                 var strengthL = strength;
-                Parallel.For(2, h - 2, po, y =>
-                {
+                Parallel.For(2, h - 2, po, y => {
                     int rowOff = y * w;
-                    for (int x = 2; x < w - 2; x++)
-                    {
+                    for (int x = 2; x < w - 2; x++) {
                         int i = rowOff + x;
-                        if (!mL[i]) continue;
+                        if (!mL[i]) {
+                            continue;
+                        }
                         bool interior =
                             mL[i - 1] && mL[i + 1] && mL[i - w] && mL[i + w]
                             && mL[i - 2] && mL[i + 2] && mL[i - 2 * w] && mL[i + 2 * w]
                             && mL[i - w - 1] && mL[i - w + 1] && mL[i + w - 1] && mL[i + w + 1];
-                        if (interior) strengthL[i] = strengthL[i] + (1f - strengthL[i]) * achromaWeight;
+                        if (interior) {
+                            strengthL[i] = strengthL[i] + (1f - strengthL[i]) * achromaWeight;
+                        }
                     }
                 });
-            }
-            finally
-            {
+            } finally {
                 s_boolPool.Return(m);
             }
         }
 
         /// <summary>サンプルが無彩な度合い(0..1)。彩度を塗り先へ一律にする重みに使う。</summary>
-        private static float ComputeAchromaSampleWeight(Color sample)
-        {
+        private static float ComputeAchromaSampleWeight(Color sample) {
             OkLab.RgbToOklab(sample.r, sample.g, sample.b, out _, out float sa, out float sb);
             return Mathf.Clamp01(1f - Mathf.Sqrt(sa * sa + sb * sb) / AchromaSampleC);
         }
@@ -124,11 +117,12 @@ namespace Iroca
         /// 純白に近い塗り先は従来どおり(濃い布を白へ塗るときに、白に寄せる)。暗い塗り先は陰影を描く余白を作るために要る。
         /// 塗り先の極端さは tL = 0.5 で 0 なので、明暗の切り替えに段差は無い。
         /// </summary>
-        private static float ComputeAchromaLightWeight(Color sample, Color target)
-        {
+        private static float ComputeAchromaLightWeight(Color sample, Color target) {
             OkLab.RgbToOklab(target.r, target.g, target.b, out float tL, out float ta, out float tb);
             float full = ComputeAchromaWeight(sample, target);
-            if (tL <= OkLabMidL) return full;
+            if (tL <= OkLabMidL) {
+                return full;
+            }
             float tC = Mathf.Sqrt(ta * ta + tb * tb);
             float neutral = Mathf.Clamp01(1f - tC / AchromaNeutralTargetC);
             return Mathf.Max(ComputeAchromaSampleWeight(sample), full * neutral);
@@ -138,8 +132,7 @@ namespace Iroca
         /// 無彩パス/AA フィデリティ用: 「無彩サンプル / 極端無彩ターゲット」の重み(0..1)を sample/target
         /// 色から求める。有彩サンプル×有彩ターゲットで 0。
         /// </summary>
-        private static float ComputeAchromaWeight(Color sample, Color target)
-        {
+        private static float ComputeAchromaWeight(Color sample, Color target) {
             OkLab.RgbToOklab(sample.r, sample.g, sample.b, out _, out float sa, out float sb);
             OkLab.RgbToOklab(target.r, target.g, target.b, out float tL, out float ta, out float tb);
             float sC = Mathf.Sqrt(sa * sa + sb * sb);
@@ -166,15 +159,15 @@ namespace Iroca
         // 返す地図(upMap も)は s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。
         private static float* BuildComponentMedianLMap(
             Color32* px, float* strength, int w, int h, float thr, out float* upMap, CancellationToken ct = default,
-            ColorPalette palette = null)
-        {
+            ColorPalette palette = null) {
             upMap = null;
             int len = w * h;
             var bboxPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             // 対象画素の bbox(連結予測子と同条件)。連結成分アンカリングと同じ共通版を使う。
             if (!TryComputeMatchedBBox(strength, px, w, h, thr,
-                    out int minX, out int minY, out int maxX, out int maxY, ct))
+                    out int minX, out int minY, out int maxX, out int maxY, ct)) {
                 return null;
+            }
 
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
             int bwh = bw * bh;
@@ -188,235 +181,256 @@ namespace Iroca
             int* runX0 = null, runX1 = null, runY = null, parent = null, comp = null, rootComp = null, order = null;
             int* compStart = null, fillPos = null;
             float* med = null, up = null;
-            try
-            {
-            if (palette != null)
-            {
-                palette.EnsureOklab(bboxPo);
-                pIdx = palette.Index;
-                float* pL = palette.OkL;
-                // 色ごとのビン(色の数の長さ)はプールから借り、下の finally で返す(0.4.0 の 3-12)。
-                int* bins = binOf = s_intPool.Rent(palette.Count);
-                ForEachPaletteChunk(palette.Count, bboxPo, (k0, k1) =>
-                {
-                    for (int k = k0; k < k1; k++) bins[k] = Mathf.Clamp((int)(pL[k] * 255f), 0, 255);
-                });
-                binOf = bins;
-            }
-            else
-            {
-                okL = s_floatPool.Rent(bwh);
-                var okLL = okL;
-                Parallel.For(0, bh, bboxPo, ly =>
-                {
-                    int lrb = ly * bw;
+            try {
+                if (palette != null) {
+                    palette.EnsureOklab(bboxPo);
+                    pIdx = palette.Index;
+                    float* pL = palette.OkL;
+                    // 色ごとのビン(色の数の長さ)はプールから借り、下の finally で返す(0.4.0 の 3-12)。
+                    int* bins = binOf = s_intPool.Rent(palette.Count);
+                    ForEachPaletteChunk(palette.Count, bboxPo, (k0, k1) => {
+                        for (int k = k0; k < k1; k++) {
+                            bins[k] = Mathf.Clamp((int)(pL[k] * 255f), 0, 255);
+                        }
+                    });
+                    binOf = bins;
+                } else {
+                    okL = s_floatPool.Rent(bwh);
+                    var okLL = okL;
+                    Parallel.For(0, bh, bboxPo, ly => {
+                        int lrb = ly * bw;
+                        int grb = (ly + minY) * w + minX;
+                        for (int lx = 0; lx < bw; lx++) {
+                            var p = px[grb + lx];
+                            OkLab.RgbToOklab(p.r, p.g, p.b, out float L, out _, out _);
+                            okLL[lrb + lx] = L;
+                        }
+                    });
+                }
+
+                // ───────── 連結成分ラベリング: 行 run + union-find ─────────
+                // 旧実装は画素単位の逐次 DFS で、bbox 全画素 × 4 近傍を単スレッドで舐めていた
+                // (無彩サンプルのケースでは RegionStats フェーズの支配項)。ここでは
+                //   ① 行内の連続 matched 区間(run)を行並列で抽出   ← O(N) 並列
+                //   ② 上下に重なる run だけを union-find で結合     ← O(R α), R ≪ N
+                //   ③ run 単位の連続アクセスでヒストグラム集計
+                // に置き換える。run は「行内の左右連結」そのもの、上下は x 範囲の重なり = 4 近傍の
+                // 縦連結そのものなので、成分の分割は DFS と厳密に同一。ラベル番号の付き方だけが
+                // 変わるが、出力は「成分ごとの L の P80 をその成分の全画素へ配る」だけで番号に
+                // 依存せず、ヒストグラムは整数加算なので集計順にも依存しない = 出力ビット不変。
+
+                var runCount = new int[bh];
+                Parallel.For(0, bh, bboxPo, ly => {
                     int grb = (ly + minY) * w + minX;
-                    for (int lx = 0; lx < bw; lx++)
-                    {
-                        var p = px[grb + lx];
-                        OkLab.RgbToOklab(p.r, p.g, p.b, out float L, out _, out _);
-                        okLL[lrb + lx] = L;
+                    int n = 0;
+                    bool prev = false;
+                    for (int lx = 0; lx < bw; lx++) {
+                        int gi = grb + lx;
+                        bool m = strength[gi] > thr && px[gi].a >= OpaqueAlphaMin;
+                        if (m && !prev) {
+                            n++;
+                        }
+                        prev = m;
+                    }
+                    runCount[ly] = n;
+                });
+                var rowOff = new int[bh + 1];
+                for (int ly = 0; ly < bh; ly++) {
+                    rowOff[ly + 1] = rowOff[ly] + runCount[ly];
+                }
+                int R = rowOff[bh];
+                if (R == 0) {
+                    return null;   // マッチ皆無(bbox はあるが α などで全て落ちた)
+                }
+
+                runX0 = s_intPool.Rent(R);
+                runX1 = s_intPool.Rent(R);
+                runY = s_intPool.Rent(R);
+                Parallel.For(0, bh, bboxPo, ly => {
+                    int grb = (ly + minY) * w + minX;
+                    int k = rowOff[ly];
+                    int lx = 0;
+                    while (lx < bw) {
+                        int gi = grb + lx;
+                        if (!(strength[gi] > thr && px[gi].a >= OpaqueAlphaMin)) { lx++; continue; }
+                        int s0 = lx;
+                        while (lx < bw && strength[grb + lx] > thr && px[grb + lx].a >= OpaqueAlphaMin) {
+                            lx++;
+                        }
+                        runX0[k] = s0; runX1[k] = lx - 1; runY[k] = ly; k++;
                     }
                 });
-            }
 
-            // ───────── 連結成分ラベリング: 行 run + union-find ─────────
-            // 旧実装は画素単位の逐次 DFS で、bbox 全画素 × 4 近傍を単スレッドで舐めていた
-            // (無彩サンプルのケースでは RegionStats フェーズの支配項)。ここでは
-            //   ① 行内の連続 matched 区間(run)を行並列で抽出   ← O(N) 並列
-            //   ② 上下に重なる run だけを union-find で結合     ← O(R α), R ≪ N
-            //   ③ run 単位の連続アクセスでヒストグラム集計
-            // に置き換える。run は「行内の左右連結」そのもの、上下は x 範囲の重なり = 4 近傍の
-            // 縦連結そのものなので、成分の分割は DFS と厳密に同一。ラベル番号の付き方だけが
-            // 変わるが、出力は「成分ごとの L の P80 をその成分の全画素へ配る」だけで番号に
-            // 依存せず、ヒストグラムは整数加算なので集計順にも依存しない = 出力ビット不変。
-
-            var runCount = new int[bh];
-            Parallel.For(0, bh, bboxPo, ly =>
-            {
-                int grb = (ly + minY) * w + minX;
-                int n = 0;
-                bool prev = false;
-                for (int lx = 0; lx < bw; lx++)
-                {
-                    int gi = grb + lx;
-                    bool m = strength[gi] > thr && px[gi].a >= OpaqueAlphaMin;
-                    if (m && !prev) n++;
-                    prev = m;
+                parent = s_intPool.Rent(R);
+                for (int r = 0; r < R; r++) {
+                    parent[r] = r;
                 }
-                runCount[ly] = n;
-            });
-            var rowOff = new int[bh + 1];
-            for (int ly = 0; ly < bh; ly++) rowOff[ly + 1] = rowOff[ly] + runCount[ly];
-            int R = rowOff[bh];
-            if (R == 0) return null;   // マッチ皆無(bbox はあるが α などで全て落ちた)
-
-            runX0 = s_intPool.Rent(R);
-            runX1 = s_intPool.Rent(R);
-            runY = s_intPool.Rent(R);
-            Parallel.For(0, bh, bboxPo, ly =>
-            {
-                int grb = (ly + minY) * w + minX;
-                int k = rowOff[ly];
-                int lx = 0;
-                while (lx < bw)
-                {
-                    int gi = grb + lx;
-                    if (!(strength[gi] > thr && px[gi].a >= OpaqueAlphaMin)) { lx++; continue; }
-                    int s0 = lx;
-                    while (lx < bw && strength[grb + lx] > thr && px[grb + lx].a >= OpaqueAlphaMin) lx++;
-                    runX0[k] = s0; runX1[k] = lx - 1; runY[k] = ly; k++;
+                var par = parent;
+                int Find(int x) {
+                    while (par[x] != x) { par[x] = par[par[x]]; x = par[x]; }
+                    return x;
                 }
-            });
-
-            parent = s_intPool.Rent(R);
-            for (int r = 0; r < R; r++) parent[r] = r;
-            var par = parent;
-            int Find(int x)
-            {
-                while (par[x] != x) { par[x] = par[par[x]]; x = par[x]; }
-                return x;
-            }
-            for (int ly = 0; ly + 1 < bh; ly++)
-            {
-                if ((ly & 1023) == 0) ct.ThrowIfCancellationRequested();
-                int i = rowOff[ly], iEnd = rowOff[ly + 1];
-                int j = rowOff[ly + 1], jEnd = rowOff[ly + 2];
-                while (i < iEnd && j < jEnd)
-                {
-                    if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i])
-                    {
-                        int a = Find(i), b = Find(j);
-                        if (a != b) { if (b < a) { int t = a; a = b; b = t; } par[b] = a; }
+                for (int ly = 0; ly + 1 < bh; ly++) {
+                    if ((ly & 1023) == 0) {
+                        ct.ThrowIfCancellationRequested();
                     }
-                    if (runX1[i] < runX1[j]) i++; else j++;
-                }
-            }
-
-            // 根(run 番号)→ 成分番号。番号の付き方は出力に影響しない(成分ごとの値を配るだけ)。
-            comp = s_intPool.Rent(R);
-            rootComp = s_intPool.Rent(R);
-            for (int r = 0; r < R; r++) rootComp[r] = -1;
-            int compCount = 0;
-            for (int r = 0; r < R; r++)
-            {
-                int root = Find(r);
-                int c = rootComp[root];
-                if (c < 0) { c = compCount++; rootComp[root] = c; }
-                comp[r] = c;
-            }
-
-            // run を成分ごとに並べ(計数ソート)、成分ごとに並列でヒストグラムを取って代表 L を出す。
-            // ヒストグラムは整数加算なので、run を辿る順序に依存しない(旧: 全画素の逐次ループ)。
-            compStart = s_intPool.Rent(compCount + 1);
-            new Span<int>(compStart, compCount + 1).Clear();
-            for (int r = 0; r < R; r++) compStart[comp[r] + 1]++;
-            for (int c = 0; c < compCount; c++) compStart[c + 1] += compStart[c];
-            order = s_intPool.Rent(R);
-            fillPos = s_intPool.Rent(compCount);
-            new Span<int>(compStart, compCount).CopyTo(new Span<int>(fillPos, compCount));
-            for (int r = 0; r < R; r++) order[fillPos[comp[r]]++] = r;
-
-            med = s_floatPool.Rent(compCount);
-            up = s_floatPool.Rent(compCount);
-            int* compStartL = compStart;
-            float* medL = med, upL = up;
-            var orderL = order; var runX0L = runX0; var runX1L = runX1; var runYL = runY;
-            Parallel.For(0, compCount, bboxPo, () => (new int[256], new int[256]), (c, _, hs) =>
-            {
-                var (hist, histCore) = hs;
-                Array.Clear(hist, 0, 256);
-                Array.Clear(histCore, 0, 256);
-                int size = 0, coreSize = 0;
-                for (int q = compStartL[c]; q < compStartL[c + 1]; q++)
-                {
-                    int r = orderL[q];
-                    int x0 = runX0L[r], x1 = runX1L[r];
-                    int grb = (runYL[r] + minY) * w + minX;
-                    if (binOf != null)
-                    {
-                        for (int lx = x0; lx <= x1; lx++)
-                        {
-                            int bin = binOf[pIdx[grb + lx]];
-                            hist[bin]++;
-                            if (strength[grb + lx] >= AnchorStrengthMin) { histCore[bin]++; coreSize++; }
+                    int i = rowOff[ly], iEnd = rowOff[ly + 1];
+                    int j = rowOff[ly + 1], jEnd = rowOff[ly + 2];
+                    while (i < iEnd && j < jEnd) {
+                        if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i]) {
+                            int a = Find(i), b = Find(j);
+                            if (a != b) { if (b < a) { int t = a; a = b; b = t; } par[b] = a; }
+                        }
+                        if (runX1[i] < runX1[j]) {
+                            i++;
+                        } else {
+                            j++;
                         }
                     }
-                    else
-                    {
-                        int lrb = runYL[r] * bw;
-                        for (int lx = x0; lx <= x1; lx++)
-                        {
-                            int bin = Mathf.Clamp((int)(okL[lrb + lx] * 255f), 0, 255);
-                            hist[bin]++;
-                            if (strength[grb + lx] >= AnchorStrengthMin) { histCore[bin]++; coreSize++; }
-                        }
-                    }
-                    size += x1 - x0 + 1;
                 }
-                medL[c] = Histogram.ValueAtPercentile(hist, size, AchromaRefPercentile, 1f);
-                // 明部の幅はコアマッチ(strength≥AnchorStrengthMin)の画素だけで測る。AA 縁は素材と隣の色の
-                // 混色で、隣が明るいと芯より明るい画素が並ぶが、それは陰影ではない(アンカー推定と同じ除外)。
-                // コアが無い成分(全体が淡い縁など)は全画素で測る。
-                float hi = coreSize > 0
-                    ? Histogram.ValueAtPercentile(histCore, coreSize, AchromaHeadroomPercentile, 1f)
-                    : Histogram.ValueAtPercentile(hist, size, AchromaHeadroomPercentile, 1f);
-                upL[c] = Mathf.Min(AchromaFormOffset, AchromaFormGain * Mathf.Max(0f, hi - medL[c]));
-                return hs;
-            }, _ => { });
 
-            // 成分 → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
-            // run の外は 0(読む側は 0 を「地図なし」として全体の中央値へ戻す)。借りた配列は 0 で埋めてから。
-            float* map = s_floatPool.Rent(len);
-            float* umap = s_floatPool.Rent(len);
-            // 呼び出し側へ渡す前に抜けたら(キャンセル)、借りた地図はここで返す。
-            try
-            {
-                var clearMap = map; var clearUp = umap;
-                const int ClearChunk = 1 << 18;
-                Parallel.For(0, (len + ClearChunk - 1) / ClearChunk, bboxPo, c =>
-                {
-                    int c0 = c * ClearChunk;
-                    ClearWork(clearMap, c0, Math.Min(ClearChunk, len - c0));
-                    ClearWork(clearUp, c0, Math.Min(ClearChunk, len - c0));
-                });
-                var umapL = umap;
-                Parallel.For(0, bh, bboxPo, ly =>
-                {
-                    int rb = (ly + minY) * w + minX;
-                    for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
-                    {
-                        float v = medL[comp[k]];
-                        float u = upL[comp[k]];
-                        int x1 = runX1[k];
-                        for (int lx = runX0[k]; lx <= x1; lx++) { map[rb + lx] = v; umapL[rb + lx] = u; }
+                // 根(run 番号)→ 成分番号。番号の付き方は出力に影響しない(成分ごとの値を配るだけ)。
+                comp = s_intPool.Rent(R);
+                rootComp = s_intPool.Rent(R);
+                for (int r = 0; r < R; r++) {
+                    rootComp[r] = -1;
+                }
+                int compCount = 0;
+                for (int r = 0; r < R; r++) {
+                    int root = Find(r);
+                    int c = rootComp[root];
+                    if (c < 0) { c = compCount++; rootComp[root] = c; }
+                    comp[r] = c;
+                }
+
+                // run を成分ごとに並べ(計数ソート)、成分ごとに並列でヒストグラムを取って代表 L を出す。
+                // ヒストグラムは整数加算なので、run を辿る順序に依存しない(旧: 全画素の逐次ループ)。
+                compStart = s_intPool.Rent(compCount + 1);
+                new Span<int>(compStart, compCount + 1).Clear();
+                for (int r = 0; r < R; r++) {
+                    compStart[comp[r] + 1]++;
+                }
+                for (int c = 0; c < compCount; c++) {
+                    compStart[c + 1] += compStart[c];
+                }
+                order = s_intPool.Rent(R);
+                fillPos = s_intPool.Rent(compCount);
+                new Span<int>(compStart, compCount).CopyTo(new Span<int>(fillPos, compCount));
+                for (int r = 0; r < R; r++) {
+                    order[fillPos[comp[r]]++] = r;
+                }
+
+                med = s_floatPool.Rent(compCount);
+                up = s_floatPool.Rent(compCount);
+                int* compStartL = compStart;
+                float* medL = med, upL = up;
+                var orderL = order; var runX0L = runX0; var runX1L = runX1; var runYL = runY;
+                Parallel.For(0, compCount, bboxPo, () => (new int[256], new int[256]), (c, _, hs) => {
+                    var (hist, histCore) = hs;
+                    Array.Clear(hist, 0, 256);
+                    Array.Clear(histCore, 0, 256);
+                    int size = 0, coreSize = 0;
+                    for (int q = compStartL[c]; q < compStartL[c + 1]; q++) {
+                        int r = orderL[q];
+                        int x0 = runX0L[r], x1 = runX1L[r];
+                        int grb = (runYL[r] + minY) * w + minX;
+                        if (binOf != null) {
+                            for (int lx = x0; lx <= x1; lx++) {
+                                int bin = binOf[pIdx[grb + lx]];
+                                hist[bin]++;
+                                if (strength[grb + lx] >= AnchorStrengthMin) { histCore[bin]++; coreSize++; }
+                            }
+                        } else {
+                            int lrb = runYL[r] * bw;
+                            for (int lx = x0; lx <= x1; lx++) {
+                                int bin = Mathf.Clamp((int)(okL[lrb + lx] * 255f), 0, 255);
+                                hist[bin]++;
+                                if (strength[grb + lx] >= AnchorStrengthMin) { histCore[bin]++; coreSize++; }
+                            }
+                        }
+                        size += x1 - x0 + 1;
                     }
-                });
-            }
-            catch
-            {
-                s_floatPool.Return(map);
-                s_floatPool.Return(umap);
-                throw;
-            }
-            upMap = umap;
-            return map;
-            }
-            finally
-            {
-                if (up != null) s_floatPool.Return(up);
-                if (med != null) s_floatPool.Return(med);
-                if (fillPos != null) s_intPool.Return(fillPos);
-                if (compStart != null) s_intPool.Return(compStart);
-                if (order != null) s_intPool.Return(order);
-                if (rootComp != null) s_intPool.Return(rootComp);
-                if (comp != null) s_intPool.Return(comp);
-                if (parent != null) s_intPool.Return(parent);
-                if (runY != null) s_intPool.Return(runY);
-                if (runX1 != null) s_intPool.Return(runX1);
-                if (runX0 != null) s_intPool.Return(runX0);
-                if (okL != null) s_floatPool.Return(okL);
-                if (binOf != null) s_intPool.Return(binOf);
+                    medL[c] = Histogram.ValueAtPercentile(hist, size, AchromaRefPercentile, 1f);
+                    // 明部の幅はコアマッチ(strength≥AnchorStrengthMin)の画素だけで測る。AA 縁は素材と隣の色の
+                    // 混色で、隣が明るいと芯より明るい画素が並ぶが、それは陰影ではない(アンカー推定と同じ除外)。
+                    // コアが無い成分(全体が淡い縁など)は全画素で測る。
+                    float hi = coreSize > 0
+                        ? Histogram.ValueAtPercentile(histCore, coreSize, AchromaHeadroomPercentile, 1f)
+                        : Histogram.ValueAtPercentile(hist, size, AchromaHeadroomPercentile, 1f);
+                    upL[c] = Mathf.Min(AchromaFormOffset, AchromaFormGain * Mathf.Max(0f, hi - medL[c]));
+                    return hs;
+                }, _ => { });
+
+                // 成分 → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
+                // run の外は 0(読む側は 0 を「地図なし」として全体の中央値へ戻す)。借りた配列は 0 で埋めてから。
+                float* map = s_floatPool.Rent(len);
+                float* umap = s_floatPool.Rent(len);
+                // 呼び出し側へ渡す前に抜けたら(キャンセル)、借りた地図はここで返す。
+                try {
+                    var clearMap = map; var clearUp = umap;
+                    const int ClearChunk = 1 << 18;
+                    Parallel.For(0, (len + ClearChunk - 1) / ClearChunk, bboxPo, c => {
+                        int c0 = c * ClearChunk;
+                        ClearWork(clearMap, c0, Math.Min(ClearChunk, len - c0));
+                        ClearWork(clearUp, c0, Math.Min(ClearChunk, len - c0));
+                    });
+                    var umapL = umap;
+                    Parallel.For(0, bh, bboxPo, ly => {
+                        int rb = (ly + minY) * w + minX;
+                        for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++) {
+                            float v = medL[comp[k]];
+                            float u = upL[comp[k]];
+                            int x1 = runX1[k];
+                            for (int lx = runX0[k]; lx <= x1; lx++) { map[rb + lx] = v; umapL[rb + lx] = u; }
+                        }
+                    });
+                } catch {
+                    s_floatPool.Return(map);
+                    s_floatPool.Return(umap);
+                    throw;
+                }
+                upMap = umap;
+                return map;
+            } finally {
+                if (up != null) {
+                    s_floatPool.Return(up);
+                }
+                if (med != null) {
+                    s_floatPool.Return(med);
+                }
+                if (fillPos != null) {
+                    s_intPool.Return(fillPos);
+                }
+                if (compStart != null) {
+                    s_intPool.Return(compStart);
+                }
+                if (order != null) {
+                    s_intPool.Return(order);
+                }
+                if (rootComp != null) {
+                    s_intPool.Return(rootComp);
+                }
+                if (comp != null) {
+                    s_intPool.Return(comp);
+                }
+                if (parent != null) {
+                    s_intPool.Return(parent);
+                }
+                if (runY != null) {
+                    s_intPool.Return(runY);
+                }
+                if (runX1 != null) {
+                    s_intPool.Return(runX1);
+                }
+                if (runX0 != null) {
+                    s_intPool.Return(runX0);
+                }
+                if (okL != null) {
+                    s_floatPool.Return(okL);
+                }
+                if (binOf != null) {
+                    s_intPool.Return(binOf);
+                }
             }
         }
 
@@ -442,48 +456,53 @@ namespace Iroca
             out float mid,
             bool* statsExclude = null,
             CancellationToken ct = default,
-            ColorPalette palette = null)
-        {
+            ColorPalette palette = null) {
             mid = 0.5f;
             // 色の表があれば L は色ごとの表から読む(ビット単位で同じ)。
             int* pIdx = null;
             float* pL = null;
-            if (palette != null)
-            {
+            if (palette != null) {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
                 pIdx = palette.Index; pL = palette.OkL;
             }
             var hist = new int[256];
             int count = 0;
             float thr = AchromaRegionCoreThr;
-            for (int pass = 0; pass < 2; pass++)
-            {
+            for (int pass = 0; pass < 2; pass++) {
                 Array.Clear(hist, 0, hist.Length);
                 float passThr = thr;   // ラムダは ref ローカルを捕獲できないのでパス毎に固定する
-                count = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, hist, (y0, y1, localHist) =>
-                {
+                count = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, hist, (y0, y1, localHist) => {
                     int n = 0;
-                    for (int y = y0; y < y1; y++)
-                    {
+                    for (int y = y0; y < y1; y++) {
                         int rowOff = y * w;
-                        for (int x = bbMinX; x <= bbMaxX; x++)
-                        {
+                        for (int x = bbMinX; x <= bbMaxX; x++) {
                             int i = rowOff + x;
-                            if (strength[i] < passThr || px[i].a < OpaqueAlphaMin) continue;
-                            if (statsExclude != null && statsExclude[i]) continue;
+                            if (strength[i] < passThr || px[i].a < OpaqueAlphaMin) {
+                                continue;
+                            }
+                            if (statsExclude != null && statsExclude[i]) {
+                                continue;
+                            }
                             float L;
-                            if (pIdx != null) L = pL[pIdx[i]];
-                            else OkLab.RgbToOklab(px[i].r, px[i].g, px[i].b, out L, out _, out _);
+                            if (pIdx != null) {
+                                L = pL[pIdx[i]];
+                            } else {
+                                OkLab.RgbToOklab(px[i].r, px[i].g, px[i].b, out L, out _, out _);
+                            }
                             localHist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
                             n++;
                         }
                     }
                     return n;
                 }, ct);
-                if (count >= 50 || pass == 1) break;
+                if (count >= 50 || pass == 1) {
+                    break;
+                }
                 thr = 1e-4f;   // フォールバック: strength>0 の全マッチ画素
             }
-            if (count < 1) return false;
+            if (count < 1) {
+                return false;
+            }
             mid = Histogram.ValueAtPercentile(hist, count, 0.50f, 1f);
             return true;
         }

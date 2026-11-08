@@ -11,8 +11,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Profiling;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 大きなテクスチャ(8K・16K)の通し確認。取り込み → 原本の読み込み → マスクの保存形式 → 色替え(書き出し・NDMF と
     /// 同じ入口) → PNG 書き出しと取り込み → 書いた画素の読み戻し一致 → シーンへのプレビュー(GPU があるときだけ)
@@ -28,14 +27,12 @@ namespace Iroca.EditorTests
     /// 16K はメモリを 20GB 前後使うので、1 回の起動に 1 ケースにすること。
     /// </summary>
     [Category("HiRes")]
-    public class HiResSmokeTests
-    {
+    public class HiResSmokeTests {
         [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; public int importMaxSize = 2048; }
         [Serializable] private class CasesDto { public List<CaseDto> cases = new List<CaseDto>(); }
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct ProcessMemoryCounters
-        {
+        private struct ProcessMemoryCounters {
             public uint cb, PageFaultCount;
             public UIntPtr PeakWorkingSetSize, WorkingSetSize, QuotaPeakPagedPoolUsage, QuotaPagedPoolUsage,
                 QuotaPeakNonPagedPoolUsage, QuotaNonPagedPoolUsage, PagefileUsage, PeakPagefileUsage;
@@ -47,8 +44,7 @@ namespace Iroca.EditorTests
         private StringBuilder _sb;
         private string _report;
 
-        private void Step(string name, string phase, double ms, string info = "")
-        {
+        private void Step(string name, string phase, double ms, string info = "") {
             GetProcessMemoryInfo(GetCurrentProcess(), out var c, (uint)Marshal.SizeOf<ProcessMemoryCounters>());
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             _sb.Append($"{{\"name\":\"{name}\",\"phase\":\"{phase}\",\"ms\":{ms.ToString("F1", inv)}," +
@@ -58,16 +54,16 @@ namespace Iroca.EditorTests
             File.WriteAllText(_report, _sb.ToString());   // 途中で落ちても段ごとの記録を残す
         }
 
-        private static List<ColorZone> LoadZones(string json, out IrocaSessionState state)
-        {
+        private static List<ColorZone> LoadZones(string json, out IrocaSessionState state) {
             var req = JsonUtility.FromJson<IrocaAutomation.ZonesRequest>(json);
             var build = BenchSeams.BuildZone;   // 基準の版でも回るよう名前で探す
             var zones = new List<ColorZone>();
             state = new IrocaSessionState();
-            foreach (var z in req.zones)
-            {
+            foreach (var z in req.zones) {
                 var zone = (ColorZone)build.Invoke(null, new object[] { z });
-                if (zone == null || !zone.enabled) continue;
+                if (zone == null || !zone.enabled) {
+                    continue;
+                }
                 zone.EnsureId();
                 zones.Add(zone);
                 state.zones.Add(zone);
@@ -76,33 +72,30 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Pipeline()
-        {
+        public void Pipeline() {
             string casesPath = Environment.GetEnvironmentVariable("IROCA_HIRES_CASES");
             _report = Environment.GetEnvironmentVariable("IROCA_HIRES_REPORT");
-            if (string.IsNullOrEmpty(casesPath) || !File.Exists(casesPath))
+            if (string.IsNullOrEmpty(casesPath) || !File.Exists(casesPath)) {
                 Assert.Ignore("IROCA_HIRES_CASES が未設定です（Run-EditorTests.ps1 -HiResCases で明示実行）");
+            }
             Assert.IsFalse(string.IsNullOrEmpty(_report), "IROCA_HIRES_REPORT が未設定です");
             var cfg = JsonUtility.FromJson<CasesDto>(File.ReadAllText(casesPath));
             _sb = new StringBuilder();
             var failures = new List<string>();
-            foreach (var c in cfg.cases)
-            {
-                try { RunCase(c); }
-                catch (Exception e)
-                {
+            foreach (var c in cfg.cases) {
+                try { RunCase(c); } catch (Exception e) {
                     Step(c.name, "EXCEPTION", 0, e.GetType().Name + ": " + e.Message);
                     failures.Add(c.name + ": " + e);
                 }
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
             }
-            if (failures.Count > 0) Assert.Fail(string.Join("\n", failures));
+            if (failures.Count > 0) {
+                Assert.Fail(string.Join("\n", failures));
+            }
         }
 
-        private void RunCase(CaseDto c)
-        {
-            using (var assets = TestAssets.Create())
-            {
+        private void RunCase(CaseDto c) {
+            using (var assets = TestAssets.Create()) {
                 Step(c.name, "start", 0);
                 var sw = Stopwatch.StartNew();
                 string path = assets.Folder + "/src.png";
@@ -122,9 +115,11 @@ namespace Iroca.EditorTests
                 var zones = LoadZones(File.ReadAllText(c.zones), out var state);
                 int mw = tex.width, mh = tex.height;
                 var common = new bool[mw * mh];
-                for (int y = 0; y < mh; y++)
-                    for (int x = mw * 45 / 100; x < mw * 55 / 100; x++)
+                for (int y = 0; y < mh; y++) {
+                    for (int x = mw * 45 / 100; x < mw * 55 / 100; x++) {
                         common[y * mw + x] = true;
+                    }
+                }
                 sw.Restart();
                 MaskStateCodec.Encode(state.maskState, mw, mh, common, null, null);
                 Step(c.name, "maskEncode", sw.Elapsed.TotalMilliseconds, $"{mw}x{mh} base64={state.maskState.commonMaskBase64.Length}");
@@ -135,8 +130,11 @@ namespace Iroca.EditorTests
                 Assert.IsTrue(SessionRecolor.Apply(outPx, w, h, state));
                 double recolorMs = sw.Elapsed.TotalMilliseconds;
                 long changed = 0;
-                for (int i = 0; i < outPx.Length; i++)
-                    if (outPx[i].r != src[i].r || outPx[i].g != src[i].g || outPx[i].b != src[i].b) changed++;
+                for (int i = 0; i < outPx.Length; i++) {
+                    if (outPx[i].r != src[i].r || outPx[i].g != src[i].g || outPx[i].b != src[i].b) {
+                        changed++;
+                    }
+                }
                 Step(c.name, "recolor", recolorMs, $"changed={changed} ({100.0 * changed / outPx.Length:F2}%)");
                 Assert.Greater(changed, 0, "色替えされていない");
                 src = null;
@@ -146,8 +144,9 @@ namespace Iroca.EditorTests
                 Step(c.name, "encodePng", sw.Elapsed.TotalMilliseconds, $"{png.Length / MB}MB");
                 sw.Restart();
                 string outRel;
-                using (var native = new Unity.Collections.NativeArray<byte>(png, Unity.Collections.Allocator.Persistent))
+                using (var native = new Unity.Collections.NativeArray<byte>(png, Unity.Collections.Allocator.Persistent)) {
                     outRel = ExportService.WriteAndImport(TestAssets.Abs(assets.Folder + "/out.png"), native, path, true);
+                }
                 png = null;
                 var outTex = AssetDatabase.LoadAssetAtPath<Texture2D>(outRel);
                 Step(c.name, "writeImport", sw.Elapsed.TotalMilliseconds, $"{outTex.width}x{outTex.height} {outTex.format} max={((TextureImporter)AssetImporter.GetAtPath(outRel)).maxTextureSize}");
@@ -156,22 +155,21 @@ namespace Iroca.EditorTests
                 TestAssets.ReadSourcePixels(outRel, outTex, out var back, out int bw, out int bh);
                 Assert.AreEqual((w, h), (bw, bh));
                 int diff = 0;
-                for (int i = 0; i < back.Length; i++)
-                {
+                for (int i = 0; i < back.Length; i++) {
                     Color32 a = back[i], b = outPx[i];
-                    if (a.r != b.r || a.g != b.g || a.b != b.b || a.a != b.a) diff++;
+                    if (a.r != b.r || a.g != b.g || a.b != b.b || a.a != b.a) {
+                        diff++;
+                    }
                 }
                 Step(c.name, "readBack", sw.Elapsed.TotalMilliseconds, $"diff={diff}");
                 Assert.AreEqual(0, diff, "書き出した PNG が色替えの画素と違う");
                 back = null;
 
                 // シーンへのプレビュー(GPU)。-nographics では GPU が無いので飛ばす。
-                if (SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null)
-                {
+                if (SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null) {
                     var saved = LivePreview.Current;
                     LivePreview.SetTarget(tex, null);
-                    try
-                    {
+                    try {
                         sw.Restart();
                         var rt = (RenderTexture)LivePreview.Acquire(tex);
                         double acquireMs = sw.Elapsed.TotalMilliseconds;
@@ -189,8 +187,7 @@ namespace Iroca.EditorTests
                         UnityEngine.Object.DestroyImmediate(probe);
                         Step(c.name, "livePreview", pushMs, $"acquire={acquireMs:F0}ms rt={rt.width}x{rt.height} {SystemInfo.graphicsDeviceType} center={p}");
                         LivePreview.Release(tex);
-                    }
-                    finally { LivePreview.SetTarget(saved?.source, saved?.boundRecipe); }
+                    } finally { LivePreview.SetTarget(saved?.source, saved?.boundRecipe); }
                 }
                 outPx = null;
                 GC.Collect();
@@ -207,7 +204,9 @@ namespace Iroca.EditorTests
                 built = RecipeTextureBuilder.Build(recipe, out failure);
                 Step(c.name, "ndmfBuildCached", sw.Elapsed.TotalMilliseconds,
                     built != null ? $"{built.width}x{built.height} {built.format}" : "null " + failure);
-                if (built != null) UnityEngine.Object.DestroyImmediate(built);
+                if (built != null) {
+                    UnityEngine.Object.DestroyImmediate(built);
+                }
                 built = null;
                 GC.Collect();
 

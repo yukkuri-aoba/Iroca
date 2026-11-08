@@ -2,8 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// パイプライン透明化機能の静的接続点。実装が同梱されていなくても
     /// 本体は型としてこのクラスだけを参照する。
@@ -15,8 +14,7 @@ namespace Iroca
     /// ウィンドウの型を使う部分は UI の DebugWindowHooks に分けた(0.4.0 の計画の 3-2。partial のままだと、
     /// Core と UI を別の asmdef にしたときに 1 つの型にできない)。
     /// </summary>
-    internal static class DebugCaptureHooks
-    {
+    internal static class DebugCaptureHooks {
         /// <summary>
         /// プレビュー / エクスポートのジョブが <see cref="PixelProcessor"/> に渡す
         /// <see cref="IDebugCapture"/> を取得するためのファクトリ。
@@ -33,8 +31,7 @@ namespace Iroca
         // このスレッドで最後に出たレポート(TakeThreadPerfReport で取り出す)。
         [ThreadStatic] private static PerfReport t_lastPerfReport;
 
-        internal static void RaisePerfReport(PerfReport report)
-        {
+        internal static void RaisePerfReport(PerfReport report) {
             t_lastPerfReport = report;
             OnPerfReport?.Invoke(report);
         }
@@ -44,8 +41,7 @@ namespace Iroca
         /// 呼び出したスレッドでレポートを出すので、呼んだ直後に取ればその呼び出しのものになる
         /// (エクスポートなど別のスレッドの処理と重なっても取り違えない)。
         /// </summary>
-        internal static PerfReport TakeThreadPerfReport()
-        {
+        internal static PerfReport TakeThreadPerfReport() {
             var report = t_lastPerfReport;
             t_lastPerfReport = null;
             return report;
@@ -58,8 +54,7 @@ namespace Iroca
         /// </summary>
         internal static event Action<IDebugCapture> OnCaptureComplete;
 
-        internal static void RaiseCaptureComplete(IDebugCapture capture)
-        {
+        internal static void RaiseCaptureComplete(IDebugCapture capture) {
             OnCaptureComplete?.Invoke(capture);
         }
 
@@ -69,8 +64,7 @@ namespace Iroca
         /// Debug モジュールの PerfView が EditorPrefs に永続化して管理する。
         /// 値は Foundation の <see cref="CoreParallelism.Override"/> が持つ(ここは転送役。0.4.0 の計画の 3-4)。
         /// </summary>
-        internal static int ParallelismOverride
-        {
+        internal static int ParallelismOverride {
             get => CoreParallelism.Override;
             set => CoreParallelism.Override = value;
         }

@@ -9,11 +9,9 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     // PixelProcessor: OkLab 再着色本体(RecolorPixel)・再着色アンカー推定・関連定数。
-    internal static unsafe partial class PixelProcessor
-    {
+    internal static unsafe partial class PixelProcessor {
         // L 再マップの彩度ゲート定数。彩度が sample の何割に達したら remap をフル適用するか。
         // これ未満の低彩度画素は元 L を保持し、target が sample より明るい場合の暗部持ち上げ
         // (=ロゴ周辺の白/灰ノイズ)を防ぐ。
@@ -61,22 +59,22 @@ namespace Iroca
         //                      有彩のにじみ(ドーム階調, ΔE≥0.26)まで保持すると灰色の滲みに
         //                      見えるため(販促時の目視結論「守るのは芯だけ」と同じ)、白距離で
         //                      連続に絞る。
-        private const float HlWashResidEps    = 0.035f;
-        private const float HlWashTintKeepLo  = 0.012f;
-        private const float HlWashTintKeepHi  = 0.024f;
+        private const float HlWashResidEps = 0.035f;
+        private const float HlWashTintKeepLo = 0.012f;
+        private const float HlWashTintKeepHi = 0.024f;
         private const float HlWashKeepWhiteLo = 0.15f;
         private const float HlWashKeepWhiteHi = 0.25f;
 
         // サンプル自動補正(再着色アンカー正規化)の定数。
         // すべて領域統計に対する相対量(特定色/座標/テクスチャ非依存)。
-        private const float AnchorStrengthMin   = 0.9f;   // コアマッチのみ採用(AA縁・feather裾の混色を除外)
-        private const int   AnchorMinPixels     = 100;    // これ未満はフォールバック(ComputeWashSample と同基準)
-        private const float AnchorBodySatrFrac  = 0.5f;   // 地色とみなす OkLab 飽和度(C/L)下限(候補中央値比)。
-                                                          // C/L は乗算シェーディング不変(L,C とも k^(1/3) 比例)なので
-                                                          // wash 済み明部・AA縁グレーを陰影レベル非依存に除外できる。
-        private const float AnchorLPct          = 0.90f;  // 代表 L percentile(鏡面ハイライト芯の最上位~10%を除外)
-        private const float AnchorLBandLoPct    = 0.80f;  // 代表 C を取る L 帯の下限 percentile
-        private const float AnchorLBandHiPct    = 0.97f;  // 同上限 percentile
+        private const float AnchorStrengthMin = 0.9f;   // コアマッチのみ採用(AA縁・feather裾の混色を除外)
+        private const int AnchorMinPixels = 100;    // これ未満はフォールバック(ComputeWashSample と同基準)
+        private const float AnchorBodySatrFrac = 0.5f;   // 地色とみなす OkLab 飽和度(C/L)下限(候補中央値比)。
+                                                         // C/L は乗算シェーディング不変(L,C とも k^(1/3) 比例)なので
+                                                         // wash 済み明部・AA縁グレーを陰影レベル非依存に除外できる。
+        private const float AnchorLPct = 0.90f;  // 代表 L percentile(鏡面ハイライト芯の最上位~10%を除外)
+        private const float AnchorLBandLoPct = 0.80f;  // 代表 C を取る L 帯の下限 percentile
+        private const float AnchorLBandHiPct = 0.97f;  // 同上限 percentile
         // 地色の山(2026-10-29)。明るい側(L の中央値あたりから上)に、はっきりした明るさの山(アニメ調の平らな地色)があり、
         // それが上の P90(明るい面)より窓 1 つ分(下の AnchorModeHalfBins の窓の幅)以上暗ければ、その山を代表 L にする。
         // パーツでいちばん多い地色が target 色になり、それより明るい面は target より明るく、影は暗く塗られる。
@@ -108,14 +106,14 @@ namespace Iroca
         //   明るい地色の山を基準にすると地色の質感の上半分が入り、肌を暗い色へ塗ると平らな面の粒が 2.4 倍・生成りの
         //   ニットの網目が 1.8 倍に広がった(GT の無い素材での目視、2026-10-29)。塗り先で決めないのは、色を選んでいる間に
         //   基準が切り替わって明るさが跳ばないようにするため。
-        private const int   AnchorModeHalfBins  = 2;
-        private const float AnchorPeakRatio     = 1.2f;
+        private const int AnchorModeHalfBins = 2;
+        private const float AnchorPeakRatio = 1.2f;
         private const float AnchorMaxBaseStretch = 2f;
         private const float AnchorPeakMaxL = 1f - (1f - 1f / HighlightLMult) / AnchorMaxBaseStretch;
-        private const float AnchorMinLSpread    = 0.02f;  // L の P95-P05 がこれ未満=フラット領域は補正不要
-        private const float AnchorSatrHistMax   = 4f;     // 飽和度(C/L)ヒストグラムの値域上限
+        private const float AnchorMinLSpread = 0.02f;  // L の P95-P05 がこれ未満=フラット領域は補正不要
+        private const float AnchorSatrHistMax = 4f;     // 飽和度(C/L)ヒストグラムの値域上限
         private const float AnchorChromaHistMax = 0.5f;   // chroma ヒストグラムの値域上限(OkLab C は ~0.33 まで)
-        private const int   AnchorCountBudget   = 1 << 21; // 色の表の経路で、色ごとの個数を数える配列の合計(int 数、8MB)
+        private const int AnchorCountBudget = 1 << 21; // 色の表の経路で、色ごとの個数を数える配列の合計(int 数、8MB)
 
         // 別の素材に引っ張られたときの推定し直し(2026-10-20)。上の統計は候補の飽和度の中央値で地色を選ぶので、
         // 選択に別の素材が多いとそちらを地色とみなす。固定設定の実測では、純白の背景と生成りが候補の 8 割を占めた
@@ -133,20 +131,18 @@ namespace Iroca
         //   20° ずれても本体が残る幅。色相が定まらない無彩の画素(HSV の彩度が ColorZone.ChromaGateActivateSat 未満)も
         //   外す。推定し直しはサンプルに色相があるときだけ行う(白・灰のサンプルは色で素材を見分けられない)。
         // 1 段目で済むケース(ワンショット 57 件のすべて、固定設定 19 被写体のうち 14)は出力が変わらない。
-        private const float AnchorRetrySatrFrac    = 0.25f;
+        private const float AnchorRetrySatrFrac = 0.25f;
         private const float AnchorMaterialSatrFrac = OklabRemapFullChromaFrac;
-        private const float AnchorMaterialHueCos   = 0.70710678f;  // cos 45°
+        private const float AnchorMaterialHueCos = 0.70710678f;  // cos 45°
 
         // 推定し直しで「サンプルと同じ素材」に残す画素の条件(上の AnchorMaterial* を参照)。
         // 既定値(Active = false)は 1 段目 = 全候補を使う。
-        private readonly struct AnchorMaterial
-        {
+        private readonly struct AnchorMaterial {
             public readonly bool Active;
             public readonly float HueA, HueB;  // サンプルの色相の向き(OkLab の a, b を長さ 1 にしたもの)
             public readonly float MinSatr;     // 地色とみなす飽和度(C/L)の下限に足す床(地色の山を探すときは下限そのもの)
 
-            public AnchorMaterial(float sampleA, float sampleB, float sampleSatr)
-            {
+            public AnchorMaterial(float sampleA, float sampleB, float sampleSatr) {
                 float c = Mathf.Max(Mathf.Sqrt(sampleA * sampleA + sampleB * sampleB), 1e-9f);
                 Active = true;
                 HueA = sampleA / c;
@@ -156,11 +152,12 @@ namespace Iroca
 
             // 無彩の画素(HSV の彩度 = (max-min)/max が ChromaGateActivateSat 未満)と、
             // OkLab の色相がサンプルから 45° を超えて違う画素を外す。
-            public bool Rejects(Color32 p, float a, float b)
-            {
+            public bool Rejects(Color32 p, float a, float b) {
                 int mx = Math.Max(p.r, Math.Max(p.g, p.b));
                 int mn = Math.Min(p.r, Math.Min(p.g, p.b));
-                if (mx == 0 || (mx - mn) / (float)mx < ColorZone.ChromaGateActivateSat) return true;
+                if (mx == 0 || (mx - mn) / (float)mx < ColorZone.ChromaGateActivateSat) {
+                    return true;
+                }
                 return a * HueA + b * HueB < AnchorMaterialHueCos * Mathf.Sqrt(a * a + b * b);
             }
         }
@@ -194,15 +191,18 @@ namespace Iroca
             bool* statsExclude = null,
             float* claimed = null,
             CancellationToken ct = default,
-            ColorPalette palette = null)
-        {
+            ColorPalette palette = null) {
             bool ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
                 out anchorL, out anchorC, default, statsExclude, claimed, ct, palette);
             // 白・灰のサンプルは色で素材を見分けられないので、推定し直さない(従来どおり)。
-            if (!sampleHasHue) return ok;
+            if (!sampleHasHue) {
+                return ok;
+            }
             float sampleSatr = Mathf.Sqrt(sampleA * sampleA + sampleB * sampleB) / Mathf.Max(sampleL, 1e-4f);
             float minSatr = AnchorRetrySatrFrac * sampleSatr;
-            if (ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr) return true;
+            if (ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr) {
+                return true;
+            }
             ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
                 out anchorL, out anchorC, new AnchorMaterial(sampleA, sampleB, sampleSatr), statsExclude, claimed, ct, palette);
             return ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr;
@@ -222,27 +222,26 @@ namespace Iroca
         private static float ComputeCoreChromaMedian(
             Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
-            bool* statsExclude, float* claimed, CancellationToken ct, ColorPalette palette)
-        {
-            if (palette != null)
+            bool* statsExclude, float* claimed, CancellationToken ct, ColorPalette palette) {
+            if (palette != null) {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
+            }
             var palIdx = palette != null ? palette.Index : null;
             var palC = palette != null ? palette.OkC : null;
             var cHist = new int[256];
-            int count = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, cHist, (y0, y1, hist) =>
-            {
+            int count = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, cHist, (y0, y1, hist) => {
                 int n = 0;
-                for (int y = y0; y < y1; y++)
-                {
+                for (int y = y0; y < y1; y++) {
                     int rowOff = y * w;
-                    for (int x = bbMinX; x <= bbMaxX; x++)
-                    {
+                    for (int x = bbMinX; x <= bbMaxX; x++) {
                         int i = rowOff + x;
-                        if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) continue;
+                        if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) {
+                            continue;
+                        }
                         float c;
-                        if (palC != null) c = palC[palIdx[i]];
-                        else
-                        {
+                        if (palC != null) {
+                            c = palC[palIdx[i]];
+                        } else {
                             OkLab.RgbToOklab(px[i].r, px[i].g, px[i].b, out _, out float a, out float b);
                             c = Mathf.Sqrt(a * a + b * b);
                         }
@@ -256,8 +255,7 @@ namespace Iroca
         }
 
         // L ヒストグラム(256 ビン、count 画素)の P95−P05 が AnchorMinLSpread 未満(フラット領域)か。
-        private static bool IsFlatL(int[] lHist, int count)
-        {
+        private static bool IsFlatL(int[] lHist, int count) {
             float l05 = Histogram.ValueAtPercentile(lHist, count, 0.05f, 1f);
             float l95 = Histogram.ValueAtPercentile(lHist, count, 0.95f, 1f);
             return l95 - l05 < AnchorMinLSpread;
@@ -266,11 +264,14 @@ namespace Iroca
         // 地色の山を探す(AnchorModeHalfBins・AnchorPeakRatio の説明を参照。画素ごとと色の表の 2 つの経路で共有)。
         // コア画素の L ヒストグラム(256 ビン、count 画素)で、明るい側(窓が中央値に届く所から上)のならした最頻値の窓が、
         // すぐ上とすぐ下の同じ幅の窓のどちらよりも AnchorPeakRatio 倍以上多ければ true と、その窓でいちばん多いビンを返す。
-        private static bool TryFindBaseColorPeak(int[] lHist, int count, out int modeBin)
-        {
+        private static bool TryFindBaseColorPeak(int[] lHist, int count, out int modeBin) {
             modeBin = 0;
-            if (count < AnchorMinPixels) return false;
-            if (IsFlatL(lHist, count)) return false;  // フラット領域: 山を探さない
+            if (count < AnchorMinPixels) {
+                return false;
+            }
+            if (IsFlatL(lHist, count)) {
+                return false;  // フラット領域: 山を探さない
+            }
             // 窓が中央値に届く所から探す。中央値が地色の山の中に落ちると、中央値から探しては山を半分に切って最頻値が
             // 際に張り付き、縮小したプレビューでだけ山を見失って確定と違う基準になった(固定設定のブーツ)。
             int medianBin = Mathf.RoundToInt(Histogram.ValueAtPercentile(lHist, count, 0.5f, 1f) * 255f);
@@ -278,7 +279,9 @@ namespace Iroca
             int step = 2 * AnchorModeHalfBins + 1;
             int side = Math.Max(Histogram.WindowSum(lHist, modeBin - step, AnchorModeHalfBins),
                                 Histogram.WindowSum(lHist, modeBin + step, AnchorModeHalfBins));
-            if (Histogram.WindowSum(lHist, modeBin, AnchorModeHalfBins) < AnchorPeakRatio * side) return false;
+            if (Histogram.WindowSum(lHist, modeBin, AnchorModeHalfBins) < AnchorPeakRatio * side) {
+                return false;
+            }
             // 代表は窓の中でいちばん多いビン(平らな地色はここに立つ)。ならした窓の中心は、地色の片側に画素が多いと
             // 地色から最大 AnchorModeHalfBins ずれる(ピンクの布で地色より 2 ビン暗い所が基準になった)。
             modeBin = Histogram.MaxBin(lHist, modeBin - AnchorModeHalfBins, modeBin + AnchorModeHalfBins);
@@ -313,8 +316,7 @@ namespace Iroca
             bool* statsExclude,
             float* claimed,
             CancellationToken ct,
-            ColorPalette palette)
-        {
+            ColorPalette palette) {
             anchorL = 0f;
             anchorC = 0f;
             // 候補の (L, C) は外接矩形の画素の添字 y*w+x で置くので、矩形の最後の行の末尾までの長さがあれば足りる
@@ -322,8 +324,7 @@ namespace Iroca
             int len = (bbMaxY + 1) * w;
             // 色の表があれば (L, C) は色ごとの表から読む(同じ色に同じ変換を当てた値なのでビット単位で
             // 同じ)。その経路は TryComputeRecolorAnchorByColor(画素の走査は 1 回)。
-            if (palette != null)
-            {
+            if (palette != null) {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
                 return TryComputeRecolorAnchorByColor(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
                     out anchorL, out anchorC, material, statsExclude, claimed, ct,
@@ -339,22 +340,20 @@ namespace Iroca
             // 並列化できる。集計はヒストグラム(整数加算)なので順序非依存で、逐次版とビット不変。
             float* candL = s_floatPool.Rent(len);
             float* candC = s_floatPool.Rent(len);
-            try
-            {
+            try {
                 // pass 1: (L, C) を保存しつつ、飽和度(C/L)ヒストグラム(前半 256 ビン)と、地色の山を探す L ヒストグラム
                 // (後半 256 ビン。飽和度で絞らない。推定し直しでは material.MinSatr 未満を外す)を数える
                 var hists = new int[512];
                 float minSatr = material.MinSatr;
-                int candCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, hists, (y0, y1, hist) =>
-                {
+                int candCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, hists, (y0, y1, hist) => {
                     int n = 0;
-                    for (int y = y0; y < y1; y++)
-                    {
+                    for (int y = y0; y < y1; y++) {
                         int rowOff = y * w;
-                        for (int x = bbMinX; x <= bbMaxX; x++)
-                        {
+                        for (int x = bbMinX; x <= bbMaxX; x++) {
                             int i = rowOff + x;
-                            if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) continue;
+                            if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) {
+                                continue;
+                            }
                             OkLab.RgbToOklab(px[i].r, px[i].g, px[i].b,
                                 out float L, out float a, out float b);
                             float C = Mathf.Sqrt(a * a + b * b);
@@ -365,18 +364,24 @@ namespace Iroca
                             float satr = C / Mathf.Max(L, 1e-4f);
                             int bin = Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255);
                             hist[bin]++;
-                            if (satr >= minSatr) hist[256 + Mathf.Clamp((int)(L * 255f), 0, 255)]++;
+                            if (satr >= minSatr) {
+                                hist[256 + Mathf.Clamp((int)(L * 255f), 0, 255)]++;
+                            }
                         }
                     }
                     return n;
                 }, ct);
-                if (candCount < AnchorMinPixels) return false;
+                if (candCount < AnchorMinPixels) {
+                    return false;
+                }
                 var satrHist = new int[256];
                 var coreLHist = new int[256];
                 Array.Copy(hists, 0, satrHist, 0, 256);
                 Array.Copy(hists, 256, coreLHist, 0, 256);
                 int coreCount = 0;
-                foreach (int c in coreLHist) coreCount += c;
+                foreach (int c in coreLHist) {
+                    coreCount += c;
+                }
 
                 // 飽和度の中央値から地色下限を決める。
                 // material.MinSatr は 1 段目では 0(中央値の項は 0 以上なので値は従来と同じ)。
@@ -385,26 +390,31 @@ namespace Iroca
 
                 // pass 2: 地色画素(飽和度 ≥ 下限)の L ヒストグラム → 明るい面(P90)と L 帯
                 var lHist = new int[256];
-                int bodyCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, lHist, (y0, y1, hist) =>
-                {
+                int bodyCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, lHist, (y0, y1, hist) => {
                     int n = 0;
-                    for (int y = y0; y < y1; y++)
-                    {
+                    for (int y = y0; y < y1; y++) {
                         int rowOff = y * w;
-                        for (int x = bbMinX; x <= bbMaxX; x++)
-                        {
+                        for (int x = bbMinX; x <= bbMaxX; x++) {
                             int i = rowOff + x;
-                            if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) continue;
+                            if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) {
+                                continue;
+                            }
                             float L = candL[i], C = candC[i];
-                            if (C / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                            if (C / Mathf.Max(L, 1e-4f) < satrFloor) {
+                                continue;
+                            }
                             hist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
                             n++;
                         }
                     }
                     return n;
                 }, ct);
-                if (bodyCount < AnchorMinPixels) return false;
-                if (IsFlatL(lHist, bodyCount)) return false;  // フラット領域: どこを取っても同じ
+                if (bodyCount < AnchorMinPixels) {
+                    return false;
+                }
+                if (IsFlatL(lHist, bodyCount)) {
+                    return false;  // フラット領域: どこを取っても同じ
+                }
                 anchorL = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
                 float bandLo = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
                 float bandHi = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
@@ -413,31 +423,37 @@ namespace Iroca
                 bool usePeak = UseBaseColorPeak(coreLHist, coreCount, anchorL, out int modeBin);
                 int peakLoBin = modeBin - AnchorModeHalfBins, peakHiBin = modeBin + AnchorModeHalfBins;
                 // 代表 L は山の窓の上の端。地色(窓の中)の画素が、L 再マップの折れ目より下の 1 本の直線に乗る(AnchorModeHalfBins の説明)。
-                if (usePeak) anchorL = (modeBin + AnchorModeHalfBins + 1) / 255f;
+                if (usePeak) {
+                    anchorL = (modeBin + AnchorModeHalfBins + 1) / 255f;
+                }
 
                 // pass 3: 代表 C = 地色の山の窓(コア画素)か、明るい面の L 帯(地色画素)の chroma 中央値
                 var cHist = new int[256];
-                int bandCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, cHist, (y0, y1, hist) =>
-                {
+                int bandCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, cHist, (y0, y1, hist) => {
                     int n = 0;
-                    for (int y = y0; y < y1; y++)
-                    {
+                    for (int y = y0; y < y1; y++) {
                         int rowOff = y * w;
-                        for (int x = bbMinX; x <= bbMaxX; x++)
-                        {
+                        for (int x = bbMinX; x <= bbMaxX; x++) {
                             int i = rowOff + x;
-                            if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) continue;
-                            float L = candL[i], c = candC[i];
-                            if (usePeak)
-                            {
-                                if (c < 0f || c / Mathf.Max(L, 1e-4f) < minSatr) continue;
-                                int lBin = Mathf.Clamp((int)(L * 255f), 0, 255);
-                                if (lBin < peakLoBin || lBin > peakHiBin) continue;
+                            if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) {
+                                continue;
                             }
-                            else
-                            {
-                                if (c / Mathf.Max(L, 1e-4f) < satrFloor) continue;
-                                if (L < bandLo || L > bandHi) continue;
+                            float L = candL[i], c = candC[i];
+                            if (usePeak) {
+                                if (c < 0f || c / Mathf.Max(L, 1e-4f) < minSatr) {
+                                    continue;
+                                }
+                                int lBin = Mathf.Clamp((int)(L * 255f), 0, 255);
+                                if (lBin < peakLoBin || lBin > peakHiBin) {
+                                    continue;
+                                }
+                            } else {
+                                if (c / Mathf.Max(L, 1e-4f) < satrFloor) {
+                                    continue;
+                                }
+                                if (L < bandLo || L > bandHi) {
+                                    continue;
+                                }
                             }
                             hist[Mathf.Clamp((int)(c / AnchorChromaHistMax * 255f), 0, 255)]++;
                             n++;
@@ -445,14 +461,18 @@ namespace Iroca
                     }
                     return n;
                 }, ct);
-                if (bandCount < 1) return false;
+                if (bandCount < 1) {
+                    return false;
+                }
                 anchorC = Histogram.ValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
                 return anchorC > 1e-4f;
-            }
-            finally
-            {
-                if (candL != null) s_floatPool.Return(candL);
-                if (candC != null) s_floatPool.Return(candC);
+            } finally {
+                if (candL != null) {
+                    s_floatPool.Return(candL);
+                }
+                if (candC != null) {
+                    s_floatPool.Return(candC);
+                }
             }
         }
 
@@ -470,8 +490,7 @@ namespace Iroca
             out float anchorL, out float anchorC,
             AnchorMaterial material,
             bool* statsExclude, float* claimed, CancellationToken ct,
-            int* pIdx, float* pL, float* pC, Color32* pCol, int colorCount)
-        {
+            int* pIdx, float* pL, float* pC, Color32* pCol, int colorCount) {
             anchorL = 0f;
             anchorC = 0f;
             // 色ごとの個数(色の数の長さ)は作業配列のプールから借り、抜けるときに返す(0.4.0 の 3-12)。
@@ -481,35 +500,40 @@ namespace Iroca
             // ワーカー全員が持つと 1 回で 50MB を超えるので、配列の合計が AnchorCountBudget に収まる人数で数える
             // (普通のテクスチャは数千〜数万色で、人数は変わらない)。整数の加算なので人数によらず結果は同じ。
             int workers = Math.Max(1, AnchorCountBudget / Math.Max(1, colorCount));
-            int candCount = Histogram.AccumulateParallelRowsNative(bbMinY, bbMaxY + 1, cnt, colorCount, (y0, y1, local) =>
-            {
+            int candCount = Histogram.AccumulateParallelRowsNative(bbMinY, bbMaxY + 1, cnt, colorCount, (y0, y1, local) => {
                 int n = 0;
-                for (int y = y0; y < y1; y++)
-                {
+                for (int y = y0; y < y1; y++) {
                     int rowOff = y * w;
-                    for (int x = bbMinX; x <= bbMaxX; x++)
-                    {
+                    for (int x = bbMinX; x <= bbMaxX; x++) {
                         int i = rowOff + x;
-                        if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) continue;
+                        if (!IsAnchorCore(px, strength, claimed, statsExclude, i)) {
+                            continue;
+                        }
                         local[pIdx[i]]++;
                         n++;
                     }
                 }
                 return n;
             }, ct, workers);
-            if (candCount < AnchorMinPixels) return false;
-            if (material.Active)
-            {
-                for (int k = 0; k < colorCount; k++)
-                {
-                    if (cnt[k] == 0) continue;
+            if (candCount < AnchorMinPixels) {
+                return false;
+            }
+            if (material.Active) {
+                for (int k = 0; k < colorCount; k++) {
+                    if (cnt[k] == 0) {
+                        continue;
+                    }
                     Color32 pk = pCol[k];
                     OkLab.RgbToOklab(pk.r, pk.g, pk.b, out _, out float a, out float b);
-                    if (!material.Rejects(pk, a, b)) continue;
+                    if (!material.Rejects(pk, a, b)) {
+                        continue;
+                    }
                     candCount -= cnt[k];
                     cnt[k] = 0;
                 }
-                if (candCount < AnchorMinPixels) return false;
+                if (candCount < AnchorMinPixels) {
+                    return false;
+                }
             }
 
             // 1: 飽和度(C/L)ヒストグラムと、地色の山を探す L ヒストグラム(飽和度で絞らない。推定し直しでは
@@ -517,13 +541,16 @@ namespace Iroca
             var satrHist = new int[256];
             var coreLHist = new int[256];
             int coreCount = 0;
-            for (int k = 0; k < colorCount; k++)
-            {
+            for (int k = 0; k < colorCount; k++) {
                 int c = cnt[k];
-                if (c == 0) continue;
+                if (c == 0) {
+                    continue;
+                }
                 float satr = pC[k] / Mathf.Max(pL[k], 1e-4f);
                 satrHist[Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255)] += c;
-                if (satr < material.MinSatr) continue;
+                if (satr < material.MinSatr) {
+                    continue;
+                }
                 coreLHist[Mathf.Clamp((int)(pL[k] * 255f), 0, 255)] += c;
                 coreCount += c;
             }
@@ -535,17 +562,24 @@ namespace Iroca
             // 2: 地色(飽和度 ≥ 下限)の L ヒストグラム → 明るい面(P90)と L 帯
             var lHist = new int[256];
             int bodyCount = 0;
-            for (int k = 0; k < colorCount; k++)
-            {
+            for (int k = 0; k < colorCount; k++) {
                 int c = cnt[k];
-                if (c == 0) continue;
+                if (c == 0) {
+                    continue;
+                }
                 float L = pL[k], C = pC[k];
-                if (C / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                if (C / Mathf.Max(L, 1e-4f) < satrFloor) {
+                    continue;
+                }
                 lHist[Mathf.Clamp((int)(L * 255f), 0, 255)] += c;
                 bodyCount += c;
             }
-            if (bodyCount < AnchorMinPixels) return false;
-            if (IsFlatL(lHist, bodyCount)) return false;  // フラット領域: どこを取っても同じ
+            if (bodyCount < AnchorMinPixels) {
+                return false;
+            }
+            if (IsFlatL(lHist, bodyCount)) {
+                return false;  // フラット領域: どこを取っても同じ
+            }
             anchorL = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
             float bandLo = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
             float bandHi = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
@@ -554,31 +588,41 @@ namespace Iroca
             bool usePeak = UseBaseColorPeak(coreLHist, coreCount, anchorL, out int modeBin);
             int peakLoBin = modeBin - AnchorModeHalfBins, peakHiBin = modeBin + AnchorModeHalfBins;
             // 代表 L は山の窓の上の端。地色(窓の中)の画素が、L 再マップの折れ目より下の 1 本の直線に乗る(AnchorModeHalfBins の説明)。
-            if (usePeak) anchorL = (modeBin + AnchorModeHalfBins + 1) / 255f;
+            if (usePeak) {
+                anchorL = (modeBin + AnchorModeHalfBins + 1) / 255f;
+            }
 
             // 3: 代表 C = 地色の山の窓(コア画素)か、明るい面の L 帯(地色)の chroma 中央値
             var cHist = new int[256];
             int bandCount = 0;
-            for (int k = 0; k < colorCount; k++)
-            {
+            for (int k = 0; k < colorCount; k++) {
                 int c = cnt[k];
-                if (c == 0) continue;
-                float L = pL[k], ch = pC[k];
-                if (usePeak)
-                {
-                    if (ch / Mathf.Max(L, 1e-4f) < material.MinSatr) continue;
-                    int lBin = Mathf.Clamp((int)(L * 255f), 0, 255);
-                    if (lBin < peakLoBin || lBin > peakHiBin) continue;
+                if (c == 0) {
+                    continue;
                 }
-                else
-                {
-                    if (ch / Mathf.Max(L, 1e-4f) < satrFloor) continue;
-                    if (L < bandLo || L > bandHi) continue;
+                float L = pL[k], ch = pC[k];
+                if (usePeak) {
+                    if (ch / Mathf.Max(L, 1e-4f) < material.MinSatr) {
+                        continue;
+                    }
+                    int lBin = Mathf.Clamp((int)(L * 255f), 0, 255);
+                    if (lBin < peakLoBin || lBin > peakHiBin) {
+                        continue;
+                    }
+                } else {
+                    if (ch / Mathf.Max(L, 1e-4f) < satrFloor) {
+                        continue;
+                    }
+                    if (L < bandLo || L > bandHi) {
+                        continue;
+                    }
                 }
                 cHist[Mathf.Clamp((int)(ch / AnchorChromaHistMax * 255f), 0, 255)] += c;
                 bandCount += c;
             }
-            if (bandCount < 1) return false;
+            if (bandCount < 1) {
+                return false;
+            }
             anchorC = Histogram.ValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
             return anchorC > 1e-4f;
         }
@@ -586,8 +630,7 @@ namespace Iroca
         // RecolorPixel のゾーン不変パラメータ(再着色ホットループの前に 1 回だけ確定する値)をまとめた
         // readonly struct。in 渡しで per-pixel のコピーを避ける。フィールドは旧 RecolorPixel 引数を
         // そのまま転記(型・順序・意味を保持)。約30引数の緩和=シグネチャ整理のみで数値ロジックは不変。
-        private readonly struct RecolorParams
-        {
+        private readonly struct RecolorParams {
             public readonly float okMagScale, okTa, okTb;
             public readonly bool okGray;
             public readonly float okGa, okGb;
@@ -606,8 +649,7 @@ namespace Iroca
                 float okSL, float okTL, float okSC, float okGateC, bool okSplitChroma, float okInvTC,
                 float valueBlend, float shadowDesaturation, float sS, float tR, float tG, float tB,
                 float washR, float washG, float washB, float washV, bool applyHighlightWash,
-                float achromaWeight, float achromaSampleWeight, float achromaLightWeight, float osat, bool hasRegL)
-            {
+                float achromaWeight, float achromaSampleWeight, float achromaLightWeight, float osat, bool hasRegL) {
                 this.okMagScale = okMagScale; this.okTa = okTa; this.okTb = okTb;
                 this.okGray = okGray; this.okGa = okGa; this.okGb = okGb;
                 this.okSL = okSL; this.okTL = okTL; this.okSC = okSC; this.okGateC = okGateC;
@@ -625,8 +667,7 @@ namespace Iroca
             byte oRb, byte oGb, byte oBb,
             float oV, float alpha,
             in RecolorParams p,
-            float regLmid, float regUp)   // regUp: 白側の余白(BuildComponentMedianLMap の upMap、地図が無ければ AchromaFormOffset)
-        {
+            float regLmid, float regUp) {   // regUp: 白側の余白(BuildComponentMedianLMap の upMap、地図が無ければ AchromaFormOffset)
             // ゾーン不変パラメータをローカルへ展開する。以降の本体ロジックは従来のまま=出力バイト不変。
             float okMagScale = p.okMagScale, okTa = p.okTa, okTb = p.okTb;
             bool okGray = p.okGray;
@@ -650,24 +691,18 @@ namespace Iroca
             OkLab.RgbToOklab(oRb, oGb, oBb, out float oL, out float oa, out float ob);
             float oC = Mathf.Sqrt(oa * oa + ob * ob);
             float na, nb;
-            if (okGray)
-            {
+            if (okGray) {
                 // sample が無彩(グレー): target chroma を一律付与(旧 newS=tS 相当)
                 na = okGa;
                 nb = okGb;
-            }
-            else
-            {
+            } else {
                 // 彩度の大きさ(ファイル先頭の「彩度の写し方」参照。mag は塗り先の (a, b) に掛ける倍率 = 出力の彩度 / tC)。
                 // 写し方は **サンプル相対項** にだけ掛け、下の無彩ブレンドの uniform 項(osat)には掛けない
                 // (uniform 項は oC に依らず、揺れを増幅しないため。以前の上限も同じ理由でここに置いていた)。
                 float mag;
-                if (!okSplitChroma)
-                {
+                if (!okSplitChroma) {
                     mag = oC * okMagScale;              // |chroma|/sC · osat(全体の比例)
-                }
-                else
-                {
+                } else {
                     float cHat = oL <= okSL
                         ? okSC * oL / Mathf.Max(okSL, 1e-4f)
                         : okSC * (1f - oL) / Mathf.Max(1f - okSL, 1e-4f);
@@ -680,8 +715,9 @@ namespace Iroca
                 // 塗り先の無彩の重みは彩度に使わない(明度の無彩パスだけ)。一律の彩度は淡い所にも同じ色を乗せるので、
                 // 有彩のサンプルで淡い色へ塗ると元の濃淡が潰れる。塗り先が本当に無彩なら tC≈0 で、どちらでも色は付かない。
                 float chromaW = p.achromaSampleWeight;
-                if (chromaW > AchromaWeightActiveMin)
+                if (chromaW > AchromaWeightActiveMin) {
                     mag = mag * (1f - chromaW) + osat * chromaW;
+                }
                 na = mag * okTa;
                 nb = mag * okTb;
             }
@@ -702,8 +738,7 @@ namespace Iroca
             // 相対量なので色非依存。
             // sample 無彩(okGray)時は従来どおり一律 remap。
             float effRemapL = remapL;
-            if (!okGray && p.okGateC > 1e-4f)
-            {
+            if (!okGray && p.okGateC > 1e-4f) {
                 float chromaFrac = Mathf.Clamp01(oC / (p.okGateC * OklabRemapFullChromaFrac));
                 effRemapL = oL + (remapL - oL) * chromaFrac;
             }
@@ -723,8 +758,7 @@ namespace Iroca
             // 置き、偏差を AchromaFormGain 倍する(2区間リマップ・彩度ゲートを迂回)。白い地色→黒のような
             // 無彩変換で、彩度ゲートが白を明るく残して起きる「まだら」と、2区間リマップの明度崩壊を直す。
             // weight=0(有彩×有彩)では完全 no-op=バイト不変。
-            if (achromaWeight > AchromaWeightActiveMin && hasRegL)
-            {
+            if (achromaWeight > AchromaWeightActiveMin && hasRegL) {
                 // 形(立体感)維持: 領域の地色基準を target の明度(center)に置き、基準からの
                 // 偏差を AchromaFormGain 倍して陰影を知覚可能な大きさへ拡張する。暗部は 0 へ、明部は
                 // center 近辺に収め、白残り(段差)は clamp で防ぐ。単調・領域統計由来で特定座標
@@ -747,8 +781,7 @@ namespace Iroca
             }
 
             // 暗部脱彩 (旧 shadowDesaturation の OkLab 等価): 暗い画素の chroma を最大 50% 抑制。
-            if (shadowDesaturation > 0f && oV < shadowDesaturation)
-            {
+            if (shadowDesaturation > 0f && oV < shadowDesaturation) {
                 float shadowIntensity = Mathf.Clamp01((shadowDesaturation - oV) / shadowDesaturation);
                 float fac = 1f - 0.5f * shadowIntensity;
                 na *= fac;
@@ -780,14 +813,12 @@ namespace Iroca
             //
             // applyHighlightWash ゲート (2026-06-04): この白寄せ射影は既定 OFF のオプトイン。
             // OFF のときは OkLab 再着色のみで明部の明度・彩度構造を温存する。
-            if (applyHighlightWash && sS > 0.01f && oV > washV)
-            {
+            if (applyHighlightWash && sS > 0.01f && oV > washV) {
                 float dR = 1f - washR;
                 float dG = 1f - washG;
                 float dB = 1f - washB;
                 float dirSq = dR * dR + dG * dG + dB * dB;
-                if (dirSq > 1e-6f)
-                {
+                if (dirSq > 1e-6f) {
                     float oR = oRb / 255f, oG = oGb / 255f, oB = oBb / 255f;
                     float pR = oR - washR;
                     float pG = oG - washG;
@@ -871,8 +902,7 @@ namespace Iroca
         private const int RecolorMemoSize = 8192;   // 2 のべき
         // スレッドごとのメモ。[ThreadStatic] の読み出しは遅いので、呼び出し側が行の初めに 1 回だけ RecolorMemoOfThread で
         // 取り出して、画素ごとには渡すだけにする。
-        private sealed class RecolorMemo
-        {
+        private sealed class RecolorMemo {
             internal readonly int[] Epoch = new int[RecolorMemoSize];
             internal readonly int[] Color = new int[RecolorMemoSize];
             internal readonly float[] Mid = new float[RecolorMemoSize];
@@ -884,20 +914,19 @@ namespace Iroca
 
         private static RecolorMemo RecolorMemoOfThread() => t_recolorMemo ?? (t_recolorMemo = new RecolorMemo());
 
-        private static int NextRecolorMemoEpoch()
-        {
+        private static int NextRecolorMemoEpoch() {
             int e = Interlocked.Increment(ref s_recolorMemoEpoch);
             // 0 は「メモを使わない」の印なので飛ばす(一周するのは 2^32 回後)。
             return e != 0 ? e : Interlocked.Increment(ref s_recolorMemoEpoch);
         }
 
         private static Color32 RecolorPixelMemo(RecolorMemo m, int epoch, int colorId, float regLmid, float regUp,
-            Color32 op, float oV, float alpha, in RecolorParams p)
-        {
+            Color32 op, float oV, float alpha, in RecolorParams p) {
             int slot = (int)(((uint)colorId * 2654435761u) ^ (uint)(int)(regLmid * 1048576f) ^ ((uint)(int)(regUp * 1048576f) * 40503u))
                        & (RecolorMemoSize - 1);
-            if (m.Epoch[slot] == epoch && m.Color[slot] == colorId && m.Mid[slot] == regLmid && m.Up[slot] == regUp)
+            if (m.Epoch[slot] == epoch && m.Color[slot] == colorId && m.Mid[slot] == regLmid && m.Up[slot] == regUp) {
                 return m.Out[slot];
+            }
             Color32 r = RecolorPixel(op.r, op.g, op.b, oV, alpha, in p, regLmid, regUp);
             m.Epoch[slot] = epoch;
             m.Color[slot] = colorId;

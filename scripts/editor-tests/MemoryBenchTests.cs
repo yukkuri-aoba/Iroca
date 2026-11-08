@@ -12,8 +12,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.Profiling;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 製品の実行環境（Unity 2022.3 の Mono）で、プレビュー相当の処理を繰り返したときのメモリを測る。品質は検査しない。
     /// Unity の Mono ヒープは一度広がると縮まないので、見た目のメモリ(プロセスの Private)を決めるのは
@@ -48,14 +47,12 @@ namespace Iroca.EditorTests
     /// (ヒープの最大値は同じプロセスの前のケースを引きずる)。
     /// </summary>
     [Category("Memory")]
-    public partial class MemoryBenchTests
-    {
+    public partial class MemoryBenchTests {
         [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; public int importMaxSize; public int exportAfterStep = -1; public int cancelOverlapRounds; public int refineRounds; public bool window; public string scenario = ""; }
         [Serializable] private class CasesDto { public int steps = 12; public int releaseWaitSeconds = 60; public bool gcEachStep; public bool reuseOutput; public bool hashOutput = true; public List<CaseDto> cases = new List<CaseDto>(); }
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct ProcessMemoryCounters
-        {
+        private struct ProcessMemoryCounters {
             public uint cb, PageFaultCount;
             public UIntPtr PeakWorkingSetSize, WorkingSetSize, QuotaPeakPagedPoolUsage, QuotaPagedPoolUsage,
                 QuotaPeakNonPagedPoolUsage, QuotaNonPagedPoolUsage, PagefileUsage, PeakPagefileUsage;
@@ -71,18 +68,23 @@ namespace Iroca.EditorTests
 
         // 直前の ProcessPixelsArray の段ごとの時間(このスレッドで出たレポート)。20ms 以上の段だけを "名前=ms,…" で返す。
         // 2 手目(選択キャッシュに当たる手)の遅れがどの段で出ているかを、基準と変更後で比べるため。
-        private static string TakeSubPhases()
-        {
+        private static string TakeSubPhases() {
             var r = DebugCaptureHooks.TakeThreadPerfReport();
-            if (r == null) return null;
+            if (r == null) {
+                return null;
+            }
             var sb = new StringBuilder();
-            void Add(PhasePerfEntry[] es, string prefix)
-            {
-                if (es == null) return;
-                foreach (var e in es)
-                {
-                    if (e.TotalMs < 20) continue;
-                    if (sb.Length > 0) sb.Append(',');
+            void Add(PhasePerfEntry[] es, string prefix) {
+                if (es == null) {
+                    return;
+                }
+                foreach (var e in es) {
+                    if (e.TotalMs < 20) {
+                        continue;
+                    }
+                    if (sb.Length > 0) {
+                        sb.Append(',');
+                    }
                     sb.Append(prefix).Append(e.Name).Append('=').Append(e.TotalMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture));
                 }
             }
@@ -91,8 +93,7 @@ namespace Iroca.EditorTests
             return sb.ToString();
         }
 
-        private static string Sample(string name, string phase, int step, double ms, double gcMs = 0, string hash = null, string sub = null)
-        {
+        private static string Sample(string name, string phase, int step, double ms, double gcMs = 0, string hash = null, string sub = null) {
             GetProcessMemoryInfo(GetCurrentProcess(), out var c, (uint)Marshal.SizeOf<ProcessMemoryCounters>());
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             long irocaNative = s_irocaNativeBytes != null ? Convert.ToInt64(s_irocaNativeBytes.GetValue(null)) / MB : -1;
@@ -107,11 +108,9 @@ namespace Iroca.EditorTests
         }
 
         // 出力の指紋(FNV-1a 64 を画素単位で)。基準と変更後で Mono の出力が同じかを、8K でも確かめるため。
-        private static string HashPixels(Color32[] px, int len)
-        {
+        private static string HashPixels(Color32[] px, int len) {
             ulong h = 14695981039346656037UL;
-            for (int i = 0; i < len; i++)
-            {
+            for (int i = 0; i < len; i++) {
                 Color32 c = px[i];
                 h = (h ^ ((uint)c.r | ((uint)c.g << 8) | ((uint)c.b << 16) | ((uint)c.a << 24))) * 1099511628211UL;
             }
@@ -119,32 +118,29 @@ namespace Iroca.EditorTests
         }
 
         // 元ファイルの解像度の画素(書き出しと同じ読み方)。
-        private static Color32[] LoadSourcePixels(string png, out int w, out int h)
-        {
+        private static Color32[] LoadSourcePixels(string png, out int w, out int h) {
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            try
-            {
+            try {
                 Assert.IsTrue(tex.LoadImage(File.ReadAllBytes(png)), $"PNG を読めません: {png}");
                 w = tex.width;
                 h = tex.height;
                 return tex.GetPixels32();
-            }
-            finally { UnityEngine.Object.DestroyImmediate(tex); }
+            } finally { UnityEngine.Object.DestroyImmediate(tex); }
         }
 
         // zones JSON の読み込みは製品(IrocaAutomation.RecolorWithZones)と同じ変換を通す。
-        private static (List<ColorZone> zones, RecolorSettings settings) LoadZones(string json)
-        {
+        private static (List<ColorZone> zones, RecolorSettings settings) LoadZones(string json) {
             var req = JsonUtility.FromJson<IrocaAutomation.ZonesRequest>(json);
             var build = BenchSeams.BuildZone;
             var settingsFrom = BenchSeams.SettingsFromDto;
             Assert.IsNotNull(build, "IrocaAutomation.BuildZone が見つかりません");
             Assert.IsNotNull(settingsFrom, "IrocaAutomation.SettingsFromDto が見つかりません");
             var zones = new List<ColorZone>();
-            foreach (var z in req.zones)
-            {
+            foreach (var z in req.zones) {
                 var zone = (ColorZone)build.Invoke(null, new object[] { z });
-                if (zone == null || !zone.enabled) continue;
+                if (zone == null || !zone.enabled) {
+                    continue;
+                }
                 zone.EnsureId(); zone.UpdateCacheIfNeeded();
                 zones.Add(zone);
             }
@@ -156,24 +152,25 @@ namespace Iroca.EditorTests
         // 作業配列のプールを手放す。製品に解放の口(PixelProcessor.ReleaseWorkBuffers、0.3.0 で足す予定)があれば
         // それを呼び、無い版(基準側)では PixelProcessor の s_*Pool を空の同設定のものへ差し替える。
         // 差し替えはプールが Rent/Return のたびにフィールドを読むので、処理中でなければ安全。
-        private static void ReleasePools()
-        {
+        private static void ReleasePools() {
             const BindingFlags F = BindingFlags.Static | BindingFlags.NonPublic;
             var release = BenchSeams.ReleaseWorkBuffers;
             if (release != null) { release.Invoke(null, null); return; }
-            foreach (var f in typeof(PixelProcessor).GetFields(F))
-            {
-                if (!f.Name.EndsWith("Pool", StringComparison.Ordinal) || !f.FieldType.IsGenericType) continue;
+            foreach (var f in typeof(PixelProcessor).GetFields(F)) {
+                if (!f.Name.EndsWith("Pool", StringComparison.Ordinal) || !f.FieldType.IsGenericType) {
+                    continue;
+                }
                 var create = f.FieldType.GetMethod("Create", new[] { typeof(int), typeof(int) });
-                if (create == null) continue;
+                if (create == null) {
+                    continue;
+                }
                 // バケットの上限本数は製品と揃えなくてよい(この後は処理しない)。
                 f.SetValue(null, create.Invoke(null, new object[] { 1 << 24, 4 }));
             }
         }
 
         // ウィンドウの場面(CaseDto.window)。製品の PreviewView を名前で探して動かす(基準の版でも同じテストが回るように。BenchSeams)。
-        private static void RunWindowCase(CaseDto c, CasesDto cfg, StringBuilder sb)
-        {
+        private static void RunWindowCase(CaseDto c, CasesDto cfg, StringBuilder sb) {
             const string dir = "Assets/IrocaMemBench";
             string assetPath = $"{dir}/{c.name}.png";
             Directory.CreateDirectory(dir);
@@ -187,17 +184,20 @@ namespace Iroca.EditorTests
             Assert.IsNotNull(tex, $"{c.name}: 取り込めません");
             var (zones, _) = LoadZones(File.ReadAllText(c.zones));
             var baseTol = new float[zones.Count];
-            for (int i = 0; i < zones.Count; i++) baseTol[i] = zones[i].tolerance;
+            for (int i = 0; i < zones.Count; i++) {
+                baseTol[i] = zones[i].tolerance;
+            }
 
             IrocaWindow win = null;
-            try
-            {
+            try {
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                 sb.Append(Sample(c.name, "start", 0, 0)).Append('\n');
                 win = ScriptableObject.CreateInstance<IrocaWindow>();
                 win.SourceTexture = tex;
                 win.Session.zones.Clear();
-                foreach (var z in zones) win.Session.zones.Add(z);
+                foreach (var z in zones) {
+                    win.Session.zones.Add(z);
+                }
                 var pv = win.Preview;
                 var gen = BenchSeams.GeneratePreviewAsync;
                 var owner = BenchSeams.JobsOwnerOf(pv);
@@ -206,10 +206,8 @@ namespace Iroca.EditorTests
                 var fullOutput = BenchSeams.FullOutput;
                 Assert.IsNotNull(gen, "PreviewView.GeneratePreviewAsync が見つかりません");
                 bool Running(object job) => BenchSeams.IsRunning(job);
-                for (int k = 0; k < cfg.steps; k++)
-                {
-                    for (int i = 0; i < zones.Count; i++)
-                    {
+                for (int k = 0; k < cfg.steps; k++) {
+                    for (int i = 0; i < zones.Count; i++) {
                         zones[i].tolerance = baseTol[i] + 0.002f * (k + 1);
                         zones[i].UpdateCacheIfNeeded();
                     }
@@ -217,9 +215,10 @@ namespace Iroca.EditorTests
                     gen.Invoke(pv, new object[] { false });
                     // 概要段 → 確定段(概要段の apply が確定段を予約する)が両方終わるまで、メインスレッドの戻りを捌く。
                     int idle = 0;
-                    while (idle < 3)
-                    {
-                        if (sw.ElapsedMilliseconds > 600000) Assert.Fail("プレビューが終わらない");
+                    while (idle < 3) {
+                        if (sw.ElapsedMilliseconds > 600000) {
+                            Assert.Fail("プレビューが終わらない");
+                        }
                         PreviewJobMainThread.Drain();
                         idle = Running(proxyJob) || Running(fullJob) ? 0 : idle + 1;
                         Thread.Sleep(2);
@@ -229,18 +228,19 @@ namespace Iroca.EditorTests
                 }
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                 sb.Append(Sample(c.name, "liveWindowOpen", cfg.steps, 0)).Append('\n');
-            }
-            finally
-            {
+            } finally {
                 // 閉じる(OnDisable → プレビューの Suspend)。その後は製品と同じく作業配列も手放す。
-                if (win != null) UnityEngine.Object.DestroyImmediate(win);
+                if (win != null) {
+                    UnityEngine.Object.DestroyImmediate(win);
+                }
                 ReleasePools();
                 var wait = System.Diagnostics.Stopwatch.StartNew();
-                for (int s = 0; s <= cfg.releaseWaitSeconds; s += 5)
-                {
+                for (int s = 0; s <= cfg.releaseWaitSeconds; s += 5) {
                     GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                     sb.Append(Sample(c.name, "windowClosed", s, wait.Elapsed.TotalMilliseconds)).Append('\n');
-                    if (s < cfg.releaseWaitSeconds) Thread.Sleep(5000);
+                    if (s < cfg.releaseWaitSeconds) {
+                        Thread.Sleep(5000);
+                    }
                 }
                 UnityEditor.AssetDatabase.DeleteAsset(assetPath);
                 UnityEditor.AssetDatabase.DeleteAsset(dir);
@@ -248,10 +248,13 @@ namespace Iroca.EditorTests
         }
 
         // 確定段の出力の指紋。0.3.0 より前は Color32[]、0.3.0 からは NativePixels(管理配列へ写さずに読む)。
-        private static unsafe string HashAny(object output)
-        {
-            if (output == null) return "none";
-            if (output is Color32[] a) return HashPixels(a, a.Length);
+        private static unsafe string HashAny(object output) {
+            if (output == null) {
+                return "none";
+            }
+            if (output is Color32[] a) {
+                return HashPixels(a, a.Length);
+            }
             var t = output.GetType();
             int len = (int)t.GetProperty("Length").GetValue(output);
             // Mono の反射はポインタ型のプロパティを GetValue で読めない(型引数にできないと言って投げる)ので、確保した領域の IntPtr を読む。
@@ -259,8 +262,7 @@ namespace Iroca.EditorTests
             object mem = BenchSeams.NativePixelsMemory(t).GetValue(output);
             var ptr = (Color32*)(mem is IntPtr raw ? raw : (IntPtr)mem.GetType().GetProperty("Ptr").GetValue(mem));
             ulong h = 14695981039346656037UL;
-            for (int i = 0; i < len; i++)
-            {
+            for (int i = 0; i < len; i++) {
                 Color32 c = ptr[i];
                 h = (h ^ ((uint)c.r | ((uint)c.g << 8) | ((uint)c.b << 16) | ((uint)c.a << 24))) * 1099511628211UL;
             }
@@ -268,31 +270,29 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void PreviewMemory()
-        {
+        public void PreviewMemory() {
             string casesPath = Environment.GetEnvironmentVariable("IROCA_MEM_CASES");
             string reportPath = Environment.GetEnvironmentVariable("IROCA_MEM_REPORT");
-            if (string.IsNullOrEmpty(casesPath) || !File.Exists(casesPath))
+            if (string.IsNullOrEmpty(casesPath) || !File.Exists(casesPath)) {
                 Assert.Ignore("IROCA_MEM_CASES が未設定です（メモリ計測は Run-EditorTests.ps1 -MemCases で明示実行）");
+            }
             Assert.IsFalse(string.IsNullOrEmpty(reportPath), "IROCA_MEM_REPORT が未設定です");
 
             var cfg = JsonUtility.FromJson<CasesDto>(File.ReadAllText(casesPath));
             Assert.IsTrue(cfg != null && cfg.cases.Count > 0, "計測するケースがありません");
             // AI の場面はフレームを回すので別のテストが測る(AiSuggestMemory)。同じ結果のファイルを上書きしない。
-            if (cfg.cases.All(c => c.scenario == AiScenario)) Assert.Ignore("AI の場面だけの回です");
+            if (cfg.cases.All(c => c.scenario == AiScenario)) {
+                Assert.Ignore("AI の場面だけの回です");
+            }
 
             var sb = new StringBuilder();
-            try
-            {
-                foreach (var c in cfg.cases)
-                {
-                    if (!string.IsNullOrEmpty(c.scenario))
-                    {
+            try {
+                foreach (var c in cfg.cases) {
+                    if (!string.IsNullOrEmpty(c.scenario)) {
                         RunScenarioCase(c, cfg, sb);   // MemoryBenchTests.Scenarios.cs
                         continue;
                     }
-                    if (c.window)
-                    {
+                    if (c.window) {
                         RunWindowCase(c, cfg, sb);
                         continue;
                     }
@@ -300,8 +300,7 @@ namespace Iroca.EditorTests
                     Assert.IsTrue(tex.LoadImage(File.ReadAllBytes(c.png)), $"{c.name}: PNG を読めません");
                     int w = tex.width, h = tex.height;
                     Color32[] src;
-                    if (c.importMaxSize > 0)
-                    {
+                    if (c.importMaxSize > 0) {
                         // 取り込みの Max Size は長辺をその値へ縮める(縦横比を保つ)。
                         int longest = Math.Max(w, h);
                         int iw = longest > c.importMaxSize ? Math.Max(1, (int)((long)w * c.importMaxSize / longest)) : w;
@@ -312,8 +311,9 @@ namespace Iroca.EditorTests
                             : WorkingResolution.ResizeArea(tex.GetPixelData<byte>(0), layout, w, h, ww, wh);
                         w = ww;
                         h = wh;
+                    } else {
+                        src = tex.GetPixels32();
                     }
-                    else src = tex.GetPixels32();
                     UnityEngine.Object.DestroyImmediate(tex);
 
                     var (zones, settings) = LoadZones(File.ReadAllText(c.zones));
@@ -330,13 +330,11 @@ namespace Iroca.EditorTests
                     // 製品の PreviewOutputBuffers は 0.3.0 で形が変わったので、基準の版でもコンパイルできるようここで持つ。
                     Color32[] retiredOutput = null;
                     Color32[] heldOutput = null;   // PreviewView._fullOutput 相当(最新の 1 枚だけ保持)
-                    for (int k = 0; k < cfg.steps; k++)
-                    {
-                        for (int i = 0; i < zones.Count; i++)
-                        {
-                            if (k % 2 == 0) zones[i].tolerance = baseTol[i] + 0.002f * (k / 2 + 1);
-                            else
-                            {
+                    for (int k = 0; k < cfg.steps; k++) {
+                        for (int i = 0; i < zones.Count; i++) {
+                            if (k % 2 == 0) {
+                                zones[i].tolerance = baseTol[i] + 0.002f * (k / 2 + 1);
+                            } else {
                                 var t = baseTarget[i];
                                 zones[i].targetColor = new Color(Mathf.Repeat(t.r + 0.05f * k, 1f), t.g, t.b, t.a);
                             }
@@ -344,30 +342,30 @@ namespace Iroca.EditorTests
                         }
                         var sw = System.Diagnostics.Stopwatch.StartNew();
                         Color32[] pixels;
-                        if (cfg.reuseOutput)
-                        {
+                        if (cfg.reuseOutput) {
                             pixels = retiredOutput != null && retiredOutput.Length == src.Length
                                 ? retiredOutput : new Color32[src.Length];
                             retiredOutput = null;
                             Array.Copy(src, pixels, src.Length);
+                        } else {
+                            pixels = (Color32[])src.Clone();
                         }
-                        else pixels = (Color32[])src.Clone();
                         PixelProcessor.ProcessPixelsArray(pixels, w, h, null, zones, settings,
                             CancellationToken.None, selectionCache: selectionCache);
                         string sub = TakeSubPhases();
-                        if (cfg.reuseOutput && heldOutput != null) retiredOutput = heldOutput;
+                        if (cfg.reuseOutput && heldOutput != null) {
+                            retiredOutput = heldOutput;
+                        }
                         heldOutput = pixels;
                         double ms = sw.Elapsed.TotalMilliseconds, gcMs = 0;
-                        if (cfg.gcEachStep)
-                        {
+                        if (cfg.gcEachStep) {
                             var gw = System.Diagnostics.Stopwatch.StartNew();
                             GC.Collect();
                             gcMs = gw.Elapsed.TotalMilliseconds;
                         }
                         sb.Append(Sample(c.name, "step", k, ms, gcMs, cfg.hashOutput ? HashPixels(pixels, src.Length) : null, sub)).Append('\n');
 
-                        if (k == c.exportAfterStep)
-                        {
+                        if (k == c.exportAfterStep) {
                             // 「テクスチャとして書き出す」相当: 元ファイルの解像度で読み直し、入力の複製を渡さずに
                             // (ExportView と同じく sourcePixels なし・選択キャッシュなし)処理する。作業解像度より大きいと、
                             // その解像度の作業配列がプールに 1 組増える。書き出した画素はこの手の中で手放す。
@@ -390,41 +388,40 @@ namespace Iroca.EditorTests
                     GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                     sb.Append(Sample(c.name, "liveAfterSteps", cfg.steps, 0)).Append('\n');
 
-                    if (c.cancelOverlapRounds > 0)
-                    {
+                    if (c.cancelOverlapRounds > 0) {
                         // 操作を続けたときのフル段の取り消し: プレビューと同じ PreviewJob で 1 本目を投げ、
                         // 1 手の半分ほどの時間で 2 本目を投げ直す(1 本目はキャンセル)。選択キャッシュは使わない
                         // (どちらも最初から計算する)。PreviewJob が前の計算の終わりを待たない版では 2 本が重なり、
                         // プールにもう 1 組が残る。
                         double sumMs = 0; int nMs = 0;
-                        foreach (var line in sb.ToString().Split('\n'))
-                        {
-                            if (!line.Contains("\"phase\":\"step\"")) continue;
+                        foreach (var line in sb.ToString().Split('\n')) {
+                            if (!line.Contains("\"phase\":\"step\"")) {
+                                continue;
+                            }
                             int i0 = line.IndexOf("\"ms\":", StringComparison.Ordinal) + 5;
                             int i1 = line.IndexOf(',', i0);
                             sumMs += double.Parse(line.Substring(i0, i1 - i0), System.Globalization.CultureInfo.InvariantCulture);
                             nMs++;
                         }
                         int delayMs = Math.Max(10, (int)(sumMs / Math.Max(1, nMs) * 0.5));
-                        using (var job = new PreviewJob<Color32[]>())
-                        {
-                            for (int r = 0; r < c.cancelOverlapRounds; r++)
-                            {
+                        using (var job = new PreviewJob<Color32[]>()) {
+                            for (int r = 0; r < c.cancelOverlapRounds; r++) {
                                 var ow = System.Diagnostics.Stopwatch.StartNew();
                                 Color32[] applied = null;
-                                for (int k = 0; k < 2; k++)
-                                {
-                                    job.Schedule(tok =>
-                                    {
+                                for (int k = 0; k < 2; k++) {
+                                    job.Schedule(tok => {
                                         var px = (Color32[])src.Clone();
                                         PixelProcessor.ProcessPixelsArray(px, w, h, null, zones, settings, tok, sourcePixels: src);
                                         return px;
                                     }, px => applied = px);
-                                    if (k == 0) Thread.Sleep(delayMs);
+                                    if (k == 0) {
+                                        Thread.Sleep(delayMs);
+                                    }
                                 }
-                                while (applied == null)
-                                {
-                                    if (ow.ElapsedMilliseconds > 600000) Assert.Fail("重なりの計測が終わらない");
+                                while (applied == null) {
+                                    if (ow.ElapsedMilliseconds > 600000) {
+                                        Assert.Fail("重なりの計測が終わらない");
+                                    }
                                     PreviewJobMainThread.Drain();
                                     Thread.Sleep(2);
                                 }
@@ -437,19 +434,16 @@ namespace Iroca.EditorTests
                         sb.Append(Sample(c.name, "liveAfterOverlap", c.cancelOverlapRounds, 0)).Append('\n');
                     }
 
-                    if (c.refineRounds > 0)
-                    {
+                    if (c.refineRounds > 0) {
                         // AI 提案の精密化(右クリックの「ここは塗らない」などのたびに走る)を繰り返したときのヒープと GC。
                         // 提案の代わりに、最初のゾーンのサンプル色に近い画素のマスクを使う(部位ほどの大きさの塊になる)。
                         var sample = (Color32)zones[0].sampleColor;
                         var proposal = new bool[src.Length];
-                        for (int i = 0; i < src.Length; i++)
-                        {
+                        for (int i = 0; i < src.Length; i++) {
                             int dr = src[i].r - sample.r, dg = src[i].g - sample.g, db = src[i].b - sample.b;
                             proposal[i] = dr * dr + dg * dg + db * db < 40 * 40;
                         }
-                        for (int r = 0; r < c.refineRounds; r++)
-                        {
+                        for (int r = 0; r < c.refineRounds; r++) {
                             var rw = System.Diagnostics.Stopwatch.StartNew();
                             var mask = (bool[])proposal.Clone();
                             SamMaskRefine.SnapBoundary(mask, src, w, h);
@@ -457,7 +451,11 @@ namespace Iroca.EditorTests
                             SamMaskRefine.IncludeAaTransition(mask, src, w, h);
                             SamMaskRefine.PeelThinSpill(mask, src, w, h);
                             int on = 0;
-                            for (int i = 0; i < mask.Length; i++) if (mask[i]) on++;
+                            for (int i = 0; i < mask.Length; i++) {
+                                if (mask[i]) {
+                                    on++;
+                                }
+                            }
                             sb.Append(Sample(c.name, "refine", r, rw.Elapsed.TotalMilliseconds, 0, on.ToString())).Append('\n');
                         }
                         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
@@ -470,17 +468,16 @@ namespace Iroca.EditorTests
                     selectionCache.Clear();
                     ReleasePools();
                     var wait = System.Diagnostics.Stopwatch.StartNew();
-                    for (int s = 0; s <= cfg.releaseWaitSeconds; s += 5)
-                    {
+                    for (int s = 0; s <= cfg.releaseWaitSeconds; s += 5) {
                         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                         sb.Append(Sample(c.name, "released", s, wait.Elapsed.TotalMilliseconds)).Append('\n');
-                        if (s < cfg.releaseWaitSeconds) Thread.Sleep(5000);
+                        if (s < cfg.releaseWaitSeconds) {
+                            Thread.Sleep(5000);
+                        }
                     }
                     GC.KeepAlive(heldOutput);
                 }
-            }
-            finally
-            {
+            } finally {
                 File.WriteAllText(reportPath, sb.ToString());
             }
         }

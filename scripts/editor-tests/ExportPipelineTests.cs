@@ -6,19 +6,16 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 書き出しの手順（<see cref="ExportPipeline"/>・<see cref="ExportService"/>）。ユーザーのファイルを書き換える唯一の出口なので、
     /// 「原本を import 設定に左右されず読む」「読めない形式は取り込み済みで代替する」「書いた画素が
     /// そのまま戻る」「import 設定を引き継ぐ」「上書きで GUID（マテリアルからの参照）を保つ」を実機で見る。
     /// </summary>
-    public class ExportPipelineTests
-    {
+    public class ExportPipelineTests {
         // 上書きできるのは Assets の下だけ。パッケージの中は取り込まれず、更新で消える。
         [Test]
-        public void OverwritingInPlace_OnlyUnderAssets()
-        {
+        public void OverwritingInPlace_OnlyUnderAssets() {
             Assert.IsTrue(ExportPipeline.CanOverwriteInPlace("Assets/a/b.png"));
             Assert.IsFalse(ExportPipeline.CanOverwriteInPlace("Packages/com.example/b.png"));
         }
@@ -29,26 +26,26 @@ namespace Iroca.EditorTests
         [TearDown] public void TearDown() => _assets.Dispose();
 
         // 書き出しが通る書き込み(ExportService.WriteAndImport。PNG はヒープの外)へ、管理配列の PNG を渡す。
-        private static string WriteAndImport(string outputPath, byte[] png, string srcPath, bool inheritImportSettings)
-        {
-            using (var native = new Unity.Collections.NativeArray<byte>(png, Unity.Collections.Allocator.Persistent))
+        private static string WriteAndImport(string outputPath, byte[] png, string srcPath, bool inheritImportSettings) {
+            using (var native = new Unity.Collections.NativeArray<byte>(png, Unity.Collections.Allocator.Persistent)) {
                 return ExportService.WriteAndImport(outputPath, native, srcPath, inheritImportSettings);
+            }
         }
 
-        private static Color32[] Pattern(int w, int h)
-        {
+        private static Color32[] Pattern(int w, int h) {
             var px = new Color32[w * h];
-            for (int y = 0; y < h; y++)
-                for (int x = 0; x < w; x++)
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
                     px[y * w + x] = new Color32((byte)(x * 13), (byte)(y * 7), (byte)((x + y) * 3), (byte)(x == 0 ? 0 : 255 - y));
+                }
+            }
             return px;
         }
 
         // ─── 出力先 ───
 
         [Test]
-        public void SingleOutputPath_OverwriteKeepsFolderAndSwapsExtension()
-        {
+        public void SingleOutputPath_OverwriteKeepsFolderAndSwapsExtension() {
             Assert.AreEqual("Assets/Tex/a.png", Norm(ExportPipeline.SingleOutputPath("Assets/Tex/a.png", false, null)));
             // 元が PNG 以外なら隣に .png を作る（元ファイルは上書きしない）。
             Assert.AreEqual("Assets/Tex/a.png", Norm(ExportPipeline.SingleOutputPath("Assets/Tex/a.jpg", false, null)));
@@ -56,8 +53,7 @@ namespace Iroca.EditorTests
 
         // 元が PNG 以外で隣に同じ名前の PNG があると、それを置き換える。「新規作成」と案内して黙って失わない。
         [Test]
-        public void InPlaceSaveConfirm_NonPngWithExistingPng_AsksToReplaceIt()
-        {
+        public void InPlaceSaveConfirm_NonPngWithExistingPng_AsksToReplaceIt() {
             var png = ExportView.InPlaceSaveConfirm("Assets/Tex/a.png", "Assets/Tex/a.png", outputExists: true);
             Assert.AreEqual(Localization.OverwriteConfirm, png.message);
             Assert.AreEqual(Localization.Overwrite, png.ok);
@@ -72,8 +68,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void SingleOutputPath_NewFileNameIsSanitized()
-        {
+        public void SingleOutputPath_NewFileNameIsSanitized() {
             Assert.AreEqual("Assets/Tex/_CON.png", Norm(ExportPipeline.SingleOutputPath("Assets/Tex/a.png", true, "CON")));
             Assert.AreEqual("Assets/Tex/.._evil.png", Norm(ExportPipeline.SingleOutputPath("Assets/Tex/a.png", true, "../evil")));
             Assert.AreEqual("Assets/Tex/recolored.png", Norm(ExportPipeline.SingleOutputPath("Assets/Tex/a.png", true, "  ")));
@@ -84,8 +79,7 @@ namespace Iroca.EditorTests
             => Assert.AreEqual("Assets/Tex/a_recolored.png", Norm(ExportPipeline.BatchOutputPath("Assets/Tex/a.tga")));
 
         [Test]
-        public void OutputPath_PackageSourceGoesUnderAssets()
-        {
+        public void OutputPath_PackageSourceGoesUnderAssets() {
             // パッケージのフォルダは VCC / ALCOM の更新で丸ごと入れ替わり、中に書いた画像が消える。
             Assert.AreEqual("Assets/Iroca/Exports/Packages/com.example/Tex/a_recolored.png",
                 Norm(ExportPipeline.BatchOutputPath("Packages/com.example/Tex/a.png")));
@@ -97,8 +91,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void WriteAndImport_CreatesTheOutputFolder()
-        {
+        public void WriteAndImport_CreatesTheOutputFolder() {
             string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
             string outAsset = _assets.Folder + "/Exports/Packages/com.example/out.png";
             string rel = WriteAndImport(TestAssets.Abs(outAsset), ExportPipeline.EncodePng(Pattern(8, 8), 8, 8), src, true);
@@ -111,8 +104,7 @@ namespace Iroca.EditorTests
         // ─── 原本の読み込み ───
 
         [Test]
-        public void ReadSource_PngIsDecodedFromFileIgnoringImportSettings()
-        {
+        public void ReadSource_PngIsDecodedFromFileIgnoringImportSettings() {
             // import 側を縮小（maxTextureSize=32）しても、書き出しは原本の 64x64 を使うこと。
             var px = Pattern(64, 64);
             string path = _assets.WritePng("src", px, 64, 64);
@@ -129,8 +121,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ReadSource_TgaFallsBackToImportedTextureWhenReadable()
-        {
+        public void ReadSource_TgaFallsBackToImportedTextureWhenReadable() {
             string path = _assets.WriteBytes("src.tga", Tga(8, 4, new Color32(10, 200, 30, 255)), readable: true);
             var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             var kind = TestAssets.ReadSourcePixels(path, imported, out var got, out int w, out int h);
@@ -140,8 +131,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ReadSource_TgaWithoutReadWriteIsUnavailable()
-        {
+        public void ReadSource_TgaWithoutReadWriteIsUnavailable() {
             string path = _assets.WriteBytes("src.tga", Tga(8, 4, new Color32(10, 200, 30, 255)), readable: false);
             var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             Assert.AreEqual(ExportPipeline.SourceKind.Unavailable,
@@ -150,8 +140,7 @@ namespace Iroca.EditorTests
 
         // 書き出し(「適用して保存」・一括)はヒープの外へ読む(ExportService.ReadSource)。上の管理配列の読み方と同じ画素・同じ区別。
         [Test]
-        public void ExportServiceReadSource_EqualsTheManagedRead()
-        {
+        public void ExportServiceReadSource_EqualsTheManagedRead() {
             var px = Pattern(64, 64);
             string png = _assets.WritePng("src", px, 64, 64);
             var imp = (TextureImporter)AssetImporter.GetAtPath(png);
@@ -160,28 +149,24 @@ namespace Iroca.EditorTests
             string tga = _assets.WriteBytes("src.tga", Tga(8, 4, new Color32(10, 200, 30, 255)), readable: true);
             string locked = _assets.WriteBytes("locked.tga", Tga(8, 4, new Color32(10, 200, 30, 255)), readable: false);
 
-            foreach (var path in new[] { png, tga })
-            {
+            foreach (var path in new[] { png, tga }) {
                 var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
                 var expectedKind = TestAssets.ReadSourcePixels(path, imported, out var expected, out int w, out int h);
                 var kind = ExportService.ReadSource(path, imported, out NativePixels got);
-                try
-                {
+                try {
                     Assert.AreEqual(expectedKind, kind, path);
                     Assert.AreEqual((w, h), (got.Width, got.Height), path);
                     // 圧縮された取り込み済みテクスチャを GPU で展開すると、DXT は丸めで最大 1 段違う(PngFileDecoderTests)。
                     int allowed = kind == ExportPipeline.SourceKind.ImportedTexture
                         && SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null ? 1 : 0;
                     var actual = got.ToArray();
-                    for (int i = 0; i < actual.Length; i++)
-                    {
+                    for (int i = 0; i < actual.Length; i++) {
                         Assert.LessOrEqual(Math.Abs(expected[i].r - actual[i].r), allowed, path);
                         Assert.LessOrEqual(Math.Abs(expected[i].g - actual[i].g), allowed, path);
                         Assert.LessOrEqual(Math.Abs(expected[i].b - actual[i].b), allowed, path);
                         Assert.LessOrEqual(Math.Abs(expected[i].a - actual[i].a), allowed, path);
                     }
-                }
-                finally { got.Release(); }
+                } finally { got.Release(); }
             }
             Assert.AreEqual(ExportPipeline.SourceKind.Unavailable,
                 ExportService.ReadSource(locked, AssetDatabase.LoadAssetAtPath<Texture2D>(locked), out var none));
@@ -193,14 +178,12 @@ namespace Iroca.EditorTests
         private const string AutomationZones = "{\"zones\":[{\"name\":\"z\"}]}";
 
         [Test]
-        public void ReadSource_AutomationReportsUndecodableSource()
-        {
+        public void ReadSource_AutomationReportsUndecodableSource() {
             // 取り込むと Unity が読み込みエラーを出すので、AssetDatabase に載らないプロジェクト内（Temp/）に置く。
             string dir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Temp",
                                       "iroca_export_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
-            try
-            {
+            try {
                 string src = Path.Combine(dir, "broken.png");
                 File.WriteAllBytes(src, System.Text.Encoding.ASCII.GetBytes("this is not a png"));
                 string outAsset = _assets.Folder + "/out.png";
@@ -209,13 +192,11 @@ namespace Iroca.EditorTests
                 Assert.IsFalse(result.ok);
                 Assert.AreEqual("failed to decode source image.", result.error);
                 Assert.IsFalse(File.Exists(TestAssets.Abs(outAsset)), "出力を書かないこと");
-            }
-            finally { Directory.Delete(dir, true); }
+            } finally { Directory.Delete(dir, true); }
         }
 
         [Test]
-        public void ReadSource_AutomationDoesNotFallBackToImportedTexture()
-        {
+        public void ReadSource_AutomationDoesNotFallBackToImportedTexture() {
             // 書き出しなら取り込み済みで代替できる（Read/Write 有効の）TGA でも、自動化は受け付けない。
             string src = _assets.WriteBytes("src.tga", Tga(8, 4, new Color32(10, 200, 30, 255)), readable: true);
             var result = JsonUtility.FromJson<IrocaAutomation.RecolorResult>(
@@ -225,16 +206,14 @@ namespace Iroca.EditorTests
         }
 
         /// <summary>無圧縮 32bit TGA（左下原点）。</summary>
-        private static byte[] Tga(int w, int h, Color32 c)
-        {
+        private static byte[] Tga(int w, int h, Color32 c) {
             var b = new byte[18 + w * h * 4];
             b[2] = 2;                                  // 無圧縮トゥルーカラー
             b[12] = (byte)w; b[13] = (byte)(w >> 8);
             b[14] = (byte)h; b[15] = (byte)(h >> 8);
             b[16] = 32;                                // bpp
             b[17] = 8;                                 // α 8bit
-            for (int i = 0; i < w * h; i++)
-            {
+            for (int i = 0; i < w * h; i++) {
                 b[18 + i * 4] = c.b; b[19 + i * 4] = c.g; b[20 + i * 4] = c.r; b[21 + i * 4] = c.a;
             }
             return b;
@@ -243,34 +222,30 @@ namespace Iroca.EditorTests
         // ─── PNG 化 ───
 
         [Test]
-        public void EncodePng_RoundTripsVisiblePixelsExactly()
-        {
+        public void EncodePng_RoundTripsVisiblePixelsExactly() {
             var px = Pattern(16, 9);
             byte[] png = ExportPipeline.EncodePng(px, 16, 9);
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            try
-            {
+            try {
                 Assert.IsTrue(tex.LoadImage(png));
                 Assert.AreEqual((16, 9), (tex.width, tex.height));
                 var got = tex.GetPixels32();
-                for (int i = 0; i < px.Length; i++)
-                {
+                for (int i = 0; i < px.Length; i++) {
                     Assert.AreEqual(px[i].a, got[i].a, $"α @{i}");
-                    if (px[i].a > 0) Assert.AreEqual(px[i], got[i], $"画素 @{i}");
+                    if (px[i].a > 0) {
+                        Assert.AreEqual(px[i], got[i], $"画素 @{i}");
+                    }
                 }
-            }
-            finally { UnityEngine.Object.DestroyImmediate(tex); }
+            } finally { UnityEngine.Object.DestroyImmediate(tex); }
         }
 
         [Test]
-        public void EncodePng_MatchesRgbaByteArrayPath()
-        {
+        public void EncodePng_MatchesRgbaByteArrayPath() {
             // 0.3.0 で、PNG 化の前に RGBA のバイト列へ写し直すのをやめた(Color32[] をそのまま渡す。8K で 256MB 減る)。
             // 写し直していた頃と同じバイト列になること(α=0 の画素を含む模様で比べる)。
             var px = Pattern(37, 23);
             var rgba = new byte[px.Length * 4];
-            for (int i = 0; i < px.Length; i++)
-            {
+            for (int i = 0; i < px.Length; i++) {
                 rgba[i * 4] = px[i].r; rgba[i * 4 + 1] = px[i].g; rgba[i * 4 + 2] = px[i].b; rgba[i * 4 + 3] = px[i].a;
             }
             byte[] viaBytes = ImageConversion.EncodeArrayToPNG(rgba, UnityEngine.Experimental.Rendering.GraphicsFormat.R8G8B8A8_SRGB, 37, 23);
@@ -278,17 +253,14 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void EncodePng_RunsOnBackgroundThreadAndMatchesMainThread()
-        {
+        public void EncodePng_RunsOnBackgroundThreadAndMatchesMainThread() {
             // 書き出しは PNG 化をバックグラウンドで行う（ExportView）。その前提が実機で成り立つこと。
             var px = Pattern(64, 48);
             byte[] onMain = ExportPipeline.EncodePng(px, 64, 48);
             byte[] onWorker = null;
             Exception error = null;
-            var worker = new System.Threading.Thread(() =>
-            {
-                try { onWorker = ExportPipeline.EncodePng(px, 64, 48); }
-                catch (Exception e) { error = e; }
+            var worker = new System.Threading.Thread(() => {
+                try { onWorker = ExportPipeline.EncodePng(px, 64, 48); } catch (Exception e) { error = e; }
             });
             worker.Start();
             Assert.IsTrue(worker.Join(30000), "バックグラウンドの PNG 化が終わらない");
@@ -299,8 +271,7 @@ namespace Iroca.EditorTests
         // ─── 書き込みと取り込み ───
 
         [Test]
-        public void WriteAndImport_InheritsImportSettingsWithNewGuid()
-        {
+        public void WriteAndImport_InheritsImportSettingsWithNewGuid() {
             string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
             var srcImp = (TextureImporter)AssetImporter.GetAtPath(src);
             srcImp.sRGBTexture = false;
@@ -320,8 +291,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void WriteAndImport_OverwriteKeepsGuid()
-        {
+        public void WriteAndImport_OverwriteKeepsGuid() {
             // 上書き保存で GUID が変わると、そのテクスチャを参照するマテリアルが外れる。
             string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
             string guid = AssetDatabase.AssetPathToGUID(src);
@@ -330,8 +300,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void WriteAndImport_CrlfSourceMetaKeepsGuidOfExistingOutput()
-        {
+        public void WriteAndImport_CrlfSourceMetaKeepsGuidOfExistingOutput() {
             // Windows の Git(autocrlf)で取り出したプロジェクトでは元の .meta が CRLF。以前は GUID を差し替えられず、
             // 元と同じ GUID の .meta を写していた(書き出し直した画像に新しい GUID が振られ、マテリアルから外れる)。
             string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
@@ -349,8 +318,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void PreApplyImportSettings_WritesWithoutBom_AndSkipsTheSourceItself()
-        {
+        public void PreApplyImportSettings_WritesWithoutBom_AndSkipsTheSourceItself() {
             string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
             string srcMeta = TestAssets.Abs(src) + ".meta";
             string outAsset = _assets.Folder + "/out.png";
@@ -369,8 +337,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void WriteAndImport_WithoutInheritUsesDefaults()
-        {
+        public void WriteAndImport_WithoutInheritUsesDefaults() {
             string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
             var srcImp = (TextureImporter)AssetImporter.GetAtPath(src);
             srcImp.sRGBTexture = false;
@@ -381,22 +348,18 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void WriteAndImport_OutsideAssetsWritesButDoesNotImport()
-        {
+        public void WriteAndImport_OutsideAssetsWritesButDoesNotImport() {
             string dir = Path.Combine(Path.GetTempPath(), "iroca_export_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
-            try
-            {
+            try {
                 string p = Path.Combine(dir, "x.png");
                 Assert.IsNull(WriteAndImport(p, ExportPipeline.EncodePng(Pattern(4, 4), 4, 4), "Assets/none.png", true));
                 Assert.IsTrue(File.Exists(p));
-            }
-            finally { Directory.Delete(dir, true); }
+            } finally { Directory.Delete(dir, true); }
         }
 
         [Test]
-        public void IsSameFile_NormalizesSeparators()
-        {
+        public void IsSameFile_NormalizesSeparators() {
             Assert.IsTrue(ExportPipeline.IsSameFile("Assets/Tex/a.png", Path.Combine("Assets", "Tex", "a.png")));
             Assert.IsFalse(ExportPipeline.IsSameFile("Assets/Tex/a.png", "Assets/Tex/b.png"));
         }

@@ -3,22 +3,19 @@
 using System.Collections.Generic;
 using NUnit.Framework;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// AI 提案の待ち行列(<see cref="AiSuggestBroker"/>)。サービスを偽物に差し替えて(Sentis の無いホストでも走る)、
     /// 求めた順に受け取り先へ返すこと・取り消し・元の切り替え・エラー・手放し方を見る。
     /// 前はウィンドウごとのコントローラがそれぞれサービスを購読し、2 つ並ぶと先に購読した方が提案を取って捨てていた。
     /// </summary>
-    public class AiSuggestBrokerTests
-    {
+    public class AiSuggestBrokerTests {
         private IMaskSuggestService _saved;
         private FakeMaskSuggestService _svc;
         private readonly object _a = new object(), _b = new object();
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _saved = MaskSuggestBridge.Service;
             _svc = new FakeMaskSuggestService();
             MaskSuggestBridge.Service = _svc;
@@ -26,8 +23,7 @@ namespace Iroca.EditorTests
         }
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             AiSuggestBroker.Release(_a);
             AiSuggestBroker.Release(_b);
             MaskSuggestBridge.Service = _saved;
@@ -39,29 +35,26 @@ namespace Iroca.EditorTests
 
         // 原本を読み直したら、サービスにも古い原本の参照を手放させる(同じ鍵のまま持ち続けると、原本がもう 1 枚残る)。
         [Test]
-        public void SourceInvalidated_MakesTheServiceReleaseTheOldPixels()
-        {
+        public void SourceInvalidated_MakesTheServiceReleaseTheOldPixels() {
             string prefKey = IrocaWindow.LastTextureGuidPrefKey;
             string prefBefore = UnityEditor.EditorPrefs.HasKey(prefKey) ? UnityEditor.EditorPrefs.GetString(prefKey) : null;
             UnityEditor.EditorPrefs.DeleteKey(prefKey);
             var win = UnityEngine.ScriptableObject.CreateInstance<IrocaWindow>();
-            try
-            {
+            try {
                 _ = win._maskView.SuggestController;
                 int before = _svc.cancelAlls;
                 win.InvalidateSourceAndRepaint();
                 Assert.Greater(_svc.cancelAlls, before, "サービスが古い原本を持ったまま");
-            }
-            finally
-            {
+            } finally {
                 UnityEngine.Object.DestroyImmediate(win);
-                if (prefBefore != null) UnityEditor.EditorPrefs.SetString(prefKey, prefBefore);
+                if (prefBefore != null) {
+                    UnityEditor.EditorPrefs.SetString(prefKey, prefBefore);
+                }
             }
         }
 
         [Test]
-        public void ProposalsGoBackToWhoAskedInOrder()
-        {
+        public void ProposalsGoBackToWhoAskedInOrder() {
             MaskSuggestProposal gotA = null, gotB = null;
             Assert.IsTrue(AiSuggestBroker.Enqueue(_a, "k", null, 0.1f, 0.1f, MaskSuggestGranularity.Auto, p => gotA = p));
             Assert.IsTrue(AiSuggestBroker.Enqueue(_b, "k", null, 0.2f, 0.2f, MaskSuggestGranularity.Auto, p => gotB = p));
@@ -76,8 +69,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void LeavesAProposalItDidNotAskFor()
-        {
+        public void LeavesAProposalItDidNotAskFor() {
             // サービスを直接使った誰か(テストなど)の提案は取らない。
             _svc.queue.Enqueue(default);
             _svc.Finish(P(1));
@@ -86,8 +78,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Cancel_FlushesWhenAlone_AndKeepsOthersWhenMixed()
-        {
+        public void Cancel_FlushesWhenAlone_AndKeepsOthersWhenMixed() {
             bool aDone = false;
             MaskSuggestProposal a = P(9);
             AiSuggestBroker.Enqueue(_a, "k", null, 0f, 0f, MaskSuggestGranularity.Auto, p => { aDone = true; a = p; });
@@ -99,7 +90,11 @@ namespace Iroca.EditorTests
 
             MaskSuggestProposal gotB = null;
             int aProposals = 0;
-            AiSuggestBroker.Enqueue(_a, "k", null, 0f, 0f, MaskSuggestGranularity.Auto, p => { if (p != null) aProposals++; });
+            AiSuggestBroker.Enqueue(_a, "k", null, 0f, 0f, MaskSuggestGranularity.Auto, p => {
+                if (p != null) {
+                    aProposals++;
+                }
+            });
             AiSuggestBroker.Enqueue(_b, "k", null, 0f, 0f, MaskSuggestGranularity.Auto, p => gotB = p);
             AiSuggestBroker.Cancel(_a);
             Assert.AreEqual(1, _svc.flushes, "ほかの持ち主の要求があれば捨てない");
@@ -111,8 +106,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void SwitchingTheSourceTellsTheOthersTheirsWillNotCome()
-        {
+        public void SwitchingTheSourceTellsTheOthersTheirsWillNotCome() {
             bool aDone = false;
             MaskSuggestProposal a = P(9);
             AiSuggestBroker.Enqueue(_a, "k1", null, 0f, 0f, MaskSuggestGranularity.Auto, p => { aDone = true; a = p; });
@@ -127,8 +121,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void RequestWhenIdle_WaitsForOthersAndForTheEmbedding()
-        {
+        public void RequestWhenIdle_WaitsForOthersAndForTheEmbedding() {
             AiSuggestBroker.Enqueue(_a, "k1", null, 0f, 0f, MaskSuggestGranularity.Auto, _ => { });
             Assert.AreEqual(AiSuggestBroker.Request.Busy,
                 AiSuggestBroker.RequestWhenIdle(_b, "k2", null, 0f, 0f, _ => { }), "ほかの元の要求は捨てずに待つ");
@@ -156,11 +149,18 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Error_FailsEveryWaiter_AndTheNextClickRetries()
-        {
+        public void Error_FailsEveryWaiter_AndTheNextClickRetries() {
             int fails = 0;
-            AiSuggestBroker.Enqueue(_a, "k", null, 0f, 0f, MaskSuggestGranularity.Auto, p => { if (p == null) fails++; });
-            AiSuggestBroker.Enqueue(_b, "k", null, 0f, 0f, MaskSuggestGranularity.Auto, p => { if (p == null) fails++; });
+            AiSuggestBroker.Enqueue(_a, "k", null, 0f, 0f, MaskSuggestGranularity.Auto, p => {
+                if (p == null) {
+                    fails++;
+                }
+            });
+            AiSuggestBroker.Enqueue(_b, "k", null, 0f, 0f, MaskSuggestGranularity.Auto, p => {
+                if (p == null) {
+                    fails++;
+                }
+            });
             _svc.queue.Clear();
             _svc.Set(MaskSuggestPhase.Error);
             Assert.AreEqual(2, fails);
@@ -173,8 +173,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Release_StopsTheServiceOnlyWhenNobodyElseWaits()
-        {
+        public void Release_StopsTheServiceOnlyWhenNobodyElseWaits() {
             AiSuggestBroker.Enqueue(_a, "k", null, 0f, 0f, MaskSuggestGranularity.Auto, _ => { });
             AiSuggestBroker.Enqueue(_b, "k", null, 0f, 0f, MaskSuggestGranularity.Auto, _ => { });
             AiSuggestBroker.Release(_a);
@@ -189,8 +188,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ReplacedService_FailsWhatWasWaitingOnTheOldOne()
-        {
+        public void ReplacedService_FailsWhatWasWaitingOnTheOldOne() {
             MaskSuggestProposal a = P(9);
             AiSuggestBroker.Enqueue(_a, "k", null, 0f, 0f, MaskSuggestGranularity.Auto, p => a = p);
             var old = _svc;

@@ -1,11 +1,9 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>プレビューの右クリックで、選んだ範囲(AI の判定・メッシュの島)に当てる操作。</summary>
-    internal enum MaskRegionOp
-    {
+    internal enum MaskRegionOp {
         /// <summary>ここも塗る: 範囲を「含める」へ足し、同じ範囲の「塗らない」(ゾーン別の除外)を消す。</summary>
         PaintHere,
         /// <summary>ここは塗らない: 範囲を除外へ足し、同じ範囲の「含める」を消す。</summary>
@@ -23,8 +21,7 @@ namespace Iroca
     }
 
     /// <summary><see cref="MaskRegionEdit.Apply"/> の結果。</summary>
-    internal struct MaskRegionEditResult
-    {
+    internal struct MaskRegionEditResult {
         /// <summary>書き換えた画素数(含める・除外の両方を合わせた延べ)。0 = 何も変わっていない。</summary>
         public int changed;
         /// <summary>範囲の中で、全ゾーン共通の除外が重なっている画素数(そこは塗られないので知らせる)。</summary>
@@ -46,18 +43,20 @@ namespace Iroca
     /// 呼び出し側が知らせる。
     /// </para>
     /// </summary>
-    internal static unsafe class MaskRegionEdit
-    {
+    internal static unsafe class MaskRegionEdit {
         /// <param name="op">当てる操作。</param>
         /// <param name="region">範囲(マスクと同じ寸法)。</param>
         /// <param name="exclude">宛先の除外マスク。ゾーン宛ならゾーン別、共通宛なら共通。PaintHere と ClearHere では null 可(消す物が無い)。</param>
         /// <param name="include">宛先ゾーンの含めるマスク。PaintHere では必須、ほかは null 可(消す物が無い)。共通宛では null。</param>
         /// <param name="common">全ゾーン共通の除外(重なりを数えるだけ。null 可)。共通宛のときは null を渡す。</param>
         public static MaskRegionEditResult Apply(MaskRegionOp op, bool[] region,
-                                                 ulong* exclude, ulong* include, ulong* common)
-        {
-            if (region == null) return new MaskRegionEditResult();
-            fixed (bool* p = region) return Apply(op, p, region.Length, exclude, include, common);
+                                                 ulong* exclude, ulong* include, ulong* common) {
+            if (region == null) {
+                return new MaskRegionEditResult();
+            }
+            fixed (bool* p = region) {
+                return Apply(op, p, region.Length, exclude, include, common);
+            }
         }
 
         /// <summary>
@@ -65,28 +64,32 @@ namespace Iroca
         /// (AI 提案の範囲は Mono のヒープの外にある)。
         /// </summary>
         public static MaskRegionEditResult Apply(MaskRegionOp op, bool* region, int n,
-                                                 ulong* exclude, ulong* include, ulong* common)
-        {
+                                                 ulong* exclude, ulong* include, ulong* common) {
             var r = new MaskRegionEditResult();
-            if (region == null) return r;
-            switch (op)
-            {
+            if (region == null) {
+                return r;
+            }
+            switch (op) {
                 case MaskRegionOp.PaintHere:
-                    for (int i = 0; i < n; i++)
-                    {
-                        if (!region[i]) continue;
+                    for (int i = 0; i < n; i++) {
+                        if (!region[i]) {
+                            continue;
+                        }
                         int w = i >> 6;
                         ulong bit = 1UL << (i & 63);
                         if ((include[w] & bit) == 0UL) { include[w] |= bit; r.changed++; }
                         if (exclude != null && (exclude[w] & bit) != 0UL) { exclude[w] &= ~bit; r.changed++; }
-                        if (common != null && (common[w] & bit) != 0UL) r.commonOverlap++;
+                        if (common != null && (common[w] & bit) != 0UL) {
+                            r.commonOverlap++;
+                        }
                     }
                     break;
 
                 case MaskRegionOp.DontPaintHere:
-                    for (int i = 0; i < n; i++)
-                    {
-                        if (!region[i]) continue;
+                    for (int i = 0; i < n; i++) {
+                        if (!region[i]) {
+                            continue;
+                        }
                         int w = i >> 6;
                         ulong bit = 1UL << (i & 63);
                         if ((exclude[w] & bit) == 0UL) { exclude[w] |= bit; r.changed++; }
@@ -98,17 +101,15 @@ namespace Iroca
                     return ClearRegion(region, n, exclude, include, common, write: true);
 
                 case MaskRegionOp.OnlyThisPart:
-                    for (int i = 0; i < n; i++)
-                    {
+                    for (int i = 0; i < n; i++) {
                         int w = i >> 6;
                         ulong bit = 1UL << (i & 63);
-                        if (region[i])
-                        {
+                        if (region[i]) {
                             if ((exclude[w] & bit) != 0UL) { exclude[w] &= ~bit; r.changed++; }
-                            if (common != null && (common[w] & bit) != 0UL) r.commonOverlap++;
-                        }
-                        else
-                        {
+                            if (common != null && (common[w] & bit) != 0UL) {
+                                r.commonOverlap++;
+                            }
+                        } else {
                             if ((exclude[w] & bit) == 0UL) { exclude[w] |= bit; r.changed++; }
                             if (include != null && (include[w] & bit) != 0UL) { include[w] &= ~bit; r.changed++; }
                         }
@@ -125,17 +126,29 @@ namespace Iroca
         public static MaskRegionEditResult CountClear(bool* region, int n, ulong* exclude, ulong* include, ulong* common)
             => region == null ? new MaskRegionEditResult() : ClearRegion(region, n, exclude, include, common, write: false);
 
-        private static MaskRegionEditResult ClearRegion(bool* region, int n, ulong* exclude, ulong* include, ulong* common, bool write)
-        {
+        private static MaskRegionEditResult ClearRegion(bool* region, int n, ulong* exclude, ulong* include, ulong* common, bool write) {
             var r = new MaskRegionEditResult();
-            for (int i = 0; i < n; i++)
-            {
-                if (!region[i]) continue;
+            for (int i = 0; i < n; i++) {
+                if (!region[i]) {
+                    continue;
+                }
                 int w = i >> 6;
                 ulong bit = 1UL << (i & 63);
-                if (exclude != null && (exclude[w] & bit) != 0UL) { if (write) exclude[w] &= ~bit; r.changed++; }
-                if (include != null && (include[w] & bit) != 0UL) { if (write) include[w] &= ~bit; r.changed++; }
-                if (common != null && (common[w] & bit) != 0UL) r.commonOverlap++;
+                if (exclude != null && (exclude[w] & bit) != 0UL) {
+                    if (write) {
+                        exclude[w] &= ~bit;
+                    }
+                    r.changed++;
+                }
+                if (include != null && (include[w] & bit) != 0UL) {
+                    if (write) {
+                        include[w] &= ~bit;
+                    }
+                    r.changed++;
+                }
+                if (common != null && (common[w] & bit) != 0UL) {
+                    r.commonOverlap++;
+                }
             }
             return r;
         }
@@ -153,25 +166,29 @@ namespace Iroca
         /// 取り分の合計がいちばん大きいゾーンを返す。それが画素数の半分に届かなければ、塗られていない所とみなす。
         /// </para>
         /// </summary>
-        public static int PaintingZoneAt(float[][] strengths, int sampleCount)
-        {
-            if (strengths == null || sampleCount <= 0) return -1;
+        public static int PaintingZoneAt(float[][] strengths, int sampleCount) {
+            if (strengths == null || sampleCount <= 0) {
+                return -1;
+            }
             var share = new float[strengths.Length];
-            for (int i = 0; i < sampleCount; i++)
-            {
+            for (int i = 0; i < sampleCount; i++) {
                 float room = 1f;
-                for (int k = 0; k < strengths.Length && room > 0f; k++)
-                {
+                for (int k = 0; k < strengths.Length && room > 0f; k++) {
                     var s = strengths[k];
-                    if (s == null) continue;
+                    if (s == null) {
+                        continue;
+                    }
                     float take = System.Math.Min(System.Math.Max(s[i], 0f), room);
                     share[k] += take;
                     room -= take;
                 }
             }
             int best = -1;
-            for (int k = 0; k < share.Length; k++)
-                if (share[k] >= sampleCount * 0.5f && (best < 0 || share[k] > share[best])) best = k;
+            for (int k = 0; k < share.Length; k++) {
+                if (share[k] >= sampleCount * 0.5f && (best < 0 || share[k] > share[best])) {
+                    best = k;
+                }
+            }
             return best;
         }
 
@@ -179,17 +196,18 @@ namespace Iroca
         public const int ClearProbeRadius = 2;
 
         /// <summary>中心 (cx, cy) から半径 radius の正方形の中に、立っている画素があるか。bits が null なら false。</summary>
-        public static bool AnyBitNear(ulong* bits, int w, int h, int cx, int cy, int radius)
-        {
-            if (bits == null) return false;
+        public static bool AnyBitNear(ulong* bits, int w, int h, int cx, int cy, int radius) {
+            if (bits == null) {
+                return false;
+            }
             int y0 = System.Math.Max(0, cy - radius), y1 = System.Math.Min(h - 1, cy + radius);
             int x0 = System.Math.Max(0, cx - radius), x1 = System.Math.Min(w - 1, cx + radius);
-            for (int y = y0; y <= y1; y++)
-            {
-                for (int x = x0; x <= x1; x++)
-                {
+            for (int y = y0; y <= y1; y++) {
+                for (int x = x0; x <= x1; x++) {
                     int i = y * w + x;
-                    if ((bits[i >> 6] & (1UL << (i & 63))) != 0UL) return true;
+                    if ((bits[i >> 6] & (1UL << (i & 63))) != 0UL) {
+                        return true;
+                    }
                 }
             }
             return false;
@@ -204,13 +222,21 @@ namespace Iroca
         /// どのゾーンにも無ければ -1(呼び出し側は、ほかの操作と同じ宛先にする)。
         /// </para>
         /// </summary>
-        public static int PickClearTarget(bool[] hasMask, int painting, int active)
-        {
-            if (hasMask == null) return -1;
-            if (painting >= 0 && painting < hasMask.Length && hasMask[painting]) return painting;
-            if (active >= 0 && active < hasMask.Length && hasMask[active]) return active;
-            for (int k = 0; k < hasMask.Length; k++)
-                if (hasMask[k]) return k;
+        public static int PickClearTarget(bool[] hasMask, int painting, int active) {
+            if (hasMask == null) {
+                return -1;
+            }
+            if (painting >= 0 && painting < hasMask.Length && hasMask[painting]) {
+                return painting;
+            }
+            if (active >= 0 && active < hasMask.Length && hasMask[active]) {
+                return active;
+            }
+            for (int k = 0; k < hasMask.Length; k++) {
+                if (hasMask[k]) {
+                    return k;
+                }
+            }
             return -1;
         }
 
@@ -220,28 +246,31 @@ namespace Iroca
         /// 勝つ」で、消さないと合成の「除外が勝つ」により含めるを塗っても効かない。消すときは塗っている層だけを消す。
         /// opposite は null 可(反対側の層が無い・共通マスクを塗っている)。
         /// </summary>
-        public static void BrushSpan(ulong* target, ulong* opposite, int start, int end, bool paint)
-        {
+        public static void BrushSpan(ulong* target, ulong* opposite, int start, int end, bool paint) {
             SetRange(target, start, end, paint);
-            if (paint && opposite != null) SetRange(opposite, start, end, false);
+            if (paint && opposite != null) {
+                SetRange(opposite, start, end, false);
+            }
         }
 
         // 画素 [start, end) のビットをまとめて立てる / 下ろす(語の途中は覆いで、まるごとの語は代入で)。
-        private static void SetRange(ulong* bits, int start, int end, bool value)
-        {
-            if (end <= start) return;
+        private static void SetRange(ulong* bits, int start, int end, bool value) {
+            if (end <= start) {
+                return;
+            }
             int w0 = start >> 6, w1 = (end - 1) >> 6;
             ulong head = ~0UL << (start & 63);
             ulong tail = ~0UL >> (63 - ((end - 1) & 63));
-            if (w0 == w1)
-            {
+            if (w0 == w1) {
                 ulong m = head & tail;
                 bits[w0] = value ? bits[w0] | m : bits[w0] & ~m;
                 return;
             }
             bits[w0] = value ? bits[w0] | head : bits[w0] & ~head;
             ulong fill = value ? ~0UL : 0UL;
-            for (int k = w0 + 1; k < w1; k++) bits[k] = fill;
+            for (int k = w0 + 1; k < w1; k++) {
+                bits[k] = fill;
+            }
             bits[w1] = value ? bits[w1] | tail : bits[w1] & ~tail;
         }
 
@@ -256,14 +285,12 @@ namespace Iroca
         /// 長辺が <see cref="MaskCanvasMaxLong"/> を超えるときは縦横比を保って縮めるが、取り込み後の寸法より
         /// 小さくはしない。
         /// </summary>
-        public static void CanvasSize(int fileW, int fileH, int importW, int importH, out int w, out int h)
-        {
+        public static void CanvasSize(int fileW, int fileH, int importW, int importH, out int w, out int h) {
             w = fileW > 0 && fileH > 0 ? fileW : importW;
             h = fileW > 0 && fileH > 0 ? fileH : importH;
             int longSide = System.Math.Max(w, h);
             int cap = System.Math.Max(MaskCanvasMaxLong, System.Math.Max(importW, importH));
-            if (longSide > cap)
-            {
+            if (longSide > cap) {
                 w = System.Math.Max(1, (int)System.Math.Round((double)w * cap / longSide));
                 h = System.Math.Max(1, (int)System.Math.Round((double)h * cap / longSide));
             }
@@ -277,43 +304,53 @@ namespace Iroca
         /// </summary>
         public static void StampDisk(ulong* target, ulong* opposite, int w, int h,
                                      float cx, float cy, float radius, bool paint,
-                                     out int x0, out int y0, out int x1, out int y1)
-        {
+                                     out int x0, out int y0, out int x1, out int y1) {
             x0 = y0 = x1 = y1 = 0;
-            if (target == null || w <= 0 || h <= 0) return;
+            if (target == null || w <= 0 || h <= 0) {
+                return;
+            }
             float r = System.Math.Max(0f, radius);
             float r2 = r * r;
             int ccx = (int)System.Math.Floor(cx), ccy = (int)System.Math.Floor(cy);
             int ry0 = System.Math.Max(0, (int)System.Math.Floor(cy - r - 0.5f));
             int ry1 = System.Math.Min(h - 1, (int)System.Math.Ceiling(cy + r - 0.5f));
             int bx0 = int.MaxValue, bx1 = int.MinValue, by0 = int.MaxValue, by1 = int.MinValue;
-            for (int y = ry0; y <= ry1; y++)
-            {
+            for (int y = ry0; y <= ry1; y++) {
                 float dy = y + 0.5f - cy;
                 float rem = r2 - dy * dy;
                 int sx0, sx1;
-                if (rem >= 0f)
-                {
+                if (rem >= 0f) {
                     float half = (float)System.Math.Sqrt(rem);
                     sx0 = (int)System.Math.Ceiling(cx - half - 0.5f);
                     sx1 = (int)System.Math.Floor(cx + half - 0.5f);
-                }
-                else if (y == ccy)
-                {
+                } else if (y == ccy) {
                     sx0 = sx1 = ccx;   // 円が画素の中心にかからない小さなブラシでも、中心の画素は塗る
+                } else {
+                    continue;
                 }
-                else continue;
                 if (y == ccy && (ccx < sx0 || ccx > sx1)) { sx0 = System.Math.Min(sx0, ccx); sx1 = System.Math.Max(sx1, ccx); }
                 sx0 = System.Math.Max(0, sx0);
                 sx1 = System.Math.Min(w - 1, sx1);
-                if (sx1 < sx0) continue;
+                if (sx1 < sx0) {
+                    continue;
+                }
                 BrushSpan(target, opposite, y * w + sx0, y * w + sx1 + 1, paint);
-                if (sx0 < bx0) bx0 = sx0;
-                if (sx1 > bx1) bx1 = sx1;
-                if (y < by0) by0 = y;
-                if (y > by1) by1 = y;
+                if (sx0 < bx0) {
+                    bx0 = sx0;
+                }
+                if (sx1 > bx1) {
+                    bx1 = sx1;
+                }
+                if (y < by0) {
+                    by0 = y;
+                }
+                if (y > by1) {
+                    by1 = y;
+                }
             }
-            if (bx1 < bx0) return;
+            if (bx1 < bx0) {
+                return;
+            }
             x0 = bx0; y0 = by0; x1 = bx1 + 1; y1 = by1 + 1;
         }
     }

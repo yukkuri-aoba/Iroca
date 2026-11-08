@@ -10,8 +10,7 @@ using Object = UnityEngine.Object;
 
 [assembly: ExportsPlugin(typeof(Iroca.NdmfIntegration.IrocaNdmfPlugin))]
 
-namespace Iroca.NdmfIntegration
-{
+namespace Iroca.NdmfIntegration {
     /// <summary>
     /// いろかの NDMF プラグイン。アバターのビルド(再生・アップロード)時に <see cref="IrocaRecolor"/> を処理し、
     /// 範囲内のマテリアルを複製して元テクスチャの参照を色替え済みテクスチャへ差し替える。
@@ -39,21 +38,20 @@ namespace Iroca.NdmfIntegration
     /// </para>
     /// </summary>
     [RunsOnAllPlatforms]
-    internal sealed class IrocaNdmfPlugin : Plugin<IrocaNdmfPlugin>
-    {
+    internal sealed class IrocaNdmfPlugin : Plugin<IrocaNdmfPlugin> {
         public override string QualifiedName => "com.yukkuri-aoba.iroca";
         public override string DisplayName => "Iroca";
 
-        protected override void Configure()
-        {
+        protected override void Configure() {
             // Modular Avatar の Merge Armature・Bone Proxy(Transforming 段)や VRCFury の Armature Link は、
             // 衣装の骨の下の小物をアバター本体の骨の下へ移す。色替えの範囲は編集中の親子関係(シーンのプレビュー・
             // インスペクタと同じ)で決めたいので、それより前の Resolving 段で各コンポーネントの範囲を記録しておく。
             InPhase(BuildPhase.Resolving)
                 .BeforePlugin("nadena.dev.modular-avatar")
-                .Run("Record recolor scopes", ctx =>
-                {
-                    if (ctx.AvatarRootObject.GetComponentInChildren<IrocaRecolor>(true) == null) return;
+                .Run("Record recolor scopes", ctx => {
+                    if (ctx.AvatarRootObject.GetComponentInChildren<IrocaRecolor>(true) == null) {
+                        return;
+                    }
                     NonDestructiveApplier.RecordScopes(ctx.AvatarRootObject,
                         ctx.GetState<NonDestructiveApplier.BuildState>());
                 });
@@ -77,22 +75,22 @@ namespace Iroca.NdmfIntegration
                         ctx => Run(ctx, NonDestructiveApplier.Stage.Late)));
         }
 
-        private static void Run(BuildContext ctx, NonDestructiveApplier.Stage stage)
-        {
+        private static void Run(BuildContext ctx, NonDestructiveApplier.Stage stage) {
             // いろかの部品が無いアバターでは何もしない(アニメーターの拡張も開かない)。
-            if (ctx.AvatarRootObject.GetComponentInChildren<IrocaRecolor>(true) == null) return;
-            using (var animators = new AnimatorServicesOnDemand(ctx))
+            if (ctx.AvatarRootObject.GetComponentInChildren<IrocaRecolor>(true) == null) {
+                return;
+            }
+            using (var animators = new AnimatorServicesOnDemand(ctx)) {
                 NonDestructiveApplier.Apply(ctx.AvatarRootObject, new BuildHost(ctx, animators),
                     ctx.GetState<NonDestructiveApplier.BuildState>(), stage);
+            }
         }
 
-        private sealed class BuildHost : NonDestructiveApplier.IHost
-        {
+        private sealed class BuildHost : NonDestructiveApplier.IHost {
             private readonly BuildContext _ctx;
             private readonly AnimatorServicesOnDemand _animators;
 
-            public BuildHost(BuildContext ctx, AnimatorServicesOnDemand animators)
-            {
+            public BuildHost(BuildContext ctx, AnimatorServicesOnDemand animators) {
                 _ctx = ctx;
                 _animators = animators;
             }
@@ -119,35 +117,42 @@ namespace Iroca.NdmfIntegration
     /// アニメーションのマテリアル切り替え(Renderer の m_Materials.Array.data[i] のキーフレーム)の書き換え。
     /// クリップは NDMF が仮想化した複製なので、元のアニメーションアセットは変わらない。
     /// </summary>
-    internal static class AnimatedMaterials
-    {
+    internal static class AnimatedMaterials {
         private const string MaterialSlotPrefix = "m_Materials.Array.data[";
 
         public static void Rewrite(AnimatorServicesContext animators, Func<Transform, bool> inScope,
-            Func<Material, Material> mapping)
-        {
+            Func<Material, Material> mapping) {
             var paths = animators.ObjectPathRemapper;
-            foreach (var clip in animators.AnimationIndex.ClipsWithObjectCurves.ToList())
-            {
-                foreach (var binding in clip.GetObjectCurveBindings())
-                {
-                    if (!IsMaterialSlot(binding)) continue;
+            foreach (var clip in animators.AnimationIndex.ClipsWithObjectCurves.ToList()) {
+                foreach (var binding in clip.GetObjectCurveBindings()) {
+                    if (!IsMaterialSlot(binding)) {
+                        continue;
+                    }
                     var target = paths.GetObjectForPath(binding.path);
-                    if (target == null || !inScope(target.transform)) continue;
+                    if (target == null || !inScope(target.transform)) {
+                        continue;
+                    }
                     var curve = clip.GetObjectCurve(binding);
-                    if (curve == null) continue;
+                    if (curve == null) {
+                        continue;
+                    }
 
                     // GetObjectCurve はキャッシュそのものを返すので、複製してから書き換えて戻す。
                     ObjectReferenceKeyframe[] edited = null;
-                    for (int i = 0; i < curve.Length; i++)
-                    {
-                        if (!(curve[i].value is Material from) || from == null) continue;
+                    for (int i = 0; i < curve.Length; i++) {
+                        if (!(curve[i].value is Material from) || from == null) {
+                            continue;
+                        }
                         var to = mapping(from);
-                        if (to == null || to == from) continue;
+                        if (to == null || to == from) {
+                            continue;
+                        }
                         edited ??= (ObjectReferenceKeyframe[])curve.Clone();
                         edited[i].value = to;
                     }
-                    if (edited != null) clip.SetObjectCurve(binding, edited);
+                    if (edited != null) {
+                        clip.SetObjectCurve(binding, edited);
+                    }
                 }
             }
         }

@@ -5,10 +5,8 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
         /// <summary>
         /// 旧の選択(照合 → 彩度の天井・閉領域の中性 → ハイライト → 連結成分 → 穴埋め → 境界回復 → ぼかし →
         /// 選択キャッシュへの保存)。ProcessPixelsArrayCore から中身を書き換えずに切り出したもの(0.4.0 の計画の 3-7a)。
@@ -17,8 +15,7 @@ namespace Iroca
         /// 計測の時刻は run.Tp で受け渡す。
         /// </summary>
         private static SelectionResult RunLegacySelection(RunContext run, ColorZone zone, ZoneBuffers zb,
-            NativeBitMask zoneMaskLayer, bool zMixMode, float sampH, float sampS, float sampV)
-        {
+            NativeBitMask zoneMaskLayer, bool zMixMode, float sampH, float sampS, float sampV) {
             // ProcessPixelsArrayCore と同じ名前のローカルへ展開する(切り出した本体をそのまま読めるように)。
             int w = run.W, h = run.H, len = run.Len;
             Color32* originalPixels = run.Original;
@@ -50,8 +47,7 @@ namespace Iroca
             string selKey = null;
             var cachedBox = default(SelectionCache.PostBox);
             bool selCached = false;
-            if (selectionCache != null)
-            {
+            if (selectionCache != null) {
                 selKey = BuildSelectionKey(zone, edgeFeather, antiAliasCleanup, holeFillPasses,
                     holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, maskW, maskH, zMixMode);
             }
@@ -64,8 +60,7 @@ namespace Iroca
             // キャッシュにあれば strength へ写す(キャッシュの中身はネイティブメモリにあり、貸し出し中は
             // 手放されない)。除外マスクが保存時と違えば、変わった画素でこのゾーンの照合がどれも 0 のときだけ
             // 使う(そのとき照合の直後の配列が計算し直しと同じになり、以降の段はマスクを読まないので選択も同じ)。
-            if (selKey != null)
-            {
+            if (selKey != null) {
                 var zoneForCheck = zone;
                 selCached = selectionCache.TryCopy(zone.id, selKey, w, h, strength, run.CommonMask, zoneMaskLayer,
                     (oldCommon, oldZone) => ExclusionChangeKeepsMatch(zoneForCheck, originalPixels, hsv,
@@ -75,12 +70,15 @@ namespace Iroca
             }
             bool needMatchConf = ffNeedsMatchConf && !selCached;
 
-            if (!selCached)
-            {
+            if (!selCached) {
                 // strength / highlightPot / matchConf は下のマッチのループが全画素に書く(除外マスクの
                 // 画素には 0)ので、先にゼロで埋めない(旧: 3 本とも単一スレッドの Array.Clear)。
-                if (zone.highlightRecovery) highlightPot = zb.HighlightPot = s_floatPool.Rent(len);
-                if (needMatchConf) matchConf = zb.MatchConf = s_boolPool.Rent(len);
+                if (zone.highlightRecovery) {
+                    highlightPot = zb.HighlightPot = s_floatPool.Rent(len);
+                }
+                if (needMatchConf) {
+                    matchConf = zb.MatchConf = s_boolPool.Rent(len);
+                }
 
                 var strengthLocal = strength;
                 var highlightPotLocal = highlightPot;
@@ -90,72 +88,72 @@ namespace Iroca
                 // Rect モードだけ)ので、色の表があれば色ごとに 1 回だけ求めて配る。
                 // 色の数の長さ(ノイズの多い 4K で数百万色)なので、Mono のヒープに作らずプールから借りる。
                 float* palStrength = null, palPot = null, palConf = null;
-                try
-                {
-                if (palette != null && zone.mode == SelectionMode.ColorPick)
-                {
-                    int pc = palette.Count;
-                    palStrength = s_floatPool.Rent(pc);
-                    palPot = s_floatPool.Rent(pc);
-                    palConf = s_floatPool.Rent(pc);
-                    Color32* pCol = palette.Colors;
-                    float* pH = palette.H, pS = palette.S, pV = palette.V;
-                    float* outS = palStrength, outPot = palPot, outConf = palConf;
-                    ForEachPaletteChunk(pc, po, (k0, k1) =>
-                    {
-                        for (int k = k0; k < k1; k++)
-                        {
-                            zone.GetMatchScoresPrecomputedHSV(pH[k], pS[k], pV[k], (Color)pCol[k],
-                                0, 0, w, h, out float ks, out float kp, out float kc);
-                            outS[k] = ks;
-                            outPot[k] = kp;
-                            outConf[k] = kc;
+                try {
+                    if (palette != null && zone.mode == SelectionMode.ColorPick) {
+                        int pc = palette.Count;
+                        palStrength = s_floatPool.Rent(pc);
+                        palPot = s_floatPool.Rent(pc);
+                        palConf = s_floatPool.Rent(pc);
+                        Color32* pCol = palette.Colors;
+                        float* pH = palette.H, pS = palette.S, pV = palette.V;
+                        float* outS = palStrength, outPot = palPot, outConf = palConf;
+                        ForEachPaletteChunk(pc, po, (k0, k1) => {
+                            for (int k = k0; k < k1; k++) {
+                                zone.GetMatchScoresPrecomputedHSV(pH[k], pS[k], pV[k], (Color)pCol[k],
+                                    0, 0, w, h, out float ks, out float kp, out float kc);
+                                outS[k] = ks;
+                                outPot[k] = kp;
+                                outConf[k] = kc;
+                            }
+                        });
+                    }
+                    int* palIdxMatch = palette != null ? palette.Index : null;
+                    Parallel.For(0, h, po, y => {
+                        int rowOff = y * w;
+                        for (int x = 0; x < w; x++) {
+                            int i = rowOff + x;
+                            if (IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask)) {
+                                strengthLocal[i] = 0f;
+                                if (highlightPotLocal != null) {
+                                    highlightPotLocal[i] = 0f;
+                                }
+                                if (matchConfLocal != null) {
+                                    matchConfLocal[i] = false;
+                                }
+                                continue;
+                            }
+
+                            float s, hPot, mc;
+                            if (zone.mode == SelectionMode.ColorPick
+                                && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc)) {
+                                Color.RGBToHSV(qc, out float qh, out float qs, out float qv);
+                                zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x, y, w, h,
+                                    out s, out hPot, out mc);
+                            } else if (palStrength != null) {
+                                int k = palIdxMatch[i];
+                                s = palStrength[k]; hPot = palPot[k]; mc = palConf[k];
+                            } else {
+                                zone.GetMatchScoresPrecomputedHSV(pixH[HsvSlot(pixIdx, i)], pixS[HsvSlot(pixIdx, i)], pixV[HsvSlot(pixIdx, i)], (Color)originalPixels[i], x, y, w, h, out s, out hPot, out mc);
+                            }
+                            strengthLocal[i] = s;
+                            if (highlightPotLocal != null) {
+                                highlightPotLocal[i] = hPot;
+                            }
+                            if (matchConfLocal != null) {
+                                matchConfLocal[i] = mc > 0f;   // 読むのは「> 0 か」だけ
+                            }
                         }
                     });
-                }
-                int* palIdxMatch = palette != null ? palette.Index : null;
-                Parallel.For(0, h, po, y =>
-                {
-                    int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
-                        int i = rowOff + x;
-                        if (IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask))
-                        {
-                            strengthLocal[i] = 0f;
-                            if (highlightPotLocal != null) highlightPotLocal[i] = 0f;
-                            if (matchConfLocal != null) matchConfLocal[i] = false;
-                            continue;
-                        }
-
-                        float s, hPot, mc;
-                        if (zone.mode == SelectionMode.ColorPick
-                            && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc))
-                        {
-                            Color.RGBToHSV(qc, out float qh, out float qs, out float qv);
-                            zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x, y, w, h,
-                                out s, out hPot, out mc);
-                        }
-                        else if (palStrength != null)
-                        {
-                            int k = palIdxMatch[i];
-                            s = palStrength[k]; hPot = palPot[k]; mc = palConf[k];
-                        }
-                        else
-                        {
-                            zone.GetMatchScoresPrecomputedHSV(pixH[HsvSlot(pixIdx, i)], pixS[HsvSlot(pixIdx, i)], pixV[HsvSlot(pixIdx, i)], (Color)originalPixels[i], x, y, w, h, out s, out hPot, out mc);
-                        }
-                        strengthLocal[i] = s;
-                        if (highlightPotLocal != null) highlightPotLocal[i] = hPot;
-                        if (matchConfLocal != null) matchConfLocal[i] = mc > 0f;   // 読むのは「> 0 か」だけ
+                } finally {
+                    if (palStrength != null) {
+                        s_floatPool.Return(palStrength);
                     }
-                });
-                }
-                finally
-                {
-                    if (palStrength != null) s_floatPool.Return(palStrength);
-                    if (palPot != null) s_floatPool.Return(palPot);
-                    if (palConf != null) s_floatPool.Return(palConf);
+                    if (palPot != null) {
+                        s_floatPool.Return(palPot);
+                    }
+                    if (palConf != null) {
+                        s_floatPool.Return(palConf);
+                    }
                 }
                 _sub.Mark(SpMatchLoop);
                 // 彩度天井ゲート(グレーモード以外では内部で no-op): 無彩素材の彩度包絡を
@@ -167,11 +165,10 @@ namespace Iroca
                 // 既定の白のままで、mode を見ないと必ずグレーモード判定が真になり、有彩画素が
                 // 削除されて矩形選択が壊れる（レビュー 2026-08-06 §4 中）。現行 UI から Rect は
                 // 設定できないが、enum は public でシリアライズ対象＝旧プリセット JSON から到達し得る。
-                if (zone.mode == SelectionMode.ColorPick)
-                {
+                if (zone.mode == SelectionMode.ColorPick) {
                     ApplyChromaCeilingGate(strength, matchConf, hsv, sampS, sampV,
                         zone.chromaThreshold, zone.chromaCeiling, w, h, cancellationToken);
-                        _sub.Mark(SpChromaCeiling);
+                    _sub.Mark(SpChromaCeiling);
                     // 中性ツヤ復帰(グレーモード以外では内部で no-op): 彩度整合ゲートが純白
                     // パディングと一緒に落とした「素材自身の純白ツヤ」を、選択領域に囲まれた
                     // 閉領域という空間条件だけで戻す。連結性は大域演算なので画像全体で解く。
@@ -185,8 +182,7 @@ namespace Iroca
             _phaseTicks[PhMatch] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
             // 1.a 空間伝播によるハイライト領域の回収 (モルフォロジー拡張)
-            if (highlightPot != null)
-            {
+            if (highlightPot != null) {
                 PropagateHighlights(strength, highlightPot, w, h, cancellationToken);
                 _sub.Mark(SpHlPropagate);
                 s_floatPool.Return(highlightPot);
@@ -196,8 +192,7 @@ namespace Iroca
 
             // 1.a.1 ハイライト帯成長: matched core から「sample→白 軸上の同色相の明部」へ
             //       strength を空間連結で伸ばし、薄いハイライトのベタ塗り化・取りこぼしを防ぐ。
-            if (!selCached && zone.highlightBandExpand && zone.highlightRecovery)
-            {
+            if (!selCached && zone.highlightBandExpand && zone.highlightRecovery) {
                 GrowHighlightBand(strength, originalPixels, hsv, zone, w, h, cancellationToken,
                     palette);
                 _sub.Mark(SpHlBand);
@@ -208,18 +203,19 @@ namespace Iroca
             //       「色相の回った有彩の芯」を空間条件で戻す(PixelProcessor.Highlight.cs の
             //       RecoverEnclosedHighlight 参照)。連結性は大域演算なので画像全体で解く。キャッシュヒット時は省く
             //       (復元した strength に反映済み)。ハイライト補助(highlightRecovery)の一部。
-            if (!selCached && zone.mode == SelectionMode.ColorPick && zone.highlightRecovery)
-            {
+            if (!selCached && zone.mode == SelectionMode.ColorPick && zone.highlightRecovery) {
                 int nForced = RecoverEnclosedHighlight(strength, originalPixels,
                     hsv, zone, w, h, cancellationToken);
                 _sub.Mark(SpHlEnclosed);
-                if (nForced > 0)
+                if (nForced > 0) {
                     debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, ToManaged(strength, len), w, h);
+                }
                 // 白へ抜ける淡いグラデーションの途中で選択が切れた穴を塞ぐ(同じく閉領域だけ)。
                 int nNearWhite = RecoverEnclosedNearWhite(strength, originalPixels, hsv, zone, w, h, cancellationToken);
                 _sub.Mark(SpHlEnclosed);
-                if (nNearWhite > 0)
+                if (nNearWhite > 0) {
                     debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, ToManaged(strength, len), w, h);
+                }
             }
 
             _phaseTicks[PhHighlight] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
@@ -227,13 +223,10 @@ namespace Iroca
             // 1.a.2 連結成分アンカリング: 確信度コアを含む連結成分のみに strength を絞り込む。
             // キャッシュヒット時は省く(復元した strength に反映済み)。
             if (zone.mode == SelectionMode.ColorPick
-                && zone.useFloodFill)
-            {
-                if (!selCached)
-                {
+                && zone.useFloodFill) {
+                if (!selCached) {
                     int seedX = -1, seedY = -1;
-                    if (zone.seedUV.x >= 0f)
-                    {
+                    if (zone.seedUV.x >= 0f) {
                         seedX = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.x * (w - 1)), 0, w - 1);
                         seedY = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (h - 1)), 0, h - 1);
                     }
@@ -243,21 +236,21 @@ namespace Iroca
                             ? zone.partHueBand : 0f;
                     // スポイト位置を含む成分は、色の包絡ゲートで落とさない(クリックした場所を残す)。
                     int anchorX = -1, anchorY = -1;
-                    if (zone.HasSampleUV)
+                    if (zone.HasSampleUV) {
                         PreviewCoords.UvToPixel(zone.sampleUV.x, zone.sampleUV.y, w, h,
                             out anchorX, out anchorY);
+                    }
                     ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY,
                         hsv, zone.shadowValueFloor, zone.partSatCeiling,
                         ffHueBand, sampH, sampS * ColorZone.HueReliableSatFrac,
                         anchorX, anchorY, cancellationToken);
-                        _sub.Mark(SpFfComponents);
+                    _sub.Mark(SpFfComponents);
                     debug?.RecordStage(zone.id, DebugStages.FloodFill, ToManaged(strength, len), w, h);
                 }
             }
             // matchConf を読むのは連結成分アンカリングまで。後段(穴埋め・ブラー・デコンタミ等)が
             // 借りる配列に回せるよう、ゾーンの終わりを待たずにプールへ返す(4K で 64MB)。
-            if (matchConf != null)
-            {
+            if (matchConf != null) {
                 s_boolPool.Return(matchConf);
                 matchConf = zb.MatchConf = null;
             }
@@ -275,26 +268,21 @@ namespace Iroca
             // 同じ範囲にする。復元した選択から取り直すと、含めるマスクの画素の分だけ範囲が変わりうる)。
             int ppMinX, ppMinY, ppMaxX, ppMaxY;
             bool hasPostBox;
-            if (selCached)
-            {
+            if (selCached) {
                 hasPostBox = cachedBox.Has;
                 ppMinX = cachedBox.MinX; ppMinY = cachedBox.MinY;
                 ppMaxX = cachedBox.MaxX; ppMaxY = cachedBox.MaxY;
-            }
-            else
-            {
+            } else {
                 int ppBlurRadius = edgeFeather > EdgeFeatherBlurMin ? Mathf.CeilToInt(edgeFeather * GaussianRadiusPerSigma) : 0;
                 int ppMargin = holeFillPasses + Mathf.Max(0, antiAliasCleanup) + ppBlurRadius + 2;
                 hasPostBox = TryComputeStrengthBBox(strength, w, h, 0f,
                     out ppMinX, out ppMinY, out ppMaxX, out ppMaxY, cancellationToken);
-                if (hasPostBox)
-                {
+                if (hasPostBox) {
                     ppMinX = Mathf.Max(0, ppMinX - ppMargin);
                     ppMinY = Mathf.Max(0, ppMinY - ppMargin);
                     ppMaxX = Mathf.Min(w - 1, ppMaxX + ppMargin);
                     ppMaxY = Mathf.Min(h - 1, ppMaxY + ppMargin);
-                }
-                else { ppMinX = 0; ppMinY = 0; ppMaxX = -1; ppMaxY = -1; } // 空 bbox(後段スキップ)
+                } else { ppMinX = 0; ppMinY = 0; ppMaxX = -1; ppMaxY = -1; } // 空 bbox(後段スキップ)
             }
             _sub.Mark(SpPostBBox);
 
@@ -316,15 +304,12 @@ namespace Iroca
             float rgSampR = zone.sampleColor.r, rgSampG = zone.sampleColor.g, rgSampB = zone.sampleColor.b;
             // 緩和マッチ(穴埋めの許可判定と境界回復が同じ引数で呼ぶ)は色だけで決まるので、
             // 色の表があれば色ごとに 1 回だけ求めて両方で使う(ビット単位で同じ)。
-            float[] RelaxedPalette(float tol)
-            {
+            float[] RelaxedPalette(float tol) {
                 var outRel = new float[palette.Count];
                 Color32* rCol = palette.Colors;
                 float* rH = palette.H, rS = palette.S, rV = palette.V;
-                ForEachPaletteChunk(palette.Count, po, (k0, k1) =>
-                {
-                    for (int k = k0; k < k1; k++)
-                    {
+                ForEachPaletteChunk(palette.Count, po, (k0, k1) => {
+                    for (int k = k0; k < k1; k++) {
                         Color32 hop = rCol[k];
                         outRel[k] = GetRelaxedMatchStrength(
                             rH[k], rS[k], rV[k], sampH, sampS, sampV,
@@ -340,11 +325,11 @@ namespace Iroca
             // 使うのは下の穴埋めと境界回復だけで、どちらも混色帯モードでは走らない。
             float[] palRelaxed = null;
             if (palette != null && !selCached && hasPostBox && !zMixMode
-                && (long)palette.Count * 2 <= (long)(ppMaxX - ppMinX + 1) * (ppMaxY - ppMinY + 1))
+                && (long)palette.Count * 2 <= (long)(ppMaxX - ppMinX + 1) * (ppMaxY - ppMinY + 1)) {
                 palRelaxed = RelaxedPalette(zone.tolerance);
+            }
             int* palIdxRelaxed = palette != null ? palette.Index : null;
-            if (!selCached && hasPostBox && !zMixMode)
-            {
+            if (!selCached && hasPostBox && !zMixMode) {
                 // 穴埋めの許可だけ許容範囲に余白をつける(zone.holeFillMargin、証拠つき自動調整が入れる)。
                 // 素材の色が境目をまたぐ所でノイズで落ちた穴を埋めるため。境界回復は余白なしのまま
                 // (囲まれていない画素は広げない)。余白 0 なら許可は境界回復と同じ表を使う。
@@ -353,25 +338,20 @@ namespace Iroca
                 float[] palFill = palRelaxed != null && fillTol != zone.tolerance
                     ? RelaxedPalette(fillTol) : palRelaxed;
                 bool* fillAllowed = s_boolPool.Rent(len);
-                try
-                {
+                try {
                     // fillAllowed は FillSmallHoles が中心画素 idx でのみ参照する(近傍は strength を読む)
                     // ため、bbox 内だけ計算すれば足りる。bbox 外は読まれない=出力ビット不変。
                     var fillAllowedLocal = fillAllowed;
-                    Parallel.For(ppMinY, ppMaxY + 1, po, y =>
-                    {
+                    Parallel.For(ppMinY, ppMaxY + 1, po, y => {
                         int rowOff = y * w;
-                        if (palFill != null)
-                        {
-                            for (int x = ppMinX; x <= ppMaxX; x++)
-                            {
+                        if (palFill != null) {
+                            for (int x = ppMinX; x <= ppMaxX; x++) {
                                 int i = rowOff + x;
                                 fillAllowedLocal[i] = palFill[palIdxRelaxed[i]] > 0f;
                             }
                             return;
                         }
-                        for (int x = ppMinX; x <= ppMaxX; x++)
-                        {
+                        for (int x = ppMinX; x <= ppMaxX; x++) {
                             int i = rowOff + x;
                             Color32 hop = originalPixels[i];
                             fillAllowedLocal[i] = GetRelaxedMatchStrength(
@@ -386,9 +366,7 @@ namespace Iroca
                     _sub.Mark(SpHoleFillGate);
                     FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors, fillAllowed,
                         ppMinX, ppMinY, ppMaxX, ppMaxY, cancellationToken);
-                }
-                finally
-                {
+                } finally {
                     s_boolPool.Return(fillAllowed);
                 }
             }
@@ -398,8 +376,7 @@ namespace Iroca
 
             // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
             //     緩和マッチ(relaxedSatMin)で、正しい段階的な強度を与える
-            if (!selCached && antiAliasCleanup > 0 && hasPostBox && !zMixMode)
-            {
+            if (!selCached && antiAliasCleanup > 0 && hasPostBox && !zMixMode) {
                 RecoverBoundaryEdges(strength, w, h, hsv,
                     zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
                     zone.satDistWeight, relaxedSatMin, antiAliasCleanup,
@@ -412,31 +389,30 @@ namespace Iroca
 
             _phaseTicks[PhBoundary] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
-            if (!selCached && edgeFeather > EdgeFeatherBlurMin && hasPostBox)
-            {
+            if (!selCached && edgeFeather > EdgeFeatherBlurMin && hasPostBox) {
                 // ガウシアンブラー用の一時バッファ。GaussianBlur 内部の Parallel.For
                 // でキャンセルが入っても preBlur/blurOut が漏れないよう try/finally で囲む。
                 float* preBlur = null;
                 float* blurOut = null;
-                try
-                {
+                try {
                     preBlur = s_floatPool.Rent(len);
                     Buffer.MemoryCopy(strength, preBlur, (long)len * sizeof(float), (long)len * sizeof(float));
                     blurOut = s_floatPool.Rent(len);
                     if (GaussianBlur(strength, blurOut, w, h, edgeFeather,
-                        ppMinX, ppMinY, ppMaxX, ppMaxY, cancellationToken))
-                    {
+                        ppMinX, ppMinY, ppMaxX, ppMaxY, cancellationToken)) {
                         // strength の所有権を blurOut に移し、もとの strength は返却
                         s_floatPool.Return(strength);
                         strength = zb.Strength = blurOut;
                         blurOut = null; // 二重返却防止
                         ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * GaussianRadiusPerSigma), cancellationToken);
                     }
-                }
-                finally
-                {
-                    if (blurOut != null) s_floatPool.Return(blurOut);
-                    if (preBlur != null) s_floatPool.Return(preBlur);
+                } finally {
+                    if (blurOut != null) {
+                        s_floatPool.Return(blurOut);
+                    }
+                    if (preBlur != null) {
+                        s_floatPool.Return(preBlur);
+                    }
                 }
                 debug?.RecordStage(zone.id, DebugStages.Blur, ToManaged(strength, len), w, h);
             }
@@ -449,11 +425,13 @@ namespace Iroca
             // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
             // マスクを掛ける前を保存するので、ヒット時も下でマスクを掛ける。
             _sub.Mark(SpBlurReapply);
-            if (!selCached && selectionCache != null)
-            {
-                var box = new SelectionCache.PostBox
-                {
-                    Has = hasPostBox, MinX = ppMinX, MinY = ppMinY, MaxX = ppMaxX, MaxY = ppMaxY,
+            if (!selCached && selectionCache != null) {
+                var box = new SelectionCache.PostBox {
+                    Has = hasPostBox,
+                    MinX = ppMinX,
+                    MinY = ppMinY,
+                    MaxX = ppMaxX,
+                    MaxY = ppMaxY,
                 };
                 selectionCache.StoreFrom(zone.id, selKey, strength, box,
                     run.CommonMask, zoneMaskLayer, maskW, maskH, w, h, cancellationToken);
@@ -461,12 +439,14 @@ namespace Iroca
             _sub.Mark(SpSelCacheStore);
 
             run.Tp = _tp;
-            return new SelectionResult
-            {
+            return new SelectionResult {
                 Strength = strength,
-                Box = new SelectionCache.PostBox
-                {
-                    Has = hasPostBox, MinX = ppMinX, MinY = ppMinY, MaxX = ppMaxX, MaxY = ppMaxY,
+                Box = new SelectionCache.PostBox {
+                    Has = hasPostBox,
+                    MinX = ppMinX,
+                    MinY = ppMinY,
+                    MaxX = ppMaxX,
+                    MaxY = ppMaxY,
                 },
             };
         }

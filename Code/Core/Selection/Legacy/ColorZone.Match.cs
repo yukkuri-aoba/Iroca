@@ -3,12 +3,10 @@
 using System;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     // ColorZone: マッチングエンジン(サンプル派生キャッシュとピクセル一致スコア計算)。旧の選択の一部で、照合の定数と
     // キャッシュの欄もここに置く(0.4.0 の 3-7a。ColorZone.cs はゾーンのデータだけ)。
-    public partial class ColorZone
-    {
+    public partial class ColorZone {
         // ハイライト補助マッチで対象ピクセルとみなす「鏡面反射/ハイライトらしさ」の閾値。
         // internal: ZoneAutoTuner のハイライト候補カウントが同じ条件をリテラルで再掲していたため共有。
         internal const float HighlightValueMin = 0.80f;
@@ -153,7 +151,7 @@ namespace Iroca
         // (V ≲ sV+headroom)は無罰で拾い、純白/白装飾/UV 背景(超過大)だけを距離で弾く。
         // weight は最暗サンプルでも AchromaTolMax(0.40)を超えて白を弾ける大きさ((1-headroom)*weight>0.40)。
         internal const float GrayHighlightHeadroom = 0.55f;
-        internal const float GrayLumExcessWeight   = 1.2f;
+        internal const float GrayLumExcessWeight = 1.2f;
 
         // 【シミュレーション専用】ハイライト(明部)の距離免除・彩度ゲート免除を無効化する。
         // ZoneAutoTuner の閉ループ検証が「免除経路だけで選択される画素」を切り分けて数える
@@ -177,8 +175,7 @@ namespace Iroca
         // サンプル数ぶんの配列を持ち、マッチングは全サンプルの最大強度を採る（和集合）。
         // ゾーン全体で共通の値（tolerance・各 range・重み・chromaThreshold 等）は
         // インスタンスフィールドのまま保持する。
-        private struct SampleCache
-        {
+        private struct SampleCache {
             public Color color;
             public float sH, sS, sV;       // サンプル色の HSV
             public float satMin, satRamp;
@@ -190,10 +187,10 @@ namespace Iroca
             // 6700 万回)なので、サンプル色にしか依存しない値をここへ畳む。式と演算順は元の
             // インライン計算と一字一句同じで、除算は除算のまま残す(逆数化は丸めが変わる)ため
             // 出力はビット不変。
-            public bool  isGrayMode;       // sS <= GrayModeEffectiveChromaThreshold(sV, chromaThreshold)
-            public bool  isDarkGray;       // sV < GrayModeDarkSampleValue(暗サンプルの明側許容)
+            public bool isGrayMode;       // sS <= GrayModeEffectiveChromaThreshold(sV, chromaThreshold)
+            public bool isDarkGray;       // sV < GrayModeDarkSampleValue(暗サンプルの明側許容)
             public float darknessFactor;   // Clamp01((GrayModeDarkSampleValue - sV) / GrayModeDarkSampleValue)
-            public bool  grayGateActive;   // sS > ChromaGateActivateSat(彩度整合ゲートが作動するか)
+            public bool grayGateActive;   // sS > ChromaGateActivateSat(彩度整合ゲートが作動するか)
             public float grayGateWeight;   // Clamp01(sV / GrayModeDarkSampleValue)
             public float graySatFloor;     // Min(sS * ChromaGateFloorFrac, ChromaGateFloorCap)
             public float graySatFloorDen;  // Max(graySatFloor, 1e-4f)
@@ -201,7 +198,7 @@ namespace Iroca
             public float shadowRangeDen;   // sV * ForgivenessRangeFrac
             public float brightThreshold;  // sV + (1 - sV) * HighlightValueHeadroomFrac
             public float brightRangeDen;   // Max(0.01f, (1 - sV) * ForgivenessRangeFrac)
-            public bool  hueTrusted;       // 彩度の上で chromaConfidence が 1(sS >= chromaThreshold + ChromaConfidenceSpan)
+            public bool hueTrusted;       // 彩度の上で chromaConfidence が 1(sS >= chromaThreshold + ChromaConfidenceSpan)
         }
         [NonSerialized] private SampleCache[] _sampleCaches;
 
@@ -212,8 +209,7 @@ namespace Iroca
         [NonSerialized] private float aaSoftRange, aaHardRange;
         [NonSerialized] private float chromaThresholdFloor;
 
-        static partial void ResetMatchCache(ColorZone clone)
-        {
+        static partial void ResetMatchCache(ColorZone clone) {
             clone._cExtraSamples = null;
             clone._sampleCaches = null;
             clone._cacheInitiated = false;
@@ -224,8 +220,7 @@ namespace Iroca
         /// GetMatchScoresPrecomputedHSV を呼ぶ前に必ず呼ぶこと。キャッシュ未構築のときだけ
         /// GetColorMatchScores の安全網(ロック付き)が構築するが、構築後のパラメータ変更は検知しない。
         /// </summary>
-        public void UpdateCacheIfNeeded()
-        {
+        public void UpdateCacheIfNeeded() {
             if (_cacheInitiated &&
                 _cSampleColor == sampleColor &&
                 _cTolerance == tolerance &&
@@ -234,8 +229,7 @@ namespace Iroca
                 _cEdgeSoftness == edgeSoftness &&
                 _cSaturationGuard == saturationGuard &&
                 _cChromaThreshold == chromaThreshold &&
-                !ExtraSamplesChanged())
-            {
+                !ExtraSamplesChanged()) {
                 return;
             }
 
@@ -252,12 +246,16 @@ namespace Iroca
             int extraN = extraSamples?.Count ?? 0;
             _sampleCaches = new SampleCache[1 + extraN];
             _sampleCaches[0] = BuildSampleCache(sampleColor);
-            for (int i = 0; i < extraN; i++)
+            for (int i = 0; i < extraN; i++) {
                 _sampleCaches[i + 1] = BuildSampleCache(extraSamples[i]);
+            }
             // 変更検知用にスナップショットを取る。
-            if (_cExtraSamples == null || _cExtraSamples.Length != extraN)
+            if (_cExtraSamples == null || _cExtraSamples.Length != extraN) {
                 _cExtraSamples = new Color[extraN];
-            for (int i = 0; i < extraN; i++) _cExtraSamples[i] = extraSamples[i];
+            }
+            for (int i = 0; i < extraN; i++) {
+                _cExtraSamples[i] = extraSamples[i];
+            }
 
             // ハイライト復元(グレーモードの highlightPotential と CalculateHighlightRecovery)も同じレンジを使う。
             softRange = tolerance * edgeSoftness;
@@ -274,32 +272,35 @@ namespace Iroca
 
         // 遅延キャッシュ構築の直列化用ゲート。フィールド初期化子に頼らず遅延生成する
         // （Unity の逆シリアライズで初期化子が走らない経路があっても null にならないように）。
-        private object CacheGate
-        {
-            get
-            {
-                if (_cacheGate != null) return _cacheGate;
+        private object CacheGate {
+            get {
+                if (_cacheGate != null) {
+                    return _cacheGate;
+                }
                 System.Threading.Interlocked.CompareExchange(ref _cacheGate, new object(), null);
                 return _cacheGate;
             }
         }
 
         // extraSamples の内容が前回キャッシュ時と変わったか（個数・各色）。
-        private bool ExtraSamplesChanged()
-        {
+        private bool ExtraSamplesChanged() {
             int n = extraSamples?.Count ?? 0;
             int cn = _cExtraSamples?.Length ?? 0;
-            if (n != cn) return true;
-            for (int i = 0; i < n; i++)
-                if (_cExtraSamples[i] != extraSamples[i]) return true;
+            if (n != cn) {
+                return true;
+            }
+            for (int i = 0; i < n; i++) {
+                if (_cExtraSamples[i] != extraSamples[i]) {
+                    return true;
+                }
+            }
             return false;
         }
 
         // 1 サンプル分の派生キャッシュを計算する。ゾーン共通の倍率
         // （saturationStrictness/satRampScale/chromaThreshold/saturationGuard）を使うので、
         // 主サンプルに対しては従来の単一サンプル計算と完全に一致する（＝後方互換）。
-        private SampleCache BuildSampleCache(Color c)
-        {
+        private SampleCache BuildSampleCache(Color c) {
             SampleCache sc;
             sc.color = c;
             Color.RGBToHSV(c, out sc.sH, out sc.sS, out sc.sV);
@@ -342,21 +343,20 @@ namespace Iroca
         public void GetMatchScoresPrecomputedHSV(
             float pH, float pS, float pV, Color pixelColor,
             int x, int y, int texWidth, int texHeight,
-            out float strength, out float highlightPot, out float matchConf)
-        {
+            out float strength, out float highlightPot, out float matchConf) {
             strength = 0f;
             highlightPot = 0f;
             matchConf = 0f;
-            if (!enabled) return;
+            if (!enabled) {
+                return;
+            }
 
-            switch (mode)
-            {
+            switch (mode) {
                 case SelectionMode.ColorPick:
                     GetColorMatchScores(pixelColor, pH, pS, pV, out strength, out highlightPot, out matchConf);
                     break;
                 case SelectionMode.Rect:
-                    if (IsInRect(x, y, texWidth, texHeight))
-                    {
+                    if (IsInRect(x, y, texWidth, texHeight)) {
                         strength = 1f;
                         matchConf = 1f; // 矩形選択は確定領域=完全確信
                     }
@@ -367,32 +367,34 @@ namespace Iroca
         // マルチサンプルの和集合マッチング。全サンプル（主＋内部サンプル(extraSamples)）に対して
         // 1 サンプル分のマッチを計算し、最大強度を採る。サンプルが 1 個なら従来の
         // 単一サンプル計算と完全に一致する（内部サンプル(extraSamples)が無い限り出力はビット不変）。
-        private void GetColorMatchScores(Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential, out float matchConf)
-        {
+        private void GetColorMatchScores(Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential, out float matchConf) {
             strength = 0f;
             highlightPotential = 0f;
             matchConf = 0f;
 
             var caches = _sampleCaches;
-            if (caches == null || caches.Length == 0)
-            {
+            if (caches == null || caches.Length == 0) {
                 // UpdateCacheIfNeeded 未実行時の安全網（通常は到達しない）。
                 // この関数は Parallel.For の中から呼ばれるため、無同期で共有 _sampleCaches を
                 // 作り直すと他スレッドが構築途中の配列を読み得た（安全網自体が危険。レビュー §4 中）。
                 // ゲートで直列化する。主経路はループ前に初期化済みなので、ここは通らない。
-                lock (CacheGate)
-                {
+                lock (CacheGate) {
                     UpdateCacheIfNeeded();
                     caches = _sampleCaches;
                 }
             }
 
-            for (int si = 0; si < caches.Length; si++)
-            {
+            for (int si = 0; si < caches.Length; si++) {
                 MatchOneSample(in caches[si], pixelColor, pH, pS, pV, out float s, out float hPot, out float mc);
-                if (s > strength) strength = s;
-                if (hPot > highlightPotential) highlightPotential = hPot;
-                if (mc > matchConf) matchConf = mc;
+                if (s > strength) {
+                    strength = s;
+                }
+                if (hPot > highlightPotential) {
+                    highlightPotential = hPot;
+                }
+                if (mc > matchConf) {
+                    matchConf = mc;
+                }
             }
         }
 
@@ -421,9 +423,10 @@ namespace Iroca
         /// 緩和経路が tolerance を渡す。主経路と緩和経路が同ブロックを複製していたため一本化
         /// (式・演算順は従来と同一=出力ビット不変)。
         /// </summary>
-        internal static float GrayChromaGatePenalty(float sS, float sV, float pS, float toleranceScale)
-        {
-            if (sS <= ChromaGateActivateSat) return 0f;
+        internal static float GrayChromaGatePenalty(float sS, float sV, float pS, float toleranceScale) {
+            if (sS <= ChromaGateActivateSat) {
+                return 0f;
+            }
             float gateWeight = Mathf.Clamp01(sV / GrayModeDarkSampleValue);
             float satFloor = Mathf.Min(sS * ChromaGateFloorFrac, ChromaGateFloorCap);
             float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
@@ -432,8 +435,7 @@ namespace Iroca
 
         // 1 サンプル分のマッチ強度／ハイライト候補を計算する。サンプル依存の値は sc から、
         // ゾーン共通の値（tolerance・各 range・重み・閾値）はインスタンスフィールドから読む。
-        private void MatchOneSample(in SampleCache sc, Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential, out float matchConf)
-        {
+        private void MatchOneSample(in SampleCache sc, Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential, out float matchConf) {
             strength = 0f;
             highlightPotential = 0f;
             // matchConf: 連結成分アンカリング(flood fill)のコア判定専用の「色一致の確信度」。
@@ -447,15 +449,13 @@ namespace Iroca
             // 彩度ガード: 源色が高彩度なときだけ作動し、白/黒/灰色など無彩色寄りの
             // 画素を hard reject する。源色 S が低い（グレー/黒）の場合は
             // saturationGuardFloor が 0 になり、このゲートは作動しない（自動無効）。
-            if (sc.saturationGuardFloor > 0f && pS < sc.saturationGuardFloor)
-            {
+            if (sc.saturationGuardFloor > 0f && pS < sc.saturationGuardFloor) {
                 return;
             }
 
             // サンプル色の彩度がしきい値以下の場合は、自動的に無彩色(グレー/黒)抽出モードとして扱う
             // (判定は BuildSampleCache で確定済み。同じ Lerp+Clamp01 を毎画素回していた)
-            if (sc.isGrayMode)
-            {
+            if (sc.isGrayMode) {
                 // グレー抽出モード：HueやSatを完全に無視し、純粋なRGBの近さのみで判定する
                 float dr = pixelColor.r - sc.color.r;
                 float dg = pixelColor.g - sc.color.g;
@@ -467,8 +467,7 @@ namespace Iroca
                 // サンプルが暗いほど、無彩色ピクセルの彩度（≒中立からの逸脱度）を距離指標として使い、
                 // 輝度差があっても無彩色なら「同素材」とみなせるようにする。
                 float effectiveDist = rgbDist;
-                if (sc.isDarkGray)
-                {
+                if (sc.isDarkGray) {
                     effectiveDist = Mathf.Lerp(rgbDist, pS, sc.darknessFactor);
                     // 輝度盲対策: pS へ寄せると輝度差を捨て純白(pS=0)まで距離0でマッチする。
                     // ヘッドルームを超えて明るい画素に輝度超過ペナルティを加え、白装飾/UV 背景を弾く。
@@ -488,8 +487,7 @@ namespace Iroca
                 // GrayChromaGatePenalty と同一(ゲート判定・gateWeight・satFloor はサンプル定数なので
                 // キャッシュから読む)。乗算の結合順は元のまま保つ。非作動時は元コードが 0f を
                 // 加算していただけなので、分岐で飛ばしても値は同じ。
-                if (sc.grayGateActive)
-                {
+                if (sc.grayGateActive) {
                     float shortfall = Mathf.Clamp01((sc.graySatFloor - pS) / sc.graySatFloorDen);
                     effectiveDist += shortfall * ChromaGatePenalty * _cTolerance * sc.grayGateWeight;
                 }
@@ -506,15 +504,16 @@ namespace Iroca
                 // ユーザーが edgeSoftness を上げている場合はそちらを尊重(floor として作用)。
                 strength = CalculateEdgeStrength(effectiveDist, aaHardRange, aaSoftRange);
                 // FF コア判定用: グレーモードの色一致確信度(中性ペナルティ込み effectiveDist を使う)。
-                if (strength > 0f) matchConf = Mathf.Clamp01(1f - effectiveDist / CoreMatchDistance);
+                if (strength > 0f) {
+                    matchConf = Mathf.Clamp01(1f - effectiveDist / CoreMatchDistance);
+                }
                 // ハイライト復元は輝度で判定するが、彩度ゲートを付ける。グレー/黒素材の
                 // ハイライトはグレー/白(低彩度)なので、明るい高彩度画素(隣接する別の有彩素材)を
                 // highlightPotential から除外する。これが無いと明るいグレーサンプルの隣にある有彩
                 // トリムが PropagateHighlights でコアから滲む。有彩版 CalculateHighlightRecovery の
                 // pS>=HighlightSaturationMax 棄却と同じ趣旨(無彩サンプルには意味ある sample hue が
                 // 無いので彩度ゲートのみ)。
-                if (highlightRecovery && pV > HighlightValueMin && pS < HighlightSaturationMax)
-                {
+                if (highlightRecovery && pV > HighlightValueMin && pS < HighlightSaturationMax) {
                     float vDist = Mathf.Abs(pV - sc.sV);
                     highlightPotential = CalculateEdgeStrength(vDist, hardRange, softRange);
                 }
@@ -531,8 +530,7 @@ namespace Iroca
             float effectiveHDist = hDist * hueRelevance;
 
             // 同系色・暗部のシャドウ許容（暗い影の部分は彩度や明度が落ちるが、同じ色として拾う）
-            if (pV < sc.shadowVThreshold && effectiveHDist < ForgivenessHueGate)
-            {
+            if (pV < sc.shadowVThreshold && effectiveHDist < ForgivenessHueGate) {
                 float darkForgiveness = Mathf.Clamp01((sc.shadowVThreshold - pV) / sc.shadowRangeDen);
 
                 // 1. 色相(Hue)が離れているほど免除を弱くする（ノイズによる無関係な色の巻き込み防止）
@@ -540,8 +538,7 @@ namespace Iroca
                 darkForgiveness *= hueFactor;
 
                 // 2. サンプルが有彩色の場合、対象の彩度が低すぎる(グレー/黒に近い)と免除を減衰
-                if (sc.sS > chromaThreshold)
-                {
+                if (sc.sS > chromaThreshold) {
                     float satFactor = Mathf.Clamp01(pS / Mathf.Max(0.01f, shadowForgivenessSatMin));
                     darkForgiveness *= satFactor;
                 }
@@ -567,8 +564,7 @@ namespace Iroca
             bool brightActive = !simDisableBrightForgiveness && pV > sc.sV
                                 && (pS >= ChromaGateActivateSat || !sc.hueTrusted)
                                 && effectiveHDist < ForgivenessHueGate;
-            if (brightActive)
-            {
+            if (brightActive) {
                 // 明度の伸び量を上方ヘッドルーム (1 - sV) で正規化。
                 // 閾値 sV + (1-sV)*0.25 は暗側 sV*0.75（25% デッドマージン）の鏡像。
                 brightForgiveness = Mathf.Clamp01((pV - sc.brightThreshold) / sc.brightRangeDen);
@@ -586,16 +582,16 @@ namespace Iroca
             strength = CalculateEdgeStrength(dist, hardRange, softRange) * gate;
             // FF コア判定用: 有彩モードの色一致確信度。strength は彩度ゲートを掛けるため色の近さを
             // 表さない。dist(実マッチ距離)を「確信できる地色」の固定半径 CoreMatchDistance で正規化。
-            if (strength > 0f) matchConf = Mathf.Clamp01(1f - dist / CoreMatchDistance);
+            if (strength > 0f) {
+                matchConf = Mathf.Clamp01(1f - dist / CoreMatchDistance);
+            }
 
-            if (highlightRecovery)
-            {
+            if (highlightRecovery) {
                 highlightPotential = CalculateHighlightRecovery(in sc, pH, pS, pV, effectiveHDist, sRatio);
             }
         }
 
-        private float CalculateHueDistance(float pixelH, float sampleH)
-        {
+        private float CalculateHueDistance(float pixelH, float sampleH) {
             float hDist = Mathf.Abs(pixelH - sampleH);
             return hDist > 0.5f ? 1f - hDist : hDist;
         }
@@ -603,8 +599,7 @@ namespace Iroca
         // brightActive / brightForgiveness は呼び出し側(MatchOneSample)が算出済みの値を渡す。
         // 旧版はここで同じ条件式と同じ免除量をもう一度計算していた(完全に同一入力の重複評価)。
         private float CalculateHybridDistance(in SampleCache sc, Color pixelColor, float pS, float pV, float hDist, float sRatio,
-                                              bool brightActive, float brightForgiveness)
-        {
+                                              bool brightActive, float brightForgiveness) {
             float sDist = Mathf.Abs(pS - sc.sS);
             float vDist = Mathf.Abs(pV - sc.sV);
             float hsvDist = hDist + sDist * satDistWeight + vDist * valueWeight * (1f - sRatio);
@@ -628,40 +623,45 @@ namespace Iroca
             // ハイライト（明部）の距離許容: 上のシャドウ許容の対称形。
             // サンプルより明るく同色相なら、低彩度化したハイライト芯でも同素材として
             // 距離を免除する。免除の上限は BrightDistanceForgivenessMin（最大 70% 短縮。廃止したシャドウ側と同じ値）。
-            if (brightActive)
+            if (brightActive) {
                 finalDist *= Mathf.Lerp(1f, BrightDistanceForgivenessMin, brightForgiveness);
+            }
 
             return finalDist;
         }
 
-        private float CalculateHighlightRecovery(in SampleCache sc, float pH, float pS, float pV, float hDist, float sRatio)
-        {
-            if (pV <= HighlightValueMin || pS >= HighlightSaturationCeiling(sc.sS) || hDist > hlHueCap)
+        private float CalculateHighlightRecovery(in SampleCache sc, float pH, float pS, float pV, float hDist, float sRatio) {
+            if (pV <= HighlightValueMin || pS >= HighlightSaturationCeiling(sc.sS) || hDist > hlHueCap) {
                 return 0f;
+            }
 
             float relaxedSatConf = Mathf.Clamp01((pS - HighlightRelaxedSatMin) / HighlightRelaxedSatRamp);
-            if (relaxedSatConf <= 0f)
+            if (relaxedSatConf <= 0f) {
                 return 0f;
+            }
 
             float vDist = Mathf.Abs(pV - sc.sV);
             float highlightDist = hDist + vDist * valueWeight * (1f - sRatio);
 
-            if (highlightDist >= _cTolerance)
+            if (highlightDist >= _cTolerance) {
                 return 0f;
+            }
 
             float hlStrength = CalculateEdgeStrength(highlightDist, hardRange, softRange);
             return hlStrength * relaxedSatConf;
         }
 
-        private float CalculateEdgeStrength(float distance, float hRange, float sRange)
-        {
-            if (distance >= _cTolerance) return 0f;
-            if (sRange < 0.0001f || distance <= hRange) return 1f;
+        private float CalculateEdgeStrength(float distance, float hRange, float sRange) {
+            if (distance >= _cTolerance) {
+                return 0f;
+            }
+            if (sRange < 0.0001f || distance <= hRange) {
+                return 1f;
+            }
             return 1f - (distance - hRange) / sRange;
         }
 
-        private bool IsInRect(int x, int y, int texWidth, int texHeight)
-        {
+        private bool IsInRect(int x, int y, int texWidth, int texHeight) {
             float u = (float)x / texWidth;
             float v = (float)y / texHeight;
             return uvRect.Contains(new Vector2(u, v));

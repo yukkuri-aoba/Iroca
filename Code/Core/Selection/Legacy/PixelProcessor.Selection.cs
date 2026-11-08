@@ -9,10 +9,8 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
 
         // 量子化のならし(TryQuantSmoothedColor)で「量子化の誤差でしか違わない」とみなす各チャネルの差(8bit の 1 階調)。
         private const int QuantSmoothLevels = 1;
@@ -24,36 +22,38 @@ namespace Iroca
         /// 違う色の隣は混ぜないので境界はぼけない。近傍がどれも自分と同じ色なら false(元の色のまま)。
         /// </summary>
         private static bool TryQuantSmoothedColor(Color32* px, int x, int y, int w, int h, float tolerance,
-            out Color color)
-        {
+            out Color color) {
             Color32 c = px[y * w + x];
             // 1 階調で HSV の彩度が許容幅以上に動く(彩度の刻み 1/(255·V) > tolerance)ほど暗い画素だけ
             int vmax = Math.Max(c.r, Math.Max(c.g, c.b));
-            if (vmax * tolerance >= 1f)
-            {
+            if (vmax * tolerance >= 1f) {
                 color = default;
                 return false;
             }
             int sr = 0, sg = 0, sb = 0, n = 0;
             bool differs = false;
-            for (int dy = -1; dy <= 1; dy++)
-            {
+            for (int dy = -1; dy <= 1; dy++) {
                 int ny = y + dy;
-                if (ny < 0 || ny >= h) continue;
-                for (int dx = -1; dx <= 1; dx++)
-                {
+                if (ny < 0 || ny >= h) {
+                    continue;
+                }
+                for (int dx = -1; dx <= 1; dx++) {
                     int nx = x + dx;
-                    if (nx < 0 || nx >= w) continue;
+                    if (nx < 0 || nx >= w) {
+                        continue;
+                    }
                     Color32 q = px[ny * w + nx];
                     if (Math.Abs(q.r - c.r) > QuantSmoothLevels || Math.Abs(q.g - c.g) > QuantSmoothLevels
-                        || Math.Abs(q.b - c.b) > QuantSmoothLevels || Math.Abs(q.a - c.a) > QuantSmoothLevels)
+                        || Math.Abs(q.b - c.b) > QuantSmoothLevels || Math.Abs(q.a - c.a) > QuantSmoothLevels) {
                         continue;
+                    }
                     sr += q.r; sg += q.g; sb += q.b; n++;
-                    if (q.r != c.r || q.g != c.g || q.b != c.b) differs = true;
+                    if (q.r != c.r || q.g != c.g || q.b != c.b) {
+                        differs = true;
+                    }
                 }
             }
-            if (!differs)
-            {
+            if (!differs) {
                 color = default;
                 return false;
             }
@@ -75,9 +75,10 @@ namespace Iroca
         private static void FillSmallHoles(float* strength, int w, int h,
             int passes, int minNeighbors, bool* allowedMask,
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
-            CancellationToken ct)
-        {
-            if (passes <= 0) return;
+            CancellationToken ct) {
+            if (passes <= 0) {
+                return;
+            }
             // minNeighbors<=0 だと「matched>=0 かつ total>=0」が常に真になり、relaxed 許可領域
             // 全体が毎パス埋まる（プリセット JSON 由来の 0 で到達し得た。レビュー §4 低）。
             // 8 近傍のうち最低 1 つは一致していることを要求し、上限も近傍数で頭打ちにする。
@@ -95,24 +96,26 @@ namespace Iroca
             // (それ以外の画素は読む近傍が前のパスと同じなので、前のパスと同じく埋まらない)。そこで最初の
             // パスだけ矩形を走査し、以降は直前のパスで埋めた画素の隣だけを調べる。書き込みはパスの終わりに
             // まとめるので、旧実装(二重バッファで矩形全体を毎パス走査)と同じ値になる。
-            bool TryFill(int x, int y, out float value)
-            {
+            bool TryFill(int x, int y, out float value) {
                 int matched = 0;
                 int total = 0;
                 float minNeighbour = 1f;
-                for (int dy = -1; dy <= 1; dy++)
-                {
-                    for (int dx = -1; dx <= 1; dx++)
-                    {
-                        if (dx == 0 && dy == 0) continue;
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (dx == 0 && dy == 0) {
+                            continue;
+                        }
                         int nx = x + dx, ny = y + dy;
-                        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                        if (nx < 0 || nx >= w || ny < 0 || ny >= h) {
+                            continue;
+                        }
                         total++;
                         float ns = strength[ny * w + nx];
-                        if (ns > 0f)
-                        {
+                        if (ns > 0f) {
                             matched++;
-                            if (ns < minNeighbour) minNeighbour = ns;
+                            if (ns < minNeighbour) {
+                                minNeighbour = ns;
+                            }
                         }
                     }
                 }
@@ -126,79 +129,104 @@ namespace Iroca
             var foundLock = new object();
             Parallel.For(boxMinY, boxMaxY + 1, fillPo,
                 () => (col: new int[boxMaxX - boxMinX + 3], hits: new List<(int, float)>()),
-                (y, _, local) =>
-                {
+                (y, _, local) => {
                     int[] col = local.col;
                     int rb = y * w;
                     int cx0 = Math.Max(0, boxMinX - 1), cx1 = Math.Min(w - 1, boxMaxX + 1);
                     Array.Clear(col, 0, col.Length);
-                    for (int x = cx0; x <= cx1; x++)
-                    {
+                    for (int x = cx0; x <= cx1; x++) {
                         int n = strength[rb + x] > 0f ? 1 : 0;
-                        if (y > 0 && strength[rb - w + x] > 0f) n++;
-                        if (y < h - 1 && strength[rb + w + x] > 0f) n++;
+                        if (y > 0 && strength[rb - w + x] > 0f) {
+                            n++;
+                        }
+                        if (y < h - 1 && strength[rb + w + x] > 0f) {
+                            n++;
+                        }
                         col[x - boxMinX + 1] = n;
                     }
-                    for (int x = boxMinX; x <= boxMaxX; x++)
-                    {
+                    for (int x = boxMinX; x <= boxMaxX; x++) {
                         int idx = rb + x;
-                        if (strength[idx] > 0f) continue;
+                        if (strength[idx] > 0f) {
+                            continue;
+                        }
                         // relaxed ゲート: 画素自身が relaxed マッチを通る色でなければ埋めない。
                         // マッチ領域に囲まれただけの背景グレー/白を full strength に塗らないことで、
                         // 薄いロゴ周辺のフリンジ(白/灰ノイズ)を構造的に防ぐ。
-                        if (allowedMask != null && !allowedMask[idx]) continue;
+                        if (allowedMask != null && !allowedMask[idx]) {
+                            continue;
+                        }
                         int c = x - boxMinX + 1;
-                        if (col[c - 1] + col[c] + col[c + 1] < minNeighbors) continue;
-                        if (TryFill(x, y, out float v)) local.hits.Add((idx, v));
+                        if (col[c - 1] + col[c] + col[c + 1] < minNeighbors) {
+                            continue;
+                        }
+                        if (TryFill(x, y, out float v)) {
+                            local.hits.Add((idx, v));
+                        }
                     }
                     return local;
                 },
-                local => { if (local.hits.Count > 0) lock (foundLock) found.Add(local.hits.ToArray()); });
+                local => {
+                    if (local.hits.Count > 0) {
+                        lock (foundLock) {
+                            found.Add(local.hits.ToArray());
+                        }
+                    }
+                });
 
             // パスの書き込みをまとめて行い、埋めた画素を次のパスの起点にする。同じ画素が複数の起点から
             // 見つかっても値は同じ(パス開始時の近傍だけで決まる)なので、最初の 1 回だけ書く。
             var frontier = new List<int>();
-            void Apply()
-            {
+            void Apply() {
                 frontier.Clear();
-                foreach (var arr in found)
-                    foreach (var (idx, v) in arr)
-                    {
-                        if (strength[idx] > 0f) continue;
+                foreach (var arr in found) {
+                    foreach (var (idx, v) in arr) {
+                        if (strength[idx] > 0f) {
+                            continue;
+                        }
                         strength[idx] = v;
                         frontier.Add(idx);
                     }
+                }
                 found.Clear();
             }
             Apply();
 
-            for (int pass = 1; pass < passes && frontier.Count > 0; pass++)
-            {
+            for (int pass = 1; pass < passes && frontier.Count > 0; pass++) {
                 ct.ThrowIfCancellationRequested();
                 int[] fr = frontier.ToArray();
                 const int Chunk = 4096;
                 int nChunks = (fr.Length + Chunk - 1) / Chunk;
-                Parallel.For(0, nChunks, fillPo, () => new List<(int, float)>(), (ci, _, hits) =>
-                {
+                Parallel.For(0, nChunks, fillPo, () => new List<(int, float)>(), (ci, _, hits) => {
                     int k1 = Math.Min(fr.Length, (ci + 1) * Chunk);
-                    for (int k = ci * Chunk; k < k1; k++)
-                    {
+                    for (int k = ci * Chunk; k < k1; k++) {
                         int q = fr[k];
                         int qy = q / w, qx = q - qy * w;
                         int ny0 = Math.Max(boxMinY, qy - 1), ny1 = Math.Min(boxMaxY, qy + 1);
                         int nx0 = Math.Max(boxMinX, qx - 1), nx1 = Math.Min(boxMaxX, qx + 1);
-                        for (int ny = ny0; ny <= ny1; ny++)
-                            for (int nx = nx0; nx <= nx1; nx++)
-                            {
+                        for (int ny = ny0; ny <= ny1; ny++) {
+                            for (int nx = nx0; nx <= nx1; nx++) {
                                 int idx = ny * w + nx;
-                                if (strength[idx] > 0f) continue;   // q 自身も(埋まったので)ここで外れる
-                                if (allowedMask != null && !allowedMask[idx]) continue;
-                                if (TryFill(nx, ny, out float v)) hits.Add((idx, v));
+                                if (strength[idx] > 0f) {
+                                    continue;   // q 自身も(埋まったので)ここで外れる
+                                }
+                                if (allowedMask != null && !allowedMask[idx]) {
+                                    continue;
+                                }
+                                if (TryFill(nx, ny, out float v)) {
+                                    hits.Add((idx, v));
+                                }
                             }
+                        }
                     }
                     return hits;
                 },
-                hits => { if (hits.Count > 0) lock (foundLock) found.Add(hits.ToArray()); });
+                hits => {
+                    if (hits.Count > 0) {
+                        lock (foundLock) {
+                            found.Add(hits.ToArray());
+                        }
+                    }
+                });
                 Apply();
             }
         }
@@ -226,12 +254,13 @@ namespace Iroca
         private static void ApplyChromaCeilingGate(
             float* strength, bool* matchConf, PixelHsv hsv,
             float sS, float sV, float chromaThreshold, float chromaCeiling,
-            int w, int h, CancellationToken ct = default)
-        {
+            int w, int h, CancellationToken ct = default) {
             float* pixS = hsv.S; int* pixIdx = hsv.Index;
             // グレーモード判定は ColorZone.MatchOneSample / GetRelaxedMatchStrength と共有ヘルパー。
             float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
-            if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
+            if (sS > effectiveChromaThreshold) {
+                return;   // 有彩サンプル=グレーモードではない
+            }
 
             float satCeil = ColorZone.EffectiveChromaCeiling(sS, chromaCeiling);
 
@@ -244,8 +273,9 @@ namespace Iroca
             // 「全種への最小 L1 距離」を直接求めるので、bbox の外を走査に含めなくても
             // bbox 内の距離は厳密に正しい。よって窓 = strength bbox で足りる。
             if (!TryComputeStrengthBBox(strength, w, h, 0f,
-                    out int bx0, out int by0, out int bx1, out int by1, ct))
+                    out int bx0, out int by0, out int bx1, out int by1, ct)) {
                 return;   // マッチ皆無 → 除去対象なし
+            }
             int bw = bx1 - bx0 + 1, bh = by1 - by0 + 1;
             int bwh = bw * bh;
 
@@ -256,84 +286,92 @@ namespace Iroca
             const int R = ChromaCeilProtectRadius;
             const int Inf = 1 << 28;
             int* dist = s_intPool.Rent(bwh);
-            try
-            {
+            try {
                 // 低彩度コアを種に行パス(行内 1D 距離)。同時に保護候補(高彩度画素)の有無を調べる。
                 // anyHigh を bbox 内だけで見ても結果は同じ: bbox 外は strength=0 で除去対象外なので、
                 // bbox 外にしか高彩度画素が無い場合は旧実装も 1 画素も除去しない。
                 bool anyHigh = false;
-                Parallel.For(0, bh, po, ly =>
-                {
+                Parallel.For(0, bh, po, ly => {
                     int lrb = ly * bw;
                     int grb = (ly + by0) * w + bx0;
                     bool localHigh = false;
                     int run = Inf;
-                    for (int lx = 0; lx < bw; lx++)
-                    {
+                    for (int lx = 0; lx < bw; lx++) {
                         int gi = grb + lx;
                         float ps = pixS[HsvSlot(pixIdx, gi)];
-                        if (ps >= satCeil) localHigh = true;
-                        if (strength[gi] > matchThr && ps < satCeil) { run = 0; dist[lrb + lx] = 0; }
-                        else { if (run < Inf) run++; dist[lrb + lx] = run; }
+                        if (ps >= satCeil) {
+                            localHigh = true;
+                        }
+                        if (strength[gi] > matchThr && ps < satCeil) { run = 0; dist[lrb + lx] = 0; } else {
+                            if (run < Inf) {
+                                run++;
+                            }
+                            dist[lrb + lx] = run;
+                        }
                     }
                     run = Inf;
-                    for (int lx = bw - 1; lx >= 0; lx--)
-                    {
+                    for (int lx = bw - 1; lx >= 0; lx--) {
                         int li = lrb + lx;
                         if (dist[li] == 0) { run = 0; continue; }
-                        if (run < Inf) run++;
-                        if (run < dist[li]) dist[li] = run;
+                        if (run < Inf) {
+                            run++;
+                        }
+                        if (run < dist[li]) {
+                            dist[li] = run;
+                        }
                     }
-                    if (localHigh) anyHigh = true;
+                    if (localHigh) {
+                        anyHigh = true;
+                    }
                 });
-                if (!anyHigh) return;
+                if (!anyHigh) {
+                    return;
+                }
 
                 // 列パス: x を並列度ぶんの連続レンジに分けて y 前進/後退走査(行メジャーで連続アクセス)
                 int dop = Mathf.Max(1, po.MaxDegreeOfParallelism);
                 int chunk = (bw + dop - 1) / dop;
-                Parallel.For(0, dop, po, p =>
-                {
+                Parallel.For(0, dop, po, p => {
                     int lx0 = p * chunk, lx1 = Math.Min(bw, lx0 + chunk);
-                    if (lx0 >= lx1) return;
-                    for (int ly = 1; ly < bh; ly++)
-                    {
+                    if (lx0 >= lx1) {
+                        return;
+                    }
+                    for (int ly = 1; ly < bh; ly++) {
                         int cur = ly * bw, prev = cur - bw;
-                        for (int lx = lx0; lx < lx1; lx++)
-                        {
+                        for (int lx = lx0; lx < lx1; lx++) {
                             int v = dist[prev + lx] + 1;
-                            if (v < dist[cur + lx]) dist[cur + lx] = v;
+                            if (v < dist[cur + lx]) {
+                                dist[cur + lx] = v;
+                            }
                         }
                     }
-                    for (int ly = bh - 2; ly >= 0; ly--)
-                    {
+                    for (int ly = bh - 2; ly >= 0; ly--) {
                         int cur = ly * bw, next = cur + bw;
-                        for (int lx = lx0; lx < lx1; lx++)
-                        {
+                        for (int lx = lx0; lx < lx1; lx++) {
                             int v = dist[next + lx] + 1;
-                            if (v < dist[cur + lx]) dist[cur + lx] = v;
+                            if (v < dist[cur + lx]) {
+                                dist[cur + lx] = v;
+                            }
                         }
                     }
                 });
 
                 // 保護領域(L1 距離 ≤ R)外の高彩度選択画素を除去(別素材)。matchConf も除去しないと
                 // flood fill が「確信コアを含む成分」として別素材を保持してしまう。
-                Parallel.For(0, bh, po, ly =>
-                {
+                Parallel.For(0, bh, po, ly => {
                     int lrb = ly * bw;
                     int grb = (ly + by0) * w + bx0;
-                    for (int lx = 0; lx < bw; lx++)
-                    {
+                    for (int lx = 0; lx < bw; lx++) {
                         int gi = grb + lx;
-                        if (dist[lrb + lx] > R && pixS[HsvSlot(pixIdx, gi)] >= satCeil && strength[gi] > 0f)
-                        {
+                        if (dist[lrb + lx] > R && pixS[HsvSlot(pixIdx, gi)] >= satCeil && strength[gi] > 0f) {
                             strength[gi] = 0f;
-                            if (matchConf != null) matchConf[gi] = false;
+                            if (matchConf != null) {
+                                matchConf[gi] = false;
+                            }
                         }
                     }
                 });
-            }
-            finally
-            {
+            } finally {
                 s_intPool.Return(dist);
             }
         }
@@ -367,17 +405,22 @@ namespace Iroca
         private static void RecoverEnclosedNeutral(
             float* strength, bool* matchConf, PixelHsv hsv, Color32* pixels,
             Color sampleColor, float tolerance, float sS, float sV, float chromaThreshold,
-            int w, int h, CancellationToken ct = default)
-        {
+            int w, int h, CancellationToken ct = default) {
             float* pixS = hsv.S; int* pixIdx = hsv.Index;
             // グレーモード判定は ColorZone.MatchOneSample / ApplyChromaCeilingGate と共有ヘルパー。
             float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
-            if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
+            if (sS > effectiveChromaThreshold) {
+                return;   // 有彩サンプル=グレーモードではない
+            }
             // 彩度整合ゲートが作動しないサンプル(真の無彩)では打ち消す対象が無い。
-            if (sS <= ColorZone.ChromaGateActivateSat) return;
+            if (sS <= ColorZone.ChromaGateActivateSat) {
+                return;
+            }
             // 暗いサンプルではゲート重みがフェードし、距離指標も pS 側へ lerp されるため
             // 素の RGB 距離では「ゲートが無ければマッチしたか」を再現できない。対象外。
-            if (sV < ColorZone.GrayModeDarkSampleValue) return;
+            if (sV < ColorZone.GrayModeDarkSampleValue) {
+                return;
+            }
 
             float satFloor = Mathf.Min(sS * ColorZone.ChromaGateFloorFrac, ColorZone.ChromaGateFloorCap);
             float sr = sampleColor.r, sg = sampleColor.g, sb = sampleColor.b;
@@ -387,24 +430,27 @@ namespace Iroca
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             bool* free = s_boolPool.Rent(len);   // 未選択=開領域を辿れる画素
             bool* open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素
-            try
-            {
+            try {
                 bool anyCandidate = false;
-                Parallel.For(0, h, po, y =>
-                {
+                Parallel.For(0, h, po, y => {
                     int rowOff = y * w;
                     bool local = false;
-                    for (int x = 0; x < w; x++)
-                    {
+                    for (int x = 0; x < w; x++) {
                         int i = rowOff + x;
                         bool f = strength[i] <= matchThr;
                         free[i] = f;
                         open[i] = false;
-                        if (f && pixS[HsvSlot(pixIdx, i)] < satFloor) local = true;
+                        if (f && pixS[HsvSlot(pixIdx, i)] < satFloor) {
+                            local = true;
+                        }
                     }
-                    if (local) anyCandidate = true;
+                    if (local) {
+                        anyCandidate = true;
+                    }
                 });
-                if (!anyCandidate) return;
+                if (!anyCandidate) {
+                    return;
+                }
 
                 // 画像端の未選択画素を種に、未選択画素だけを 4 近傍で伝播させる(開領域 = open)。
                 // 探索本体は閉領域ハイライト復帰(RecoverEnclosedHighlight)と共有する。
@@ -412,25 +458,29 @@ namespace Iroca
 
                 // 閉領域(画像端から到達できなかった未選択画素)のうち、ゲートが落としたはずの
                 // 中性画素を full strength で戻す。
-                Parallel.For(0, h, po, y =>
-                {
+                Parallel.For(0, h, po, y => {
                     int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
+                    for (int x = 0; x < w; x++) {
                         int i = rowOff + x;
-                        if (!free[i] || open[i]) continue;
-                        if (pixS[HsvSlot(pixIdx, i)] >= satFloor) continue;
+                        if (!free[i] || open[i]) {
+                            continue;
+                        }
+                        if (pixS[HsvSlot(pixIdx, i)] >= satFloor) {
+                            continue;
+                        }
                         Color32 c = pixels[i];
                         float dr = c.r / 255f - sr, dg = c.g / 255f - sg, db = c.b / 255f - sb;
                         float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
-                        if (rgbDist > tolerance) continue;   // ゲート以外の理由で外れていた画素
+                        if (rgbDist > tolerance) {
+                            continue;   // ゲート以外の理由で外れていた画素
+                        }
                         strength[i] = 1f;
-                        if (matchConf != null) matchConf[i] = true;
+                        if (matchConf != null) {
+                            matchConf[i] = true;
+                        }
                     }
                 });
-            }
-            finally
-            {
+            } finally {
                 s_boolPool.Return(free);
                 s_boolPool.Return(open);
             }
@@ -448,8 +498,7 @@ namespace Iroca
         /// 打ち切られていた場合だけ「本来到達できるはずの画素」が追加で開領域になる(= 打ち切りの取りこぼしが
         /// 無くなる方向。復帰は閉領域限定なので過剰復帰は起きない)。
         /// </summary>
-        private static void MarkOpenFromBorder(bool* free, bool* open, int w, int h, CancellationToken ct)
-        {
+        private static void MarkOpenFromBorder(bool* free, bool* open, int w, int h, CancellationToken ct) {
             var enc = LabelFreeComponents(free, open, null, w, h, ct);
             enc.Dispose();
         }
@@ -460,13 +509,11 @@ namespace Iroca
         /// 旧実装の順と同じ。Seed はその最初の画素のパック座標 (y&lt;&lt;16)|x、Opaque は成分の不透明画素の数
         /// (pixels を渡したときだけ)。プールから借りているので Dispose で返す。
         /// </summary>
-        private struct EnclosedComponents : IDisposable
-        {
+        private struct EnclosedComponents : IDisposable {
             public int Count;
             public int* Seed;
             public int* Opaque;
-            public void Dispose()
-            {
+            public void Dispose() {
                 if (Seed != null) { s_intPool.Return(Seed); Seed = null; }
                 if (Opaque != null) { s_intPool.Return(Opaque); Opaque = null; }
             }
@@ -480,8 +527,7 @@ namespace Iroca
         /// なめ、落ちる成分も全部辿っていた)。
         /// </summary>
         private static EnclosedComponents LabelFreeComponents(bool* free, bool* open, Color32* pixels,
-            int w, int h, CancellationToken ct)
-        {
+            int w, int h, CancellationToken ct) {
             // 画像端の free 画素から 4 近傍で辿れる free 画素の集合は、辿る順序に依存しない。行 run +
             // union-find の連結成分で「画像端に触れる成分」を求め、その run を塗る(旧: 単一スレッドの
             // 深さ優先探索で背景全体=数百万画素を辿っていた)。
@@ -491,136 +537,152 @@ namespace Iroca
             var result = new EnclosedComponents();
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             var runCount = new int[h];
-            Parallel.For(0, h, po, y =>
-            {
+            Parallel.For(0, h, po, y => {
                 int rb = y * w, n = 0, x = 0;
-                while (x < w)
-                {
+                while (x < w) {
                     if (!free[rb + x]) { x++; continue; }
                     n++;
-                    while (x < w && free[rb + x]) x++;
+                    while (x < w && free[rb + x]) {
+                        x++;
+                    }
                 }
                 runCount[y] = n;
             });
             var rowOff = new int[h + 1];
-            for (int y = 0; y < h; y++) rowOff[y + 1] = rowOff[y] + runCount[y];
+            for (int y = 0; y < h; y++) {
+                rowOff[y + 1] = rowOff[y] + runCount[y];
+            }
             int R = rowOff[h];
-            if (R == 0) return result;
+            if (R == 0) {
+                return result;
+            }
             int* runX0 = s_intPool.Rent(R), runX1 = s_intPool.Rent(R), parent = s_intPool.Rent(R);
             int* encOf = null;
-            try
-            {
-                Parallel.For(0, h, po, y =>
-                {
+            try {
+                Parallel.For(0, h, po, y => {
                     int rb = y * w, k = rowOff[y], x = 0;
-                    while (x < w)
-                    {
+                    while (x < w) {
                         if (!free[rb + x]) { x++; continue; }
                         int s0 = x;
-                        while (x < w && free[rb + x]) x++;
+                        while (x < w && free[rb + x]) {
+                            x++;
+                        }
                         runX0[k] = s0; runX1[k] = x - 1; k++;
                     }
                 });
-                for (int r = 0; r < R; r++) parent[r] = r;
-                int Find(int a)
-                {
+                for (int r = 0; r < R; r++) {
+                    parent[r] = r;
+                }
+                int Find(int a) {
                     while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; }
                     return a;
                 }
-                for (int y = 0; y + 1 < h; y++)
-                {
-                    if ((y & 255) == 0) ct.ThrowIfCancellationRequested();
+                for (int y = 0; y + 1 < h; y++) {
+                    if ((y & 255) == 0) {
+                        ct.ThrowIfCancellationRequested();
+                    }
                     int i = rowOff[y], iEnd = rowOff[y + 1];
                     int j = rowOff[y + 1], jEnd = rowOff[y + 2];
-                    while (i < iEnd && j < jEnd)
-                    {
-                        if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i])
-                        {
+                    while (i < iEnd && j < jEnd) {
+                        if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i]) {
                             int a = Find(i), b = Find(j);
                             if (a != b) { if (b < a) { int t = a; a = b; b = t; } parent[b] = a; }
                         }
-                        if (runX1[i] < runX1[j]) i++; else j++;
+                        if (runX1[i] < runX1[j]) {
+                            i++;
+                        } else {
+                            j++;
+                        }
                     }
                 }
                 // 全 run の根を確定させ(以降は読むだけ)、画像端に触れる run の根に印を付ける。
                 var touches = new bool[R];
-                for (int y = 0; y < h; y++)
-                {
+                for (int y = 0; y < h; y++) {
                     bool edgeRow = y == 0 || y == h - 1;
-                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
-                    {
+                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++) {
                         int root = Find(k);
                         parent[k] = root;
-                        if (edgeRow || runX0[k] == 0 || runX1[k] == w - 1) touches[root] = true;
+                        if (edgeRow || runX0[k] == 0 || runX1[k] == w - 1) {
+                            touches[root] = true;
+                        }
                     }
                 }
-                Parallel.For(0, h, po, y =>
-                {
+                Parallel.For(0, h, po, y => {
                     int rb = y * w;
-                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
-                    {
-                        if (!touches[parent[k]]) continue;
-                        for (int x = runX0[k]; x <= runX1[k]; x++) open[rb + x] = true;
+                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++) {
+                        if (!touches[parent[k]]) {
+                            continue;
+                        }
+                        for (int x = runX0[k]; x <= runX1[k]; x++) {
+                            open[rb + x] = true;
+                        }
                     }
                 });
 
                 // 閉領域に、根(= 最初の画素を含む run)の順に番号を振る。根は成分の中で最も小さい run なので、
                 // run を順に見て根に出会った順が、成分の最初の画素のラスタ順になる。
                 int nEnc = 0;
-                for (int r = 0; r < R; r++)
-                    if (parent[r] == r && !touches[r]) nEnc++;
+                for (int r = 0; r < R; r++) {
+                    if (parent[r] == r && !touches[r]) {
+                        nEnc++;
+                    }
+                }
                 result.Count = nEnc;
-                if (nEnc == 0) return result;
+                if (nEnc == 0) {
+                    return result;
+                }
                 result.Seed = s_intPool.Rent(nEnc);
                 encOf = s_intPool.Rent(R);
                 int e = 0;
-                for (int y = 0; y < h; y++)
-                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
-                    {
+                for (int y = 0; y < h; y++) {
+                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++) {
                         int root = parent[k];
                         if (touches[root]) { encOf[k] = -1; continue; }
-                        if (root == k) { result.Seed[e] = (y << 16) | runX0[k]; encOf[k] = e++; }
-                        else encOf[k] = encOf[root];
+                        if (root == k) { result.Seed[e] = (y << 16) | runX0[k]; encOf[k] = e++; } else {
+                            encOf[k] = encOf[root];
+                        }
                     }
-                if (pixels != null)
-                {
+                }
+                if (pixels != null) {
                     // 不透明画素の数: run ごとに行並列で数えて成分へ足す(整数の和なので足す順に依らない)。
                     int* runOpq = s_intPool.Rent(R);
-                    try
-                    {
+                    try {
                         var encOfL = encOf;
-                        Parallel.For(0, h, po, y =>
-                        {
+                        Parallel.For(0, h, po, y => {
                             int rb = y * w;
-                            for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
-                            {
+                            for (int k = rowOff[y]; k < rowOff[y + 1]; k++) {
                                 int n = 0;
-                                if (encOfL[k] >= 0)
-                                    for (int x = runX0[k]; x <= runX1[k]; x++)
-                                        if (pixels[rb + x].a >= OpaqueAlphaMin) n++;
+                                if (encOfL[k] >= 0) {
+                                    for (int x = runX0[k]; x <= runX1[k]; x++) {
+                                        if (pixels[rb + x].a >= OpaqueAlphaMin) {
+                                            n++;
+                                        }
+                                    }
+                                }
                                 runOpq[k] = n;
                             }
                         });
                         result.Opaque = s_intPool.Rent(nEnc);
-                        for (int q = 0; q < nEnc; q++) result.Opaque[q] = 0;
-                        for (int r = 0; r < R; r++)
-                            if (encOf[r] >= 0) result.Opaque[encOf[r]] += runOpq[r];
-                    }
-                    finally
-                    {
+                        for (int q = 0; q < nEnc; q++) {
+                            result.Opaque[q] = 0;
+                        }
+                        for (int r = 0; r < R; r++) {
+                            if (encOf[r] >= 0) {
+                                result.Opaque[encOf[r]] += runOpq[r];
+                            }
+                        }
+                    } finally {
                         s_intPool.Return(runOpq);
                     }
                 }
                 return result;
-            }
-            catch
-            {
+            } catch {
                 result.Dispose();
                 throw;
-            }
-            finally
-            {
-                if (encOf != null) s_intPool.Return(encOf);
+            } finally {
+                if (encOf != null) {
+                    s_intPool.Return(encOf);
+                }
                 s_intPool.Return(runX0);
                 s_intPool.Return(runX1);
                 s_intPool.Return(parent);
@@ -643,12 +705,13 @@ namespace Iroca
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
             Color32* originalPixels, float chromaConfidence, float chromaThreshold,
             float chromaCeiling, CancellationToken ct,
-            float[] relaxedByColor, int* colorIndex)
-        {
+            float[] relaxedByColor, int* colorIndex) {
             // relaxedByColor / colorIndex: 色の表(ColorPalette)の番号ごとに、この関数と同じ引数で
             // GetRelaxedMatchStrength を求めた値と、画素 → 番号。渡されたら画素ごとの計算の代わりに読む
             // (同じ関数に同じ入力を与えた値なのでビット単位で同じ)。
-            if (passes <= 0) return;
+            if (passes <= 0) {
+                return;
+            }
             float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
 
             // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけ走査する(P2-7、出力ビット不変)。
@@ -666,12 +729,12 @@ namespace Iroca
             // 選択済みの画素の隣なら、値 > 0 である限り前のパスで書かれている)。そこで最初のパスだけ矩形を
             // 走査し、以降は直前のパスで書いた画素の隣だけを調べる。どのパスも書き込みは終わりにまとめて
             // 行うので、読むのはパス開始時の状態=旧実装(二重バッファで矩形全体を毎パス走査)と同じ値。
-            float RelaxedAt(int idx)
-            {
-                if (relaxedByColor != null) return relaxedByColor[colorIndex[idx]];
+            float RelaxedAt(int idx) {
+                if (relaxedByColor != null) {
+                    return relaxedByColor[colorIndex[idx]];
+                }
                 float rpR = 0f, rpG = 0f, rpB = 0f;
-                if (originalPixels != null)
-                {
+                if (originalPixels != null) {
                     Color32 rop = originalPixels[idx];
                     rpR = rop.r / 255f; rpG = rop.g / 255f; rpB = rop.b / 255f;
                 }
@@ -689,77 +752,98 @@ namespace Iroca
             var foundLock = new object();
             Parallel.For(boxMinY, boxMaxY + 1, recoverPo,
                 () => (col: new bool[boxMaxX - boxMinX + 3], hits: new List<(int, float)>()),
-                (y, _, local) =>
-                {
+                (y, _, local) => {
                     bool[] col = local.col;
                     int rb = y * w;
                     int cx0 = Math.Max(0, boxMinX - 1), cx1 = Math.Min(w - 1, boxMaxX + 1);
                     // col[x - boxMinX + 1] = (x, y-1..y+1) のどれかが選択済み。画像外の列は false のまま。
                     Array.Clear(col, 0, col.Length);
-                    for (int x = cx0; x <= cx1; x++)
-                    {
+                    for (int x = cx0; x <= cx1; x++) {
                         bool any = strength[rb + x] > 0f;
-                        if (y > 0 && strength[rb - w + x] > 0f) any = true;
-                        if (y < h - 1 && strength[rb + w + x] > 0f) any = true;
+                        if (y > 0 && strength[rb - w + x] > 0f) {
+                            any = true;
+                        }
+                        if (y < h - 1 && strength[rb + w + x] > 0f) {
+                            any = true;
+                        }
                         col[x - boxMinX + 1] = any;
                     }
-                    for (int x = boxMinX; x <= boxMaxX; x++)
-                    {
+                    for (int x = boxMinX; x <= boxMaxX; x++) {
                         int idx = rb + x;
-                        if (strength[idx] > 0f) continue;
+                        if (strength[idx] > 0f) {
+                            continue;
+                        }
                         int c = x - boxMinX + 1;
-                        if (!(col[c - 1] || col[c] || col[c + 1])) continue;
+                        if (!(col[c - 1] || col[c] || col[c + 1])) {
+                            continue;
+                        }
                         float rel = RelaxedAt(idx);
-                        if (rel > 0f) local.hits.Add((idx, rel));
+                        if (rel > 0f) {
+                            local.hits.Add((idx, rel));
+                        }
                     }
                     return local;
                 },
-                local => { if (local.hits.Count > 0) lock (foundLock) found.Add(local.hits.ToArray()); });
+                local => {
+                    if (local.hits.Count > 0) {
+                        lock (foundLock) {
+                            found.Add(local.hits.ToArray());
+                        }
+                    }
+                });
 
             // パスの書き込みをまとめて行い、書いた画素を次のパスの起点にする。同じ画素が複数の起点から
             // 見つかっても値は同じ(色だけで決まる)なので、最初の 1 回だけ書いて残りは捨てる。
             var frontier = new List<int>();
-            void Apply()
-            {
+            void Apply() {
                 frontier.Clear();
-                foreach (var arr in found)
-                    foreach (var (idx, v) in arr)
-                    {
-                        if (strength[idx] > 0f) continue;
+                foreach (var arr in found) {
+                    foreach (var (idx, v) in arr) {
+                        if (strength[idx] > 0f) {
+                            continue;
+                        }
                         strength[idx] = v;
                         frontier.Add(idx);
                     }
+                }
                 found.Clear();
             }
             Apply();
 
-            for (int pass = 1; pass < passes && frontier.Count > 0; pass++)
-            {
+            for (int pass = 1; pass < passes && frontier.Count > 0; pass++) {
                 ct.ThrowIfCancellationRequested();
                 int[] fr = frontier.ToArray();
                 const int Chunk = 4096;
                 int nChunks = (fr.Length + Chunk - 1) / Chunk;
-                Parallel.For(0, nChunks, recoverPo, () => new List<(int, float)>(), (ci, _, hits) =>
-                {
+                Parallel.For(0, nChunks, recoverPo, () => new List<(int, float)>(), (ci, _, hits) => {
                     int k1 = Math.Min(fr.Length, (ci + 1) * Chunk);
-                    for (int k = ci * Chunk; k < k1; k++)
-                    {
+                    for (int k = ci * Chunk; k < k1; k++) {
                         int q = fr[k];
                         int qy = q / w, qx = q - qy * w;
                         int ny0 = Math.Max(boxMinY, qy - 1), ny1 = Math.Min(boxMaxY, qy + 1);
                         int nx0 = Math.Max(boxMinX, qx - 1), nx1 = Math.Min(boxMaxX, qx + 1);
-                        for (int ny = ny0; ny <= ny1; ny++)
-                            for (int nx = nx0; nx <= nx1; nx++)
-                            {
+                        for (int ny = ny0; ny <= ny1; ny++) {
+                            for (int nx = nx0; nx <= nx1; nx++) {
                                 int idx = ny * w + nx;
-                                if (strength[idx] > 0f) continue;   // q 自身も(選択済みなので)ここで外れる
+                                if (strength[idx] > 0f) {
+                                    continue;   // q 自身も(選択済みなので)ここで外れる
+                                }
                                 float rel = RelaxedAt(idx);
-                                if (rel > 0f) hits.Add((idx, rel));
+                                if (rel > 0f) {
+                                    hits.Add((idx, rel));
+                                }
                             }
+                        }
                     }
                     return hits;
                 },
-                hits => { if (hits.Count > 0) lock (foundLock) found.Add(hits.ToArray()); });
+                hits => {
+                    if (hits.Count > 0) {
+                        lock (foundLock) {
+                            found.Add(hits.ToArray());
+                        }
+                    }
+                });
                 Apply();
             }
         }
@@ -784,8 +868,7 @@ namespace Iroca
             float satDistWeight, float relaxedSatMin,
             float pR, float pG, float pB,
             float sR, float sG, float sB, float chromaConfidence,
-            float chromaThreshold, float chromaCeiling)
-        {
+            float chromaThreshold, float chromaCeiling) {
             // ColorZone.MatchOneSample と共有ヘルパーによる動的しきい値（暗いサンプルほど範囲拡大）。
             // 上端は zone.chromaThreshold(ユーザー可変)を使う。以前は既定値 0.05 を焼き込んでいたため、
             // ユーザーが chromaThreshold を変えると主経路と穴埋め/境界回復でグレーモード判定が食い違っていた。
@@ -793,11 +876,12 @@ namespace Iroca
 
             // 純白装飾はそのまま残す: relaxedSatMin 未満は弾く（ハードゲート）
             // ただしサンプル自体が高彩度の場合のみ適用（暗サンプルの低彩度ピクセルは通過させる）
-            if (pS < relaxedSatMin && sS > effectiveChromaThreshold) return 0f;
+            if (pS < relaxedSatMin && sS > effectiveChromaThreshold) {
+                return 0f;
+            }
 
             // サンプルが暗い型（指定出来ない彩度）の場合: 動的閾値を使って判定
-            if (sS <= effectiveChromaThreshold)
-            {
+            if (sS <= effectiveChromaThreshold) {
                 // 主経路(GetColorMatchScores グレーモード)と同じ RGB 距離で判定する。
                 // 旧実装は値距離 |pV-sV| のみで、明るいサンプルでは色に関係なく「明るい」だけで一致
                 // したため、対象と同じくらい明るい隣接の有彩色(布地の縁など)まで境界回復/穴埋めが
@@ -826,15 +910,21 @@ namespace Iroca
                     float overS = Mathf.Clamp01((pS - satCeil) / Mathf.Max(satCeil, 1e-4f));
                     effectiveDist += overS * ColorZone.ChromaCeilPenalty * tolerance * ceilWeight;
                 }
-                if (effectiveDist >= tolerance) return 0f;
+                if (effectiveDist >= tolerance) {
+                    return 0f;
+                }
                 float sr = tolerance * edgeSoftness;
                 float hr = tolerance - sr;
-                if (sr < 0.0001f || effectiveDist <= hr) return 1f;
+                if (sr < 0.0001f || effectiveDist <= hr) {
+                    return 1f;
+                }
                 return 1f - (effectiveDist - hr) / sr;
             }
 
             float hDist = Mathf.Abs(pH - sH);
-            if (hDist > 0.5f) hDist = 1f - hDist;
+            if (hDist > 0.5f) {
+                hDist = 1f - hDist;
+            }
 
             // 境界ピクセルはAAブレンディングから低下した彩度を持つと予想される
             float sDist = Mathf.Abs(pS - sS);
@@ -847,8 +937,7 @@ namespace Iroca
             // させる。
             // プライマリ(CalculateHybridDistance)と同じ RGB 距離ブレンドで整合させる:
             // dist = lerp(rgbDist, hsvDist, chromaConfidence)。有彩サンプルは cc≈1 で従来式と一致。
-            if (chromaConfidence < 0.999f)
-            {
+            if (chromaConfidence < 0.999f) {
                 float dr = pR - sR, dg = pG - sG, db = pB - sB;
                 float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
                 dist = rgbDist * (1f - chromaConfidence) + dist * chromaConfidence;
@@ -858,18 +947,21 @@ namespace Iroca
             // 緩和マッチ(穴埋め/境界回復)で near-black の別マテリアルを tolerance 内へ逆送し
             // 巻き込みを広げる経路だったため除去する。
 
-            if (dist >= tolerance) return 0f;
+            if (dist >= tolerance) {
+                return 0f;
+            }
 
             float softRange = tolerance * edgeSoftness;
             float hardRange = tolerance - softRange;
 
             float strength;
-            if (softRange < 0.0001f)
+            if (softRange < 0.0001f) {
                 strength = 1f;
-            else if (dist <= hardRange)
+            } else if (dist <= hardRange) {
                 strength = 1f;
-            else
+            } else {
                 strength = 1f - (dist - hardRange) / softRange;
+            }
 
             return strength;
         }

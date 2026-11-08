@@ -3,10 +3,8 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static class IrocaColors
-    {
+namespace Iroca {
+    internal static class IrocaColors {
         public static Color ActiveMaskTarget =>
             EditorGUIUtility.isProSkin
                 ? new Color(0.45f, 0.65f, 0.95f)

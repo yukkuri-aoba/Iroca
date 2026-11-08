@@ -3,24 +3,23 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// プリセット(<see cref="IrocaPresetData"/>)を編集状態へ写す規則(0.4.0 の計画の 4-3)。UI の読み込み
     /// (<see cref="EditingSession.ApplyPreset"/>)と自動化(MCP の色替え)が同じものを使う。
     /// 編集モード(かんたん/通常/上級)は UI 表示の好みであって色設定ではないので写さない。
     /// </summary>
-    internal static class PresetApplier
-    {
+    internal static class PresetApplier {
         /// <summary>
         /// プリセットのゾーン(古い優先順位を並び順へ直し、id を振る)と処理設定を <paramref name="state"/> へ写す。
         /// ゾーンのリストはプリセットのものをそのまま使う(読み込んだプリセットは使い捨て)。
         /// 連続領域の起点はそのテクスチャ上の位置なので、<paramref name="textureGuid"/> で作ったプリセットと分かるときだけ残す
         /// (別のテクスチャでは起点が無関係な場所を指す)。
         /// </summary>
-        internal static void ApplyZonesAndSettings(IrocaPresetData preset, IrocaSessionState state, string textureGuid = null)
-        {
-            if (string.IsNullOrEmpty(textureGuid) || preset.sourceTextureGuid != textureGuid) DropSeeds(preset);
+        internal static void ApplyZonesAndSettings(IrocaPresetData preset, IrocaSessionState state, string textureGuid = null) {
+            if (string.IsNullOrEmpty(textureGuid) || preset.sourceTextureGuid != textureGuid) {
+                DropSeeds(preset);
+            }
             // Unity の JsonUtility は JSON に含まれないフィールドを「既定値で上書き」ではなく
             // 「クラスのフィールド初期化子の値を保持」するため、ここで `> 0 ? : default` のような
             // defaulting を行うとユーザーが明示的に 0 を保存したケース（UI レンジに 0 を含む
@@ -28,7 +27,9 @@ namespace Iroca
             // 旧バージョンとの後方互換は IrocaPresetData の初期化子側に寄せる。
             state.zones = preset.zones ?? new List<ColorZone>();
             MigrateLegacyLayerPriority(state.zones);
-            foreach (var z in state.zones) z?.EnsureId();
+            foreach (var z in state.zones) {
+                z?.EnsureId();
+            }
             RecolorSettings.From(preset).CopyTo(state);
         }
 
@@ -37,10 +38,11 @@ namespace Iroca
         /// 文字列はそのまま渡し、寸法の合わない項目・壊れた項目は展開(<see cref="MaskStateCodec"/>・
         /// <see cref="MaskWorkspace.DecodeFrom"/>)で読み飛ばされる。マスクが無ければ空の MaskState（寸法 0 ＝マスクなし）。
         /// </summary>
-        internal static MaskState MaskStateOf(IrocaPresetData preset)
-        {
+        internal static MaskState MaskStateOf(IrocaPresetData preset) {
             var ms = new MaskState { schemaVersion = MaskState.CurrentSchemaVersion };
-            if (!HasMasks(preset)) return ms;
+            if (!HasMasks(preset)) {
+                return ms;
+            }
             ms.width = preset.maskWidth;
             ms.height = preset.maskHeight;
             ms.commonMaskBase64 = preset.commonMaskBase64 ?? "";
@@ -50,11 +52,15 @@ namespace Iroca
             return ms;
         }
 
-        private static void DropSeeds(IrocaPresetData preset)
-        {
-            if (preset.zones == null) return;
-            foreach (var z in preset.zones)
-                if (z != null) z.seedUV = new UnityEngine.Vector2(-1f, -1f);
+        private static void DropSeeds(IrocaPresetData preset) {
+            if (preset.zones == null) {
+                return;
+            }
+            foreach (var z in preset.zones) {
+                if (z != null) {
+                    z.seedUV = new UnityEngine.Vector2(-1f, -1f);
+                }
+            }
         }
 
         /// <summary>別のテクスチャで作ったと分かっているプリセットか(古いプリセットは分からないので false)。</summary>
@@ -64,12 +70,15 @@ namespace Iroca
         /// <summary>プリセットがマスクを持つ(寸法が書かれている)か。</summary>
         internal static bool HasMasks(IrocaPresetData preset) => preset.maskWidth > 0 && preset.maskHeight > 0;
 
-        private static void CopyMaskEntries(List<ZoneMaskEntry> src, List<MaskZoneEntry> dst)
-        {
-            if (src == null) return;
-            foreach (var e in src)
-                if (e != null && !string.IsNullOrEmpty(e.zoneId))
+        private static void CopyMaskEntries(List<ZoneMaskEntry> src, List<MaskZoneEntry> dst) {
+            if (src == null) {
+                return;
+            }
+            foreach (var e in src) {
+                if (e != null && !string.IsNullOrEmpty(e.zoneId)) {
                     dst.Add(new MaskZoneEntry { zoneId = e.zoneId, maskBase64 = e.maskBase64 ?? "" });
+                }
+            }
         }
 
         /// <summary>
@@ -79,21 +88,25 @@ namespace Iroca
         /// 旧来の勝敗(大きい layerIndex が勝つ → 先頭が勝つ)を再現する。
         /// 全ゾーンが同値(既定 0 を含む)なら並び順は既に意図どおりなので何もしない。
         /// </summary>
-        internal static void MigrateLegacyLayerPriority(List<ColorZone> zones)
-        {
-            if (zones == null || zones.Count < 2) return;
+        internal static void MigrateLegacyLayerPriority(List<ColorZone> zones) {
+            if (zones == null || zones.Count < 2) {
+                return;
+            }
             int first = zones[0].layerIndex;
             bool allSame = true;
-            for (int i = 1; i < zones.Count; i++)
-            {
+            for (int i = 1; i < zones.Count; i++) {
                 if (zones[i].layerIndex != first) { allSame = false; break; }
             }
-            if (allSame) return;
+            if (allSame) {
+                return;
+            }
             var migrated = zones.OrderByDescending(z => z.layerIndex).ToList();
             zones.Clear();
             zones.AddRange(migrated);
             // ここからは並び順が優先度。残すと、並べ替えて保存したプリセットを読み直すたびに元の並びへ戻る。
-            foreach (var z in zones) z.layerIndex = 0;
+            foreach (var z in zones) {
+                z.layerIndex = 0;
+            }
         }
     }
 }

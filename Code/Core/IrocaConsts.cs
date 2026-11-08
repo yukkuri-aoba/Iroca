@@ -1,13 +1,10 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-namespace Iroca
-{
+namespace Iroca {
     // Iroca で散在するマジックナンバーを集約する(Core と UI・ハーネスが共有するプレビューの寸法)。
     // ウィンドウの寸法とメニューの場所は UI の IrocaUiConsts(0.4.0 の計画の 3-3 で分けた)。
-    internal static class IrocaConsts
-    {
-        public static class Preview
-        {
+    internal static class IrocaConsts {
+        public static class Preview {
             // メインプレビューの最大寸法（長辺）。
             // 処理結果はこのサイズへ等比縮小されてから表示される。
             // 512→448 (2026-07-23): 既定ウィンドウ幅(800)では「左カラム内容の最小幅

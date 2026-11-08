@@ -4,16 +4,14 @@ using System;
 using System.IO;
 using System.Threading;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// クラッシュ・ディスクフルで既存ファイルを壊さないテキスト書き込み。
     /// 一時ファイルへ書き切ってから rename / Replace で本置換する
     /// （直接 <see cref="File.WriteAllText(string,string)"/> すると書き込み途中で
     /// 落ちたとき既存の正常データごと破損する）。
     /// </summary>
-    internal static class AtomicFile
-    {
+    internal static class AtomicFile {
         /// <summary>
         /// <paramref name="path"/> へテキストをアトミックに書き込む。
         /// 失敗時は例外を伝播する（既存ファイルは無傷、書きかけの一時ファイルは削除）。
@@ -27,24 +25,23 @@ namespace Iroca
         /// (色だけ変えたときのマスクなど)。書くと一時ファイル・デバイスへの書き切り(Flush(true))・置換が
         /// メインスレッドで走るので、読んで比べる方が安い。読めなかったときは書く(従来どおり)。
         /// </summary>
-        public static bool WriteAllTextIfChanged(string path, string contents)
-        {
+        public static bool WriteAllTextIfChanged(string path, string contents) {
             byte[] bytes = Utf8NoBom.GetBytes(contents);
-            if (HasSameBytes(path, bytes)) return false;
+            if (HasSameBytes(path, bytes)) {
+                return false;
+            }
             Write(path, tmp => WriteAndFlush(tmp, bytes));
             return true;
         }
 
-        private static bool HasSameBytes(string path, byte[] bytes)
-        {
-            try
-            {
+        private static bool HasSameBytes(string path, byte[] bytes) {
+            try {
                 var info = new FileInfo(path);
-                if (!info.Exists || info.Length != bytes.Length) return false;
+                if (!info.Exists || info.Length != bytes.Length) {
+                    return false;
+                }
                 return File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes);
-            }
-            catch (Exception)
-            {
+            } catch (Exception) {
                 return false;
             }
         }
@@ -63,10 +60,8 @@ namespace Iroca
         /// (大きい中身を管理配列に組み立てずに書くため。Mono のヒープは一度広がると縮まない)。
         /// </summary>
         public static void WriteAll(string path, Action<Stream> write)
-            => Write(path, tmp =>
-            {
-                using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
+            => Write(path, tmp => {
+                using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None)) {
                     write(fs);
                     fs.Flush(true);   // 理由は WriteAndFlush と同じ
                 }
@@ -76,8 +71,7 @@ namespace Iroca
         private static readonly System.Text.UTF8Encoding Utf8NoBom = new System.Text.UTF8Encoding(false);
 
         /// <summary>一時ファイルへ書き、デバイスまで書き切ってから閉じる。</summary>
-        private static void WriteAndFlush(string path, byte[] bytes)
-        {
+        private static void WriteAndFlush(string path, byte[] bytes) {
             // rename の原子性が保証するのは「置換が中途半端に見えないこと」だけで、
             // 中身が永続化済みであることまでは保証しない。一時ファイルの内容が OS のバッファに
             // 残ったまま rename だけ先に永続化されると、電源断で新旧どちらも失う
@@ -85,8 +79,7 @@ namespace Iroca
             //
             // 限界: ディレクトリエントリ自体の fsync は .NET から移植性のある形で呼べない。
             // ファイル内容の永続化までを保証する、という水準。
-            using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
-            {
+            using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None)) {
                 fs.Write(bytes, 0, bytes.Length);
                 fs.Flush(true);
             }
@@ -101,51 +94,43 @@ namespace Iroca
         /// テキストを読む。ほかのプロセスが一瞬つかんでいて読めないときは少し待って繰り返す(書くときと同じ)。読めないまま空で開くと、
         /// 利用者には編集内容が消えたように見える。
         /// </summary>
-        public static string ReadAllText(string path)
-        {
-            for (int attempt = 0; ; attempt++)
-            {
-                try { return File.ReadAllText(path); }
-                catch (Exception e) when (attempt < RetryDelaysMs.Length && IsTransient(e))
-                {
+        public static string ReadAllText(string path) {
+            for (int attempt = 0; ; attempt++) {
+                try { return File.ReadAllText(path); } catch (Exception e) when (attempt < RetryDelaysMs.Length && IsTransient(e)) {
                     Thread.Sleep(RetryDelaysMs[attempt]);
                 }
             }
         }
 
-        private static void Write(string path, Action<string> writeTemp)
-        {
+        private static void Write(string path, Action<string> writeTemp) {
             // 一時ファイルは必ず同一フォルダに置く（File.Replace/Move が同一ボリューム内で完結し
             // rename が原子的になる）。
             string tmp = path + ".tmp";
             bool existed = File.Exists(path);
-            try
-            {
+            try {
                 writeTemp(tmp);
-                for (int attempt = 0; ; attempt++)
-                {
-                    try
-                    {
+                for (int attempt = 0; ; attempt++) {
+                    try {
                         // 試すたびに置換先の有無を確かめ直す。Replace が途中で失敗すると置換先が消えて
                         // いることがある(ERROR_UNABLE_TO_MOVE_REPLACEMENT)ので、そのときは Move で書き切る。
-                        if (File.Exists(path))
+                        if (File.Exists(path)) {
                             File.Replace(tmp, path, null);
-                        else
+                        } else {
                             File.Move(tmp, path);
+                        }
                         return;
-                    }
-                    catch (Exception e) when (attempt < RetryDelaysMs.Length && IsTransient(e))
-                    {
+                    } catch (Exception e) when (attempt < RetryDelaysMs.Length && IsTransient(e)) {
                         Thread.Sleep(RetryDelaysMs[attempt]);
                     }
                 }
-            }
-            catch
-            {
+            } catch {
                 // 置換の途中で元のファイルが消えたときは、新しい中身を持つ一時ファイルを残す(消すと両方失う)。
                 bool lostOriginal = existed && !File.Exists(path);
-                try { if (!lostOriginal && File.Exists(tmp)) File.Delete(tmp); }
-                catch { /* 一時ファイルの掃除失敗は本エラーを隠さない */ }
+                try {
+                    if (!lostOriginal && File.Exists(tmp)) {
+                        File.Delete(tmp);
+                    }
+                } catch { /* 一時ファイルの掃除失敗は本エラーを隠さない */ }
                 throw;
             }
         }

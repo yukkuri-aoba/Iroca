@@ -8,10 +8,8 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace Iroca
-{
-    public static partial class IrocaAutomation
-    {
+namespace Iroca {
+    public static partial class IrocaAutomation {
         /// <summary>主な色の数の既定と上限。</summary>
         private const int DefaultInspectColors = 8;
         private const int MaxInspectColors = 16;
@@ -19,8 +17,7 @@ namespace Iroca
         private const int InspectThumbnailMaxSide = 512;
 
         [Serializable]
-        internal class InspectResult
-        {
+        internal class InspectResult {
             public bool ok;
             public string error = "";
             // "scene" | "object" | "texture"
@@ -42,8 +39,7 @@ namespace Iroca
         }
 
         [Serializable]
-        internal class ObjectInfo
-        {
+        internal class ObjectInfo {
             public string path = "";
             public bool isAvatar;
             public int rendererCount;
@@ -51,8 +47,7 @@ namespace Iroca
         }
 
         [Serializable]
-        internal class TextureInfo
-        {
+        internal class TextureInfo {
             public string path = "";
             public int width;              // 元ファイルの寸法
             public int height;
@@ -77,8 +72,7 @@ namespace Iroca
 
         /// <summary>指定した場所が今どうなっているか(<see cref="Inspect(string, int, float[], bool)"/> の points)。</summary>
         [Serializable]
-        internal class PointInfo
-        {
+        internal class PointInfo {
             public float[] uv;
             public string hex = "";          // 元の色
             public int alpha;                // 元の不透明度(0..255)
@@ -92,8 +86,7 @@ namespace Iroca
         }
 
         [Serializable]
-        internal class PointZoneInfo
-        {
+        internal class PointZoneInfo {
             public string name = "";
             public float strength;           // マスクも含めた、このゾーンの選択の強さ(0..1)
             public bool excluded;            // このゾーンの除外(ここは塗らない)がかかっているか
@@ -101,8 +94,7 @@ namespace Iroca
         }
 
         [Serializable]
-        internal class ColorInfo
-        {
+        internal class ColorInfo {
             public string hex = "";
             public float[] rgb;            // 0..1(sRGB)
             public float coverage;         // 不透明な画素に占める割合
@@ -127,66 +119,65 @@ namespace Iroca
         /// </summary>
         /// <param name="pointsUv">聞きたい場所(u, v の繰り返し。左下原点、0..1。最大 <see cref="MaxInspectPoints"/> か所)。null = 無し。</param>
         /// <param name="coverage">true なら、各ゾーンが塗るおおよその割合(approxCoverage)を返す。points があれば同じ結果が付く。</param>
-        public static string Inspect(string target, int maxColors, float[] pointsUv, bool coverage)
-        {
+        public static string Inspect(string target, int maxColors, float[] pointsUv, bool coverage) {
             var r = new InspectResult { target = target ?? "", version = ExtractVersion() };
-            try
-            {
+            try {
                 FillEnvironment(r);
                 maxColors = Mathf.Clamp(maxColors <= 0 ? DefaultInspectColors : maxColors, 1, MaxInspectColors);
-                if (pointsUv != null)
-                {
-                    if (pointsUv.Length % 2 != 0 || pointsUv.Length / 2 > MaxInspectPoints)
+                if (pointsUv != null) {
+                    if (pointsUv.Length % 2 != 0 || pointsUv.Length / 2 > MaxInspectPoints) {
                         return Finish(r, $"'points' must be up to {MaxInspectPoints} [u, v] pairs.");
-                    foreach (float c in pointsUv)
-                        if (float.IsNaN(c) || c < 0f || c > 1f)
+                    }
+                    foreach (float c in pointsUv) {
+                        if (float.IsNaN(c) || c < 0f || c > 1f) {
                             return Finish(r, "'points' must be within 0..1 (bottom-left origin).");
+                        }
+                    }
                 }
-                if (string.IsNullOrWhiteSpace(target))
-                {
+                if (string.IsNullOrWhiteSpace(target)) {
                     InspectScene(r);
                     return Finish(r);
                 }
 
                 var asset = LoadAssetByPath(target);
-                if (asset is IrocaRecipe recipe)
-                {
-                    if (recipe.sourceTexture == null) return Finish(r, $"the recipe has no source texture: {target}");
+                if (asset is IrocaRecipe recipe) {
+                    if (recipe.sourceTexture == null) {
+                        return Finish(r, $"the recipe has no source texture: {target}");
+                    }
                     InspectTexture(r, recipe.sourceTexture, maxColors, recipe, pointsUv, coverage);
                     return Finish(r);
                 }
-                if (asset is Material mat)
-                {
+                if (asset is Material mat) {
                     var main = MeshUvLocator.MainTexture(mat) as Texture2D;
-                    if (main == null) return Finish(r, $"material has no main texture: {target}");
+                    if (main == null) {
+                        return Finish(r, $"material has no main texture: {target}");
+                    }
                     InspectTexture(r, main, maxColors, null, pointsUv, coverage);
                     return Finish(r);
                 }
-                if (asset is Texture2D tex)
-                {
+                if (asset is Texture2D tex) {
                     InspectTexture(r, tex, maxColors, null, pointsUv, coverage);
                     return Finish(r);
                 }
-                if (asset != null)
+                if (asset != null) {
                     return Finish(r, $"unsupported asset type {asset.GetType().Name}: {target} (pass a texture, a material or a scene object)");
+                }
 
                 var go = FindSceneObject(target, out string findError);
-                if (go == null) return Finish(r, findError);
+                if (go == null) {
+                    return Finish(r, findError);
+                }
                 InspectObject(r, go);
                 return Finish(r);
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 return Finish(r, $"{ex.GetType().Name}: {ex.Message}");
             }
         }
 
-        private static string Finish(InspectResult r, string error = null)
-        {
+        private static string Finish(InspectResult r, string error = null) {
             r.ok = string.IsNullOrEmpty(error);
             r.error = error ?? "";
-            if (r.ok && string.IsNullOrEmpty(r.note))
-            {
+            if (r.ok && string.IsNullOrEmpty(r.note)) {
                 r.note = r.kind == "texture"
                     ? "Open 'thumbnail' to see the texture with a ring at each color's 'uv'. "
                       + "Pass the uv of the part you want to change as 'at' to iroca_recolor."
@@ -195,15 +186,14 @@ namespace Iroca
             return JsonUtility.ToJson(r);
         }
 
-        private static void InspectScene(InspectResult r)
-        {
+        private static void InspectScene(InspectResult r) {
             r.kind = "scene";
-            foreach (var root in SceneRoots())
-            {
+            foreach (var root in SceneRoots()) {
                 var renderers = root.GetComponentsInChildren<Renderer>(true);
-                if (renderers.Length == 0) continue;
-                r.objects.Add(new ObjectInfo
-                {
+                if (renderers.Length == 0) {
+                    continue;
+                }
+                r.objects.Add(new ObjectInfo {
                     path = root.name,
                     isAvatar = HasComponentNamed(root, "VRCAvatarDescriptor"),
                     rendererCount = renderers.Length,
@@ -212,73 +202,78 @@ namespace Iroca
             }
         }
 
-        private static void InspectObject(InspectResult r, GameObject go)
-        {
+        private static void InspectObject(InspectResult r, GameObject go) {
             r.kind = "object";
             r.target = HierarchyPath(go.transform);
             var renderers = go.GetComponentsInChildren<Renderer>(true);
-            foreach (var kv in MainTexturesOf(renderers))
-            {
+            foreach (var kv in MainTexturesOf(renderers)) {
                 var tex = kv.Key;
                 var info = NewTextureInfo(tex);
-                foreach (var (renderer, material) in kv.Value)
-                {
+                foreach (var (renderer, material) in kv.Value) {
                     string rp = HierarchyPath(renderer.transform);
-                    if (!info.renderers.Contains(rp)) info.renderers.Add(rp);
+                    if (!info.renderers.Contains(rp)) {
+                        info.renderers.Add(rp);
+                    }
                     string mp = MaterialLabel(material);
-                    if (!info.materials.Contains(mp)) info.materials.Add(mp);
+                    if (!info.materials.Contains(mp)) {
+                        info.materials.Add(mp);
+                    }
                 }
                 r.textures.Add(info);
             }
-            if (r.textures.Count == 0) r.warnings.Add("no renderer with a main texture under this object.");
+            if (r.textures.Count == 0) {
+                r.warnings.Add("no renderer with a main texture under this object.");
+            }
         }
 
         private static void InspectTexture(InspectResult r, Texture2D tex, int maxColors, IrocaRecipe recipe,
-            float[] pointsUv, bool coverage)
-        {
+            float[] pointsUv, bool coverage) {
             r.kind = "texture";
             var info = NewTextureInfo(tex);
             r.target = info.path;
             r.textures.Add(info);
 
             // シーンでこのテクスチャをメインに使っているマテリアル・レンダラー
-            foreach (var kv in MainTexturesOf(SceneRenderers()))
-            {
-                if (kv.Key != tex) continue;
-                foreach (var (renderer, material) in kv.Value)
-                {
+            foreach (var kv in MainTexturesOf(SceneRenderers())) {
+                if (kv.Key != tex) {
+                    continue;
+                }
+                foreach (var (renderer, material) in kv.Value) {
                     string rp = HierarchyPath(renderer.transform);
-                    if (!info.renderers.Contains(rp)) info.renderers.Add(rp);
+                    if (!info.renderers.Contains(rp)) {
+                        info.renderers.Add(rp);
+                    }
                     string mp = MaterialLabel(material);
-                    if (!info.materials.Contains(mp)) info.materials.Add(mp);
+                    if (!info.materials.Contains(mp)) {
+                        info.materials.Add(mp);
+                    }
                 }
             }
-            if (!string.IsNullOrEmpty(info.editableSource))
+            if (!string.IsNullOrEmpty(info.editableSource)) {
                 r.warnings.Add($"this texture is an Iroca export; recolor its source instead: {info.editableSource}");
+            }
 
             // 書き出し物の画素に、元のテクスチャのゾーンを当てても意味が無い(元を調べるように上で知らせている)。
             var state = string.IsNullOrEmpty(info.editableSource) ? LoadInspectState(r, info, tex, recipe) : null;
-            if (state != null) AddZoneInfos(info.zones, state, null, out info.commonExcludedFraction);
+            if (state != null) {
+                AddZoneInfos(info.zones, state, null, out info.commonExcludedFraction);
+            }
             AddMeshes(r, info, tex);
 
             string abs = PhysicalPath(info.path);
             if (abs == null) { r.warnings.Add("texture file not found; colors are not available."); return; }
             var kind = ReadWorkingPixels(abs, tex, out NativePixels pixels);
-            if (kind == ExportPipeline.SourceKind.Unavailable)
-            {
+            if (kind == ExportPipeline.SourceKind.Unavailable) {
                 r.warnings.Add("could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).");
                 return;
             }
-            try
-            {
+            try {
                 info.workWidth = pixels.Width;
                 info.workHeight = pixels.Height;
 
                 var entries = TextureColorSummary.Summarize(pixels, maxColors);
-                foreach (var e in entries)
-                {
-                    info.colors.Add(new ColorInfo
-                    {
+                foreach (var e in entries) {
+                    info.colors.Add(new ColorInfo {
                         hex = "#" + ColorUtility.ToHtmlStringRGB(e.color),
                         rgb = new[] { e.color.r / 255f, e.color.g / 255f, e.color.b / 255f },
                         coverage = e.fraction,
@@ -287,41 +282,38 @@ namespace Iroca
                     });
                 }
                 info.thumbnail = WriteInspectThumbnail(pixels, entries, info.path, r.warnings);
-                if ((pointsUv != null && pointsUv.Length > 0) || coverage)
+                if ((pointsUv != null && pointsUv.Length > 0) || coverage) {
                     AnalyzeCurrentRecolor(r, info, tex, pixels, state, pointsUv);
-            }
-            finally
-            {
+                }
+            } finally {
                 pixels.Release();
             }
         }
 
-        private static TextureInfo NewTextureInfo(Texture2D tex)
-        {
+        private static TextureInfo NewTextureInfo(Texture2D tex) {
             string path = AssetDatabase.GetAssetPath(tex);
             var info = new TextureInfo { path = path, width = tex.width, height = tex.height };
-            if (AssetImporter.GetAtPath(path) is TextureImporter ti)
-            {
+            if (AssetImporter.GetAtPath(path) is TextureImporter ti) {
                 ti.GetSourceTextureWidthAndHeight(out int sw, out int sh);
                 if (sw > 0 && sh > 0) { info.width = sw; info.height = sh; }
             }
             var source = MeshUvLocator.EditableSourceOf(tex);
-            if (source != null && source != tex) info.editableSource = AssetDatabase.GetAssetPath(source);
-            foreach (var recipe in RecipeStore.FindForTexture(source ?? tex))
+            if (source != null && source != tex) {
+                info.editableSource = AssetDatabase.GetAssetPath(source);
+            }
+            foreach (var recipe in RecipeStore.FindForTexture(source ?? tex)) {
                 info.recipes.Add(AssetDatabase.GetAssetPath(recipe));
+            }
             return info;
         }
 
         // 縮小画像に、各色の代表点の輪(外側が黒・内側が白)を描いて UserSettings/Iroca/mcp/inspect に書く。
         // Assets の外なので取り込まれない。失敗しても調べた結果は返す(warnings に残す)。
         private static string WriteInspectThumbnail(NativePixels pixels,
-            List<TextureColorSummary.Entry> entries, string texturePath, List<string> warnings)
-        {
-            try
-            {
+            List<TextureColorSummary.Entry> entries, string texturePath, List<string> warnings) {
+            try {
                 TextureColorSummary.DownscaleTo(pixels, InspectThumbnailMaxSide, out var img, out int tw, out int th);
-                foreach (var e in entries)
-                {
+                foreach (var e in entries) {
                     int cx = Mathf.Clamp((int)(e.uv.x * tw), 0, tw - 1);
                     int cy = Mathf.Clamp((int)(e.uv.y * th), 0, th - 1);
                     DrawRing(img, tw, th, cx, cy, 6, new Color32(0, 0, 0, 255));
@@ -335,18 +327,14 @@ namespace Iroca
                 Directory.CreateDirectory(Path.GetDirectoryName(file));
                 AtomicFile.WriteAllBytes(file, ExportPipeline.EncodePng(img, tw, th));
                 return file;
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 warnings.Add($"thumbnail failed: {ex.GetType().Name}: {ex.Message}");
                 return "";
             }
         }
 
-        private static void DrawRing(Color32[] img, int w, int h, int cx, int cy, int radius, Color32 c)
-        {
-            for (int d = -radius; d <= radius; d++)
-            {
+        private static void DrawRing(Color32[] img, int w, int h, int cx, int cy, int radius, Color32 c) {
+            for (int d = -radius; d <= radius; d++) {
                 Plot(img, w, h, cx + d, cy - radius, c);
                 Plot(img, w, h, cx + d, cy + radius, c);
                 Plot(img, w, h, cx - radius, cy + d, c);
@@ -354,59 +342,70 @@ namespace Iroca
             }
         }
 
-        private static void Plot(Color32[] img, int w, int h, int x, int y, Color32 c)
-        {
-            if (x >= 0 && x < w && y >= 0 && y < h) img[y * w + x] = c;
+        private static void Plot(Color32[] img, int w, int h, int x, int y, Color32 c) {
+            if (x >= 0 && x < w && y >= 0 && y < h) {
+                img[y * w + x] = c;
+            }
         }
 
         // ─── 対象の解決 ───
 
         // アセットパス(Assets/・Packages/ 始まり、またはプロジェクト内の絶対パス)ならそのアセット。違えば null。
-        private static UnityEngine.Object LoadAssetByPath(string target)
-        {
+        private static UnityEngine.Object LoadAssetByPath(string target) {
             string rel = target.Replace('\\', '/');
-            if (Path.IsPathRooted(rel))
-            {
+            if (Path.IsPathRooted(rel)) {
                 rel = PathUtils.ToAssetsRelativeOrNull(rel);
-                if (rel == null) return null;
+                if (rel == null) {
+                    return null;
+                }
             }
-            if (!rel.StartsWith("Assets/", StringComparison.Ordinal) && !rel.StartsWith("Packages/", StringComparison.Ordinal))
+            if (!rel.StartsWith("Assets/", StringComparison.Ordinal) && !rel.StartsWith("Packages/", StringComparison.Ordinal)) {
                 return null;
+            }
             return AssetDatabase.LoadMainAssetAtPath(rel);
         }
 
         // "#123"・"123"(インスタンス ID)、"Root/Child"(階層のパス)、名前(シーン全体で 1 つだけのとき)。
-        private static GameObject FindSceneObject(string target, out string error)
-        {
+        private static GameObject FindSceneObject(string target, out string error) {
             error = "";
             string t = target.Trim();
             string idText = t.StartsWith("#", StringComparison.Ordinal) ? t.Substring(1) : t;
-            if (int.TryParse(idText, out int id))
-            {
+            if (int.TryParse(idText, out int id)) {
                 var obj = EditorUtility.InstanceIDToObject(id);
                 var go = obj as GameObject ?? (obj as Component)?.gameObject;
-                if (go != null && RecipeRegistration.IsSceneObject(go)) return go;
+                if (go != null && RecipeRegistration.IsSceneObject(go)) {
+                    return go;
+                }
                 if (t.StartsWith("#", StringComparison.Ordinal)) { error = $"no scene object with instance id {id}"; return null; }
             }
 
             string[] parts = t.Trim('/').Split('/');
-            foreach (var root in SceneRoots())
-            {
-                if (root.name != parts[0]) continue;
+            foreach (var root in SceneRoots()) {
+                if (root.name != parts[0]) {
+                    continue;
+                }
                 var cur = root.transform;
-                for (int i = 1; i < parts.Length && cur != null; i++) cur = cur.Find(parts[i]);
-                if (cur != null) return cur.gameObject;
+                for (int i = 1; i < parts.Length && cur != null; i++) {
+                    cur = cur.Find(parts[i]);
+                }
+                if (cur != null) {
+                    return cur.gameObject;
+                }
             }
 
-            if (parts.Length == 1)
-            {
+            if (parts.Length == 1) {
                 var hits = new List<GameObject>();
-                foreach (var root in SceneRoots())
-                    foreach (var tr in root.GetComponentsInChildren<Transform>(true))
-                        if (tr.name == t) hits.Add(tr.gameObject);
-                if (hits.Count == 1) return hits[0];
-                if (hits.Count > 1)
-                {
+                foreach (var root in SceneRoots()) {
+                    foreach (var tr in root.GetComponentsInChildren<Transform>(true)) {
+                        if (tr.name == t) {
+                            hits.Add(tr.gameObject);
+                        }
+                    }
+                }
+                if (hits.Count == 1) {
+                    return hits[0];
+                }
+                if (hits.Count > 1) {
                     error = $"'{t}' matches {hits.Count} objects; pass a hierarchy path: "
                           + string.Join(", ", hits.Take(5).Select(g => HierarchyPath(g.transform)));
                     return null;
@@ -416,67 +415,73 @@ namespace Iroca
             return null;
         }
 
-        private static IEnumerable<GameObject> SceneRoots()
-        {
-            for (int i = 0; i < SceneManager.sceneCount; i++)
-            {
+        private static IEnumerable<GameObject> SceneRoots() {
+            for (int i = 0; i < SceneManager.sceneCount; i++) {
                 var scene = SceneManager.GetSceneAt(i);
-                if (!scene.isLoaded) continue;
-                foreach (var root in scene.GetRootGameObjects()) yield return root;
+                if (!scene.isLoaded) {
+                    continue;
+                }
+                foreach (var root in scene.GetRootGameObjects()) {
+                    yield return root;
+                }
             }
         }
 
-        private static IEnumerable<Renderer> SceneRenderers()
-        {
-            foreach (var root in SceneRoots())
-                foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+        private static IEnumerable<Renderer> SceneRenderers() {
+            foreach (var root in SceneRoots()) {
+                foreach (var r in root.GetComponentsInChildren<Renderer>(true)) {
                     yield return r;
+                }
+            }
         }
 
         // メインテクスチャごとに、それを使うレンダラーとマテリアル(テクスチャは最初に見つかった順)。
-        private static List<KeyValuePair<Texture2D, List<(Renderer, Material)>>> MainTexturesOf(IEnumerable<Renderer> renderers)
-        {
+        private static List<KeyValuePair<Texture2D, List<(Renderer, Material)>>> MainTexturesOf(IEnumerable<Renderer> renderers) {
             var result = new List<KeyValuePair<Texture2D, List<(Renderer, Material)>>>();
             var map = new Dictionary<Texture2D, List<(Renderer, Material)>>();
-            foreach (var r in renderers)
-                foreach (var m in r.sharedMaterials)
-                {
-                    if (!(MeshUvLocator.MainTexture(m) is Texture2D tex)) continue;
-                    if (!map.TryGetValue(tex, out var list))
-                    {
+            foreach (var r in renderers) {
+                foreach (var m in r.sharedMaterials) {
+                    if (!(MeshUvLocator.MainTexture(m) is Texture2D tex)) {
+                        continue;
+                    }
+                    if (!map.TryGetValue(tex, out var list)) {
                         map[tex] = list = new List<(Renderer, Material)>();
                         result.Add(new KeyValuePair<Texture2D, List<(Renderer, Material)>>(tex, list));
                     }
                     list.Add((r, m));
                 }
+            }
             return result;
         }
 
-        private static bool HasComponentNamed(GameObject go, string typeName)
-        {
-            foreach (var c in go.GetComponents<Component>())
-                if (c != null && c.GetType().Name == typeName) return true;
+        private static bool HasComponentNamed(GameObject go, string typeName) {
+            foreach (var c in go.GetComponents<Component>()) {
+                if (c != null && c.GetType().Name == typeName) {
+                    return true;
+                }
+            }
             return false;
         }
 
-        private static string MaterialLabel(Material m)
-        {
+        private static string MaterialLabel(Material m) {
             string p = AssetDatabase.GetAssetPath(m);
             return string.IsNullOrEmpty(p) ? m.name : p;
         }
 
-        private static string HierarchyPath(Transform t)
-        {
+        private static string HierarchyPath(Transform t) {
             var names = new List<string>();
-            for (var cur = t; cur != null; cur = cur.parent) names.Add(cur.name);
+            for (var cur = t; cur != null; cur = cur.parent) {
+                names.Add(cur.name);
+            }
             names.Reverse();
             return string.Join("/", names);
         }
 
         // アセットパスの実ファイル(Packages/ は FileUtil で解決)。プロジェクトの外は null。
-        private static string PhysicalPath(string assetPath)
-        {
-            if (string.IsNullOrEmpty(assetPath)) return null;
+        private static string PhysicalPath(string assetPath) {
+            if (string.IsNullOrEmpty(assetPath)) {
+                return null;
+            }
             string abs = assetPath.StartsWith("Packages/", StringComparison.Ordinal)
                 ? Path.GetFullPath(FileUtil.GetPhysicalPath(assetPath))
                 : ToProjectAbsolute(assetPath);

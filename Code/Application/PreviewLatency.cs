@@ -4,8 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
-namespace Iroca
-{
+namespace Iroca {
     // プレビューの体感速度(操作 → 画面に絵が出るまで)を区間ごとに測る計測専用の記録。値・分岐は変えない。
     //
     // PerfReport は ProcessPixelsArray 1 回分(コア処理)の時間で、利用者が待たされる時間とは一致しない。
@@ -17,8 +16,7 @@ namespace Iroca
     // 受け手(Debug アセンブリの PerfView)がいるときだけ行う。Unity に依存しないので単体テストできる。
 
     /// <summary>1 つの段(プロキシ/フル/拡大表示)の時刻。0 = まだ打っていない。</summary>
-    internal sealed class LatencyStageMarks
-    {
+    internal sealed class LatencyStageMarks {
         internal long PrepStart;   // メインスレッドの準備開始(拡大表示のみ。プロキシ/フルは周期側の準備を使う)
         internal long Scheduled;   // ジョブ投入(メインスレッド)
         internal long WorkStart;   // ワーカースレッドで開始
@@ -39,8 +37,7 @@ namespace Iroca
     /// だけを作り直したときも 1 周期として測る(<see cref="ViewChange"/>)。ジョブ内の時刻はワーカーが書き、
     /// メインスレッドは apply 以降にだけ読む(PreviewJobMainThread のキューが前後関係を保証する)。
     /// </summary>
-    internal sealed class PreviewLatencyCycle
-    {
+    internal sealed class PreviewLatencyCycle {
         // true = スクロール・ズームを起点に拡大表示だけを作り直した周期。プロキシ・フル段と準備は無く、
         // Input は表示範囲(位置・倍率)が最後に変わった時刻。
         internal bool ViewChange;
@@ -60,22 +57,23 @@ namespace Iroca
     /// 操作の時刻を控え、再生成のたびに「最後の操作」と「画面が止まってから最初の操作」を渡す。
     /// 画面に出た再生成より後の操作は、まだ反映されていない操作として持ち越す。
     /// </summary>
-    internal sealed class PreviewInputClock
-    {
+    internal sealed class PreviewInputClock {
         private long _last;
         private long _firstUnshown;
         private long _firstSinceSnapshot;
 
-        internal void NoteInput(long now)
-        {
+        internal void NoteInput(long now) {
             _last = now;
-            if (_firstUnshown == 0) _firstUnshown = now;
-            if (_firstSinceSnapshot == 0) _firstSinceSnapshot = now;
+            if (_firstUnshown == 0) {
+                _firstUnshown = now;
+            }
+            if (_firstSinceSnapshot == 0) {
+                _firstSinceSnapshot = now;
+            }
         }
 
         /// <summary>再生成の入力を確定したとき(GeneratePreviewAsync)に呼ぶ。</summary>
-        internal void Snapshot(PreviewLatencyCycle cycle)
-        {
+        internal void Snapshot(PreviewLatencyCycle cycle) {
             cycle.Input = _last;
             cycle.FirstInput = _firstUnshown;
             _firstSinceSnapshot = 0;
@@ -89,24 +87,21 @@ namespace Iroca
         internal void NoteShown() => _firstUnshown = _firstSinceSnapshot;
     }
 
-    internal enum LatencyKind
-    {
+    internal enum LatencyKind {
         Wait, // 待ち・受け渡し(誰も計算していない)
         Main, // メインスレッドの処理(この間 Editor の UI が止まる)
         Job,  // ジョブ内のコア以外(複製・縮小)
         Core, // ProcessPixelsArray(PerfReport が測っている部分)
     }
 
-    internal readonly struct LatencySegment
-    {
+    internal readonly struct LatencySegment {
         internal readonly int Lane;
         internal readonly LatencyKind Kind;
         internal readonly string Name;
         internal readonly double StartMs;
         internal readonly double EndMs;
 
-        internal LatencySegment(int lane, LatencyKind kind, string name, double startMs, double endMs)
-        {
+        internal LatencySegment(int lane, LatencyKind kind, string name, double startMs, double endMs) {
             Lane = lane;
             Kind = kind;
             Name = name;
@@ -118,8 +113,7 @@ namespace Iroca
     }
 
     /// <summary>再生成 1 回ぶんの体感時間。時刻はすべて起点(最後の操作)からのミリ秒。</summary>
-    internal sealed class PreviewLatencyReport
-    {
+    internal sealed class PreviewLatencyReport {
         internal const int LaneRequest = 0;
         internal const int LaneProxy = 1;
         internal const int LaneFull = 2;
@@ -152,42 +146,46 @@ namespace Iroca
         /// スクロール・ズームの周期は拡大表示が出たときだけ組み立てる。
         /// frequency は 1 秒あたりのタイムスタンプ数(Stopwatch.Frequency。テストでは任意の値)。
         /// </summary>
-        internal static PreviewLatencyReport Build(PreviewLatencyCycle c, long frequency)
-        {
-            if (c == null) return null;
-            if (c.ViewChange ? !c.Detail.Shown : !(c.Full.Shown || c.Proxy.Shown)) return null;
+        internal static PreviewLatencyReport Build(PreviewLatencyCycle c, long frequency) {
+            if (c == null) {
+                return null;
+            }
+            if (c.ViewChange ? !c.Detail.Shown : !(c.Full.Shown || c.Proxy.Shown)) {
+                return null;
+            }
 
             long origin = c.Input != 0 ? c.Input : c.PrepStart;
             double Ms(long t) => (t - origin) * 1000.0 / frequency;
 
             var segs = new List<LatencySegment>();
-            void Add(int lane, LatencyKind kind, string name, long from, long to)
-            {
-                if (from == 0 || to == 0 || to < from) return;
+            void Add(int lane, LatencyKind kind, string name, long from, long to) {
+                if (from == 0 || to == 0 || to < from) {
+                    return;
+                }
                 segs.Add(new LatencySegment(lane, kind, name, Ms(from), Ms(to)));
             }
 
             // スクロール・ズームでは、拡大表示の作り直しを始めるまで(前の作り直しが走っていたときだけ)が待ち。
-            if (c.Input != 0)
+            if (c.Input != 0) {
                 Add(LaneRequest, LatencyKind.Wait, "待ち(操作→生成開始)", c.Input,
                     c.ViewChange ? c.Detail.PrepStart : c.PrepStart);
+            }
             Add(LaneRequest, LatencyKind.Main, "準備(入力のスナップショット)", c.PrepStart, c.PrepEnd);
 
             AddStage(Add, LaneProxy, c.Proxy);
             // ドラッグの追従では、プロキシを出したあと手を止める(0.2 秒)か離すまでフル段を始めない。
             // 通常の直列(プロキシの受け取りで即フル段を投入)ではほぼ 0 なので、1 ms 未満は出さない。
-            if (c.Proxy.Shown && c.Full.Scheduled - c.Proxy.Applied >= frequency / 1000)
+            if (c.Proxy.Shown && c.Full.Scheduled - c.Proxy.Applied >= frequency / 1000) {
                 Add(LaneFull, LatencyKind.Wait, "待ち(確定の開始待ち)", c.Proxy.Applied, c.Full.Scheduled);
+            }
             AddStage(Add, LaneFull, c.Full);
-            if (c.Detail.Shown)
-            {
+            if (c.Detail.Shown) {
                 Add(LaneDetail, LatencyKind.Wait, "待ち(拡大表示の再生成待ち)", c.Full.UploadEnd, c.Detail.PrepStart);
                 Add(LaneDetail, LatencyKind.Main, "準備(切り出し範囲の計算)", c.Detail.PrepStart, c.Detail.Scheduled);
                 AddStage(Add, LaneDetail, c.Detail);
             }
 
-            var r = new PreviewLatencyReport
-            {
+            var r = new PreviewLatencyReport {
                 ViewChange = c.ViewChange,
                 HasInput = c.Input != 0,
                 FinalShownMs = c.Full.Shown ? Ms(c.Full.UploadEnd) : double.NaN,
@@ -201,29 +199,31 @@ namespace Iroca
             r.FirstShownMs = !c.Proxy.Shown ? r.FinalShownMs
                 : r.IsFinal ? Math.Min(Ms(c.Proxy.UploadEnd), r.FinalShownMs)
                 : Ms(c.Proxy.UploadEnd);
-            if (c.Detail.Shown) r.DetailShownMs = Ms(c.Detail.UploadEnd);
+            if (c.Detail.Shown) {
+                r.DetailShownMs = Ms(c.Detail.UploadEnd);
+            }
             r.StaleMs = c.Input != 0 && c.FirstInput != 0 && c.FirstInput <= c.Input
                 ? r.FirstShownMs + (c.Input - c.FirstInput) * 1000.0 / frequency
                 : r.FirstShownMs;
-            foreach (var s in segs)
-            {
-                if (s.Kind == LatencyKind.Main) r.MainThreadMs += s.Ms;
-                else if (s.Kind == LatencyKind.Core) r.CoreMs += s.Ms;
+            foreach (var s in segs) {
+                if (s.Kind == LatencyKind.Main) {
+                    r.MainThreadMs += s.Ms;
+                } else if (s.Kind == LatencyKind.Core) {
+                    r.CoreMs += s.Ms;
+                }
             }
             return r;
         }
 
-        private static void AddStage(Action<int, LatencyKind, string, long, long> add, int lane, LatencyStageMarks m)
-        {
-            if (!m.Shown) return;
+        private static void AddStage(Action<int, LatencyKind, string, long, long> add, int lane, LatencyStageMarks m) {
+            if (!m.Shown) {
+                return;
+            }
             add(lane, LatencyKind.Wait, "起動待ち(スレッドプール)", m.Scheduled, m.WorkStart);
-            if (m.CoreStart == 0 && m.CoreEnd == 0)
-            {
+            if (m.CoreStart == 0 && m.CoreEnd == 0) {
                 // コア処理の無い段(拡大表示はフル段の出力を切り出すだけ)。
                 add(lane, LatencyKind.Job, "切り出し・縮小", m.WorkStart, m.WorkEnd);
-            }
-            else
-            {
+            } else {
                 add(lane, LatencyKind.Job, "複製・縮小", m.WorkStart, m.CoreStart);
                 add(lane, LatencyKind.Core, "コア処理", m.CoreStart, m.CoreEnd);
                 add(lane, LatencyKind.Job, "表示寸法へ縮小", m.CoreEnd, m.WorkEnd);
@@ -242,17 +242,19 @@ namespace Iroca
     /// レポートを段が進むごとに差し替える。受け手(Debug アセンブリの PerfView)がいないときは
     /// 組み立てもしない。メインスレッドからのみ呼ぶ。
     /// </summary>
-    internal static class PreviewLatency
-    {
+    internal static class PreviewLatency {
         internal static event Action<PreviewLatencyReport> OnReport;
 
         /// <summary>レポートを組み立てて渡す。渡した(受け手がいた)ら true。</summary>
-        internal static bool Publish(PreviewLatencyCycle cycle)
-        {
+        internal static bool Publish(PreviewLatencyCycle cycle) {
             var handler = OnReport;
-            if (handler == null) return false;
+            if (handler == null) {
+                return false;
+            }
             var report = PreviewLatencyReport.Build(cycle, Stopwatch.Frequency);
-            if (report == null) return false;
+            if (report == null) {
+                return false;
+            }
             handler(report);
             return true;
         }

@@ -6,8 +6,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// いろかのウィンドウが Unity の都合で状態を失ったり、古い状態に戻ったりしないこと。
     /// <list type="bullet">
@@ -20,8 +19,7 @@ namespace Iroca.EditorTests
     /// Unity の再起動はテストの中ではできないので、「起動後の最初の有効化か」の印(SessionState)を消してから
     /// OnEnable を呼び直して、レイアウトからの復元を再現する。
     /// </summary>
-    public class WindowRestoreTests
-    {
+    public class WindowRestoreTests {
         private TestAssets _assets;
         private string _tex;
         private string _guid;
@@ -30,8 +28,7 @@ namespace Iroca.EditorTests
         private IrocaWindow _win;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _assets = TestAssets.Create();
             _tex = _assets.WritePng("tex", TestAssets.Solid(4, 4, new Color32(200, 50, 50, 255)), 4, 4);
             _guid = AssetDatabase.AssetPathToGUID(_tex);
@@ -46,8 +43,7 @@ namespace Iroca.EditorTests
 
         // Project でテクスチャを消しても編集内容のファイルをすぐには消さない(同じ GUID で戻せば読める)。
         [Test]
-        public void DeletingTheTexture_KeepsEditsAsOrphan()
-        {
+        public void DeletingTheTexture_KeepsEditsAsOrphan() {
             var state = new IrocaSessionState();
             state.zones.Add(new ColorZone { name = "残す" });
             Assert.IsTrue(SessionFileStore.SaveSession(_tex, state));
@@ -70,38 +66,41 @@ namespace Iroca.EditorTests
         }
 
         [TearDown]
-        public void TearDown()
-        {
-            if (_win != null) Object.DestroyImmediate(_win);
+        public void TearDown() {
+            if (_win != null) {
+                Object.DestroyImmediate(_win);
+            }
             _win = null;
-            if (_prefBefore == null) EditorPrefs.DeleteKey(_prefKey);
-            else EditorPrefs.SetString(_prefKey, _prefBefore);
-            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
-            {
-                if (!Directory.Exists(dir)) continue;
-                foreach (var f in Directory.GetFiles(dir, _guid + "*")) File.Delete(f);
+            if (_prefBefore == null) {
+                EditorPrefs.DeleteKey(_prefKey);
+            } else {
+                EditorPrefs.SetString(_prefKey, _prefBefore);
+            }
+            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                if (!Directory.Exists(dir)) {
+                    continue;
+                }
+                foreach (var f in Directory.GetFiles(dir, _guid + "*")) {
+                    File.Delete(f);
+                }
             }
             _assets.Dispose();
         }
 
         [Test]
-        public void PreviewTexture_SurvivesOpeningAScene()
-        {
+        public void PreviewTexture_SurvivesOpeningAScene() {
             Texture2D tex = null;
-            try
-            {
+            try {
                 TextureSlot.Resize(ref tex, 4, 4);
                 // 開いているシーンはテストランナーが実行後に開き直す。
                 EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
                 Assert.IsTrue(tex != null, "シーンを開いたら一時テクスチャが破棄された");
-            }
-            finally { TextureSlot.Release(ref tex); }
+            } finally { TextureSlot.Release(ref tex); }
             Assert.IsTrue(ReferenceEquals(tex, null), "Release で手放していない");
         }
 
         [Test]
-        public void FirstEnableAfterEditorStart_ReadsSavedSessionNotLayout()
-        {
+        public void FirstEnableAfterEditorStart_ReadsSavedSessionNotLayout() {
             SaveSessionWithZoneName("自動保存した内容");
             _win = ScriptableObject.CreateInstance<IrocaWindow>();
             Assert.AreEqual("自動保存した内容", ZoneName(), "新しく開いたウィンドウが保存内容を読んでいない");
@@ -115,8 +114,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void DomainReload_KeepsInMemorySession()
-        {
+        public void DomainReload_KeepsInMemorySession() {
             SaveSessionWithZoneName("ディスクの内容");
             _win = ScriptableObject.CreateInstance<IrocaWindow>();
             SetZoneName("メモリ上の内容");
@@ -127,15 +125,13 @@ namespace Iroca.EditorTests
             Assert.AreEqual("メモリ上の内容", ZoneName(), "ドメインリロードでディスクから読み直した");
         }
 
-        private void SaveSessionWithZoneName(string name)
-        {
+        private void SaveSessionWithZoneName(string name) {
             var s = IrocaSessionState.CreateDefault();
             s.zones.Add(new ColorZone { name = name });
             Assert.IsTrue(SessionFileStore.SaveSession(_tex, s));
         }
 
-        private string ZoneName()
-        {
+        private string ZoneName() {
             var zones = _win.Session.zones;
             Assert.AreEqual(1, zones.Count);
             return zones[0].name;

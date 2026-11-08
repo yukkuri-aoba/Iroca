@@ -9,10 +9,8 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
         // 連結成分アンカリングの確信度コア絶対床(matchConf 不在時のフォールバック専用)。
         private const float CoreAbsoluteFloor = 0.6f;
         // 陰影の明度下限(shadowValueFloor)と別パーツの彩度上限(partSatCeiling)で成分を残す条件:
@@ -71,8 +69,7 @@ namespace Iroca
             PixelHsv hsv = default, float shadowValueFloor = 0f, float partSatCeiling = 0f,
             float partHueBand = 0f, float sampleH = 0f, float hueMinSat = 0f,
             int anchorX = -1, int anchorY = -1,
-            CancellationToken ct = default)
-        {
+            CancellationToken ct = default) {
             float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             bool useValueFloor = shadowValueFloor > 0f && pixV != null;
             bool useSatCeil = partSatCeiling > 0f && pixS != null;
@@ -80,24 +77,21 @@ namespace Iroca
             bool useFloor = useValueFloor || useSatCeil || useHueBand;   // 色の包絡ゲート(明度下限 / 彩度上限 / 色相幅)のどれかが有効
             // matched 画素(strength>0 && α>=128)の bbox。ラベリングは bbox 内に限定(全画素確保を回避)。
             if (!TryComputeMatchedBBox(strength, px, w, h, 0f,
-                    out int minX, out int minY, out int maxX, out int maxY, ct))
+                    out int minX, out int minY, out int maxX, out int maxY, ct)) {
                 return; // マッチ皆無
+            }
 
             // フォールバック用コア閾値(matchConf 不在時のみ使用)= 正の strength 群の P75 と絶対床の
             // 大きい方。matchConf があるときは固定半径ベースの色一致確信度で判定するので不要。
             float coreThreshold = 0f;
             int posCount = 0;
-            if (matchConf == null)
-            {
+            if (matchConf == null) {
                 var sHist = new int[256];
-                for (int y = minY; y <= maxY; y++)
-                {
+                for (int y = minY; y <= maxY; y++) {
                     int rb = y * w;
-                    for (int x = minX; x <= maxX; x++)
-                    {
+                    for (int x = minX; x <= maxX; x++) {
                         int gi = rb + x;
-                        if (strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin)
-                        {
+                        if (strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin) {
                             sHist[Mathf.Clamp((int)(strength[gi] * 255f), 0, 255)]++;
                             posCount++;
                         }
@@ -120,247 +114,272 @@ namespace Iroca
             // 判定に使うのは「その成分にコアがあるか」と「シードの属する成分か」だけで
             // 番号に依存しない = 出力ビット不変。
             int* runX0 = null, runX1 = null, parent = null, comp = null;
-            try
-            {
-            // 連結予測子。bbox 内の隣接判定でしか使わないので gi は呼び出し側が算出済みの値を渡す。
-            // コア判定: matchConf があれば色一致確信度(>0 = 固定半径内)で、無ければ strength 閾値で判定。
-            bool useConf = matchConf != null;
+            try {
+                // 連結予測子。bbox 内の隣接判定でしか使わないので gi は呼び出し側が算出済みの値を渡す。
+                // コア判定: matchConf があれば色一致確信度(>0 = 固定半径内)で、無ければ strength 閾値で判定。
+                bool useConf = matchConf != null;
 
-            var runCount = new int[bh];
-            Parallel.For(0, bh, ccPo, ly =>
-            {
-                int grb = (ly + minY) * w + minX;
-                int n = 0;
-                bool prev = false;
-                for (int lx = 0; lx < bw; lx++)
-                {
-                    int gi = grb + lx;
-                    bool m = strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin;
-                    if (m && !prev) n++;
-                    prev = m;
-                }
-                runCount[ly] = n;
-            });
-            var rowOff = new int[bh + 1];
-            for (int ly = 0; ly < bh; ly++) rowOff[ly + 1] = rowOff[ly] + runCount[ly];
-            int R = rowOff[bh];
-            if (R == 0) return;   // マッチ皆無
-
-            runX0 = s_intPool.Rent(R);
-            runX1 = s_intPool.Rent(R);
-            Parallel.For(0, bh, ccPo, ly =>
-            {
-                int grb = (ly + minY) * w + minX;
-                int k = rowOff[ly];
-                int lx = 0;
-                while (lx < bw)
-                {
-                    int gi = grb + lx;
-                    if (!(strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin)) { lx++; continue; }
-                    int s0 = lx;
-                    while (lx < bw && strength[grb + lx] > 0f && px[grb + lx].a >= OpaqueAlphaMin) lx++;
-                    runX0[k] = s0; runX1[k] = lx - 1; k++;
-                }
-            });
-
-            parent = s_intPool.Rent(R);
-            for (int r = 0; r < R; r++) parent[r] = r;
-            var par = parent;
-            int Find(int x)
-            {
-                while (par[x] != x) { par[x] = par[par[x]]; x = par[x]; }
-                return x;
-            }
-            for (int ly = 0; ly + 1 < bh; ly++)
-            {
-                if ((ly & 1023) == 0) ct.ThrowIfCancellationRequested();
-                int i = rowOff[ly], iEnd = rowOff[ly + 1];
-                int j = rowOff[ly + 1], jEnd = rowOff[ly + 2];
-                while (i < iEnd && j < jEnd)
-                {
-                    if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i])
-                    {
-                        int a = Find(i), b = Find(j);
-                        if (a != b) { if (b < a) { int t = a; a = b; b = t; } par[b] = a; }
-                    }
-                    if (runX1[i] < runX1[j]) i++; else j++;
-                }
-            }
-
-            // 成分番号: 結合では小さい方の根を親にするので、成分の根はその成分で最も小さい run の番号になる。
-            // r の小さい順に見れば、根に出会うのは成分の中で最初(Find(r) == r)で、残りの run は根より後に来る。
-            // 根に出会った順に番号を振るのは、以前の辞書(根 → 番号を初出の順に)と同じ番号になる。
-            comp = s_intPool.Rent(R);
-            int compCount = 0;
-            for (int r = 0; r < R; r++)
-            {
-                int root = Find(r);
-                comp[r] = root == r ? compCount++ : comp[root];
-            }
-
-            // コアの有無と包絡の内側の画素数は、run ごとに行並列で数えてから成分へ足す(整数の和なので
-            // 足す順に依らない)。以前は全 run の画素を 1 スレッドでなめていた(肌のような大きい成分で律速)。
-            var hasCore = new bool[compCount];
-            byte* runCore = s_bytePool.Rent(R);
-            try
-            {
-                var runCoreL = runCore; var runX0C = runX0; var runX1C = runX1;
-                float coreThr = coreThreshold;
-                Parallel.For(0, bh, ccPo, ly =>
-                {
+                var runCount = new int[bh];
+                Parallel.For(0, bh, ccPo, ly => {
                     int grb = (ly + minY) * w + minX;
-                    for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
-                    {
-                        byte found = 0;
-                        int x1 = runX1C[k];
-                        for (int lx = runX0C[k]; lx <= x1; lx++)
-                        {
-                            int gi = grb + lx;
-                            if (useConf ? matchConf[gi] : strength[gi] >= coreThr) { found = 1; break; }
+                    int n = 0;
+                    bool prev = false;
+                    for (int lx = 0; lx < bw; lx++) {
+                        int gi = grb + lx;
+                        bool m = strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin;
+                        if (m && !prev) {
+                            n++;
                         }
-                        runCoreL[k] = found;
+                        prev = m;
+                    }
+                    runCount[ly] = n;
+                });
+                var rowOff = new int[bh + 1];
+                for (int ly = 0; ly < bh; ly++) {
+                    rowOff[ly + 1] = rowOff[ly] + runCount[ly];
+                }
+                int R = rowOff[bh];
+                if (R == 0) {
+                    return;   // マッチ皆無
+                }
+
+                runX0 = s_intPool.Rent(R);
+                runX1 = s_intPool.Rent(R);
+                Parallel.For(0, bh, ccPo, ly => {
+                    int grb = (ly + minY) * w + minX;
+                    int k = rowOff[ly];
+                    int lx = 0;
+                    while (lx < bw) {
+                        int gi = grb + lx;
+                        if (!(strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin)) { lx++; continue; }
+                        int s0 = lx;
+                        while (lx < bw && strength[grb + lx] > 0f && px[grb + lx].a >= OpaqueAlphaMin) {
+                            lx++;
+                        }
+                        runX0[k] = s0; runX1[k] = lx - 1; k++;
                     }
                 });
-                for (int r = 0; r < R; r++)
-                    if (runCore[r] != 0) hasCore[comp[r]] = true;
-            }
-            finally
-            {
-                s_bytePool.Return(runCore);
-            }
 
-            // 陰影の明度下限: 成分ごとに「下限に達する画素の割合」を集計する(全 run 走査)。
-            // 「1 画素でも達すれば残す」では、暗い別部位に同色の明るい縁取りが地続きで付いている
-            // だけで成分全体が残る(実測: 桃ベージュ上衣の床 0.52 に対し、暗紫ジャケットは縁取り
-            // Color2 が同色の明色なので生き残った)。割合で判定する。
-            // 別パーツの彩度上限・色相幅も同じ形で数える(包絡の内側の画素の割合)。それぞれ独立に判定し、
-            // 全部を満たす成分だけを残す(暗すぎる・鮮やかすぎる・色相がずれている、は別々の証拠)。
-            bool[] reachesFloor = null;
-            if (useFloor)
-            {
-                var total = new int[compCount];
-                var reach = useValueFloor ? new int[compCount] : null;
-                var within = useSatCeil ? new int[compCount] : null;
-                var inBand = useHueBand ? new int[compCount] : null;
-                // run ごとの数を行並列で数える(run の画素数は x1 - x0 + 1 なので数え直さない)。
-                int* runReach = useValueFloor ? s_intPool.Rent(R) : null;
-                int* runWithin = useSatCeil ? s_intPool.Rent(R) : null;
-                int* runInBand = useHueBand ? s_intPool.Rent(R) : null;
-                try
-                {
-                    var runX0C = runX0; var runX1C = runX1;
-                    var rReach = runReach; var rWithin = runWithin; var rInBand = runInBand;
-                    Parallel.For(0, bh, ccPo, ly =>
-                    {
-                        int grb = (ly + minY) * w + minX;
-                        for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
-                        {
-                            int x0 = runX0C[k], x1 = runX1C[k];
-                            if (useValueFloor)
-                            {
-                                int n = 0;
-                                for (int lx = x0; lx <= x1; lx++)
-                                    if (pixV[HsvSlot(pixIdx, grb + lx)] >= shadowValueFloor) n++;
-                                rReach[k] = n;
-                            }
-                            if (useSatCeil)
-                            {
-                                int n = 0;
-                                for (int lx = x0; lx <= x1; lx++)
-                                    if (pixS[HsvSlot(pixIdx, grb + lx)] <= partSatCeiling) n++;
-                                rWithin[k] = n;
-                            }
-                            if (useHueBand)
-                            {
-                                int n = 0;
-                                for (int lx = x0; lx <= x1; lx++)
-                                {
-                                    int gi = grb + lx;
-                                    if (pixS[HsvSlot(pixIdx, gi)] < hueMinSat) { n++; continue; }   // 色相が不安定 = 反証にしない
-                                    float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, gi)] - sampleH);
-                                    if (hd > 0.5f) hd = 1f - hd;
-                                    if (hd < partHueBand) n++;
-                                }
-                                rInBand[k] = n;
-                            }
+                parent = s_intPool.Rent(R);
+                for (int r = 0; r < R; r++) {
+                    parent[r] = r;
+                }
+                var par = parent;
+                int Find(int x) {
+                    while (par[x] != x) { par[x] = par[par[x]]; x = par[x]; }
+                    return x;
+                }
+                for (int ly = 0; ly + 1 < bh; ly++) {
+                    if ((ly & 1023) == 0) {
+                        ct.ThrowIfCancellationRequested();
+                    }
+                    int i = rowOff[ly], iEnd = rowOff[ly + 1];
+                    int j = rowOff[ly + 1], jEnd = rowOff[ly + 2];
+                    while (i < iEnd && j < jEnd) {
+                        if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i]) {
+                            int a = Find(i), b = Find(j);
+                            if (a != b) { if (b < a) { int t = a; a = b; b = t; } par[b] = a; }
                         }
-                    });
-                    for (int r = 0; r < R; r++)
-                    {
-                        int c = comp[r];
-                        total[c] += runX1[r] - runX0[r] + 1;
-                        if (useValueFloor) reach[c] += runReach[r];
-                        if (useSatCeil) within[c] += runWithin[r];
-                        if (useHueBand) inBand[c] += runInBand[r];
+                        if (runX1[i] < runX1[j]) {
+                            i++;
+                        } else {
+                            j++;
+                        }
                     }
                 }
-                finally
-                {
-                    if (runInBand != null) s_intPool.Return(runInBand);
-                    if (runWithin != null) s_intPool.Return(runWithin);
-                    if (runReach != null) s_intPool.Return(runReach);
-                }
-                reachesFloor = new bool[compCount];
-                for (int c = 0; c < compCount; c++)
-                    reachesFloor[c] = (!useValueFloor || reach[c] >= total[c] * ShadowFloorKeepFrac)
-                                   && (!useSatCeil || within[c] >= total[c] * ShadowFloorKeepFrac)
-                                   && (!useHueBand || inBand[c] >= total[c] * PartHueKeepFrac);
-                // スポイト位置を含む成分は包絡ゲートで落とさない(上の summary 参照)。
-                if (anchorX >= minX && anchorX <= maxX && anchorY >= minY && anchorY <= maxY)
-                {
-                    int aly = anchorY - minY, alx = anchorX - minX;
-                    for (int k = rowOff[aly]; k < rowOff[aly + 1]; k++)
-                        if (alx >= runX0[k] && alx <= runX1[k]) { reachesFloor[comp[k]] = true; break; }
-                }
-            }
 
-            // 残す成分を決定。seed 上書き優先、無効/未指定ならコア規則。
-            int keepComp = -1; // -1 = コア規則, >=0 = その成分だけ残す
-            if (seedX >= minX && seedX <= maxX && seedY >= minY && seedY <= maxY)
-            {
-                int sly = seedY - minY, slx = seedX - minX;
-                for (int k = rowOff[sly]; k < rowOff[sly + 1]; k++)
-                    if (slx >= runX0[k] && slx <= runX1[k]) { keepComp = comp[k]; break; }
-                // シードが候補領域外なら、自動アンカリングへフォールバックする。
-            }
-
-            bool coreRule = keepComp < 0;
-            if (coreRule)
-            {
-                bool anyCore = false;
-                for (int c = 0; c < compCount; c++) if (hasCore[c]) { anyCore = true; break; }
-                if (!anyCore)
-                {
-                    if (!useFloor) return; // 確信できるコアが皆無 → 絞り込まない(recall 保護)
-                    coreRule = false;      // コア規則は使わず、明度下限だけを適用する
+                // 成分番号: 結合では小さい方の根を親にするので、成分の根はその成分で最も小さい run の番号になる。
+                // r の小さい順に見れば、根に出会うのは成分の中で最初(Find(r) == r)で、残りの run は根より後に来る。
+                // 根に出会った順に番号を振るのは、以前の辞書(根 → 番号を初出の順に)と同じ番号になる。
+                comp = s_intPool.Rent(R);
+                int compCount = 0;
+                for (int r = 0; r < R; r++) {
+                    int root = Find(r);
+                    comp[r] = root == r ? compCount++ : comp[root];
                 }
-            }
 
-            var keepCompLocal = keepComp;
-            var hasCoreArr = hasCore;
-            var coreRuleL = coreRule;
-            var floorArr = reachesFloor;
-            var runX0L = runX0; var runX1L = runX1; var compL = comp;
-            Parallel.For(0, bh, ccPo, ly =>
-            {
-                int rb = (ly + minY) * w + minX;
-                for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
-                {
-                    int c = compL[k];
-                    bool keep = keepCompLocal >= 0 ? (c == keepCompLocal)
-                              : (!coreRuleL || hasCoreArr[c]) && (floorArr == null || floorArr[c]);
-                    if (keep) continue;
-                    int x1 = runX1L[k];
-                    for (int lx = runX0L[k]; lx <= x1; lx++) strength[rb + lx] = 0f;
+                // コアの有無と包絡の内側の画素数は、run ごとに行並列で数えてから成分へ足す(整数の和なので
+                // 足す順に依らない)。以前は全 run の画素を 1 スレッドでなめていた(肌のような大きい成分で律速)。
+                var hasCore = new bool[compCount];
+                byte* runCore = s_bytePool.Rent(R);
+                try {
+                    var runCoreL = runCore; var runX0C = runX0; var runX1C = runX1;
+                    float coreThr = coreThreshold;
+                    Parallel.For(0, bh, ccPo, ly => {
+                        int grb = (ly + minY) * w + minX;
+                        for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++) {
+                            byte found = 0;
+                            int x1 = runX1C[k];
+                            for (int lx = runX0C[k]; lx <= x1; lx++) {
+                                int gi = grb + lx;
+                                if (useConf ? matchConf[gi] : strength[gi] >= coreThr) { found = 1; break; }
+                            }
+                            runCoreL[k] = found;
+                        }
+                    });
+                    for (int r = 0; r < R; r++) {
+                        if (runCore[r] != 0) {
+                            hasCore[comp[r]] = true;
+                        }
+                    }
+                } finally {
+                    s_bytePool.Return(runCore);
                 }
-            });
-            }
-            finally
-            {
-                if (comp != null) s_intPool.Return(comp);
-                if (parent != null) s_intPool.Return(parent);
-                if (runX1 != null) s_intPool.Return(runX1);
-                if (runX0 != null) s_intPool.Return(runX0);
+
+                // 陰影の明度下限: 成分ごとに「下限に達する画素の割合」を集計する(全 run 走査)。
+                // 「1 画素でも達すれば残す」では、暗い別部位に同色の明るい縁取りが地続きで付いている
+                // だけで成分全体が残る(実測: 桃ベージュ上衣の床 0.52 に対し、暗紫ジャケットは縁取り
+                // Color2 が同色の明色なので生き残った)。割合で判定する。
+                // 別パーツの彩度上限・色相幅も同じ形で数える(包絡の内側の画素の割合)。それぞれ独立に判定し、
+                // 全部を満たす成分だけを残す(暗すぎる・鮮やかすぎる・色相がずれている、は別々の証拠)。
+                bool[] reachesFloor = null;
+                if (useFloor) {
+                    var total = new int[compCount];
+                    var reach = useValueFloor ? new int[compCount] : null;
+                    var within = useSatCeil ? new int[compCount] : null;
+                    var inBand = useHueBand ? new int[compCount] : null;
+                    // run ごとの数を行並列で数える(run の画素数は x1 - x0 + 1 なので数え直さない)。
+                    int* runReach = useValueFloor ? s_intPool.Rent(R) : null;
+                    int* runWithin = useSatCeil ? s_intPool.Rent(R) : null;
+                    int* runInBand = useHueBand ? s_intPool.Rent(R) : null;
+                    try {
+                        var runX0C = runX0; var runX1C = runX1;
+                        var rReach = runReach; var rWithin = runWithin; var rInBand = runInBand;
+                        Parallel.For(0, bh, ccPo, ly => {
+                            int grb = (ly + minY) * w + minX;
+                            for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++) {
+                                int x0 = runX0C[k], x1 = runX1C[k];
+                                if (useValueFloor) {
+                                    int n = 0;
+                                    for (int lx = x0; lx <= x1; lx++) {
+                                        if (pixV[HsvSlot(pixIdx, grb + lx)] >= shadowValueFloor) {
+                                            n++;
+                                        }
+                                    }
+                                    rReach[k] = n;
+                                }
+                                if (useSatCeil) {
+                                    int n = 0;
+                                    for (int lx = x0; lx <= x1; lx++) {
+                                        if (pixS[HsvSlot(pixIdx, grb + lx)] <= partSatCeiling) {
+                                            n++;
+                                        }
+                                    }
+                                    rWithin[k] = n;
+                                }
+                                if (useHueBand) {
+                                    int n = 0;
+                                    for (int lx = x0; lx <= x1; lx++) {
+                                        int gi = grb + lx;
+                                        if (pixS[HsvSlot(pixIdx, gi)] < hueMinSat) { n++; continue; }   // 色相が不安定 = 反証にしない
+                                        float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, gi)] - sampleH);
+                                        if (hd > 0.5f) {
+                                            hd = 1f - hd;
+                                        }
+                                        if (hd < partHueBand) {
+                                            n++;
+                                        }
+                                    }
+                                    rInBand[k] = n;
+                                }
+                            }
+                        });
+                        for (int r = 0; r < R; r++) {
+                            int c = comp[r];
+                            total[c] += runX1[r] - runX0[r] + 1;
+                            if (useValueFloor) {
+                                reach[c] += runReach[r];
+                            }
+                            if (useSatCeil) {
+                                within[c] += runWithin[r];
+                            }
+                            if (useHueBand) {
+                                inBand[c] += runInBand[r];
+                            }
+                        }
+                    } finally {
+                        if (runInBand != null) {
+                            s_intPool.Return(runInBand);
+                        }
+                        if (runWithin != null) {
+                            s_intPool.Return(runWithin);
+                        }
+                        if (runReach != null) {
+                            s_intPool.Return(runReach);
+                        }
+                    }
+                    reachesFloor = new bool[compCount];
+                    for (int c = 0; c < compCount; c++) {
+                        reachesFloor[c] = (!useValueFloor || reach[c] >= total[c] * ShadowFloorKeepFrac)
+                                       && (!useSatCeil || within[c] >= total[c] * ShadowFloorKeepFrac)
+                                       && (!useHueBand || inBand[c] >= total[c] * PartHueKeepFrac);
+                    }
+                    // スポイト位置を含む成分は包絡ゲートで落とさない(上の summary 参照)。
+                    if (anchorX >= minX && anchorX <= maxX && anchorY >= minY && anchorY <= maxY) {
+                        int aly = anchorY - minY, alx = anchorX - minX;
+                        for (int k = rowOff[aly]; k < rowOff[aly + 1]; k++) {
+                            if (alx >= runX0[k] && alx <= runX1[k]) { reachesFloor[comp[k]] = true; break; }
+                        }
+                    }
+                }
+
+                // 残す成分を決定。seed 上書き優先、無効/未指定ならコア規則。
+                int keepComp = -1; // -1 = コア規則, >=0 = その成分だけ残す
+                if (seedX >= minX && seedX <= maxX && seedY >= minY && seedY <= maxY) {
+                    int sly = seedY - minY, slx = seedX - minX;
+                    for (int k = rowOff[sly]; k < rowOff[sly + 1]; k++) {
+                        if (slx >= runX0[k] && slx <= runX1[k]) { keepComp = comp[k]; break; }
+                    }
+                    // シードが候補領域外なら、自動アンカリングへフォールバックする。
+                }
+
+                bool coreRule = keepComp < 0;
+                if (coreRule) {
+                    bool anyCore = false;
+                    for (int c = 0; c < compCount; c++) {
+                        if (hasCore[c]) { anyCore = true; break; }
+                    }
+                    if (!anyCore) {
+                        if (!useFloor) {
+                            return; // 確信できるコアが皆無 → 絞り込まない(recall 保護)
+                        }
+                        coreRule = false;      // コア規則は使わず、明度下限だけを適用する
+                    }
+                }
+
+                var keepCompLocal = keepComp;
+                var hasCoreArr = hasCore;
+                var coreRuleL = coreRule;
+                var floorArr = reachesFloor;
+                var runX0L = runX0; var runX1L = runX1; var compL = comp;
+                Parallel.For(0, bh, ccPo, ly => {
+                    int rb = (ly + minY) * w + minX;
+                    for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++) {
+                        int c = compL[k];
+                        bool keep = keepCompLocal >= 0 ? (c == keepCompLocal)
+                                  : (!coreRuleL || hasCoreArr[c]) && (floorArr == null || floorArr[c]);
+                        if (keep) {
+                            continue;
+                        }
+                        int x1 = runX1L[k];
+                        for (int lx = runX0L[k]; lx <= x1; lx++) {
+                            strength[rb + lx] = 0f;
+                        }
+                    }
+                });
+            } finally {
+                if (comp != null) {
+                    s_intPool.Return(comp);
+                }
+                if (parent != null) {
+                    s_intPool.Return(parent);
+                }
+                if (runX1 != null) {
+                    s_intPool.Return(runX1);
+                }
+                if (runX0 != null) {
+                    s_intPool.Return(runX0);
+                }
             }
             DropDetachedTranslucent(strength, px, w, h,
                 seedX >= 0 ? seedX : anchorX, seedX >= 0 ? seedY : anchorY, ct);
@@ -375,34 +394,40 @@ namespace Iroca
         /// 部位の縁の AA や、残した部位に重なる半透明の層は地続きなので残る。
         /// </summary>
         private static void DropDetachedTranslucent(float* strength, Color32* px, int w, int h,
-            int keepX, int keepY, CancellationToken ct)
-        {
+            int keepX, int keepY, CancellationToken ct) {
             int len = w * h;
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             // 半透明の選択画素を行並列で数え、番地の一覧にする。以降の段(種・広げる・外す)はこの一覧と
             // その 4 近傍だけを見る(以前は全画素を 1 スレッドで 3〜4 回なめていた)。
             var rowT = new int[h + 1];
-            Parallel.For(0, h, po, y =>
-            {
+            Parallel.For(0, h, po, y => {
                 int rb = y * w, n = 0;
-                for (int x = 0; x < w; x++)
-                    if (strength[rb + x] > 0f && px[rb + x].a < OpaqueAlphaMin) n++;
+                for (int x = 0; x < w; x++) {
+                    if (strength[rb + x] > 0f && px[rb + x].a < OpaqueAlphaMin) {
+                        n++;
+                    }
+                }
                 rowT[y + 1] = n;
             });
-            for (int y = 0; y < h; y++) rowT[y + 1] += rowT[y];
+            for (int y = 0; y < h; y++) {
+                rowT[y + 1] += rowT[y];
+            }
             int nT = rowT[h];
-            if (nT == 0) return;
+            if (nT == 0) {
+                return;
+            }
             int* tIdx = s_intPool.Rent(nT);
             int* stack = null;
             bool* reached = null;
-            try
-            {
+            try {
                 var tIdxL = tIdx;
-                Parallel.For(0, h, po, y =>
-                {
+                Parallel.For(0, h, po, y => {
                     int rb = y * w, k = rowT[y];
-                    for (int x = 0; x < w; x++)
-                        if (strength[rb + x] > 0f && px[rb + x].a < OpaqueAlphaMin) tIdxL[k++] = rb + x;
+                    for (int x = 0; x < w; x++) {
+                        if (strength[rb + x] > 0f && px[rb + x].a < OpaqueAlphaMin) {
+                            tIdxL[k++] = rb + x;
+                        }
+                    }
                 });
                 // reached は半透明の選択画素の番地でしか読まない(Push は IsT を確かめてから呼ぶ)ので、
                 // その番地だけを書けばよい。
@@ -411,10 +436,8 @@ namespace Iroca
                 var reachedL = reached;
                 // 種: 残った不透明な選択に 4 近傍で接する半透明の選択画素。種の判定は不透明な画素しか
                 // 読まないので、行の順に依らない。
-                Parallel.For(0, h, po, y =>
-                {
-                    for (int k = rowT[y], kEnd = rowT[y + 1]; k < kEnd; k++)
-                    {
+                Parallel.For(0, h, po, y => {
+                    for (int k = rowT[y], kEnd = rowT[y + 1]; k < kEnd; k++) {
                         int i = tIdxL[k];
                         int x = i - y * w;
                         reachedL[i] =
@@ -425,35 +448,48 @@ namespace Iroca
                     }
                 });
                 int sp = 0;
-                for (int k = 0; k < nT; k++)
-                    if (reached[tIdx[k]]) stack[sp++] = tIdx[k];
+                for (int k = 0; k < nT; k++) {
+                    if (reached[tIdx[k]]) {
+                        stack[sp++] = tIdx[k];
+                    }
+                }
                 bool IsT(int i) => strength[i] > 0f && px[i].a < OpaqueAlphaMin;
                 void Push(int i) { if (!reached[i]) { reached[i] = true; stack[sp++] = i; } }
                 // 指定位置の半透明の選択画素も種にする。届く集合は広げる順に依らない。
-                if (keepX >= 0 && keepX < w && keepY >= 0 && keepY < h && IsT(keepY * w + keepX))
+                if (keepX >= 0 && keepX < w && keepY >= 0 && keepY < h && IsT(keepY * w + keepX)) {
                     Push(keepY * w + keepX);
-                while (sp > 0)
-                {
+                }
+                while (sp > 0) {
                     int i = stack[--sp];
                     int x = i % w, y = i / w;
-                    if (x > 0 && IsT(i - 1)) Push(i - 1);
-                    if (x + 1 < w && IsT(i + 1)) Push(i + 1);
-                    if (y > 0 && IsT(i - w)) Push(i - w);
-                    if (y + 1 < h && IsT(i + w)) Push(i + w);
+                    if (x > 0 && IsT(i - 1)) {
+                        Push(i - 1);
+                    }
+                    if (x + 1 < w && IsT(i + 1)) {
+                        Push(i + 1);
+                    }
+                    if (y > 0 && IsT(i - w)) {
+                        Push(i - w);
+                    }
+                    if (y + 1 < h && IsT(i + w)) {
+                        Push(i + w);
+                    }
                 }
-                Parallel.For(0, h, po, y =>
-                {
-                    for (int k = rowT[y], kEnd = rowT[y + 1]; k < kEnd; k++)
-                    {
+                Parallel.For(0, h, po, y => {
+                    for (int k = rowT[y], kEnd = rowT[y + 1]; k < kEnd; k++) {
                         int i = tIdxL[k];
-                        if (!reachedL[i]) strength[i] = 0f;
+                        if (!reachedL[i]) {
+                            strength[i] = 0f;
+                        }
                     }
                 });
-            }
-            finally
-            {
-                if (stack != null) s_intPool.Return(stack);
-                if (reached != null) s_boolPool.Return(reached);
+            } finally {
+                if (stack != null) {
+                    s_intPool.Return(stack);
+                }
+                if (reached != null) {
+                    s_boolPool.Return(reached);
+                }
                 s_intPool.Return(tIdx);
             }
         }

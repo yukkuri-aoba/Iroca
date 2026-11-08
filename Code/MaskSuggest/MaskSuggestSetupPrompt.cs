@@ -3,8 +3,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// AI(Sentis + 配布モデル)の準備を求めるダイアログ。
     ///
@@ -20,8 +19,7 @@ namespace Iroca
     /// 使えない状態が残った。開いた時点の案内は非モーダルの帯へ移してある
     /// (MaskSuggestSection.DrawSetupBanner)。
     /// </summary>
-    internal static class MaskSuggestSetupPrompt
-    {
+    internal static class MaskSuggestSetupPrompt {
         /// <summary>AI が今すぐ使える(Sentis あり・モデルファイルあり)か。</summary>
         public static bool Ready => MaskSuggestBridge.Available && MaskSuggestBridge.ModelFilesPresent;
 
@@ -29,39 +27,51 @@ namespace Iroca
         /// 必要なら導入/ダウンロードのダイアログを出す。
         /// 戻り値 = 何らかの準備(導入・ダウンロード)を開始したか。
         /// </summary>
-        public static bool PromptIfNeeded()
-        {
-            if (Application.isBatchMode) return false;
+        public static bool PromptIfNeeded() {
+            if (Application.isBatchMode) {
+                return false;
+            }
 
-            if (!MaskSuggestBridge.Available)
-            {
-                if (MaskSuggestInstall.InProgress) return false;
+            if (!MaskSuggestBridge.Available) {
+                if (MaskSuggestInstall.InProgress) {
+                    return false;
+                }
                 // .onnx を取り込む別のパッケージがあるときは、ぶつかることを伝える確認画面だけを出す(既定は導入しない)。
-                if (MaskSuggestInstall.OnnxImporterConflicts().Count > 0)
-                {
+                if (MaskSuggestInstall.OnnxImporterConflicts().Count > 0) {
                     bool anyway = MaskSuggestInstall.ConfirmDespiteOnnxConflicts();
-                    if (anyway) MaskSuggestInstall.StartInstall();
+                    if (anyway) {
+                        MaskSuggestInstall.StartInstall();
+                    }
                     return anyway;
                 }
                 string replaced = MaskSuggestInstall.VersionThatWouldBeReplaced();
                 string body = string.Format(Localization.AiSetupSentisBody, MaskSuggestInstall.SentisPackageVersion);
-                if (replaced != null)
+                if (replaced != null) {
                     body += "\n\n" + string.Format(Localization.AiSuggestSentisVersionReplace,
                         replaced, MaskSuggestInstall.SentisPackageVersion);
+                }
                 bool go = EditorUtility.DisplayDialog(Localization.AiSetupTitle, body,
                     Localization.AiSetupInstall, Localization.AiSetupLater);
-                if (go) MaskSuggestInstall.StartInstall();
+                if (go) {
+                    MaskSuggestInstall.StartInstall();
+                }
                 return go;
             }
 
             MaskSuggestBridge.MigrateLegacyModelsIfNeeded();
-            if (MaskSuggestBridge.ModelFilesPresent) return false;
-            if (MaskSuggestModelDownload.InProgress) return false;
+            if (MaskSuggestBridge.ModelFilesPresent) {
+                return false;
+            }
+            if (MaskSuggestModelDownload.InProgress) {
+                return false;
+            }
             bool dl = EditorUtility.DisplayDialog(Localization.AiSetupTitle,
                 string.Format(Localization.AiSetupModelBody,
                     MaskSuggestBridge.ModelsDirectory, MaskSuggestModelDownload.BaseUrl),
                 Localization.AiSetupDownload, Localization.AiSetupLater);
-            if (dl) MaskSuggestModelDownload.Start();
+            if (dl) {
+                MaskSuggestModelDownload.Start();
+            }
             return dl;
         }
     }

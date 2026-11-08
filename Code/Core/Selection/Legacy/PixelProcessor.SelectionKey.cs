@@ -6,12 +6,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     // 旧の選択の、選択キャッシュを使ってよいかの判定: 選択に効く入力の鍵、除外が変わっても照合が同じかの
     // 確かめ、保存する「残す」のビット。
-    internal static unsafe partial class PixelProcessor
-    {
+    internal static unsafe partial class PixelProcessor {
         // 「選択(マッチ→ブラー)に影響する入力だけ」から決定論的なキーを作る。
         // ターゲット色・valueBlend・出力彩度・シャドウ脱彩・wash・autoRecolorAnchor は **含めない**
         // (これらは再着色のみに効くので、変えてもキーは同じ=選択キャッシュがヒットする)。float は
@@ -21,8 +19,7 @@ namespace Iroca
         // internal はハーネスの --selkey-audit が直接呼ぶため(名前の文字列で反射して呼ぶと、改名がコンパイルで分からない)。
         internal static string BuildSelectionKey(
             ColorZone z, float edgeFeather, int aaCleanup, int holeFillPasses, int holeFillMinNeighbors,
-            float relaxedSatMin, float relaxedSatRamp, int maskW, int maskH, bool mixtureBand)
-        {
+            float relaxedSatMin, float relaxedSatRamp, int maskW, int maskH, bool mixtureBand) {
             var sb = new StringBuilder(320);
             void F(float v) { sb.Append(BitConverter.SingleToInt32Bits(v)); sb.Append(','); }
             void I(int v) { sb.Append(v); sb.Append(','); }
@@ -33,7 +30,9 @@ namespace Iroca
             C(z.sampleColor);
             int extraN = z.extraSamples?.Count ?? 0;
             I(extraN);
-            for (int i = 0; i < extraN; i++) C(z.extraSamples[i]);
+            for (int i = 0; i < extraN; i++) {
+                C(z.extraSamples[i]);
+            }
             F(z.tolerance);
             F(z.uvRect.x); F(z.uvRect.y); F(z.uvRect.width); F(z.uvRect.height);
             B(z.useFloodFill); F(z.seedUV.x); F(z.seedUV.y); F(z.sampleUV.x); F(z.sampleUV.y);
@@ -68,54 +67,58 @@ namespace Iroca
         private static bool ExclusionChangeKeepsMatch(ColorZone zone, Color32* originalPixels, PixelHsv hsv,
             int w, int h, int[] colOf, int[] rowBase,
             int maskW, int maskH, ulong* oldCommon, ulong* oldZone, ulong* newCommon, ulong* newZone,
-            bool usesMatchConf, ParallelOptions po)
-        {
-            if (colOf == null) return true;   // マスクの表が無い = どちらでも除外なし
+            bool usesMatchConf, ParallelOptions po) {
+            if (colOf == null) {
+                return true;   // マスクの表が無い = どちらでも除外なし
+            }
             var rows = new bool[maskH];
             int words = MaskWordCount(maskW, maskH);
             long changed = 0;
-            for (int wi = 0; wi < words; wi++)
-            {
+            for (int wi = 0; wi < words; wi++) {
                 ulong d = (MaskWord(oldCommon, wi) | MaskWord(oldZone, wi))
                         ^ (MaskWord(newCommon, wi) | MaskWord(newZone, wi));
-                if (d == 0UL) continue;
+                if (d == 0UL) {
+                    continue;
+                }
                 changed += Bits.PopCount(d);
                 MarkMaskRows(rows, wi, maskW, maskH);
             }
-            if (changed == 0) return true;
-            if (changed > (long)maskW * maskH / 16) return false;
+            if (changed == 0) {
+                return true;
+            }
+            if (changed > (long)maskW * maskH / 16) {
+                return false;
+            }
 
             bool usesPot = zone.highlightRecovery;
             int failed = 0;
-            Parallel.For(0, h, po, (y, loop) =>
-            {
-                if (!rows[rowBase[y] / maskW] || Volatile.Read(ref failed) != 0) return;
+            Parallel.For(0, h, po, (y, loop) => {
+                if (!rows[rowBase[y] / maskW] || Volatile.Read(ref failed) != 0) {
+                    return;
+                }
                 int rowOff = y * w;
-                for (int x = 0; x < w; x++)
-                {
+                for (int x = 0; x < w; x++) {
                     int idx = rowBase[y] + colOf[x];
                     bool was = MaskSnapshot.GetBit(oldCommon, idx) || MaskSnapshot.GetBit(oldZone, idx);
                     bool now = MaskSnapshot.GetBit(newCommon, idx) || MaskSnapshot.GetBit(newZone, idx);
-                    if (was == now) continue;
+                    if (was == now) {
+                        continue;
+                    }
                     int i = rowOff + x;
                     float s, hPot, mc;
                     if (zone.mode == SelectionMode.ColorPick
-                        && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc))
-                    {
+                        && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc)) {
                         Color.RGBToHSV(qc, out float qh, out float qs, out float qv);
                         zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x, y, w, h,
                             out s, out hPot, out mc);
-                    }
-                    else
-                    {
+                    } else {
                         int k = HsvSlot(hsv.Index, i);
                         zone.GetMatchScoresPrecomputedHSV(hsv.H[k], hsv.S[k], hsv.V[k], (Color)originalPixels[i],
                             x, y, w, h, out s, out hPot, out mc);
                     }
                     if (BitConverter.SingleToInt32Bits(s) != 0
                         || (usesPot && BitConverter.SingleToInt32Bits(hPot) != 0)
-                        || (usesMatchConf && BitConverter.SingleToInt32Bits(mc) != 0))
-                    {
+                        || (usesMatchConf && BitConverter.SingleToInt32Bits(mc) != 0)) {
                         Volatile.Write(ref failed, 1);
                         loop.Stop();
                         return;

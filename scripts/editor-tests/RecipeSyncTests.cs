@@ -6,16 +6,14 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// いろかの窓が、外(git の pull・バックアップからの復元など)で書き換わったレシピを古い内容で上書きしないこと。
     /// 外からの変更は、Unity が .asset を取り込み直してレシピの sessionJson が新しい文字列になるのと同じ形
     /// (RecipeStore を通さない代入)で再現する。窓自身の保存と、Undo でレシピが前の中身へ戻ったときは
     /// 外からの変更と取り違えない(編集が消えない)こと。
     /// </summary>
-    public class RecipeSyncTests
-    {
+    public class RecipeSyncTests {
         private TestAssets _assets;
         private string _tex;
         private string _guid;
@@ -25,8 +23,7 @@ namespace Iroca.EditorTests
         private IrocaWindow _win;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _assets = TestAssets.Create();
             _tex = _assets.WritePng("tex", TestAssets.Solid(4, 4, new Color32(200, 50, 50, 255)), 4, 4);
             _guid = AssetDatabase.AssetPathToGUID(_tex);
@@ -44,20 +41,24 @@ namespace Iroca.EditorTests
         }
 
         [TearDown]
-        public void TearDown()
-        {
-            if (_win != null)
-            {
+        public void TearDown() {
+            if (_win != null) {
                 Undo.ClearUndo(_win);
                 Object.DestroyImmediate(_win);
             }
             _win = null;
-            if (_prefBefore == null) EditorPrefs.DeleteKey(_prefKey);
-            else EditorPrefs.SetString(_prefKey, _prefBefore);
-            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
-            {
-                if (!Directory.Exists(dir)) continue;
-                foreach (var f in Directory.GetFiles(dir, _guid + "*")) File.Delete(f);
+            if (_prefBefore == null) {
+                EditorPrefs.DeleteKey(_prefKey);
+            } else {
+                EditorPrefs.SetString(_prefKey, _prefBefore);
+            }
+            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                if (!Directory.Exists(dir)) {
+                    continue;
+                }
+                foreach (var f in Directory.GetFiles(dir, _guid + "*")) {
+                    File.Delete(f);
+                }
             }
             _assets.Dispose();
         }
@@ -65,8 +66,7 @@ namespace Iroca.EditorTests
         // 再読み込みのときにマスクのファイルが読めなくても(ウイルス対策ソフトのロックなど)、レシピの同じマスクを使う。
         // 空のまま進むと、次の保存でレシピのマスクまで空になり、開き直すとファイルも消えて戻らなかった。
         [Test]
-        public void MaskFileUnreadable_UsesTheRecipeMasks_AndKeepsThemInTheRecipe()
-        {
+        public void MaskFileUnreadable_UsesTheRecipeMasks_AndKeepsThemInTheRecipe() {
             _win.Editing.Masks.Reset(4, 4);
             _win.Editing.Masks.WritableCommon().Set(3, true);
             Save();
@@ -75,21 +75,18 @@ namespace Iroca.EditorTests
             string file = Directory.GetFiles(MaskFileStore.CacheDir, _guid + "*")[0];
             File.WriteAllText(file, "{ broken");
             LogAssert.ignoreFailingMessages = true;
-            try
-            {
+            try {
                 _win._maskView.RestoreFromSession();
                 Assert.IsNotNull(_win.Editing.Masks.Common, "レシピのマスクを使っていない");
                 Assert.IsTrue(_win.Editing.Masks.Common.Get(3));
                 Save();
-            }
-            finally { LogAssert.ignoreFailingMessages = false; }
+            } finally { LogAssert.ignoreFailingMessages = false; }
             StringAssert.StartsWith("R:", RecipeStore.Load(_recipe).maskState.commonMaskBase64, "保存でレシピのマスクが消えた");
             Assert.AreEqual("{ broken", File.ReadAllText(file + ".bak"), "読めなかったファイルを退避していない");
         }
 
         [Test]
-        public void OwnSaves_AreWrittenToTheRecipe()
-        {
+        public void OwnSaves_AreWrittenToTheRecipe() {
             SetZoneName("窓で直した内容");
             Save();
             Assert.AreEqual("窓で直した内容", RecipeZoneName());
@@ -99,8 +96,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ExternalChange_IsNotOverwritten_AndIsReloaded()
-        {
+        public void ExternalChange_IsNotOverwritten_AndIsReloaded() {
             SetZoneName("窓の古い内容");
             ChangeOutside("Git で取り込んだ内容");
 
@@ -117,8 +113,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ReimportWithTheSameContent_IsNotAnExternalChange()
-        {
+        public void ReimportWithTheSameContent_IsNotAnExternalChange() {
             // 同じ中身で取り込み直された(文字列の参照だけが変わった)なら、窓の編集をそのまま保存する。
             _recipe.sessionJson = new string(_recipe.sessionJson.ToCharArray());
             SetZoneName("窓で直した内容");
@@ -127,8 +122,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void RecipeRestoredByUndo_IsAdopted()
-        {
+        public void RecipeRestoredByUndo_IsAdopted() {
             // 前に同期したことのある中身へレシピが戻った(自動化 API の色替えを Ctrl+Z した)なら、外からの変更ではない。
             string registered = _recipe.sessionJson;
             SetZoneName("窓で直した内容");
@@ -141,8 +135,7 @@ namespace Iroca.EditorTests
             Assert.AreEqual("Undo の後に直した内容", RecipeZoneName(), "Undo で戻ったレシピを外からの変更と取り違えた");
         }
 
-        private static IrocaSessionState State(string zoneName)
-        {
+        private static IrocaSessionState State(string zoneName) {
             var s = IrocaSessionState.CreateDefault();
             s.zones.Add(new ColorZone { name = zoneName });
             return s;
@@ -150,8 +143,7 @@ namespace Iroca.EditorTests
 
         // 自動保存とビルド直前の書き出しでレシピの中身が揺れない(揺れると .asset の書き換えとキャッシュの作り直しが増える)。
         [Test]
-        public void RecipeJson_IsTheSameEveryTime()
-        {
+        public void RecipeJson_IsTheSameEveryTime() {
             Save();
             string saved = _recipe.sessionJson;
             var state = RecipeStore.Load(_recipe);

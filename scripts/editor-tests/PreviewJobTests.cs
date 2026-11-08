@@ -5,22 +5,20 @@ using System.Diagnostics;
 using System.Threading;
 using NUnit.Framework;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// <see cref="PreviewJob{T}"/> は、キャンセルした前の計算が抜け終わってから次の計算を始める
     /// (同じジョブの計算が重なると、作業配列のプールがもう 1 組を借りてずっと持ち続けるため)。
     /// 重ならないこと・最後の結果だけが適用されること・途中でキャンセルされた計算は始めないこと・
     /// 前の計算が例外で終わっても次が動くことを確かめる。
     /// </summary>
-    public class PreviewJobTests
-    {
-        private static void PumpUntil(Func<bool> done, int timeoutMs = 10000)
-        {
+    public class PreviewJobTests {
+        private static void PumpUntil(Func<bool> done, int timeoutMs = 10000) {
             var sw = Stopwatch.StartNew();
-            while (!done())
-            {
-                if (sw.ElapsedMilliseconds > timeoutMs) throw new TimeoutException("ジョブが終わらない");
+            while (!done()) {
+                if (sw.ElapsedMilliseconds > timeoutMs) {
+                    throw new TimeoutException("ジョブが終わらない");
+                }
                 PreviewJobMainThread.Drain();
                 Thread.Sleep(2);
             }
@@ -28,39 +26,32 @@ namespace Iroca.EditorTests
         }
 
         // キャンセルされるまで待ち、気づいてからも少しのあいだ動き続ける(作業配列を返すまでの後始末に相当)。
-        private static int BlockUntilCancelled(CancellationToken token, ref int running, ref int maxRunning, ManualResetEventSlim started)
-        {
+        private static int BlockUntilCancelled(CancellationToken token, ref int running, ref int maxRunning, ManualResetEventSlim started) {
             int now = Interlocked.Increment(ref running);
             InterlockedMax(ref maxRunning, now);
             started?.Set();
-            try
-            {
+            try {
                 token.WaitHandle.WaitOne(5000);
                 Thread.Sleep(50);
                 token.ThrowIfCancellationRequested();
                 return -1;
-            }
-            finally { Interlocked.Decrement(ref running); }
+            } finally { Interlocked.Decrement(ref running); }
         }
 
-        private static void InterlockedMax(ref int target, int value)
-        {
+        private static void InterlockedMax(ref int target, int value) {
             int cur;
             while ((cur = Volatile.Read(ref target)) < value && Interlocked.CompareExchange(ref target, value, cur) != cur) { }
         }
 
         [Test]
-        public void NextWorkStartsAfterCancelledWorkUnwinds()
-        {
+        public void NextWorkStartsAfterCancelledWorkUnwinds() {
             using (var job = new PreviewJob<int>())
-            using (var started = new ManualResetEventSlim())
-            {
+            using (var started = new ManualResetEventSlim()) {
                 int running = 0, maxRunning = 0, applied = 0;
                 job.Schedule(t => BlockUntilCancelled(t, ref running, ref maxRunning, started), r => applied = r);
                 Assert.IsTrue(started.Wait(5000), "1 本目が始まらない");
 
-                job.Schedule(t =>
-                {
+                job.Schedule(t => {
                     int now = Interlocked.Increment(ref running);
                     InterlockedMax(ref maxRunning, now);
                     Interlocked.Decrement(ref running);
@@ -75,24 +66,19 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void WorkCancelledBeforeItStartsIsSkipped()
-        {
+        public void WorkCancelledBeforeItStartsIsSkipped() {
             using (var job = new PreviewJob<int>())
-            using (var started = new ManualResetEventSlim())
-            {
+            using (var started = new ManualResetEventSlim()) {
                 int running = 0, maxRunning = 0, applied = 0, startedCount = 0;
-                job.Schedule(t =>
-                {
+                job.Schedule(t => {
                     Interlocked.Increment(ref startedCount);
                     return BlockUntilCancelled(t, ref running, ref maxRunning, started);
                 }, r => applied = r);
                 Assert.IsTrue(started.Wait(5000), "1 本目が始まらない");
 
                 // 1 本目が抜ける前に続けて投げる。間の 3 本は始まる前にキャンセルされるので、計算しない。
-                for (int i = 0; i < 3; i++)
-                {
-                    job.Schedule(t =>
-                    {
+                for (int i = 0; i < 3; i++) {
+                    job.Schedule(t => {
                         Interlocked.Increment(ref startedCount);
                         return BlockUntilCancelled(t, ref running, ref maxRunning, null);
                     }, r => applied = r);
@@ -107,10 +93,8 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void FailedWorkDoesNotBlockNextWork()
-        {
-            using (var job = new PreviewJob<int>())
-            {
+        public void FailedWorkDoesNotBlockNextWork() {
+            using (var job = new PreviewJob<int>()) {
                 Exception error = null;
                 job.Schedule(t => throw new InvalidOperationException("boom"), r => { }, ex => error = ex);
                 PumpUntil(() => error != null);
@@ -127,12 +111,10 @@ namespace Iroca.EditorTests
         // (ジョブが読むために足した NativePixels の参照を返す所なので、取りこぼすと Mono のヒープの外に残る)。
         // 計算は済んだが apply しなかった結果は discard に渡る。
         [Test]
-        public void CleanupRunsOnceForEveryScheduleAndStaleResultsAreDiscarded()
-        {
+        public void CleanupRunsOnceForEveryScheduleAndStaleResultsAreDiscarded() {
             using (var job = new PreviewJob<int>())
             using (var started = new ManualResetEventSlim())
-            using (var release = new ManualResetEventSlim())
-            {
+            using (var release = new ManualResetEventSlim()) {
                 int cleanups = 0, applied = 0;
                 var discarded = new System.Collections.Concurrent.ConcurrentBag<int>();
                 // 1 本目: 取り消しを無視して最後まで計算する(結果は古くなるので discard へ)。
@@ -158,8 +140,7 @@ namespace Iroca.EditorTests
 
         // 破棄済みのジョブへの予約は計算しないが、後始末は呼ぶ(呼び出し側が足した参照を返すため)。
         [Test]
-        public void ScheduleAfterDisposeStillRunsCleanup()
-        {
+        public void ScheduleAfterDisposeStillRunsCleanup() {
             var job = new PreviewJob<int>();
             job.Dispose();
             int cleanups = 0, applied = 0;
@@ -172,8 +153,7 @@ namespace Iroca.EditorTests
         // 使い回しの出力バッファは、プールだけが参照を持っているもの(参照 1)しか渡さない。
         // 拡大表示の切り出し中・シーンへの反映中のもの(ほかの持ち主がいる)は渡さず、閉じたら全部手放す。
         [Test]
-        public void OutputBuffersHandOutOnlyUnsharedBuffersAndReleaseOnClear()
-        {
+        public void OutputBuffersHandOutOnlyUnsharedBuffersAndReleaseOnClear() {
             long before = IrocaNativeMemory.LiveBytes;
             var buffers = new PreviewOutputBuffers();
             var a = NativePixels.Allocate(8, 8);
@@ -206,16 +186,14 @@ namespace Iroca.EditorTests
         // 閉じたとき(ReleaseWhenIdle)に計算中だったジョブの作業配列は、走り終わった後に OS へ返す
         // (その時点の空きを返すだけだと、後からプールへ戻ってきて残り続ける)。
         [Test]
-        public unsafe void ReleaseWhenIdle_ReturnsWorkBuffersOfJobsStillRunning()
-        {
+        public unsafe void ReleaseWhenIdle_ReturnsWorkBuffersOfJobsStillRunning() {
             PixelProcessor.ReleaseWorkBuffers();
             long before = IrocaNativeMemory.LiveBytes;
             using var rented = new ManualResetEventSlim(false);
             using var gate = new ManualResetEventSlim(false);
             var job = new PreviewJob<int>();
             bool applied = false;
-            job.Schedule(t =>
-            {
+            job.Schedule(t => {
                 float* p = WorkPools.Float.Rent(1 << 20);
                 rented.Set();
                 gate.Wait(10000);
@@ -232,14 +210,12 @@ namespace Iroca.EditorTests
 
         // 手放す予約が無ければ、計算が終わっても手放さない(編集中は次の計算で使い回す)。
         [Test]
-        public unsafe void JobWithoutReleaseRequest_KeepsWorkBuffersPooled()
-        {
+        public unsafe void JobWithoutReleaseRequest_KeepsWorkBuffersPooled() {
             PixelProcessor.ReleaseWorkBuffers();
             long before = IrocaNativeMemory.LiveBytes;
             var job = new PreviewJob<int>();
             bool applied = false;
-            job.Schedule(t =>
-            {
+            job.Schedule(t => {
                 float* p = WorkPools.Float.Rent(1 << 20);
                 WorkPools.Float.Return(p);
                 return 1;
@@ -251,12 +227,12 @@ namespace Iroca.EditorTests
         }
 
         // 解放はスレッドプールで行うので、ネイティブメモリが atMost 以下になるまで少し待つ。
-        internal static bool WaitForNativeBytes(long atMost, int timeoutMs = 5000)
-        {
+        internal static bool WaitForNativeBytes(long atMost, int timeoutMs = 5000) {
             var sw = Stopwatch.StartNew();
-            while (IrocaNativeMemory.LiveBytes > atMost)
-            {
-                if (sw.ElapsedMilliseconds > timeoutMs) return false;
+            while (IrocaNativeMemory.LiveBytes > atMost) {
+                if (sw.ElapsedMilliseconds > timeoutMs) {
+                    return false;
+                }
                 Thread.Sleep(10);
             }
             return true;

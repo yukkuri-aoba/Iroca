@@ -5,49 +5,47 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// プリセットを編集状態へ写す規則(<see cref="PresetApplier"/>)と、UI の読み込み(<see cref="EditingSession.ApplyPreset"/>)。
     /// 古い優先順位の移行・id・マスクの写し方、読み込みが Undo 1 ステップでゾーン・マスクごと戻ること、
     /// マスクを読み込まないときは今のマスクを残すこと。古い版のファイルそのものは OldFormatLoadTests が見る。
     /// </summary>
-    public class PresetApplierTests
-    {
+    public class PresetApplierTests {
         private const int W = 6, H = 2;
 
         private IrocaEditingDocument _host;
         private EditingSession _editing;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _host = ScriptableObject.CreateInstance<IrocaEditingDocument>();
             _editing = new EditingSession(_host);
             Undo.ClearUndo(_host);
         }
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             Undo.ClearUndo(_host);
             _editing.Masks.Clear();
             Object.DestroyImmediate(_host);
         }
 
-        private static bool[] Bits(params int[] on)
-        {
+        private static bool[] Bits(params int[] on) {
             var m = new bool[W * H];
-            foreach (int i in on) m[i] = true;
+            foreach (int i in on) {
+                m[i] = true;
+            }
             return m;
         }
 
         private static string Rle(bool[] m) => MaskRle.Encode(m, W, H);
 
-        private static bool[] ToBools(NativeBitMask m)
-        {
+        private static bool[] ToBools(NativeBitMask m) {
             var b = new bool[m.Length];
-            for (int i = 0; i < b.Length; i++) b[i] = m.Get(i);
+            for (int i = 0; i < b.Length; i++) {
+                b[i] = m.Get(i);
+            }
             return b;
         }
 
@@ -55,8 +53,7 @@ namespace Iroca.EditorTests
             new ColorZone { name = name, layerIndex = layer, id = id };
 
         [Test]
-        public void LegacyLayerPriority_SortsDescendingOnlyWhenTheyDiffer()
-        {
+        public void LegacyLayerPriority_SortsDescendingOnlyWhenTheyDiffer() {
             var zones = new List<ColorZone> { Zone("a", 0), Zone("b", 2), Zone("c", 1), Zone("d", 2) };
             PresetApplier.MigrateLegacyLayerPriority(zones);
             CollectionAssert.AreEqual(new[] { "b", "d", "c", "a" }, zones.ConvertAll(z => z.name), "大きい順・同値は元の並び");
@@ -67,12 +64,10 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ApplyZonesAndSettings_GivesIdsAndKeepsEditMode()
-        {
+        public void ApplyZonesAndSettings_GivesIdsAndKeepsEditMode() {
             var state = IrocaSessionState.CreateDefault();
             state.editMode = EditMode.Advanced;
-            var preset = new IrocaPresetData
-            {
+            var preset = new IrocaPresetData {
                 zones = { Zone("a", 0, "keep"), Zone("b", 0) },
                 antiAliasCleanup = 0,
                 holeFillPasses = 3,
@@ -87,8 +82,7 @@ namespace Iroca.EditorTests
 
         // 並べ替えて保存したプリセットを読み直しても、古い優先度で並びが戻らない。
         [Test]
-        public void LegacyPriorityMigration_RunsOnlyOnce()
-        {
+        public void LegacyPriorityMigration_RunsOnlyOnce() {
             var zones = new List<ColorZone> { Zone("a", 1), Zone("b", 5) };
             PresetApplier.MigrateLegacyLayerPriority(zones);
             Assert.AreEqual("b", zones[0].name);
@@ -100,11 +94,9 @@ namespace Iroca.EditorTests
 
         // 連続領域の起点は、同じテクスチャへ読むときだけ残す。
         [Test]
-        public void Seed_IsKeptOnlyOnTheSameTexture()
-        {
+        public void Seed_IsKeptOnlyOnTheSameTexture() {
             var seed = new Vector2(0.25f, 0.5f);
-            IrocaPresetData Preset(string guid)
-            {
+            IrocaPresetData Preset(string guid) {
                 var z = Zone("a", 0);
                 z.seedUV = seed;
                 return new IrocaPresetData { sourceTextureGuid = guid, zones = { z } };
@@ -122,20 +114,18 @@ namespace Iroca.EditorTests
 
         // プリセットでない JSON を渡しても、既存のゾーンを空で置き換えない。
         [Test]
-        public void JsonWithoutZones_IsNotAPreset()
-        {
+        public void JsonWithoutZones_IsNotAPreset() {
             Assert.IsNull(PresetStore.Parse("{\"foo\":1}"));
             Assert.IsNotNull(PresetStore.Parse("{\"zones\":[]}"));
         }
 
         [Test]
-        public void MaskStateOf_CopiesEntriesAndSkipsBlankIds()
-        {
+        public void MaskStateOf_CopiesEntriesAndSkipsBlankIds() {
             Assert.AreEqual(0, PresetApplier.MaskStateOf(new IrocaPresetData()).width, "寸法が無ければマスクなし");
 
-            var preset = new IrocaPresetData
-            {
-                maskWidth = W, maskHeight = H,
+            var preset = new IrocaPresetData {
+                maskWidth = W,
+                maskHeight = H,
                 commonMaskBase64 = Rle(Bits(0)),
                 zoneMasks = { new ZoneMaskEntry { zoneId = "z", maskBase64 = Rle(Bits(1)) }, new ZoneMaskEntry { zoneId = "" } },
                 zoneIncludeMasks = { new ZoneMaskEntry { zoneId = "z", maskBase64 = null } },
@@ -148,23 +138,21 @@ namespace Iroca.EditorTests
             Assert.AreEqual("", ms.zoneIncludes[0].maskBase64, "null は空にする(展開で読み飛ばされる)");
         }
 
-        private IrocaPresetData PresetWithMask(out string zoneId, out bool[] mask)
-        {
+        private IrocaPresetData PresetWithMask(out string zoneId, out bool[] mask) {
             var z = Zone("p", 0);
             z.EnsureId();
             zoneId = z.id;
             mask = Bits(2, 3);
-            return new IrocaPresetData
-            {
+            return new IrocaPresetData {
                 zones = { z },
-                maskWidth = W, maskHeight = H,
+                maskWidth = W,
+                maskHeight = H,
                 zoneMasks = { new ZoneMaskEntry { zoneId = z.id, maskBase64 = Rle(mask) } },
             };
         }
 
         [Test]
-        public void ApplyPreset_ReplacesZonesAndMasksAsOneUndoStep()
-        {
+        public void ApplyPreset_ReplacesZonesAndMasksAsOneUndoStep() {
             _editing.AddZone();
             string before = _host.session.zones[0].id;
             var common = Bits(5);
@@ -190,8 +178,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ApplyPreset_WithoutMasksKeepsCurrentMasks()
-        {
+        public void ApplyPreset_WithoutMasksKeepsCurrentMasks() {
             var common = Bits(1, 4);
             _editing.Masks.Reset(W, H);
             _editing.Masks.SetCommon(NativeBitMask.FromBools(common, W, H));

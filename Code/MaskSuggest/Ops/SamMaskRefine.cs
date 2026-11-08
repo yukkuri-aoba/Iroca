@@ -4,8 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// AI マスク提案の境界色スナップ(純計算)。
     ///
@@ -22,8 +21,7 @@ namespace Iroca
     /// スレッド間の浮動小数集約なし」で保証する(集計はグリッド行単位に分割し、同一セルへの
     /// 書き込みを単一タスクに閉じる)。結果は逐次実行とビット同一。
     /// </summary>
-    internal static unsafe class SamMaskRefine
-    {
+    internal static unsafe class SamMaskRefine {
         /// <summary>確信領域の平均色に必要な最小画素数(これ未満の側があれば再分類しない)。</summary>
         const int MinSamples = 16;
 
@@ -33,8 +31,7 @@ namespace Iroca
         /// token を渡すと Parallel.For がパーティション境界でキャンセルを観測する
         /// (破棄確定の後処理が計算用のスレッドを占有し続け、次クリックの計算と奪い合うのを防ぐ)。
         /// </summary>
-        internal static ParallelOptions MakeParallelOptions(System.Threading.CancellationToken token = default) => new ParallelOptions
-        {
+        internal static ParallelOptions MakeParallelOptions(System.Threading.CancellationToken token = default) => new ParallelOptions {
             CancellationToken = token,
             MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(),
         };
@@ -52,16 +49,14 @@ namespace Iroca
         /// mean[g*channels+k] = sum/cnt(double 除算)。SnapBoundary / ExtendFringe /
         /// IncludeAaTransition の各段が共有する(配列の確保と後段の無効化は呼び出し側)。
         /// </summary>
-        static void ComputeCellModes(long* sum, int* cnt, int cells, int channels, double* mean, bool* valid)
-        {
-            for (int g = 0; g < cells; g++)
-            {
-                if (cnt[g] >= MinCellSamples)
-                {
+        static void ComputeCellModes(long* sum, int* cnt, int cells, int channels, double* mean, bool* valid) {
+            for (int g = 0; g < cells; g++) {
+                if (cnt[g] >= MinCellSamples) {
                     valid[g] = true;
                     int o = g * channels;
-                    for (int k = 0; k < channels; k++)
+                    for (int k = 0; k < channels; k++) {
                         mean[o + k] = sum[o + k] / (double)cnt[g];
+                    }
                 }
             }
         }
@@ -120,42 +115,55 @@ namespace Iroca
         /// 帯幅などの定数は全画像の寸法から決める(各段に sizeW・sizeH として渡す)。
         /// </summary>
         internal static bool TryDeriveRefineCropRect(bool[] mask, int w, int h, System.Threading.CancellationToken token,
-            out bool empty, out int rx0, out int ry0, out int rw, out int rh)
-        {
+            out bool empty, out int rx0, out int ry0, out int rw, out int rh) {
             rx0 = ry0 = rw = rh = 0;
             empty = false;
-            if (mask == null || mask.Length != w * h) return false;
-            fixed (bool* m = mask) return TryDeriveRefineCropRect(m, w, h, token, out empty, out rx0, out ry0, out rw, out rh);
+            if (mask == null || mask.Length != w * h) {
+                return false;
+            }
+            fixed (bool* m = mask) {
+                return TryDeriveRefineCropRect(m, w, h, token, out empty, out rx0, out ry0, out rw, out rh);
+            }
         }
 
         /// <summary><see cref="TryDeriveRefineCropRect(bool[], int, int, System.Threading.CancellationToken, out bool, out int, out int, out int, out int)"/> のポインタ版(mask は w*h 個)。</summary>
         internal static bool TryDeriveRefineCropRect(bool* mask, int w, int h, System.Threading.CancellationToken token,
-            out bool empty, out int rx0, out int ry0, out int rw, out int rh)
-        {
+            out bool empty, out int rx0, out int ry0, out int rw, out int rh) {
             rx0 = ry0 = rw = rh = 0;
             empty = false;
-            if (mask == null) return false;
+            if (mask == null) {
+                return false;
+            }
             var rowMin = new int[h];
             var rowMax = new int[h];
-            Parallel.For(0, h, MakeParallelOptions(token), y =>
-            {
+            Parallel.For(0, h, MakeParallelOptions(token), y => {
                 int row = y * w, mn = -1, mx = -1;
-                for (int x = 0; x < w; x++)
-                {
-                    if (!mask[row + x]) continue;
-                    if (mn < 0) mn = x;
+                for (int x = 0; x < w; x++) {
+                    if (!mask[row + x]) {
+                        continue;
+                    }
+                    if (mn < 0) {
+                        mn = x;
+                    }
                     mx = x;
                 }
                 rowMin[y] = mn;
                 rowMax[y] = mx;
             });
             int bx0 = w, by0 = h, bx1 = -1, by1 = -1;
-            for (int y = 0; y < h; y++)
-            {
-                if (rowMin[y] < 0) continue;
-                if (rowMin[y] < bx0) bx0 = rowMin[y];
-                if (rowMax[y] > bx1) bx1 = rowMax[y];
-                if (y < by0) by0 = y;
+            for (int y = 0; y < h; y++) {
+                if (rowMin[y] < 0) {
+                    continue;
+                }
+                if (rowMin[y] < bx0) {
+                    bx0 = rowMin[y];
+                }
+                if (rowMax[y] > bx1) {
+                    bx1 = rowMax[y];
+                }
+                if (y < by0) {
+                    by0 = y;
+                }
                 by1 = y;
             }
             if (bx1 < 0) { empty = true; return false; }
@@ -264,21 +272,27 @@ namespace Iroca
         /// </summary>
         /// <summary><see cref="ExtendFringe(bool*, Color32*, int, int, System.Threading.CancellationToken, int, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void ExtendFringe(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
-                                        System.Threading.CancellationToken token = default)
-        {
-            if (mask == null || mask.Length != w * h) return;
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) return;
+                                        System.Threading.CancellationToken token = default) {
+            if (mask == null || mask.Length != w * h) {
+                return;
+            }
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) {
+                return;
+            }
             fixed (bool* m = mask)
-            fixed (Color32* p = pixelsBottomUp) ExtendFringe(m, p, w, h, token);
+            fixed (Color32* p = pixelsBottomUp) {
+                ExtendFringe(m, p, w, h, token);
+            }
         }
 
         /// <param name="sizeW">帯幅などの定数を決める画像の寸法(0 なら w・h)。切り出しで回すとき全画像の寸法を渡す
         /// (<see cref="TryDeriveRefineCropRect"/>)。</param>
         public static void ExtendFringe(bool* mask, Color32* pixelsBottomUp, int w, int h,
                                         System.Threading.CancellationToken token = default,
-                                        int sizeW = 0, int sizeH = 0)
-        {
-            if (mask == null || pixelsBottomUp == null) return;
+                                        int sizeW = 0, int sizeH = 0) {
+            if (mask == null || pixelsBottomUp == null) {
+                return;
+            }
             if (sizeW <= 0 || sizeH <= 0) { sizeW = w; sizeH = h; }
 
             int maxDim = Mathf.Max(sizeW, sizeH);
@@ -305,28 +319,24 @@ namespace Iroca
             int* cnt = scratch.Int(gw * gh, clear: true);
             long* sumIn = scratch.Long(gw * gh * 3, clear: true);
             int* cntIn = scratch.Int(gw * gh, clear: true);
-            Parallel.For(0, gh, po, gy =>
-            {
+            Parallel.For(0, gh, po, gy => {
                 int gRow = gy * gw;
                 int yEnd = System.Math.Min(h, (gy + 1) * d);
-                for (int y = gy * d; y < yEnd; y++)
-                {
+                for (int y = gy * d; y < yEnd; y++) {
                     int row = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
+                    for (int x = 0; x < w; x++) {
                         int i = row + x;
                         bool confOut = !mask[i] && distOut[i] > d;
                         bool confIn = mask[i] && distIn[i] > d;
-                        if (!confOut && !confIn) continue;
+                        if (!confOut && !confIn) {
+                            continue;
+                        }
                         int g = gRow + x / d;
                         var c = pixelsBottomUp[i];
-                        if (confOut)
-                        {
+                        if (confOut) {
                             int o = g * 3;
                             sum[o] += c.r; sum[o + 1] += c.g; sum[o + 2] += c.b; cnt[g]++;
-                        }
-                        else
-                        {
+                        } else {
                             int o = g * 3;
                             sumIn[o] += c.r; sumIn[o + 1] += c.g; sumIn[o + 2] += c.b; cntIn[g]++;
                         }
@@ -350,23 +360,23 @@ namespace Iroca
             // 房画素が「背景に近い」と誤判定されて成長が止まる。近傍 5x5 セル内のどれかの
             // 内側モードと同色(しきい以内)の外側モードは生地の可能性が高いため除外する
             // (プール平均時代は希釈で偶然無害だった汚染の、モード化に伴う明示対処)。
-            for (int gy = 0; gy < gh; gy++)
-            {
+            for (int gy = 0; gy < gh; gy++) {
                 int gy0 = Mathf.Max(0, gy - FringeWindowRadius), gy1 = Mathf.Min(gh - 1, gy + FringeWindowRadius);
-                for (int gx = 0; gx < gw; gx++)
-                {
+                for (int gx = 0; gx < gw; gx++) {
                     int g = gy * gw + gx;
-                    if (!cellValid[g]) continue;
+                    if (!cellValid[g]) {
+                        continue;
+                    }
                     int o = g * 3;
                     int gx0 = Mathf.Max(0, gx - FringeWindowRadius), gx1 = Mathf.Min(gw - 1, gx + FringeWindowRadius);
                     bool fabricLike = false;
-                    for (int yy = gy0; yy <= gy1 && !fabricLike; yy++)
-                    {
+                    for (int yy = gy0; yy <= gy1 && !fabricLike; yy++) {
                         int gr = yy * gw;
-                        for (int xx = gx0; xx <= gx1; xx++)
-                        {
+                        for (int xx = gx0; xx <= gx1; xx++) {
                             int g2 = gr + xx;
-                            if (!inValid[g2]) continue;
+                            if (!inValid[g2]) {
+                                continue;
+                            }
                             int o2 = g2 * 3;
                             double dr = cellMean[o] - inMean[o2],
                                    dg = cellMean[o + 1] - inMean[o2 + 1],
@@ -374,7 +384,9 @@ namespace Iroca
                             if (dr * dr + dg * dg + db * db <= thr2) { fabricLike = true; break; }
                         }
                     }
-                    if (fabricLike) cellValid[g] = false;
+                    if (fabricLike) {
+                        cellValid[g] = false;
+                    }
                 }
             }
 
@@ -395,45 +407,50 @@ namespace Iroca
             int fringeBand = reach + strandHalf;
             bool* far = scratch.Bool(w * h, clear: true);
             bool* nearBg = scratch.Bool(w * h, clear: true);
-            Parallel.For(0, h, po, y =>
-            {
+            Parallel.For(0, h, po, y => {
                 int gy = y / d, row = y * w;
                 int gy0 = Mathf.Max(0, gy - FringeWindowRadius), gy1 = Mathf.Min(gh - 1, gy + FringeWindowRadius);
-                for (int x = 0; x < w; x++)
-                {
+                for (int x = 0; x < w; x++) {
                     int i = row + x;
-                    if (mask[i] ? distIn[i] > strandHalf : distOut[i] > fringeBand) continue;
+                    if (mask[i] ? distIn[i] > strandHalf : distOut[i] > fringeBand) {
+                        continue;
+                    }
                     int gx = x / d;
                     int gx0 = Mathf.Max(0, gx - FringeWindowRadius), gx1 = Mathf.Min(gw - 1, gx + FringeWindowRadius);
                     var c = pixelsBottomUp[i];
                     long sr = 0, sg = 0, sb = 0; int n = 0;
                     double minD = double.MaxValue;
-                    for (int yy = gy0; yy <= gy1; yy++)
-                    {
+                    for (int yy = gy0; yy <= gy1; yy++) {
                         int gr = yy * gw;
-                        for (int xx = gx0; xx <= gx1; xx++)
-                        {
+                        for (int xx = gx0; xx <= gx1; xx++) {
                             int g = gr + xx, o = g * 3;
                             sr += sum[o]; sg += sum[o + 1]; sb += sum[o + 2]; n += cnt[g];
-                            if (!cellValid[g]) continue;
+                            if (!cellValid[g]) {
+                                continue;
+                            }
                             double dr = c.r - cellMean[o], dg = c.g - cellMean[o + 1],
                                    db = c.b - cellMean[o + 2];
                             double dd = dr * dr + dg * dg + db * db;
-                            if (dd < minD) minD = dd;
+                            if (dd < minD) {
+                                minD = dd;
+                            }
                         }
                     }
                     if (n < MinSamples) { nearBg[i] = true; continue; } // bg 不明 → 育てない側に倒す
                     double dist2;
-                    if (minD != double.MaxValue) dist2 = minD;
-                    else
-                    {
+                    if (minD != double.MaxValue) {
+                        dist2 = minD;
+                    } else {
                         // モードを成すセルが無い散在サンプル → 従来のプール平均で判定
                         double mr = sr / (double)n, mg = sg / (double)n, mb = sb / (double)n;
                         double dr = c.r - mr, dg = c.g - mg, db = c.b - mb;
                         dist2 = dr * dr + dg * dg + db * db;
                     }
-                    if (dist2 > thr2) far[i] = true;
-                    else nearBg[i] = true;
+                    if (dist2 > thr2) {
+                        far[i] = true;
+                    } else {
+                        nearBg[i] = true;
+                    }
                 }
             });
 
@@ -444,23 +461,27 @@ namespace Iroca
             //  1 パス逐次走査しており、そのパスを丸ごと削減する)。
             bool* growZone = scratch.Bool(w * h, clear: true);
             var rowSeeds = new System.Collections.Generic.List<int>[h];
-            Parallel.For(0, h, po, y =>
-            {
+            Parallel.For(0, h, po, y => {
                 int row = y * w;
                 System.Collections.Generic.List<int> seeds = null;
-                for (int x = 0; x < w; x++)
-                {
+                for (int x = 0; x < w; x++) {
                     int i = row + x;
-                    if (mask[i] || !far[i] || distOut[i] > reach) continue;
+                    if (mask[i] || !far[i] || distOut[i] > reach) {
+                        continue;
+                    }
                     int x0 = Mathf.Max(0, x - strandHalf), x1 = Mathf.Min(w - 1, x + strandHalf);
                     bool horizNear = false;
-                    for (int xx = x0; xx <= x1; xx++)
+                    for (int xx = x0; xx <= x1; xx++) {
                         if (nearBg[row + xx]) { horizNear = true; break; }
-                    if (!horizNear) continue;
+                    }
+                    if (!horizNear) {
+                        continue;
+                    }
                     growZone[i] = true;
                     if ((x > 0 && mask[i - 1]) || (x < w - 1 && mask[i + 1]) ||
-                        (y > 0 && mask[i - w]) || (y < h - 1 && mask[i + w]))
+                        (y > 0 && mask[i - w]) || (y < h - 1 && mask[i + w])) {
                         (seeds ??= new System.Collections.Generic.List<int>()).Add(x);
+                    }
                 }
                 rowSeeds[y] = seeds;
             });
@@ -471,21 +492,20 @@ namespace Iroca
             // キュー要素は (y<<16)|x のパック座標(デキューごとの %w・/w を除去。Unity の
             // 最大テクスチャ 16384 でも 16bit に収まる)。
             var queue = new System.Collections.Generic.Queue<int>();
-            for (int y = 0; y < h; y++)
-            {
+            for (int y = 0; y < h; y++) {
                 var seeds = rowSeeds[y];
-                if (seeds == null) continue;
+                if (seeds == null) {
+                    continue;
+                }
                 int row = y * w;
-                for (int k = 0; k < seeds.Count; k++)
-                {
+                for (int k = 0; k < seeds.Count; k++) {
                     int x = seeds[k];
                     int i = row + x;
                     mask[i] = true; growZone[i] = false; queue.Enqueue((y << 16) | x);
                 }
             }
             int visited = 0;
-            while (queue.Count > 0)
-            {
+            while (queue.Count > 0) {
                 int packed = queue.Dequeue();
                 int x = packed & 0xFFFF, y = packed >> 16;
                 int i = y * w + x;
@@ -493,7 +513,9 @@ namespace Iroca
                 if (x < w - 1 && growZone[i + 1]) { mask[i + 1] = true; growZone[i + 1] = false; queue.Enqueue((y << 16) | (x + 1)); }
                 if (y > 0 && growZone[i - w]) { mask[i - w] = true; growZone[i - w] = false; queue.Enqueue(((y - 1) << 16) | x); }
                 if (y < h - 1 && growZone[i + w]) { mask[i + w] = true; growZone[i + w] = false; queue.Enqueue(((y + 1) << 16) | x); }
-                if ((++visited & 0xFFFF) == 0) token.ThrowIfCancellationRequested();
+                if ((++visited & 0xFFFF) == 0) {
+                    token.ThrowIfCancellationRequested();
+                }
             }
         }
 
@@ -502,20 +524,26 @@ namespace Iroca
         /// </summary>
         /// <summary><see cref="SnapBoundary(bool*, Color32*, int, int, System.Threading.CancellationToken, int, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void SnapBoundary(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
-                                        System.Threading.CancellationToken token = default)
-        {
-            if (mask == null || mask.Length != w * h) return;
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) return;
+                                        System.Threading.CancellationToken token = default) {
+            if (mask == null || mask.Length != w * h) {
+                return;
+            }
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) {
+                return;
+            }
             fixed (bool* m = mask)
-            fixed (Color32* p = pixelsBottomUp) SnapBoundary(m, p, w, h, token);
+            fixed (Color32* p = pixelsBottomUp) {
+                SnapBoundary(m, p, w, h, token);
+            }
         }
 
         /// <param name="sizeW">帯幅を決める画像の寸法(0 なら w・h)。切り出しで回すとき全画像の寸法を渡す。</param>
         public static void SnapBoundary(bool* mask, Color32* pixelsBottomUp, int w, int h,
                                         System.Threading.CancellationToken token = default,
-                                        int sizeW = 0, int sizeH = 0)
-        {
-            if (mask == null || pixelsBottomUp == null) return;
+                                        int sizeW = 0, int sizeH = 0) {
+            if (mask == null || pixelsBottomUp == null) {
+                return;
+            }
             if (sizeW <= 0 || sizeH <= 0) { sizeW = w; sizeH = h; }
 
             // 不確実帯の半幅: SAM 低解像度セルの 3/4(±半セルの理論誤差+マージン)。
@@ -539,29 +567,25 @@ namespace Iroca
             long* sumOut = scratch.Long(gw * gh * 4, clear: true);
             int* cntIn = scratch.Int(gw * gh, clear: true);
             int* cntOut = scratch.Int(gw * gh, clear: true);
-            Parallel.For(0, gh, po, gy =>
-            {
+            Parallel.For(0, gh, po, gy => {
                 int gRow = gy * gw;
                 int yEnd = System.Math.Min(h, (gy + 1) * d);
-                for (int y = gy * d; y < yEnd; y++)
-                {
+                for (int y = gy * d; y < yEnd; y++) {
                     int row = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
+                    for (int x = 0; x < w; x++) {
                         int i = row + x;
                         bool confIn = mask0[i] && distIn[i] > d;
                         bool confOut = !mask0[i] && distOut[i] > d;
-                        if (!confIn && !confOut) continue;
+                        if (!confIn && !confOut) {
+                            continue;
+                        }
                         int g = gRow + x / d;
                         var c = pixelsBottomUp[i];
-                        if (confIn)
-                        {
+                        if (confIn) {
                             int o = g * 4;
                             sumIn[o] += c.r; sumIn[o + 1] += c.g; sumIn[o + 2] += c.b; sumIn[o + 3] += c.a;
                             cntIn[g]++;
-                        }
-                        else
-                        {
+                        } else {
                             int o = g * 4;
                             sumOut[o] += c.r; sumOut[o + 1] += c.g; sumOut[o + 2] += c.b; sumOut[o + 3] += c.a;
                             cntOut[g]++;
@@ -583,15 +607,15 @@ namespace Iroca
             // 帯画素の再分類。元の mask を読みながら書き換えると統計自体は粗グリッド由来なので
             // 影響しない(確信領域は帯外で不変)。判定入力は mask0/統計(読み取り専用)、
             // 書き込みは自画素のみなので行並列で決定的。
-            Parallel.For(0, h, po, y =>
-            {
+            Parallel.For(0, h, po, y => {
                 int row = y * w;
                 int gy = y / d;
-                for (int x = 0; x < w; x++)
-                {
+                for (int x = 0; x < w; x++) {
                     int i = row + x;
                     bool inBand = mask0[i] ? distIn[i] <= d : distOut[i] <= d;
-                    if (!inBand) continue;
+                    if (!inBand) {
+                        continue;
+                    }
 
                     // 近傍半径2セル(5x5相当)から開始し、片側でも統計不足なら半径を広げて
                     // 再集計する。先細りウェッジ等、局所幅が帯より狭い形状では片側の確信領域が
@@ -601,48 +625,51 @@ namespace Iroca
                     long ir = 0, ig = 0, ib = 0, ia = 0, or_ = 0, og = 0, ob = 0, oa = 0;
                     int ic = 0, oc = 0;
                     double minIn = double.MaxValue, minOut = double.MaxValue;
-                    for (int radius = MinWindowRadius; radius <= MaxWindowRadius; radius += 2)
-                    {
+                    for (int radius = MinWindowRadius; radius <= MaxWindowRadius; radius += 2) {
                         ir = ig = ib = ia = or_ = og = ob = oa = 0; ic = 0; oc = 0;
                         minIn = minOut = double.MaxValue;
                         int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
                         int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
-                        for (int yy = gy0; yy <= gy1; yy++)
-                        {
+                        for (int yy = gy0; yy <= gy1; yy++) {
                             int gRow = yy * gw;
-                            for (int xx = gx0; xx <= gx1; xx++)
-                            {
+                            for (int xx = gx0; xx <= gx1; xx++) {
                                 int g = gRow + xx;
                                 int o = g * 4;
-                                if (cntIn[g] > 0)
-                                {
+                                if (cntIn[g] > 0) {
                                     ir += sumIn[o]; ig += sumIn[o + 1]; ib += sumIn[o + 2]; ia += sumIn[o + 3];
                                     ic += cntIn[g];
-                                    if (validIn[g])
-                                    {
+                                    if (validIn[g]) {
                                         double dd = Dist2Mean(c, meanIn, o);
-                                        if (dd < minIn) minIn = dd;
+                                        if (dd < minIn) {
+                                            minIn = dd;
+                                        }
                                     }
                                 }
-                                if (cntOut[g] > 0)
-                                {
+                                if (cntOut[g] > 0) {
                                     or_ += sumOut[o]; og += sumOut[o + 1]; ob += sumOut[o + 2]; oa += sumOut[o + 3];
                                     oc += cntOut[g];
-                                    if (validOut[g])
-                                    {
+                                    if (validOut[g]) {
                                         double dd = Dist2Mean(c, meanOut, o);
-                                        if (dd < minOut) minOut = dd;
+                                        if (dd < minOut) {
+                                            minOut = dd;
+                                        }
                                     }
                                 }
                             }
                         }
-                        if (ic >= MinSamples && oc >= MinSamples) break;
+                        if (ic >= MinSamples && oc >= MinSamples) {
+                            break;
+                        }
                     }
-                    if (ic < MinSamples || oc < MinSamples) continue; // 統計不足 → SAM の判定を維持
+                    if (ic < MinSamples || oc < MinSamples) {
+                        continue; // 統計不足 → SAM の判定を維持
+                    }
 
                     double dIn = minIn != double.MaxValue ? minIn : Dist2(c, ir, ig, ib, ia, ic);
                     double dOut = minOut != double.MaxValue ? minOut : Dist2(c, or_, og, ob, oa, oc);
-                    if (dIn == dOut) continue;
+                    if (dIn == dOut) {
+                        continue;
+                    }
                     mask[i] = dIn < dOut;
                 }
             });
@@ -676,20 +703,26 @@ namespace Iroca
         /// </summary>
         /// <summary><see cref="PeelThinSpill(bool*, Color32*, int, int, System.Threading.CancellationToken, int, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void PeelThinSpill(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
-                                         System.Threading.CancellationToken token = default)
-        {
-            if (mask == null || mask.Length != w * h) return;
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) return;
+                                         System.Threading.CancellationToken token = default) {
+            if (mask == null || mask.Length != w * h) {
+                return;
+            }
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) {
+                return;
+            }
             fixed (bool* m = mask)
-            fixed (Color32* p = pixelsBottomUp) PeelThinSpill(m, p, w, h, token);
+            fixed (Color32* p = pixelsBottomUp) {
+                PeelThinSpill(m, p, w, h, token);
+            }
         }
 
         /// <param name="sizeW">帯幅を決める画像の寸法(0 なら w・h)。切り出しで回すとき全画像の寸法を渡す。</param>
         public static void PeelThinSpill(bool* mask, Color32* pixelsBottomUp, int w, int h,
                                          System.Threading.CancellationToken token = default,
-                                         int sizeW = 0, int sizeH = 0)
-        {
-            if (mask == null || pixelsBottomUp == null) return;
+                                         int sizeW = 0, int sizeH = 0) {
+            if (mask == null || pixelsBottomUp == null) {
+                return;
+            }
             if (sizeW <= 0 || sizeH <= 0) { sizeW = w; sizeH = h; }
             var px = pixelsBottomUp;
             var po = MakeParallelOptions(token);
@@ -700,28 +733,39 @@ namespace Iroca
             // マスクの外接矩形を、足す探索の届く距離と地色の窓(最大半径のセル)の分だけ広げた矩形の中で扱う。
             var rowMin = new int[h];
             var rowMax = new int[h];
-            Parallel.For(0, h, po, y =>
-            {
+            Parallel.For(0, h, po, y => {
                 int row = y * w, mn = -1, mx = -1;
-                for (int x = 0; x < w; x++)
-                {
-                    if (!mask[row + x]) continue;
-                    if (mn < 0) mn = x;
+                for (int x = 0; x < w; x++) {
+                    if (!mask[row + x]) {
+                        continue;
+                    }
+                    if (mn < 0) {
+                        mn = x;
+                    }
                     mx = x;
                 }
                 rowMin[y] = mn;
                 rowMax[y] = mx;
             });
             int x0 = w, y0 = h, x1 = -1, y1 = -1;
-            for (int y = 0; y < h; y++)
-            {
-                if (rowMin[y] < 0) continue;
-                if (rowMin[y] < x0) x0 = rowMin[y];
-                if (rowMax[y] > x1) x1 = rowMax[y];
-                if (y < y0) y0 = y;
+            for (int y = 0; y < h; y++) {
+                if (rowMin[y] < 0) {
+                    continue;
+                }
+                if (rowMin[y] < x0) {
+                    x0 = rowMin[y];
+                }
+                if (rowMax[y] > x1) {
+                    x1 = rowMax[y];
+                }
+                if (y < y0) {
+                    y0 = y;
+                }
                 y1 = y;
             }
-            if (x1 < 0) return;
+            if (x1 < 0) {
+                return;
+            }
             int margin = PeelRectMargin(d);
             x0 = Mathf.Max(0, x0 - margin); y0 = Mathf.Max(0, y0 - margin);
             x1 = Mathf.Min(w - 1, x1 + margin); y1 = Mathf.Min(h - 1, y1 + margin);
@@ -732,31 +776,33 @@ namespace Iroca
 
             // 行ごとの連(マスク画素の横並び。終端は含まない)。
             var runCount = new int[bh];
-            Parallel.For(0, bh, po, ly =>
-            {
+            Parallel.For(0, bh, po, ly => {
                 int row = (ly + oy) * w + ox, n = 0;
                 bool prev = false;
-                for (int lx = 0; lx < bw; lx++)
-                {
+                for (int lx = 0; lx < bw; lx++) {
                     bool m = mask[row + lx];
-                    if (m && !prev) n++;
+                    if (m && !prev) {
+                        n++;
+                    }
                     prev = m;
                 }
                 runCount[ly] = n;
             });
             var runFirst = new int[bh + 1];
-            for (int ly = 0; ly < bh; ly++) runFirst[ly + 1] = runFirst[ly] + runCount[ly];
+            for (int ly = 0; ly < bh; ly++) {
+                runFirst[ly + 1] = runFirst[ly] + runCount[ly];
+            }
             int nRuns = runFirst[bh];
             var runX0 = new int[nRuns];
             var runX1 = new int[nRuns];
-            Parallel.For(0, bh, po, ly =>
-            {
+            Parallel.For(0, bh, po, ly => {
                 int row = (ly + oy) * w + ox, r = runFirst[ly];
-                for (int lx = 0; lx < bw;)
-                {
+                for (int lx = 0; lx < bw;) {
                     if (!mask[row + lx]) { lx++; continue; }
                     int s = lx;
-                    while (lx < bw && mask[row + lx]) lx++;
+                    while (lx < bw && mask[row + lx]) {
+                        lx++;
+                    }
                     runX0[r] = s;
                     runX1[r] = lx;
                     r++;
@@ -765,25 +811,29 @@ namespace Iroca
 
             // 上下の行で横の範囲が重なる連を結ぶ(= 縦の 4 近傍連結)。
             var parent = new int[nRuns];
-            for (int r = 0; r < nRuns; r++) parent[r] = r;
-            for (int ly = 1; ly < bh; ly++)
-            {
+            for (int r = 0; r < nRuns; r++) {
+                parent[r] = r;
+            }
+            for (int ly = 1; ly < bh; ly++) {
                 int a = runFirst[ly - 1], aEnd = runFirst[ly];
                 int b = runFirst[ly], bEnd = runFirst[ly + 1];
-                while (a < aEnd && b < bEnd)
-                {
-                    if (runX0[a] < runX1[b] && runX0[b] < runX1[a])
-                    {
+                while (a < aEnd && b < bEnd) {
+                    if (runX0[a] < runX1[b] && runX0[b] < runX1[a]) {
                         int ra = FindRoot(parent, a), rb = FindRoot(parent, b);
-                        if (ra != rb) parent[System.Math.Max(ra, rb)] = System.Math.Min(ra, rb);
+                        if (ra != rb) {
+                            parent[System.Math.Max(ra, rb)] = System.Math.Min(ra, rb);
+                        }
                     }
-                    if (runX1[a] < runX1[b]) a++; else b++;
+                    if (runX1[a] < runX1[b]) {
+                        a++;
+                    } else {
+                        b++;
+                    }
                 }
             }
             var runComp = new int[nRuns];
             int nComp = 1;   // 0 = マスク外
-            for (int r = 0; r < nRuns; r++)
-            {
+            for (int r = 0; r < nRuns; r++) {
                 int root = FindRoot(parent, r);
                 runComp[r] = root == r ? nComp++ : runComp[root];
             }
@@ -795,42 +845,43 @@ namespace Iroca
                 new System.ReadOnlySpan<bool>(mask + (ly + oy) * w + ox, bw).CopyTo(new System.Span<bool>(local + ly * bw, bw)));
             var distIn = DistanceToOpposite(scratch, local, bw, bh, inside: true, token);
             var runBand = new int[nRuns];
-            Parallel.For(0, bh, po, ly =>
-            {
-                for (int r = runFirst[ly]; r < runFirst[ly + 1]; r++)
-                {
+            Parallel.For(0, bh, po, ly => {
+                for (int r = runFirst[ly]; r < runFirst[ly + 1]; r++) {
                     int n = 0, row = ly * bw;
-                    for (int lx = runX0[r]; lx < runX1[r]; lx++)
-                        if (distIn[row + lx] <= d) n++;
+                    for (int lx = runX0[r]; lx < runX1[r]; lx++) {
+                        if (distIn[row + lx] <= d) {
+                            n++;
+                        }
+                    }
                     runBand[r] = n;
                 }
             });
             var area = new int[nComp];
             var band = new int[nComp];
-            for (int r = 0; r < nRuns; r++)
-            {
+            for (int r = 0; r < nRuns; r++) {
                 area[runComp[r]] += runX1[r] - runX0[r];
                 band[runComp[r]] += runBand[r];
             }
             var thin = new bool[nComp];
             bool anyThin = false;
-            for (int c = 1; c < nComp; c++)
-            {
+            for (int c = 1; c < nComp; c++) {
                 thin[c] = band[c] >= ThinBandFracMin * area[c];
                 anyThin |= thin[c];
             }
-            if (!anyThin) return;
+            if (!anyThin) {
+                return;
+            }
             token.ThrowIfCancellationRequested();
 
             // 成分の番号を画素へ(矩形内の添字。0 = マスク外)。
             int* label = scratch.Int(bw * bh, clear: true);
-            Parallel.For(0, bh, po, ly =>
-            {
+            Parallel.For(0, bh, po, ly => {
                 int row = ly * bw;
-                for (int r = runFirst[ly]; r < runFirst[ly + 1]; r++)
-                {
+                for (int r = runFirst[ly]; r < runFirst[ly + 1]; r++) {
                     int c = runComp[r];
-                    for (int lx = runX0[r]; lx < runX1[r]; lx++) label[row + lx] = c;
+                    for (int lx = runX0[r]; lx < runX1[r]; lx++) {
+                        label[row + lx] = c;
+                    }
                 }
             });
 
@@ -840,15 +891,14 @@ namespace Iroca
             long* sumOut = scratch.Long(gw * gh * 4, clear: true);
             int* cntOut = scratch.Int(gw * gh, clear: true);
             int gy0r = oy / d, gy1r = (oy + bh - 1) / d;
-            Parallel.For(gy0r, gy1r + 1, po, gy =>
-            {
+            Parallel.For(gy0r, gy1r + 1, po, gy => {
                 int yStart = Mathf.Max(oy, gy * d), yEnd = Mathf.Min(oy + bh, (gy + 1) * d);
-                for (int y = yStart; y < yEnd; y++)
-                {
+                for (int y = yStart; y < yEnd; y++) {
                     int lrow = (y - oy) * bw;
-                    for (int lx = 0; lx < bw; lx++)
-                    {
-                        if (distOut[lrow + lx] <= d) continue;
+                    for (int lx = 0; lx < bw; lx++) {
+                        if (distOut[lrow + lx] <= d) {
+                            continue;
+                        }
                         int x = lx + ox;
                         int g = gy * gw + x / d, o = g * 4;
                         var c = px[y * w + x];
@@ -862,18 +912,17 @@ namespace Iroca
             ComputeCellModes(sumOut, cntOut, gw * gh, 4, meanOut, validOut);
 
             // 扱う範囲(near): 細い成分から reach 以内(太い成分の画素は除く)。
-            Parallel.For(0, bh, po, ly =>
-            {
+            Parallel.For(0, bh, po, ly => {
                 int row = ly * bw;
-                for (int lx = 0; lx < bw; lx++) local[row + lx] = thin[label[row + lx]];
+                for (int lx = 0; lx < bw; lx++) {
+                    local[row + lx] = thin[label[row + lx]];
+                }
             });
             var distThin = DistanceToOpposite(scratch, local, bw, bh, inside: false, token);
             bool* near = scratch.Bool(bw * bh, clear: false);   // 下で全画素に書く
-            Parallel.For(0, bh, po, ly =>
-            {
+            Parallel.For(0, bh, po, ly => {
                 int row = ly * bw;
-                for (int lx = 0; lx < bw; lx++)
-                {
+                for (int lx = 0; lx < bw; lx++) {
                     int li = row + lx;
                     near[li] = distThin[li] <= reach && (label[li] == 0 || thin[label[li]]);
                 }
@@ -883,26 +932,30 @@ namespace Iroca
             // (確信外側のセルモード)との距離² が PeelDistinctSq を超えるもの。窓を広く取るのは、地色が 2 種類ある所
             // — 余白の白と隣の部位の紺 — で、近くに白しか無い画素を「はっきり違う」と数えないため。
             bool* distinctPx = scratch.Bool(bw * bh, clear: true);
-            Parallel.For(0, bh, po, ly =>
-            {
-                for (int lx = 0; lx < bw; lx++)
-                {
+            Parallel.For(0, bh, po, ly => {
+                for (int lx = 0; lx < bw; lx++) {
                     int li = ly * bw + lx;
-                    if (label[li] == 0 || !thin[label[li]]) continue;
+                    if (label[li] == 0 || !thin[label[li]]) {
+                        continue;
+                    }
                     int x = lx + ox, y = ly + oy;
                     var c = px[y * w + x];
                     int gx = x / d, gy = y / d;
                     double best = double.MaxValue;
                     int wy0 = Mathf.Max(0, gy - MaxWindowRadius), wy1 = Mathf.Min(gh - 1, gy + MaxWindowRadius);
                     int wx0 = Mathf.Max(0, gx - MaxWindowRadius), wx1 = Mathf.Min(gw - 1, gx + MaxWindowRadius);
-                    for (int yy = wy0; yy <= wy1 && best > PeelDistinctSq; yy++)
-                        for (int xx = wx0; xx <= wx1; xx++)
-                        {
+                    for (int yy = wy0; yy <= wy1 && best > PeelDistinctSq; yy++) {
+                        for (int xx = wx0; xx <= wx1; xx++) {
                             int g = yy * gw + xx;
-                            if (!validOut[g]) continue;
+                            if (!validOut[g]) {
+                                continue;
+                            }
                             double dd = Dist2Mean(c, meanOut, g * 4);
-                            if (dd < best) best = dd;
+                            if (dd < best) {
+                                best = dd;
+                            }
                         }
+                    }
                     distinctPx[li] = best != double.MaxValue && best > PeelDistinctSq;
                 }
             });
@@ -916,25 +969,30 @@ namespace Iroca
             bool* ground = scratch.Bool(bw * bh, clear: true);
             int* queue = scratch.Int(bw * bh, clear: false);   // 積んだ所だけ読む
             int head = 0, tail = 0;
-            for (int li = 0; li < bw * bh; li++)
-            {
-                if (!near[li] || distThin[li] < reach) continue;
+            for (int li = 0; li < bw * bh; li++) {
+                if (!near[li] || distThin[li] < reach) {
+                    continue;
+                }
                 ground[li] = true;
                 queue[tail++] = li;
             }
-            while (head < tail)
-            {
+            while (head < tail) {
                 int q = queue[head++];
                 int qx = q % bw, qy = q / bw;
                 var cq = px[(qy + oy) * w + qx + ox];
-                for (int k = 0; k < 4; k++)
-                {
+                for (int k = 0; k < 4; k++) {
                     int nx = qx + (k == 0 ? 1 : k == 1 ? -1 : 0);
                     int ny = qy + (k == 2 ? 1 : k == 3 ? -1 : 0);
-                    if (nx < 0 || nx >= bw || ny < 0 || ny >= bh) continue;
+                    if (nx < 0 || nx >= bw || ny < 0 || ny >= bh) {
+                        continue;
+                    }
                     int ni = ny * bw + nx;
-                    if (ground[ni] || !near[ni]) continue;
-                    if (Dist2Px(px[(ny + oy) * w + nx + ox], cq) > PeelStepSq) continue;
+                    if (ground[ni] || !near[ni]) {
+                        continue;
+                    }
+                    if (Dist2Px(px[(ny + oy) * w + nx + ox], cq) > PeelStepSq) {
+                        continue;
+                    }
                     ground[ni] = true;
                     queue[tail++] = ni;
                 }
@@ -946,30 +1004,38 @@ namespace Iroca
             // 描き込みに囲まれた地の袋(柄の帯の中の生成り)は外周から滑らかには辿れないが、すぐ外の地と同じ色
             // なので地になる。末端の歯は本体が布の地色に近くても、すぐ周りの地(裾の暗い帯)より明るいので残る。
             int* nearestGround = scratch.Int(bw * bh, clear: false);   // 下で全画素に書く
-            for (int li = 0; li < bw * bh; li++) nearestGround[li] = ground[li] ? li : -1;
+            for (int li = 0; li < bw * bh; li++) {
+                nearestGround[li] = ground[li] ? li : -1;
+            }
             head = 0; tail = 0;
-            for (int li = 0; li < bw * bh; li++) if (ground[li]) queue[tail++] = li;
-            while (head < tail)
-            {
+            for (int li = 0; li < bw * bh; li++) {
+                if (ground[li]) {
+                    queue[tail++] = li;
+                }
+            }
+            while (head < tail) {
                 int q = queue[head++];
                 int qx = q % bw, qy = q / bw;
-                for (int k = 0; k < 4; k++)
-                {
+                for (int k = 0; k < 4; k++) {
                     int nx = qx + (k == 0 ? 1 : k == 1 ? -1 : 0);
                     int ny = qy + (k == 2 ? 1 : k == 3 ? -1 : 0);
-                    if (nx < 0 || nx >= bw || ny < 0 || ny >= bh) continue;
+                    if (nx < 0 || nx >= bw || ny < 0 || ny >= bh) {
+                        continue;
+                    }
                     int ni = ny * bw + nx;
-                    if (nearestGround[ni] >= 0 || !near[ni]) continue;
+                    if (nearestGround[ni] >= 0 || !near[ni]) {
+                        continue;
+                    }
                     nearestGround[ni] = nearestGround[q];
                     queue[tail++] = ni;
                 }
             }
-            Parallel.For(0, bh, po, ly =>
-            {
-                for (int lx = 0; lx < bw; lx++)
-                {
+            Parallel.For(0, bh, po, ly => {
+                for (int lx = 0; lx < bw; lx++) {
                     int li = ly * bw + lx, g = nearestGround[li];
-                    if (ground[li] || g < 0) continue;
+                    if (ground[li] || g < 0) {
+                        continue;
+                    }
                     ground[li] = Dist2Px(px[(ly + oy) * w + lx + ox], px[(g / bw + oy) * w + g % bw + ox])
                                  <= PeelLocalSameSq;
                 }
@@ -979,59 +1045,76 @@ namespace Iroca
             // 地を外した後の残りの半分以上がそれであること。
             var peeled = new int[nComp];
             var distinct = new int[nComp];
-            for (int li = 0; li < bw * bh; li++)
-            {
+            for (int li = 0; li < bw * bh; li++) {
                 int c = label[li];
-                if (c == 0 || !thin[c]) continue;
-                if (ground[li]) peeled[c]++;
-                else if (distinctPx[li]) distinct[c]++;
+                if (c == 0 || !thin[c]) {
+                    continue;
+                }
+                if (ground[li]) {
+                    peeled[c]++;
+                } else if (distinctPx[li]) {
+                    distinct[c]++;
+                }
             }
             var accept = new bool[nComp];
             bool anyAccept = false;
             int largest = 1;
-            for (int c = 1; c < nComp; c++)
-            {
+            for (int c = 1; c < nComp; c++) {
                 accept[c] = thin[c] && peeled[c] > 0 && distinct[c] >= PeelMinDetailFrac * area[c]
                             && distinct[c] >= 0.5f * (area[c] - peeled[c]);
                 anyAccept |= accept[c];
-                if (area[c] > area[largest]) largest = c;
+                if (area[c] > area[largest]) {
+                    largest = c;
+                }
             }
-            if (!anyAccept) return;
+            if (!anyAccept) {
+                return;
+            }
             // 提案のいちばん大きな成分が地の上の描き込みなら、提案全体が描き込みの提案。ほかの細い成分(SAM が
             // 離れた所に飛ばした小さな塊)は門を通さずに地を外す: 飛び地は落ち影だけの欠片や、提案の外にある
             // 同じ描き込み(もう 1 本のファスナー)の一部で、後者は地色のモードに数えられて「はっきり違う」画素が
             // 0 になる(実測: 右のファスナーの提案が左の上端に飛ばした 412px の塊)。部位の提案(いちばん大きな
             // 成分が太い)には効かない。
-            if (accept[largest])
-                for (int c = 1; c < nComp; c++)
-                    if (thin[c] && peeled[c] > 0) accept[c] = true;
+            if (accept[largest]) {
+                for (int c = 1; c < nComp; c++) {
+                    if (thin[c] && peeled[c] > 0) {
+                        accept[c] = true;
+                    }
+                }
+            }
 
             // 地を外し、残った描き込みから GrowGap px 以内の隙間で連なる「範囲の中の地でない画素」を足す。
             head = tail = 0;
-            for (int li = 0; li < bw * bh; li++)
-            {
+            for (int li = 0; li < bw * bh; li++) {
                 int c = label[li];
-                if (c == 0 || !accept[c]) continue;
+                if (c == 0 || !accept[c]) {
+                    continue;
+                }
                 if (ground[li]) { mask[(li / bw + oy) * w + li % bw + ox] = false; continue; }
                 queue[tail++] = li;
             }
             bool* added = local;   // 細い成分の印はもう使わないので、足した画素の印に使い回す
             new System.Span<bool>(added, bw * bh).Clear();
-            while (head < tail)
-            {
+            while (head < tail) {
                 int q = queue[head++];
                 int qx = q % bw, qy = q / bw;
-                for (int dy = -GrowGap; dy <= GrowGap; dy++)
-                {
+                for (int dy = -GrowGap; dy <= GrowGap; dy++) {
                     int ny = qy + dy;
-                    if (ny < 0 || ny >= bh) continue;
-                    for (int dx = -GrowGap; dx <= GrowGap; dx++)
-                    {
+                    if (ny < 0 || ny >= bh) {
+                        continue;
+                    }
+                    for (int dx = -GrowGap; dx <= GrowGap; dx++) {
                         int nx = qx + dx;
-                        if (nx < 0 || nx >= bw) continue;
+                        if (nx < 0 || nx >= bw) {
+                            continue;
+                        }
                         int ni = ny * bw + nx;
-                        if (label[ni] != 0 || added[ni] || !near[ni] || ground[ni]) continue;
-                        if (!InStructure(ground, near, bw, bh, nx, ny)) continue;
+                        if (label[ni] != 0 || added[ni] || !near[ni] || ground[ni]) {
+                            continue;
+                        }
+                        if (!InStructure(ground, near, bw, bh, nx, ny)) {
+                            continue;
+                        }
                         added[ni] = true;
                         mask[(ny + oy) * w + nx + ox] = true;
                         queue[tail++] = ni;
@@ -1046,36 +1129,36 @@ namespace Iroca
         /// 描き込みとして連ねないため。歯のような塊や 1px の線は満たす(実測 2026-10-12: この条件が無いと
         /// 民族柄の細い提案が粒を伝って周りの生成りへ広がり、地の滲みが 10,780 → 24,105 に増えた)。
         /// </summary>
-        static bool InStructure(bool* ground, bool* near, int bw, int bh, int lx, int ly)
-        {
+        static bool InStructure(bool* ground, bool* near, int bw, int bh, int lx, int ly) {
             int n = 0;
-            for (int dy = -1; dy <= 1; dy++)
-            {
+            for (int dy = -1; dy <= 1; dy++) {
                 int y = ly + dy;
-                if (y < 0 || y >= bh) continue;
-                for (int dx = -1; dx <= 1; dx++)
-                {
+                if (y < 0 || y >= bh) {
+                    continue;
+                }
+                for (int dx = -1; dx <= 1; dx++) {
                     int x = lx + dx;
-                    if (x < 0 || x >= bw) continue;
+                    if (x < 0 || x >= bw) {
+                        continue;
+                    }
                     int i = y * bw + x;
-                    if (near[i] && !ground[i] && ++n >= 3) return true;
+                    if (near[i] && !ground[i] && ++n >= 3) {
+                        return true;
+                    }
                 }
             }
             return false;
         }
 
         /// <summary>2 画素の RGBA 距離 2 乗。</summary>
-        static double Dist2Px(Color32 a, Color32 b)
-        {
+        static double Dist2Px(Color32 a, Color32 b) {
             double dr = a.r - b.r, dg = a.g - b.g, db = a.b - b.b, da = a.a - b.a;
             return dr * dr + dg * dg + db * db + da * da;
         }
 
         /// <summary>union-find の根(経路を半分に縮める)。</summary>
-        static int FindRoot(int[] parent, int r)
-        {
-            while (parent[r] != r)
-            {
+        static int FindRoot(int[] parent, int r) {
+            while (parent[r] != r) {
                 parent[r] = parent[parent[r]];
                 r = parent[r];
             }
@@ -1091,28 +1174,36 @@ namespace Iroca
         /// <summary><see cref="IncludeAaTransition(bool*, Color32*, int, int, System.Threading.CancellationToken, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void IncludeAaTransition(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
                                                System.Threading.CancellationToken token = default,
-                                               int dOverride = 0)
-        {
-            if (mask == null || mask.Length != w * h) return;
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) return;
+                                               int dOverride = 0) {
+            if (mask == null || mask.Length != w * h) {
+                return;
+            }
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) {
+                return;
+            }
             fixed (bool* m = mask)
-            fixed (Color32* p = pixelsBottomUp) IncludeAaTransition(m, p, w, h, token, dOverride);
+            fixed (Color32* p = pixelsBottomUp) {
+                IncludeAaTransition(m, p, w, h, token, dOverride);
+            }
         }
 
         public static void IncludeAaTransition(bool* mask, Color32* pixelsBottomUp, int w, int h,
                                                System.Threading.CancellationToken token = default,
-                                               int dOverride = 0)
-        {
-            if (mask == null || pixelsBottomUp == null) return;
+                                               int dOverride = 0) {
+            if (mask == null || pixelsBottomUp == null) {
+                return;
+            }
 
             // dOverride: クロップ実行(IncludeAaTransitionCropped)が全画像実行と同じ帯幅を使う
             // ための上書き。0 なら従来どおり自寸法から導出(既存呼び出しは全て 0 = 挙動不変)。
             int d = dOverride > 0 ? dOverride : BandHalfWidth(w, h);
 
             // soft skirt が帯幅を超える場合に境界を進めながら吸収する(追加ゼロで早期終了)。
-            for (int pass = 0; pass < AaMaxPasses; pass++)
-                if (IncludeAaTransitionPass(mask, pixelsBottomUp, w, h, d, token) == 0)
+            for (int pass = 0; pass < AaMaxPasses; pass++) {
+                if (IncludeAaTransitionPass(mask, pixelsBottomUp, w, h, d, token) == 0) {
                     break;
+                }
+            }
 
             // フェーズ2: 境界 1px リングの局所ブレンド吸収。フェーズ1 の面統計は soft skirt
             // (ぼかし縁)が近傍にある素材で外側平均が skirt 色に汚染され、階段の角に残る
@@ -1120,9 +1211,11 @@ namespace Iroca
             // (実測: 各階段角に 1 画素、再着色で点ノイズ化)。ここでは面統計を使わず、
             // 画素自身の「隣接マスク画素 m ⇄ 反対側の画素 q」を両端とする局所線分で
             // p = α·m + (1-α)·q の実混合判定を行う(統計汚染と無縁・向き非依存)。
-            for (int pass = 0; pass < AaMaxPasses; pass++)
-                if (AbsorbEdgeBlendPass(mask, pixelsBottomUp, w, h, token) == 0)
+            for (int pass = 0; pass < AaMaxPasses; pass++) {
+                if (AbsorbEdgeBlendPass(mask, pixelsBottomUp, w, h, token) == 0) {
                     break;
+                }
+            }
         }
 
         /// <summary>
@@ -1142,37 +1235,49 @@ namespace Iroca
         /// </summary>
         public static bool TryDeriveAaCropRect(bool[] mask, int w, int h,
                                                out int rx0, out int ry0, out int rw, out int rh,
-                                               out int d)
-        {
+                                               out int d) {
             rx0 = ry0 = rw = rh = 0;
             d = BandHalfWidth(w, h);
-            if (mask == null || mask.Length != w * h) return false;
-            fixed (bool* m = mask) return TryDeriveAaCropRect(m, w, h, out rx0, out ry0, out rw, out rh, out d);
+            if (mask == null || mask.Length != w * h) {
+                return false;
+            }
+            fixed (bool* m = mask) {
+                return TryDeriveAaCropRect(m, w, h, out rx0, out ry0, out rw, out rh, out d);
+            }
         }
 
         /// <summary><see cref="TryDeriveAaCropRect(bool[], int, int, out int, out int, out int, out int, out int)"/> のポインタ版(mask は w*h 個)。</summary>
         public static bool TryDeriveAaCropRect(bool* mask, int w, int h,
                                                out int rx0, out int ry0, out int rw, out int rh,
-                                               out int d)
-        {
+                                               out int d) {
             rx0 = ry0 = rw = rh = 0;
             d = BandHalfWidth(w, h);
-            if (mask == null) return false;
+            if (mask == null) {
+                return false;
+            }
 
             int bx0 = int.MaxValue, by0 = int.MaxValue, bx1 = -1, by1 = -1;
-            for (int y = 0; y < h; y++)
-            {
+            for (int y = 0; y < h; y++) {
                 int row = y * w;
-                for (int x = 0; x < w; x++)
-                {
-                    if (!mask[row + x]) continue;
-                    if (x < bx0) bx0 = x;
-                    if (x > bx1) bx1 = x;
-                    if (y < by0) by0 = y;
+                for (int x = 0; x < w; x++) {
+                    if (!mask[row + x]) {
+                        continue;
+                    }
+                    if (x < bx0) {
+                        bx0 = x;
+                    }
+                    if (x > bx1) {
+                        bx1 = x;
+                    }
+                    if (y < by0) {
+                        by0 = y;
+                    }
                     by1 = y;
                 }
             }
-            if (bx1 < 0) return false; // true 画素なし → AA 包含は no-op
+            if (bx1 < 0) {
+                return false; // true 画素なし → AA 包含は no-op
+            }
 
             int pad = Mathf.Max(15 * d, AaMaxPasses * (d + 1) + (MaxWindowRadius + 2) * d);
             rx0 = Mathf.Max(0, (bx0 - pad) / d * d);
@@ -1193,13 +1298,15 @@ namespace Iroca
         public static void IncludeAaTransitionCropped(bool[] fullMask, int w, int h,
                                                       Color32[] cropPixels,
                                                       int rx0, int ry0, int rw, int rh, int d,
-                                                      System.Threading.CancellationToken token = default)
-        {
+                                                      System.Threading.CancellationToken token = default) {
             if (fullMask == null || cropPixels == null || fullMask.Length != w * h ||
-                cropPixels.Length < rw * rh || rw <= 0 || rh <= 0) return;
+                cropPixels.Length < rw * rh || rw <= 0 || rh <= 0) {
+                return;
+            }
             fixed (bool* m = fullMask)
-            fixed (Color32* p = cropPixels)
+            fixed (Color32* p = cropPixels) {
                 IncludeAaTransitionCropped(m, w, h, p, rx0, ry0, rw, rh, d, token);
+            }
         }
 
         /// <summary>
@@ -1209,20 +1316,23 @@ namespace Iroca
         public static void IncludeAaTransitionCropped(bool* fullMask, int w, int h,
                                                       Color32* cropPixels,
                                                       int rx0, int ry0, int rw, int rh, int d,
-                                                      System.Threading.CancellationToken token = default)
-        {
-            if (fullMask == null || cropPixels == null || rw <= 0 || rh <= 0) return;
+                                                      System.Threading.CancellationToken token = default) {
+            if (fullMask == null || cropPixels == null || rw <= 0 || rh <= 0) {
+                return;
+            }
 
             using var scratch = new WorkScratch();
             bool* cropMask = scratch.Bool(rw * rh, clear: false);
-            for (int cy = 0; cy < rh; cy++)
+            for (int cy = 0; cy < rh; cy++) {
                 System.Buffer.MemoryCopy(fullMask + (long)(ry0 + cy) * w + rx0, cropMask + (long)cy * rw, rw, rw);
+            }
 
             IncludeAaTransition(cropMask, cropPixels, rw, rh, token, dOverride: d);
 
             // IncludeAaTransition は追加のみ(true→false は起きない)なので行コピーで書き戻せる。
-            for (int cy = 0; cy < rh; cy++)
+            for (int cy = 0; cy < rh; cy++) {
                 System.Buffer.MemoryCopy(cropMask + (long)cy * rw, fullMask + (long)(ry0 + cy) * w + rx0, rw, rw);
+            }
         }
 
         /// <summary>
@@ -1231,8 +1341,7 @@ namespace Iroca
         /// 書きは追加のみ(決定的・順序非依存)。別色の構造(輪郭線等)は残差ゲートで残る。
         /// </summary>
         static int AbsorbEdgeBlendPass(bool* mask, Color32* pixelsBottomUp, int w, int h,
-                                       System.Threading.CancellationToken token = default)
-        {
+                                       System.Threading.CancellationToken token = default) {
             using var scratch = new WorkScratch();
             bool* mask0 = scratch.CopyOf(mask, w * h);
             int[] ex = { 1, -1, 0, 0, 1, 1, -1, -1 };
@@ -1242,21 +1351,26 @@ namespace Iroca
             int added = 0;
             Parallel.For(0, h, MakeParallelOptions(token),
                 () => 0,
-                (y, _, local) =>
-                {
+                (y, _, local) => {
                     int row = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
+                    for (int x = 0; x < w; x++) {
                         int i = row + x;
-                        if (mask0[i]) continue;
-                        for (int k = 0; k < 8; k++)
-                        {
+                        if (mask0[i]) {
+                            continue;
+                        }
+                        for (int k = 0; k < 8; k++) {
                             int mx2 = x + ex[k], my2 = y + ey[k];
                             int qx = x - ex[k], qy = y - ey[k];
-                            if (mx2 < 0 || mx2 >= w || my2 < 0 || my2 >= h) continue;
-                            if (qx < 0 || qx >= w || qy < 0 || qy >= h) continue;
+                            if (mx2 < 0 || mx2 >= w || my2 < 0 || my2 >= h) {
+                                continue;
+                            }
+                            if (qx < 0 || qx >= w || qy < 0 || qy >= h) {
+                                continue;
+                            }
                             int mi = my2 * w + mx2, qi = qy * w + qx;
-                            if (!mask0[mi] || mask0[qi]) continue;
+                            if (!mask0[mi] || mask0[qi]) {
+                                continue;
+                            }
 
                             var cm = pixelsBottomUp[mi];
                             var cq = pixelsBottomUp[qi];
@@ -1264,14 +1378,20 @@ namespace Iroca
                             double dR = cm.r - (double)cq.r, dG = cm.g - (double)cq.g,
                                    dB = cm.b - (double)cq.b, dA = cm.a - (double)cq.a;
                             double dirSq = dR * dR + dG * dG + dB * dB + dA * dA;
-                            if (dirSq < AaMinContrastSq) continue; // 平坦(m≈q) → 混合が定義できない
+                            if (dirSq < AaMinContrastSq) {
+                                continue; // 平坦(m≈q) → 混合が定義できない
+                            }
 
                             double pR = cp.r - (double)cq.r, pG = cp.g - (double)cq.g,
                                    pB = cp.b - (double)cq.b, pA = cp.a - (double)cq.a;
                             double t = (pR * dR + pG * dG + pB * dB + pA * dA) / dirSq;
-                            if (t < AaBlendMin) continue;          // ほぼ q(背景側) → 吸収しない
+                            if (t < AaBlendMin) {
+                                continue;          // ほぼ q(背景側) → 吸収しない
+                            }
                             double residSq = pR * pR + pG * pG + pB * pB + pA * pA - t * t * dirSq;
-                            if (residSq > AaResidFracSq * dirSq) continue; // 別色 → 吸収しない
+                            if (residSq > AaResidFracSq * dirSq) {
+                                continue; // 別色 → 吸収しない
+                            }
                             mask[i] = true;
                             local++;
                             break;
@@ -1285,8 +1405,7 @@ namespace Iroca
 
         /// <summary>IncludeAaTransition の 1 パス。追加した画素数を返す。</summary>
         static int IncludeAaTransitionPass(bool* mask, Color32* pixelsBottomUp, int w, int h, int d,
-                                           System.Threading.CancellationToken token = default)
-        {
+                                           System.Threading.CancellationToken token = default) {
             using var scratch = new WorkScratch();
             var distIn = DistanceToOpposite(scratch, mask, w, h, inside: true, token);
             var distOut = DistanceToOpposite(scratch, mask, w, h, inside: false, token);
@@ -1308,34 +1427,29 @@ namespace Iroca
             int* cntOutNear = scratch.Int(gw * gh, clear: true);
             int* cntOutFar = scratch.Int(gw * gh, clear: true);
             int farDist = 2 * d;
-            Parallel.For(0, gh, po, gy =>
-            {
+            Parallel.For(0, gh, po, gy => {
                 int gRow = gy * gw;
                 int yEnd = System.Math.Min(h, (gy + 1) * d);
-                for (int y = gy * d; y < yEnd; y++)
-                {
+                for (int y = gy * d; y < yEnd; y++) {
                     int row = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
+                    for (int x = 0; x < w; x++) {
                         int i = row + x;
                         bool inConf = mask[i] && distIn[i] > d;
                         bool outNear = !mask[i] && distOut[i] > d;
-                        if (!inConf && !outNear) continue;
+                        if (!inConf && !outNear) {
+                            continue;
+                        }
                         int g = gRow + x / d;
                         var c = pixelsBottomUp[i];
                         int o = g * 4;
-                        if (inConf)
-                        {
+                        if (inConf) {
                             sumIn[o] += c.r; sumIn[o + 1] += c.g; sumIn[o + 2] += c.b; sumIn[o + 3] += c.a;
                             cntIn[g]++;
-                        }
-                        else
-                        {
+                        } else {
                             sumOutNear[o] += c.r; sumOutNear[o + 1] += c.g;
                             sumOutNear[o + 2] += c.b; sumOutNear[o + 3] += c.a;
                             cntOutNear[g]++;
-                            if (distOut[i] > farDist)
-                            {
+                            if (distOut[i] > farDist) {
                                 sumOutFar[o] += c.r; sumOutFar[o + 1] += c.g;
                                 sumOutFar[o + 2] += c.b; sumOutFar[o + 3] += c.a;
                                 cntOutFar[g]++;
@@ -1364,99 +1478,92 @@ namespace Iroca
             int added = 0;
             Parallel.For(0, h, po,
                 () => 0,
-                (y, _, local) =>
-                {
-                int row = y * w;
-                int gy = y / d;
-                for (int x = 0; x < w; x++)
-                {
-                    int i = row + x;
-                    if (mask[i] || distOut[i] > d) continue; // 境界外側の帯のみ
+                (y, _, local) => {
+                    int row = y * w;
+                    int gy = y / d;
+                    for (int x = 0; x < w; x++) {
+                        int i = row + x;
+                        if (mask[i] || distOut[i] > d) {
+                            continue; // 境界外側の帯のみ
+                        }
 
-                    int gx = x / d;
-                    var c = pixelsBottomUp[i];
-                    long ir = 0, ig = 0, ib = 0, ia = 0;
-                    long nr = 0, ng = 0, nb = 0, na = 0, fr = 0, fg = 0, fb = 0, fa = 0;
-                    int ic = 0, nc = 0, fc = 0;
-                    double bestNearD = double.MaxValue, bestFarD = double.MaxValue;
-                    int bestNearO = -1, bestFarO = -1;
-                    for (int radius = MinWindowRadius; radius <= MaxWindowRadius; radius += 2)
-                    {
-                        ir = ig = ib = ia = 0; ic = 0;
-                        nr = ng = nb = na = 0; nc = 0;
-                        fr = fg = fb = fa = 0; fc = 0;
-                        bestNearD = bestFarD = double.MaxValue;
-                        bestNearO = bestFarO = -1;
-                        int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
-                        int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
-                        for (int yy = gy0; yy <= gy1; yy++)
-                        {
-                            int gRow = yy * gw;
-                            for (int xx = gx0; xx <= gx1; xx++)
-                            {
-                                int g = gRow + xx;
-                                int o = g * 4;
-                                if (cntIn[g] > 0)
-                                {
-                                    ir += sumIn[o]; ig += sumIn[o + 1]; ib += sumIn[o + 2]; ia += sumIn[o + 3];
-                                    ic += cntIn[g];
-                                }
-                                if (cntOutNear[g] > 0)
-                                {
-                                    nr += sumOutNear[o]; ng += sumOutNear[o + 1];
-                                    nb += sumOutNear[o + 2]; na += sumOutNear[o + 3];
-                                    nc += cntOutNear[g];
-                                    if (validNear[g])
-                                    {
-                                        double dd = Dist2Mean(c, meanNear, o);
-                                        if (dd < bestNearD) { bestNearD = dd; bestNearO = o; }
+                        int gx = x / d;
+                        var c = pixelsBottomUp[i];
+                        long ir = 0, ig = 0, ib = 0, ia = 0;
+                        long nr = 0, ng = 0, nb = 0, na = 0, fr = 0, fg = 0, fb = 0, fa = 0;
+                        int ic = 0, nc = 0, fc = 0;
+                        double bestNearD = double.MaxValue, bestFarD = double.MaxValue;
+                        int bestNearO = -1, bestFarO = -1;
+                        for (int radius = MinWindowRadius; radius <= MaxWindowRadius; radius += 2) {
+                            ir = ig = ib = ia = 0; ic = 0;
+                            nr = ng = nb = na = 0; nc = 0;
+                            fr = fg = fb = fa = 0; fc = 0;
+                            bestNearD = bestFarD = double.MaxValue;
+                            bestNearO = bestFarO = -1;
+                            int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
+                            int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
+                            for (int yy = gy0; yy <= gy1; yy++) {
+                                int gRow = yy * gw;
+                                for (int xx = gx0; xx <= gx1; xx++) {
+                                    int g = gRow + xx;
+                                    int o = g * 4;
+                                    if (cntIn[g] > 0) {
+                                        ir += sumIn[o]; ig += sumIn[o + 1]; ib += sumIn[o + 2]; ia += sumIn[o + 3];
+                                        ic += cntIn[g];
                                     }
-                                }
-                                if (cntOutFar[g] > 0)
-                                {
-                                    fr += sumOutFar[o]; fg += sumOutFar[o + 1];
-                                    fb += sumOutFar[o + 2]; fa += sumOutFar[o + 3];
-                                    fc += cntOutFar[g];
-                                    if (validFar[g])
-                                    {
-                                        double dd = Dist2Mean(c, meanFar, o);
-                                        if (dd < bestFarD) { bestFarD = dd; bestFarO = o; }
+                                    if (cntOutNear[g] > 0) {
+                                        nr += sumOutNear[o]; ng += sumOutNear[o + 1];
+                                        nb += sumOutNear[o + 2]; na += sumOutNear[o + 3];
+                                        nc += cntOutNear[g];
+                                        if (validNear[g]) {
+                                            double dd = Dist2Mean(c, meanNear, o);
+                                            if (dd < bestNearD) { bestNearD = dd; bestNearO = o; }
+                                        }
+                                    }
+                                    if (cntOutFar[g] > 0) {
+                                        fr += sumOutFar[o]; fg += sumOutFar[o + 1];
+                                        fb += sumOutFar[o + 2]; fa += sumOutFar[o + 3];
+                                        fc += cntOutFar[g];
+                                        if (validFar[g]) {
+                                            double dd = Dist2Mean(c, meanFar, o);
+                                            if (dd < bestFarD) { bestFarD = dd; bestFarO = o; }
+                                        }
                                     }
                                 }
                             }
+                            if (ic >= MinSamples && nc >= MinSamples) {
+                                break;
+                            }
                         }
-                        if (ic >= MinSamples && nc >= MinSamples) break;
-                    }
-                    if (ic < MinSamples) continue; // 内側統計不足 → 触らない
+                        if (ic < MinSamples) {
+                            continue; // 内側統計不足 → 触らない
+                        }
 
-                    double inR = ir / (double)ic, inG = ig / (double)ic,
-                           inB = ib / (double)ic, inA = ia / (double)ic;
-                    bool include = false;
-                    if (nc >= MinSamples)
-                    {
-                        include = bestNearO >= 0
-                            ? IsAaBlend(c, inR, inG, inB, inA, meanNear[bestNearO],
-                                        meanNear[bestNearO + 1], meanNear[bestNearO + 2],
-                                        meanNear[bestNearO + 3])
-                            : IsAaBlend(c, inR, inG, inB, inA, nr / (double)nc,
-                                        ng / (double)nc, nb / (double)nc, na / (double)nc);
+                        double inR = ir / (double)ic, inG = ig / (double)ic,
+                               inB = ib / (double)ic, inA = ia / (double)ic;
+                        bool include = false;
+                        if (nc >= MinSamples) {
+                            include = bestNearO >= 0
+                                ? IsAaBlend(c, inR, inG, inB, inA, meanNear[bestNearO],
+                                            meanNear[bestNearO + 1], meanNear[bestNearO + 2],
+                                            meanNear[bestNearO + 3])
+                                : IsAaBlend(c, inR, inG, inB, inA, nr / (double)nc,
+                                            ng / (double)nc, nb / (double)nc, na / (double)nc);
+                        }
+                        if (!include && fc >= MinSamples) {
+                            include = bestFarO >= 0
+                                ? IsAaBlend(c, inR, inG, inB, inA, meanFar[bestFarO],
+                                            meanFar[bestFarO + 1], meanFar[bestFarO + 2],
+                                            meanFar[bestFarO + 3])
+                                : IsAaBlend(c, inR, inG, inB, inA, fr / (double)fc,
+                                            fg / (double)fc, fb / (double)fc, fa / (double)fc);
+                        }
+                        if (include) {
+                            mask[i] = true;
+                            local++;
+                        }
                     }
-                    if (!include && fc >= MinSamples)
-                    {
-                        include = bestFarO >= 0
-                            ? IsAaBlend(c, inR, inG, inB, inA, meanFar[bestFarO],
-                                        meanFar[bestFarO + 1], meanFar[bestFarO + 2],
-                                        meanFar[bestFarO + 3])
-                            : IsAaBlend(c, inR, inG, inB, inA, fr / (double)fc,
-                                        fg / (double)fc, fb / (double)fc, fa / (double)fc);
-                    }
-                    if (include)
-                    {
-                        mask[i] = true;
-                        local++;
-                    }
-                }
-                return local;
+                    return local;
                 },
                 local => Interlocked.Add(ref added, local));
             return added;
@@ -1467,15 +1574,18 @@ namespace Iroca
         /// 判定する。原点は呼び出し側が選ぶ(最近傍外側モード、無ければプール平均)。
         /// </summary>
         static bool IsAaBlend(Color32 c, double inR, double inG, double inB, double inA,
-                              double outR, double outG, double outB, double outA)
-        {
+                              double outR, double outG, double outB, double outA) {
             double dR = inR - outR, dG = inG - outG, dB = inB - outB, dA = inA - outA;
             double dirSq = dR * dR + dG * dG + dB * dB + dA * dA;
-            if (dirSq < AaMinContrastSq) return false; // 低コントラスト境界 → 混合軸が無意味
+            if (dirSq < AaMinContrastSq) {
+                return false; // 低コントラスト境界 → 混合軸が無意味
+            }
 
             double pR = c.r - outR, pG = c.g - outG, pB = c.b - outB, pA = c.a - outA;
             double t = (pR * dR + pG * dG + pB * dB + pA * dA) / dirSq;
-            if (t < AaBlendMin) return false;          // ほぼ背景 → 含めない
+            if (t < AaBlendMin) {
+                return false;          // ほぼ背景 → 含めない
+            }
             double residSq = pR * pR + pG * pG + pB * pB + pA * pA - t * t * dirSq;
             return residSq <= AaResidFracSq * dirSq;   // 線分から外れる別色は含めない
         }
@@ -1484,27 +1594,44 @@ namespace Iroca
         /// スナップショット、書きは mask(決定的・順序非依存)。</summary>
         static void MajoritySmoothBand(WorkScratch scratch, bool* mask, bool* mask0, ushort* distIn, ushort* distOut,
                                        int d, int w, int h,
-                                       System.Threading.CancellationToken token = default)
-        {
+                                       System.Threading.CancellationToken token = default) {
             bool* snapped = scratch.CopyOf(mask, w * h);
-            Parallel.For(1, h - 1, MakeParallelOptions(token), y =>
-            {
+            Parallel.For(1, h - 1, MakeParallelOptions(token), y => {
                 int row = y * w;
-                for (int x = 1; x < w - 1; x++)
-                {
+                for (int x = 1; x < w - 1; x++) {
                     int i = row + x;
                     bool inBand = mask0[i] ? distIn[i] <= d : distOut[i] <= d;
-                    if (!inBand) continue;
+                    if (!inBand) {
+                        continue;
+                    }
                     int n = 0;
-                    if (snapped[i - w - 1]) n++;
-                    if (snapped[i - w]) n++;
-                    if (snapped[i - w + 1]) n++;
-                    if (snapped[i - 1]) n++;
-                    if (snapped[i]) n++;
-                    if (snapped[i + 1]) n++;
-                    if (snapped[i + w - 1]) n++;
-                    if (snapped[i + w]) n++;
-                    if (snapped[i + w + 1]) n++;
+                    if (snapped[i - w - 1]) {
+                        n++;
+                    }
+                    if (snapped[i - w]) {
+                        n++;
+                    }
+                    if (snapped[i - w + 1]) {
+                        n++;
+                    }
+                    if (snapped[i - 1]) {
+                        n++;
+                    }
+                    if (snapped[i]) {
+                        n++;
+                    }
+                    if (snapped[i + 1]) {
+                        n++;
+                    }
+                    if (snapped[i + w - 1]) {
+                        n++;
+                    }
+                    if (snapped[i + w]) {
+                        n++;
+                    }
+                    if (snapped[i + w + 1]) {
+                        n++;
+                    }
                     mask[i] = n >= 5;
                 }
             });
@@ -1518,14 +1645,16 @@ namespace Iroca
         /// セルは保護」が安全側。拡大方向(ブロック=1px)では最近傍と同値。
         /// 座標系は行方向が一貫していれば上/下原点いずれでも正しい。
         /// </summary>
-        public static bool[] TransferCoverage(bool[] src, int sw, int sh, int dw, int dh)
-        {
+        public static bool[] TransferCoverage(bool[] src, int sw, int sh, int dw, int dh) {
             if (src == null || sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0 ||
-                src.Length != sw * sh) return null;
+                src.Length != sw * sh) {
+                return null;
+            }
             var dst = new bool[dw * dh];
             fixed (bool* s = src)
-            fixed (bool* t = dst)
+            fixed (bool* t = dst) {
                 TransferCoverage(s, sw, sh, t, dw, dh);
+            }
             return dst;
         }
 
@@ -1533,44 +1662,45 @@ namespace Iroca
         /// <see cref="TransferCoverage(bool[], int, int, int, int)"/> の、元(sw*sh 個)と書き先(dw*dh 個。全部に書く)を
         /// ポインタで受ける版。
         /// </summary>
-        public static void TransferCoverage(bool* src, int sw, int sh, bool* dst, int dw, int dh)
-        {
-            if (src == null || dst == null || sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+        public static void TransferCoverage(bool* src, int sw, int sh, bool* dst, int dw, int dh) {
+            if (src == null || dst == null || sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) {
+                return;
+            }
             // 各出力画素は自分のフットプリントだけを読む(行並列で決定的)。
             // コミット経路のメインスレッドで呼ばれるため、ここの短縮は UI の引っかかりに直接効く。
-            Parallel.For(0, dh, MakeParallelOptions(), my =>
-            {
+            Parallel.For(0, dh, MakeParallelOptions(), my => {
                 int sy0 = (int)((long)my * sh / dh);
                 int sy1 = (int)((long)(my + 1) * sh / dh);
-                if (sy1 <= sy0) sy1 = Mathf.Min(sh, sy0 + 1);
+                if (sy1 <= sy0) {
+                    sy1 = Mathf.Min(sh, sy0 + 1);
+                }
                 int dRow = my * dw;
-                for (int mx = 0; mx < dw; mx++)
-                {
+                for (int mx = 0; mx < dw; mx++) {
                     int sx0 = (int)((long)mx * sw / dw);
                     int sx1 = (int)((long)(mx + 1) * sw / dw);
-                    if (sx1 <= sx0) sx1 = Mathf.Min(sw, sx0 + 1);
+                    if (sx1 <= sx0) {
+                        sx1 = Mathf.Min(sw, sx0 + 1);
+                    }
                     bool any = false;
-                    for (int sy = sy0; sy < sy1 && !any; sy++)
-                    {
+                    for (int sy = sy0; sy < sy1 && !any; sy++) {
                         int sRow = sy * sw;
-                        for (int sx = sx0; sx < sx1; sx++)
+                        for (int sx = sx0; sx < sx1; sx++) {
                             if (src[sRow + sx]) { any = true; break; }
+                        }
                     }
                     dst[dRow + mx] = any;
                 }
             });
         }
 
-        static double Dist2(Color32 c, long sr, long sg, long sb, long sa, int n)
-        {
+        static double Dist2(Color32 c, long sr, long sg, long sb, long sa, int n) {
             double mr = sr / (double)n, mg = sg / (double)n, mb = sb / (double)n, ma = sa / (double)n;
             double dr = c.r - mr, dg = c.g - mg, db = c.b - mb, da = c.a - ma;
             return dr * dr + dg * dg + db * db + da * da;
         }
 
         /// <summary>事前計算済みセル平均(RGBA, オフセット o)との距離 2 乗。</summary>
-        static double Dist2Mean(Color32 c, double* mean, int o)
-        {
+        static double Dist2Mean(Color32 c, double* mean, int o) {
             double dr = c.r - mean[o], dg = c.g - mean[o + 1],
                    db = c.b - mean[o + 2], da = c.a - mean[o + 3];
             return dr * dr + dg * dg + db * db + da * da;
@@ -1588,38 +1718,37 @@ namespace Iroca
         /// 画像の辺の和(16384² でも 32766)を超えないので、反対側が無いことを表す Inf = 65535 とは混ざらない。
         /// 呼び出し側の判定(&gt; d・&lt;= d、d は数百まで)は、以前の Inf = 2^28 と同じ答えになる。</remarks>
         internal static ushort* DistanceToOpposite(WorkScratch scratch, bool* mask, int w, int h, bool inside,
-                                                System.Threading.CancellationToken token = default)
-        {
+                                                System.Threading.CancellationToken token = default) {
             const int Inf = ushort.MaxValue;
             ushort* dist = (ushort*)scratch.Byte(w * h * sizeof(ushort), clear: false);
             var po = MakeParallelOptions(token);
 
             // 行パス: 各行の左右走査で「同じ行内の最近接反対側画素」までの距離(無ければ Inf)
-            Parallel.For(0, h, po, y =>
-            {
+            Parallel.For(0, h, po, y => {
                 int row = y * w;
                 int run = Inf;
-                for (int x = 0; x < w; x++)
-                {
+                for (int x = 0; x < w; x++) {
                     int i = row + x;
-                    if (mask[i] == inside)
-                    {
-                        if (run < Inf) run++;
+                    if (mask[i] == inside) {
+                        if (run < Inf) {
+                            run++;
+                        }
                         dist[i] = (ushort)run;
-                    }
-                    else
-                    {
+                    } else {
                         run = 0;
                         dist[i] = 0;
                     }
                 }
                 run = Inf;
-                for (int x = w - 1; x >= 0; x--)
-                {
+                for (int x = w - 1; x >= 0; x--) {
                     int i = row + x;
                     if (dist[i] == 0) { run = 0; continue; }
-                    if (run < Inf) run++;
-                    if (run < dist[i]) dist[i] = (ushort)run;
+                    if (run < Inf) {
+                        run++;
+                    }
+                    if (run < dist[i]) {
+                        dist[i] = (ushort)run;
+                    }
                 }
             });
 
@@ -1627,26 +1756,27 @@ namespace Iroca
             // (行メジャー配列で連続アクセスになり、列単位分割よりキャッシュ効率が良い)
             int dop = System.Math.Max(1, po.MaxDegreeOfParallelism);
             int chunk = (w + dop - 1) / dop;
-            Parallel.For(0, dop, po, p =>
-            {
+            Parallel.For(0, dop, po, p => {
                 int x0 = p * chunk, x1 = System.Math.Min(w, x0 + chunk);
-                if (x0 >= x1) return;
-                for (int y = 1; y < h; y++)
-                {
+                if (x0 >= x1) {
+                    return;
+                }
+                for (int y = 1; y < h; y++) {
                     int row = y * w, prev = row - w;
-                    for (int x = x0; x < x1; x++)
-                    {
+                    for (int x = x0; x < x1; x++) {
                         int v = dist[prev + x] + 1;
-                        if (v < dist[row + x]) dist[row + x] = (ushort)v;
+                        if (v < dist[row + x]) {
+                            dist[row + x] = (ushort)v;
+                        }
                     }
                 }
-                for (int y = h - 2; y >= 0; y--)
-                {
+                for (int y = h - 2; y >= 0; y--) {
                     int row = y * w, next = row + w;
-                    for (int x = x0; x < x1; x++)
-                    {
+                    for (int x = x0; x < x1; x++) {
                         int v = dist[next + x] + 1;
-                        if (v < dist[row + x]) dist[row + x] = (ushort)v;
+                        if (v < dist[row + x]) {
+                            dist[row + x] = (ushort)v;
+                        }
                     }
                 }
             });

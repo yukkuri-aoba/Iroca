@@ -5,8 +5,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 自動化 API(MCP)の自動調整。UI の「自動調整」と同じ手順(<see cref="AutoTuneService"/>)をゾーンごとに順に行う:
     /// スポイト位置のあるゾーンは AI(MobileSAM)にその位置の提案を 1 件求めて証拠にし、位置の無いゾーン(色で指定)と、
@@ -18,8 +17,7 @@ namespace Iroca
     /// AI の推論は EditorApplication.update で少しずつ進むので、この仕事もメインスレッドの <see cref="Advance"/>
     /// で進める(update と、MCP の問い合わせのたび)。解析そのものは背景のスレッドで走る。
     /// </summary>
-    internal sealed class AutomationAutoTune
-    {
+    internal sealed class AutomationAutoTune {
         private readonly IrocaSessionState _state;
         private readonly List<string> _zoneIds;
         private readonly List<string> _warnings;
@@ -42,18 +40,18 @@ namespace Iroca
 
         /// <param name="pixels">作業解像度の原本(下原点)。参照を足して持つ。解析が背景で読むので、終わるまで書き換えないこと。</param>
         public AutomationAutoTune(IrocaSessionState state, Texture2D texture, NativePixels pixels,
-            List<string> zoneIds, List<string> warnings)
-        {
+            List<string> zoneIds, List<string> warnings) {
             _state = state;
             _pixels = pixels.AddRef();
             _key = CacheKey(texture, pixels.Width, pixels.Height);
             _zoneIds = zoneIds ?? new List<string>();
             _warnings = warnings;
-            if (Done) Release();
+            if (Done) {
+                Release();
+            }
         }
 
-        public void Cancel()
-        {
+        public void Cancel() {
             _run?.Cancel();
             _run = null;
             _index = _zoneIds.Count;
@@ -61,29 +59,24 @@ namespace Iroca
         }
 
         /// <summary>進められるところまで進める(待ちに入ったら返る)。メインスレッドから呼ぶ。</summary>
-        public void Advance()
-        {
-            while (!Done)
-            {
+        public void Advance() {
+            while (!Done) {
                 var zone = FindZone(_zoneIds[_index]);
-                if (zone == null)
-                {
+                if (zone == null) {
                     _run?.Cancel();
                     _run = null;
                     Next();
                     continue;
                 }
 
-                if (_run == null)
-                {
+                if (_run == null) {
                     NativeBools excluded = CombinedExclusion(zone.id, out int mw, out int mh);
                     _run = AutoTuneService.Start(zone, _state, _pixels, _key, excluded, mw, mh, retryAiError: !_askedAi);
                     _askedAi |= _run.AskedAi;
                 }
                 _run.Advance();
                 var run = _run;
-                switch (run.Status)
-                {
+                switch (run.Status) {
                     case AutoTuneService.Status.Done:
                         run.ApplyTo(zone, _state);
                         zone.UpdateCacheIfNeeded();
@@ -100,39 +93,37 @@ namespace Iroca
             }
         }
 
-        private void Next()
-        {
+        private void Next() {
             _index++;
-            if (Done) Release();
+            if (Done) {
+                Release();
+            }
         }
 
-        private static string HowOf(AutoTuneService.Run run)
-        {
-            if (run.HadEvidence) return "evidence";
+        private static string HowOf(AutoTuneService.Run run) {
+            if (run.HadEvidence) {
+                return "evidence";
+            }
             return run.ConventionalReason == AutoTuneService.ReasonEvidenceFlood
                 ? "conventional (AI region spread to the background)"
                 : "conventional";
         }
 
-        private void Skip(ColorZone zone, AutoTuneService.Run run)
-        {
-            switch (run.Failure)
-            {
+        private void Skip(ColorZone zone, AutoTuneService.Run run) {
+            switch (run.Failure) {
                 case AutoTuneService.Failure.AiUnavailable:
                     How[zone.name] = "skipped: AI not available";
                     _warnings.Add($"auto-tune of '{zone.name}' was skipped because the AI (Unity Sentis and the model) is not installed; "
                         + "it keeps its current settings, so highlights or shadows may be missed. See the manual's AI chapter to install it.");
                     return;
-                case AutoTuneService.Failure.AnalysisFailed:
-                {
-                    var ex = run.Error;
-                    How[zone.name] = "skipped: analysis failed";
-                    _warnings.Add($"auto-tune of '{zone.name}' failed ({ex?.GetType().Name}: {ex?.Message}); it keeps its current settings.");
-                    return;
-                }
+                case AutoTuneService.Failure.AnalysisFailed: {
+                        var ex = run.Error;
+                        How[zone.name] = "skipped: analysis failed";
+                        _warnings.Add($"auto-tune of '{zone.name}' failed ({ex?.GetType().Name}: {ex?.Message}); it keeps its current settings.");
+                        return;
+                    }
             }
-            string failure = run.Failure switch
-            {
+            string failure = run.Failure switch {
                 AutoTuneService.Failure.AiError => "AI error: " + run.FailureDetail,
                 AutoTuneService.Failure.Timeout => "timed out waiting for the AI",
                 AutoTuneService.Failure.Cancelled => "cancelled",
@@ -143,28 +134,32 @@ namespace Iroca
         }
 
         // UI(IrocaWindow.BuildCombinedExclusionForZone)と同じ: 共通の除外 ∪ そのゾーンの除外。無ければ null。
-        private NativeBools CombinedExclusion(string zoneId, out int mw, out int mh)
-        {
-            if (_masks == null)
-            {
+        private NativeBools CombinedExclusion(string zoneId, out int mw, out int mh) {
+            if (_masks == null) {
                 _masks = new MaskWorkspace();
-                if (_state.maskState != null) _masks.DecodeFrom(_state.maskState);
+                if (_state.maskState != null) {
+                    _masks.DecodeFrom(_state.maskState);
+                }
             }
             mw = _masks.Width;
             mh = _masks.Height;
-            if (mw <= 0 || mh <= 0) return null;
+            if (mw <= 0 || mh <= 0) {
+                return null;
+            }
             return _masks.CombinedExclusion(zoneId);
         }
 
-        private ColorZone FindZone(string id)
-        {
-            foreach (var z in _state.zones) if (z != null && z.id == id) return z;
+        private ColorZone FindZone(string id) {
+            foreach (var z in _state.zones) {
+                if (z != null && z.id == id) {
+                    return z;
+                }
+            }
             return null;
         }
 
         // 原本と展開したマスク(ヒープの外)を返す。
-        private void Release()
-        {
+        private void Release() {
             var px = _pixels;
             _pixels = null;
             px?.Release();
@@ -177,21 +172,24 @@ namespace Iroca
         /// サービスが持つ元の画素の写しを手放す。窓は閉じるときに手放す(IrocaWindow.OnDestroy)が、窓を開かずに AI だけで
         /// 使うと、次のスクリプトのリロードまで持ち続けていた。窓があれば、窓がまだ使うので手放さない。
         /// </summary>
-        public void ReleaseAiIfNoWindow()
-        {
-            if (!_askedAi) return;
-            if (EditingSessionRegistry.Any) return;
+        public void ReleaseAiIfNoWindow() {
+            if (!_askedAi) {
+                return;
+            }
+            if (EditingSessionRegistry.Any) {
+                return;
+            }
             AiSuggestBroker.ReleaseGpuIfUnused();
             _askedAi = false;
         }
 
         /// <summary>窓のプレビューと同じ形の埋め込みキャッシュのキー(PreviewView.TrueSourceCacheKey)。</summary>
-        internal static string CacheKey(Texture2D texture, int w, int h)
-        {
+        internal static string CacheKey(Texture2D texture, int w, int h) {
             string path = AssetDatabase.GetAssetPath(texture);
             long ticks = 0;
-            if (!string.IsNullOrEmpty(path) && File.Exists(path))
+            if (!string.IsNullOrEmpty(path) && File.Exists(path)) {
                 ticks = File.GetLastWriteTimeUtc(path).Ticks;
+            }
             return $"{path}|{ticks}|{w}x{h}";
         }
     }

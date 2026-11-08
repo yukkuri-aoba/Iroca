@@ -1,7 +1,6 @@
 ﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-namespace Iroca
-{
+namespace Iroca {
     public enum LanguageMode { Auto, Japanese, English }
 
     // スクリプトの読み込みのときにメインスレッドで初期化する。文言はバックグラウンドの計算（自動調整が上書きした
@@ -9,19 +8,14 @@ namespace Iroca
     // 型の初期化に失敗し、ドメインのリロードまでいろかの文言がすべて使えなくなる（ウィンドウを開かずに AI から
     // 自動調整つきの色替えを頼んだときに起きる）。
     [UnityEditor.InitializeOnLoad]
-    public static class Localization
-    {
+    public static class Localization {
         private const string PrefsKey = IrocaPrefs.Language;
         public static LanguageMode CurrentLanguage;
 
-        static Localization()
-        {
-            try
-            {
+        static Localization() {
+            try {
                 CurrentLanguage = (LanguageMode)UnityEditor.EditorPrefs.GetInt(PrefsKey, (int)LanguageMode.Auto);
-            }
-            catch (UnityEngine.UnityException)
-            {
+            } catch (UnityEngine.UnityException) {
                 // それでもメインスレッドの外で先に初期化されたときは、言語の設定を読めないので自動で始める。
                 CurrentLanguage = LanguageMode.Auto;
             }
@@ -43,8 +37,7 @@ namespace Iroca
         public static bool ShowEnglishTranslationNotice =>
             !IsJapanese && !(s_englishNoticeClosed ??= UnityEditor.EditorPrefs.GetBool(EnglishNoticeKey, false));
 
-        public static void CloseEnglishTranslationNotice()
-        {
+        public static void CloseEnglishTranslationNotice() {
             s_englishNoticeClosed = true;
             UnityEditor.EditorPrefs.SetBool(EnglishNoticeKey, true);
         }
@@ -59,14 +52,11 @@ namespace Iroca
             ? "このお知らせを閉じます。次からは表示しません"
             : "Close this notice. It will not be shown again.";
 
-        public static bool IsJapanese
-        {
-            get
-            {
-                switch (CurrentLanguage)
-                {
+        public static bool IsJapanese {
+            get {
+                switch (CurrentLanguage) {
                     case LanguageMode.Japanese: return true;
-                    case LanguageMode.English:  return false;
+                    case LanguageMode.English: return false;
                     default: // Auto
                         return AutoIsJapanese;
                 }
@@ -79,13 +69,10 @@ namespace Iroca
         // (同時に初めて読んでも、同じ値を書くだけ)。-1 = まだ読んでいない、0 = 日本語でない、1 = 日本語。
         private static int s_autoJapanese = -1;
 
-        private static bool AutoIsJapanese
-        {
-            get
-            {
+        private static bool AutoIsJapanese {
+            get {
                 int v = s_autoJapanese;
-                if (v < 0)
-                {
+                if (v < 0) {
                     v = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ja" ? 1 : 0;
                     s_autoJapanese = v;
                 }
@@ -95,27 +82,27 @@ namespace Iroca
 
         public static string WindowTitle => "いろか";
 
-        public static string LangAuto     => IsJapanese ? "自動（Auto）" : "Auto";
+        public static string LangAuto => IsJapanese ? "自動（Auto）" : "Auto";
         public static string LangJapanese => "日本語";
-        public static string LangEnglish  => "English";
-        public static string Credit       => IsJapanese ? "クレジット" : "Credits";
-        public static string Manual       => IsJapanese ? "マニュアル" : "Manual";
+        public static string LangEnglish => "English";
+        public static string Credit => IsJapanese ? "クレジット" : "Credits";
+        public static string Manual => IsJapanese ? "マニュアル" : "Manual";
 
         public static string CreditTitle => IsJapanese ? "クレジット" : "Credits";
         public static string CreditOpenList => IsJapanese ? "一覧を開く" : "Open full list";
         public static string CreditClose => IsJapanese ? "閉じる" : "Close";
         // 開発に使わせていただいたモデル・テクスチャを含む全クレジットの公開ページ(リポジトリの CREDITS.md)。
         public const string CreditsUrl = "https://github.com/yukkuri-aoba/Iroca/blob/main/CREDITS.md";
-        public static string CreditBody  => IsJapanese
+        public static string CreditBody => IsJapanese
             ? "いろか\n\n制作: yukkuri__aoba\nAI 補助: Claude（Anthropic）\n\nAI マスク提案: MobileSAM（Apache License 2.0）を ONNX に変換して使用\n\n開発に使わせていただいたモデル・テクスチャの一覧は「一覧を開く」から\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
             : "Iroca\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nAI Mask Suggestion: MobileSAM (Apache License 2.0), converted to ONNX\n\nModels and textures used in development: see \"Open full list\"\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
 
         // セクションが等価に並んで開始点が分かりにくいので、主要 4 ステップに番号を振り、
         // テクスチャ未設定時はこの導入ヒントで一連の流れを示す。
         public static string StepPrefixTexture => IsJapanese ? "① " : "1. ";
-        public static string StepPrefixZones   => IsJapanese ? "② " : "2. ";
+        public static string StepPrefixZones => IsJapanese ? "② " : "2. ";
         public static string StepPrefixPreview => IsJapanese ? "③ " : "3. ";
-        public static string StepPrefixExport  => IsJapanese ? "④ " : "4. ";
+        public static string StepPrefixExport => IsJapanese ? "④ " : "4. ";
         // ④ は NDMF があれば非破壊の登録、無ければテクスチャへの書き出し(エクスポート欄の主ボタンと揃える)。
 #if IROCA_NDMF_PRESENT
         public static string WorkflowHint => IsJapanese
@@ -440,7 +427,7 @@ namespace Iroca
         public static string NotifyMaskUndoTooOld => IsJapanese
             ? "マスクはこれより前へ戻せません（履歴が残っていません）"
             : "Masks cannot go back further (no history is left)";
-        public static string NotifyMaskNoChange =>IsJapanese ? "変わりませんでした（すでにそうなっています）" : "Nothing changed (it was already that way)";
+        public static string NotifyMaskNoChange => IsJapanese ? "変わりませんでした（すでにそうなっています）" : "Nothing changed (it was already that way)";
         public static string NotifyMaskNotAdded => IsJapanese
             ? "当てられませんでした（直すゾーンが無いか、この場所に島がありません）"
             : "Could not apply (the zone is gone, or there is no island here)";
@@ -587,9 +574,9 @@ namespace Iroca
             : "Zoom: {0}%";
 
         public static string ComparisonMode => IsJapanese ? "前後比較" : "Compare";
-        public static string DiffMode       => IsJapanese ? "差分表示" : "Diff";
-        public static string Before         => IsJapanese ? "変更前" : "Before";
-        public static string After          => IsJapanese ? "変更後" : "After";
+        public static string DiffMode => IsJapanese ? "差分表示" : "Diff";
+        public static string Before => IsJapanese ? "変更前" : "Before";
+        public static string After => IsJapanese ? "変更後" : "After";
 
         // 実装は Unity 標準 Undo（Undo.PerformUndo）の薄いショートカットで、対象は「直前の操作」。
         // 直前がマスク編集とは限らない（スライダー変更やシーン編集かもしれない）ため、
@@ -603,23 +590,23 @@ namespace Iroca
 
         public static string GeneratingDetailPreview => IsJapanese ? "⟳ 詳細プレビュー生成中…" : "⟳ Generating detail preview...";
 
-        public static string Presets              => IsJapanese ? "プリセット" : "Presets";
+        public static string Presets => IsJapanese ? "プリセット" : "Presets";
         public static string PresetForeignMaskConfirm => IsJapanese
             ? "このプリセットのマスクは別のテクスチャで作られたものです。読み込むと、今のマスクが置き換わります（塗らない範囲がこのテクスチャの場所に合わないことがあります。Ctrl+Z で戻せます）。\n\nゾーンと加工設定だけ読み込むこともできます。"
             : "This preset's masks were made on another texture. Loading them replaces the current masks (the areas may not fit this texture; Ctrl+Z brings them back).\n\nYou can also load only the zones and processing settings.";
         public static string PresetForeignMaskSkip => IsJapanese ? "マスクは読まない" : "Without Masks";
         public static string PresetForeignMaskApply => IsJapanese ? "マスクも読む" : "Load Masks Too";
-        public static string PresetsTooltip       => IsJapanese
+        public static string PresetsTooltip => IsJapanese
             ? "ゾーンと加工設定に名前を付けて保存し、ほかのテクスチャでも読み込めます。"
             : "Save the zones and processing settings under a name and load them on other textures.";
-        public static string PresetName           => IsJapanese ? "プリセット名" : "Preset Name";
-        public static string SavePreset           => IsJapanese ? "保存" : "Save";
-        public static string LoadPreset           => IsJapanese ? "読込" : "Load";
-        public static string NoPresets            => IsJapanese ? "プリセットがありません" : "No presets saved yet";
-        public static string ExportJson           => IsJapanese ? "JSON エクスポート" : "Export JSON";
-        public static string ImportJson           => IsJapanese ? "JSON インポート" : "Import JSON";
+        public static string PresetName => IsJapanese ? "プリセット名" : "Preset Name";
+        public static string SavePreset => IsJapanese ? "保存" : "Save";
+        public static string LoadPreset => IsJapanese ? "読込" : "Load";
+        public static string NoPresets => IsJapanese ? "プリセットがありません" : "No presets saved yet";
+        public static string ExportJson => IsJapanese ? "JSON エクスポート" : "Export JSON";
+        public static string ImportJson => IsJapanese ? "JSON インポート" : "Import JSON";
         public static string PresetStorageProject => IsJapanese ? "プロジェクト内" : "In Project";
-        public static string PresetStorageUser    => IsJapanese ? "全プロジェクト共通" : "All Projects";
+        public static string PresetStorageUser => IsJapanese ? "全プロジェクト共通" : "All Projects";
         public static string DeletePresetConfirm(string name) => IsJapanese
             ? $"プリセット「{name}」を削除しますか？"
             : $"Delete preset '{name}'?";
@@ -627,11 +614,11 @@ namespace Iroca
             ? $"プリセット「{name}」は既に存在します。上書きしますか？"
             : $"Preset '{name}' already exists. Overwrite?";
 
-        public static string PresetSaved        => IsJapanese ? "プリセットを保存しました" : "Preset saved";
-        public static string PresetSaveFailed   => IsJapanese ? "プリセットの保存に失敗しました" : "Failed to save preset";
-        public static string PresetLoaded       => IsJapanese ? "プリセットを読み込みました" : "Preset loaded";
-        public static string PresetLoadFailed   => IsJapanese ? "プリセットの読み込みに失敗しました" : "Failed to load preset";
-        public static string PresetDeleted      => IsJapanese ? "プリセットを削除しました" : "Preset deleted";
+        public static string PresetSaved => IsJapanese ? "プリセットを保存しました" : "Preset saved";
+        public static string PresetSaveFailed => IsJapanese ? "プリセットの保存に失敗しました" : "Failed to save preset";
+        public static string PresetLoaded => IsJapanese ? "プリセットを読み込みました" : "Preset loaded";
+        public static string PresetLoadFailed => IsJapanese ? "プリセットの読み込みに失敗しました" : "Failed to load preset";
+        public static string PresetDeleted => IsJapanese ? "プリセットを削除しました" : "Preset deleted";
         public static string PresetDeleteFailed => IsJapanese ? "プリセットの削除に失敗しました" : "Failed to delete preset";
         public static string ExportCannotOverwritePackage => IsJapanese
             ? "パッケージの中のテクスチャは上書きできません。「新規ファイルとして保存」を選んでください（Assets の下に書き出します）。"
@@ -640,7 +627,7 @@ namespace Iroca
         public static string ExportSourceReadFailedFormat => IsJapanese
             ? "元の画像を読めませんでした（{0}）。ほかのソフトで開いていれば閉じ、同期サービスのオンライン専用ファイルならこの PC に保存してから、もう一度試してください。"
             : "The source image could not be read ({0}). If another app has it open, close it; if it is an online-only file of a sync service, keep it on this PC; then try again.";
-        public static string EditSaveFailed     => IsJapanese ? "編集内容の保存に失敗しました" : "Failed to save your edits";
+        public static string EditSaveFailed => IsJapanese ? "編集内容の保存に失敗しました" : "Failed to save your edits";
         // 窓の上の帯。保存の失敗は Console だけでは気づけない。
         public static string EditSaveFailedBanner => IsJapanese
             ? "編集内容をファイルに保存できていません。ディスクの空きと、プロジェクトの UserSettings フォルダの権限を確かめてください（直れば次の保存で書き込みます）。Unity を閉じると、保存していない編集は消えます。"
@@ -657,16 +644,16 @@ namespace Iroca
             ? "今のテクスチャのゾーン・色・加工設定・マスクをすべて消して、最初の状態に戻します。よろしいですか？\n（Ctrl+Z で戻せます）"
             : "This clears all zones, colors, processing settings and masks for the current texture. Continue?\n(You can undo this.)";
 
-        public static string BatchApply        => IsJapanese ? "一括適用" : "Batch Apply";
-        public static string BatchHint         => IsJapanese
+        public static string BatchApply => IsJapanese ? "一括適用" : "Batch Apply";
+        public static string BatchHint => IsJapanese
             ? "現在のゾーン設定を複数のテクスチャに一括適用します。出力は各ファイル名に _recolored を付与します。"
             : "Apply the current zone settings to several textures at once. Output files get a _recolored suffix.";
-        public static string AddBatchTexture   => IsJapanese ? "+ テクスチャ追加" : "+ Add Texture";
+        public static string AddBatchTexture => IsJapanese ? "+ テクスチャ追加" : "+ Add Texture";
         public static string RemoveBatchTextureTooltip => IsJapanese
             ? "このテクスチャを一括リストから外します"
             : "Remove this texture from the batch list";
         public static string BatchApplyAndSave => IsJapanese ? "一括適用して保存" : "Batch Apply & Save";
-        public static string BatchProgress     => IsJapanese ? "一括適用中…" : "Batch processing...";
+        public static string BatchProgress => IsJapanese ? "一括適用中…" : "Batch processing...";
         public static string BatchComplete(int count) => IsJapanese
             ? $"{count} 件のテクスチャを処理しました"
             : $"Processed {count} texture(s)";
@@ -1084,45 +1071,40 @@ namespace Iroca
             : "Disabled when:\n- No source texture is selected\n- The texture cannot be read (the Read/Write warning is shown)\n- No sample color has been picked yet";
         public static string AutoTuneConfirmTitle => IsJapanese ? "自動調整の確認" : "Confirm Auto-tune";
         // 自動調整が上書きする項目の名前(上書きの確認に並べる)。項目は Core の ZoneAutoTuner.TunedSetting。
-        internal static string TunedSettingLabel(ZoneAutoTuner.TunedSetting setting)
-        {
-            switch (setting)
-            {
-                case ZoneAutoTuner.TunedSetting.Tolerance:               return Tolerance;
-                case ZoneAutoTuner.TunedSetting.SaturationStrictness:    return SaturationStrictness;
-                case ZoneAutoTuner.TunedSetting.SaturationGuard:         return SaturationGuard;
-                case ZoneAutoTuner.TunedSetting.ChromaThreshold:         return ChromaThreshold;
-                case ZoneAutoTuner.TunedSetting.HighlightRecovery:       return HighlightRecovery;
-                case ZoneAutoTuner.TunedSetting.PatternPreserve:         return PatternPreserve;
-                case ZoneAutoTuner.TunedSetting.EdgeSoftness:            return EdgeSoftness;
-                case ZoneAutoTuner.TunedSetting.ShadowDesaturation:      return ShadowDesaturation;
+        internal static string TunedSettingLabel(ZoneAutoTuner.TunedSetting setting) {
+            switch (setting) {
+                case ZoneAutoTuner.TunedSetting.Tolerance: return Tolerance;
+                case ZoneAutoTuner.TunedSetting.SaturationStrictness: return SaturationStrictness;
+                case ZoneAutoTuner.TunedSetting.SaturationGuard: return SaturationGuard;
+                case ZoneAutoTuner.TunedSetting.ChromaThreshold: return ChromaThreshold;
+                case ZoneAutoTuner.TunedSetting.HighlightRecovery: return HighlightRecovery;
+                case ZoneAutoTuner.TunedSetting.PatternPreserve: return PatternPreserve;
+                case ZoneAutoTuner.TunedSetting.EdgeSoftness: return EdgeSoftness;
+                case ZoneAutoTuner.TunedSetting.ShadowDesaturation: return ShadowDesaturation;
                 case ZoneAutoTuner.TunedSetting.ShadowForgivenessSatMin: return ShadowForgivenessSatMin;
-                case ZoneAutoTuner.TunedSetting.ShadowValueFloor:        return ShadowValueFloor;
-                case ZoneAutoTuner.TunedSetting.PartSatCeiling:          return PartSatCeiling;
-                case ZoneAutoTuner.TunedSetting.PartHueBand:             return PartHueBand;
-                case ZoneAutoTuner.TunedSetting.ChromaCeiling:           return ChromaCeiling;
-                case ZoneAutoTuner.TunedSetting.HoleFillMargin:          return HoleFillMargin;
-                case ZoneAutoTuner.TunedSetting.AntiAliasCleanup:        return AntiAliasCleanup;
-                case ZoneAutoTuner.TunedSetting.UseDecontamination:      return UseDecontamination;
-                default:                                                 return setting.ToString();
+                case ZoneAutoTuner.TunedSetting.ShadowValueFloor: return ShadowValueFloor;
+                case ZoneAutoTuner.TunedSetting.PartSatCeiling: return PartSatCeiling;
+                case ZoneAutoTuner.TunedSetting.PartHueBand: return PartHueBand;
+                case ZoneAutoTuner.TunedSetting.ChromaCeiling: return ChromaCeiling;
+                case ZoneAutoTuner.TunedSetting.HoleFillMargin: return HoleFillMargin;
+                case ZoneAutoTuner.TunedSetting.AntiAliasCleanup: return AntiAliasCleanup;
+                case ZoneAutoTuner.TunedSetting.UseDecontamination: return UseDecontamination;
+                default: return setting.ToString();
             }
         }
 
         internal static string AutoTuneOverwriteBody(System.Collections.Generic.IList<ZoneAutoTuner.TunedSetting> settings,
-            bool includesGlobals)
-        {
+            bool includesGlobals) {
             var sb = new System.Text.StringBuilder();
             sb.Append(IsJapanese
                 ? "以下のパラメータは既定値から変更されています。自動調整で上書きしますか？\n\n"
                 : "The following parameters have been modified from defaults. Overwrite via Auto-tune?\n\n");
-            for (int i = 0; i < settings.Count; i++)
-            {
+            for (int i = 0; i < settings.Count; i++) {
                 sb.Append("・");
                 sb.Append(TunedSettingLabel(settings[i]));
                 sb.Append('\n');
             }
-            if (includesGlobals)
-            {
+            if (includesGlobals) {
                 sb.Append(IsJapanese
                     ? "\n「加工設定」も変わります。"
                     : "\nThe Processing settings will also change.");
@@ -1440,8 +1422,7 @@ namespace Iroca
         public static string RegisterDoneFormat => IsJapanese ? "「{0}」に登録しました" : "Registered to \"{0}\"";
         public static string RegisterOk => IsJapanese ? "登録" : "Register";
         // いろかウィンドウとインスペクタの警告。入っていない・古い・新しすぎるで直し方が違う。
-        internal static string NdmfUnavailable(NdmfSupportState state)
-        {
+        internal static string NdmfUnavailable(NdmfSupportState state) {
             string cause = NdmfCause(state);
             return IsJapanese
                 ? cause + "ので、非破壊の色替えは使えません。画像の書き出しは使えます。" + NdmfFix(state)
@@ -1449,32 +1430,34 @@ namespace Iroca
                   + ", so non-destructive recoloring is not available. Exporting images still works. " + NdmfFix(state);
         }
         // NDMF が使えない理由(「〜ので」「〜ためです」に続く形)と直し方。
-        private static string NdmfCause(NdmfSupportState state)
-        {
-            switch (state)
-            {
-                case NdmfSupportState.TooOld: return IsJapanese
+        private static string NdmfCause(NdmfSupportState state) {
+            switch (state) {
+                case NdmfSupportState.TooOld:
+                    return IsJapanese
                     ? "入っている NDMF（Non-Destructive Modular Framework）が古い（1.8.0 より前の版）"
                     : "the installed NDMF (Non-Destructive Modular Framework) is too old (before 1.8.0)";
-                case NdmfSupportState.TooNew: return IsJapanese
+                case NdmfSupportState.TooNew:
+                    return IsJapanese
                     ? "入っている NDMF（Non-Destructive Modular Framework）が、このいろかの対応している版より新しい"
                     : "the installed NDMF (Non-Destructive Modular Framework) is newer than this version of Iroca supports";
-                default: return IsJapanese
+                default:
+                    return IsJapanese
                     ? "NDMF（Non-Destructive Modular Framework）が入っていない"
                     : "NDMF (Non-Destructive Modular Framework) is not installed";
             }
         }
-        private static string NdmfFix(NdmfSupportState state)
-        {
-            switch (state)
-            {
-                case NdmfSupportState.TooOld: return IsJapanese
+        private static string NdmfFix(NdmfSupportState state) {
+            switch (state) {
+                case NdmfSupportState.TooOld:
+                    return IsJapanese
                     ? "VCC / ALCOM で、NDMF を新しい版にしてください。"
                     : "Update NDMF in VCC / ALCOM.";
-                case NdmfSupportState.TooNew: return IsJapanese
+                case NdmfSupportState.TooNew:
+                    return IsJapanese
                     ? "VCC / ALCOM で、いろかを最新の版にしてください。"
                     : "Update Iroca to the latest version in VCC / ALCOM.";
-                default: return IsJapanese
+                default:
+                    return IsJapanese
                     ? "VCC / ALCOM で、いろかと同じリポジトリから「Non-Destructive Modular Framework」を追加してください。"
                     : "Add \"Non-Destructive Modular Framework\" in VCC / ALCOM from the same repository as Iroca.";
             }

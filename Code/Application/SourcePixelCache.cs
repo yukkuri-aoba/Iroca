@@ -6,11 +6,9 @@ using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>原本の画素の今の状態(<see cref="SourcePixelCache.LoadInBackground"/>)。</summary>
-    internal enum SourceState
-    {
+    internal enum SourceState {
         /// <summary>画素を持っている。</summary>
         Ready,
         /// <summary>別スレッドで読んでいる途中。</summary>
@@ -35,8 +33,7 @@ namespace Iroca
     /// 手放す。読む順は 1 本ずつなので、読みかけが何枚分も重ならない。
     /// </para>
     /// </summary>
-    internal sealed class SourcePixelCache
-    {
+    internal sealed class SourcePixelCache {
         private Texture2D _for;
         private NativePixels _pixels;
         private int _w, _h;
@@ -51,8 +48,7 @@ namespace Iroca
         private FileStamp _stamp;
 
         // 別スレッドで読んでいる途中のもの。別スレッドとは lock(load) の中の値だけで受け渡す。
-        private sealed class PendingLoad
-        {
+        private sealed class PendingLoad {
             public Texture2D Texture;
             public string Path;
             public int BasisW, BasisH;
@@ -95,17 +91,22 @@ namespace Iroca
         /// 専用)その次に呼ばれたときにメインスレッドで読む。<paramref name="finished"/> は読み終えたらメインスレッドの次の
         /// tick で呼ぶ(途中で要らなくなったときは呼ばない)。呼び先は <see cref="TryAdoptFinished"/> で受け取る。
         /// </summary>
-        internal SourceState LoadInBackground(Texture2D tex, Action finished)
-        {
-            if (_pending != null && _pending.Texture != tex) CancelPending();
-            if (_pending == null && TryBeginLoad(tex, finished)) return SourceState.Loading;
-            if (_pending != null)
-            {
-                lock (_pending)
-                {
-                    if (!_pending.Done) return SourceState.Loading;
+        internal SourceState LoadInBackground(Texture2D tex, Action finished) {
+            if (_pending != null && _pending.Texture != tex) {
+                CancelPending();
+            }
+            if (_pending == null && TryBeginLoad(tex, finished)) {
+                return SourceState.Loading;
+            }
+            if (_pending != null) {
+                lock (_pending) {
+                    if (!_pending.Done) {
+                        return SourceState.Loading;
+                    }
                 }
-                if (AdoptFinished()) return SourceState.Ready;
+                if (AdoptFinished()) {
+                    return SourceState.Ready;
+                }
             }
             return LoadOnMainThread(tex) ? SourceState.Ready : SourceState.Unavailable;
         }
@@ -114,28 +115,29 @@ namespace Iroca
         /// 別スレッドの読み込みが tex の画素を読み終えていれば受け取る。受け取ったら true。読めなかった(PNG でないなど)ときは
         /// false のまま覚えておき、次の <see cref="LoadInBackground"/> がメインスレッドで読む。別のテクスチャのものは取り消す。
         /// </summary>
-        internal bool TryAdoptFinished(Texture2D tex)
-        {
-            if (_pending == null) return false;
+        internal bool TryAdoptFinished(Texture2D tex) {
+            if (_pending == null) {
+                return false;
+            }
             // 消えたテクスチャと null は Unity の比較では同じに見えるので、null を先に見る。
-            if (tex == null || _pending.Texture != tex)
-            {
+            if (tex == null || _pending.Texture != tex) {
                 CancelPending();
                 return false;
             }
-            lock (_pending)
-            {
-                if (!_pending.Done || _pending.Result == null) return false;
+            lock (_pending) {
+                if (!_pending.Done || _pending.Result == null) {
+                    return false;
+                }
             }
             return AdoptFinished();
         }
 
-        private bool TryBeginLoad(Texture2D tex, Action finished)
-        {
+        private bool TryBeginLoad(Texture2D tex, Action finished) {
             string path = AssetDatabase.GetAssetPath(tex);
-            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) return false;
-            var load = new PendingLoad
-            {
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) {
+                return false;
+            }
+            var load = new PendingLoad {
                 Texture = tex,
                 Path = path,
                 BasisW = tex.width,
@@ -151,55 +153,49 @@ namespace Iroca
         }
 
         // 別スレッド側。Unity の API も、このクラスの load の外の状態も触らない(_pending を見るのはメインスレッドへ戻してから)。
-        private void RunLoad(PendingLoad load)
-        {
+        private void RunLoad(PendingLoad load) {
             NativePixels pixels = null;
-            try
-            {
+            try {
                 load.Cancel.Token.ThrowIfCancellationRequested();
                 pixels = TextureIO.TryDecodePngOffMainThread(load.Path, load.BasisW, load.BasisH, load.Cancel.Token);
-            }
-            catch (OperationCanceledException) { /* 読みかけの画素はデコーダが手放した */ }
+            } catch (OperationCanceledException) { /* 読みかけの画素はデコーダが手放した */ }
             // ファイルを開けないなど。メインスレッドの経路で読み直すので、そちらが同じ失敗を警告する。
             catch (Exception) { }
 
             bool abandoned;
-            lock (load)
-            {
+            lock (load) {
                 abandoned = load.Abandoned;
-                if (!abandoned)
-                {
+                if (!abandoned) {
                     load.Result = pixels;
                     load.Done = true;
                 }
             }
-            if (abandoned)
-            {
+            if (abandoned) {
                 pixels?.Release();
                 return;
             }
             // 知らせが届くまでに取り消された・待って受け取られたものは知らせない(閉じたウィンドウを呼ばない)。
-            PreviewJobMainThread.Post(() =>
-            {
-                if (ReferenceEquals(_pending, load)) load.Finished();
+            PreviewJobMainThread.Post(() => {
+                if (ReferenceEquals(_pending, load)) {
+                    load.Finished();
+                }
             });
         }
 
         // 読み終えた読み込みを受け取る。画素を受け取れたら true。false ならメインスレッドの経路で読む。
-        private bool AdoptFinished()
-        {
+        private bool AdoptFinished() {
             var load = _pending;
             _pending = null;
             NativePixels pixels;
-            lock (load)
-            {
+            lock (load) {
                 pixels = load.Result;
                 load.Result = null;
             }
-            if (pixels == null) return false;
+            if (pixels == null) {
+                return false;
+            }
             // 読んでいる間に取り込み後の寸法が変わった(作業解像度の前提が違う)。
-            if (load.Texture.width != load.BasisW || load.Texture.height != load.BasisH)
-            {
+            if (load.Texture.width != load.BasisW || load.Texture.height != load.BasisH) {
                 pixels.Release();
                 return false;
             }
@@ -208,14 +204,14 @@ namespace Iroca
         }
 
         // 読んでいる途中のものを捨てる。読み終えた画素はここで、読みかけの画素は読み手が次の行で手放す。
-        private void CancelPending()
-        {
+        private void CancelPending() {
             var load = _pending;
-            if (load == null) return;
+            if (load == null) {
+                return;
+            }
             _pending = null;
             NativePixels pixels;
-            lock (load)
-            {
+            lock (load) {
                 load.Abandoned = true;
                 pixels = load.Result;
                 load.Result = null;
@@ -228,17 +224,14 @@ namespace Iroca
         /// tex の画素を読む(返るまで待つ)。別スレッドで読んでいる途中なら、それが終わるのを待って受け取る。
         /// 読めたら前の画素を手放して差し替え、true を返す。どちらでも取れなければ失敗を覚えて false(前の画素はそのまま)。
         /// </summary>
-        internal bool Load(Texture2D tex)
-        {
-            if (_pending != null)
-            {
-                if (_pending.Texture == tex)
-                {
+        internal bool Load(Texture2D tex) {
+            if (_pending != null) {
+                if (_pending.Texture == tex) {
                     _lastLoad.Wait();
-                    if (AdoptFinished()) return true;
-                }
-                else
-                {
+                    if (AdoptFinished()) {
+                        return true;
+                    }
+                } else {
                     CancelPending();
                 }
             }
@@ -247,30 +240,23 @@ namespace Iroca
 
         // 可能ならディスク上の元ファイルをデコードして作業解像度にそろえ、PNG/JPG 以外や生成テクスチャ等で失敗した場合は
         // インポート済みテクスチャの画素にフォールバックする。
-        private bool LoadOnMainThread(Texture2D tex)
-        {
+        private bool LoadOnMainThread(Texture2D tex) {
             string path = AssetDatabase.GetAssetPath(tex);
-            if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
-            {
-                try
-                {
+            if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path)) {
+                try {
                     var stamp = FileStamp.Of(path);
                     var decoded = TextureIO.DecodeSourceFile(path, tex);
-                    if (decoded != null)
-                    {
+                    if (decoded != null) {
                         Set(tex, decoded, fromFile: true, stamp);
                         return true;
                     }
-                }
-                catch (System.Exception ex)
-                {
+                } catch (System.Exception ex) {
                     Debug.LogWarning($"[Iroca] Source file load failed, falling back to imported texture: {ex.Message}");
                 }
             }
 
             // フォールバック: インポート済みテクスチャ（要 Read/Write）。
-            if (!TextureIO.IsReadable(tex))
-            {
+            if (!TextureIO.IsReadable(tex)) {
                 _failedFor = tex;
                 return false;
             }
@@ -279,8 +265,7 @@ namespace Iroca
         }
 
         // 画素を差し替える(前の画素の参照を返し、新しい画素の参照を持つ)。取り込み後の寸法も覚える。
-        private void Set(Texture2D tex, NativePixels pixels, bool fromFile, FileStamp stamp)
-        {
+        private void Set(Texture2D tex, NativePixels pixels, bool fromFile, FileStamp stamp) {
             Release();
             _pixels = pixels;
             _w = pixels.Width;
@@ -300,36 +285,36 @@ namespace Iroca
         /// ファイルの大きさと更新時刻が読む前に見たものと同じ。返す画素はプレビューと共有なので書き換えないこと
         /// (色替えするなら写してから)。メインスレッド専用。
         /// </summary>
-        internal NativePixels ShareIfCurrent(Texture2D tex, string path)
-        {
-            if (tex == null || _for != tex || _pixels == null || !_fromFile || !_stamp.IsValid) return null;
-            if (_basisW != tex.width || _basisH != tex.height) return null;
-            if (string.IsNullOrEmpty(path) || !_stamp.Equals(FileStamp.Of(path))) return null;
+        internal NativePixels ShareIfCurrent(Texture2D tex, string path) {
+            if (tex == null || _for != tex || _pixels == null || !_fromFile || !_stamp.IsValid) {
+                return null;
+            }
+            if (_basisW != tex.width || _basisH != tex.height) {
+                return null;
+            }
+            if (string.IsNullOrEmpty(path) || !_stamp.Equals(FileStamp.Of(path))) {
+                return null;
+            }
             return _pixels.AddRef();
         }
 
         /// <summary>ファイルの大きさと更新時刻(読めなければ無効)。</summary>
-        internal readonly struct FileStamp : IEquatable<FileStamp>
-        {
+        internal readonly struct FileStamp : IEquatable<FileStamp> {
             public readonly long Length;
             public readonly long WriteTicks;
 
-            private FileStamp(long length, long writeTicks)
-            {
+            private FileStamp(long length, long writeTicks) {
                 Length = length;
                 WriteTicks = writeTicks;
             }
 
             public bool IsValid => WriteTicks != 0;
 
-            public static FileStamp Of(string path)
-            {
-                try
-                {
+            public static FileStamp Of(string path) {
+                try {
                     var info = new System.IO.FileInfo(path);
                     return info.Exists ? new FileStamp(info.Length, info.LastWriteTimeUtc.Ticks) : default;
-                }
-                catch (Exception) { return default; }
+                } catch (Exception) { return default; }
             }
 
             public bool Equals(FileStamp other) => IsValid && Length == other.Length && WriteTicks == other.WriteTicks;
@@ -338,8 +323,7 @@ namespace Iroca
         }
 
         // 画素の参照を返す。読んでいる途中のジョブは自分の参照を持っているので、ここで返しても消えない。
-        private void Release()
-        {
+        private void Release() {
             var old = _pixels;
             _pixels = null;
             _w = _h = 0;
@@ -350,8 +334,7 @@ namespace Iroca
         /// 画素を手放し、どのテクスチャを読んだか・読めなかったかも忘れる(テクスチャの差し替え・閉じるとき)。
         /// 別スレッドで読んでいる途中のものも取り消す。
         /// </summary>
-        internal void Clear()
-        {
+        internal void Clear() {
             CancelPending();
             _for = null;
             Release();

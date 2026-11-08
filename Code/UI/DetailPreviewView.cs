@@ -4,8 +4,7 @@ using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 詳細プレビュー（拡大表示）の生成と表示用テクスチャ管理。
     /// PreviewView の補助として動作し、単独のトップレベル状態管理は持たない。
@@ -14,8 +13,7 @@ namespace Iroca
     /// その範囲と寸法で作る。縮めるタイルは控え(<see cref="DetailTileCache"/>。ヒープの外)に覚え、パンでは新しく
     /// 見えたタイルだけを作る。タイルの並びが変わらないパンでは作り直さない(上げ直しもしない)。
     /// </summary>
-    internal unsafe class DetailPreviewView
-    {
+    internal unsafe class DetailPreviewView {
         // マスクの重ね表示はここでは持たない: 詳細と同じ範囲・寸法の等倍の重ね表示は
         // MaskPaintView(RebuildDetailOverlay)が作り、PreviewView.Draw が詳細の上に描く。
         // ブラシは両方の重ね表示へ直接書くので、詳細の再生成を待たずに塗った所が見える。
@@ -91,8 +89,7 @@ namespace Iroca
 
         [System.NonSerialized] private IrocaWindow _host;
 
-        public void Initialize(IrocaWindow host)
-        {
+        public void Initialize(IrocaWindow host) {
             _host = host;
         }
 
@@ -101,8 +98,7 @@ namespace Iroca
         public bool HasPendingResult => _pending.Processed != null;
 
         /// <summary>確定表示が lastDetailDirtyTime を打った直後に呼ぶ(体感速度の計測)。</summary>
-        internal void AttachLatency(PreviewLatencyCycle cycle)
-        {
+        internal void AttachLatency(PreviewLatencyCycle cycle) {
             _latencyCycle = cycle;
             _latencyDirtyTime = lastDetailDirtyTime;
         }
@@ -111,8 +107,7 @@ namespace Iroca
         /// スクロール・ズームで表示範囲(位置・倍率)が変わったときに呼ぶ。拡大表示を作り直させ
         /// (走っている作り直しが無ければ次の描画で、あればその後すぐ)、体感速度の起点としてこの時刻を控える。
         /// </summary>
-        internal void MarkViewChanged()
-        {
+        internal void MarkViewChanged() {
             lastDetailDirtyTime = EditorApplication.timeSinceStartup;
             _viewDirtyTime = lastDetailDirtyTime;
             _viewInput = PreviewLatencyCycle.Now;
@@ -131,20 +126,21 @@ namespace Iroca
         /// スクロール・ズームの打ったものならその操作を起点にした拡大表示だけの計測(新しく作る)。
         /// それ以外の契機(差分表示の切り替えなど)なら null。引き渡しは 1 回きり。
         /// </summary>
-        internal PreviewLatencyCycle TakeLatencyFor(double dirtyTime, int srcW, int srcH)
-        {
+        internal PreviewLatencyCycle TakeLatencyFor(double dirtyTime, int srcW, int srcH) {
             var c = _latencyCycle;
             long viewInput = _viewInput;
             _latencyCycle = null;
             _viewInput = 0;
-            if (c != null && dirtyTime == _latencyDirtyTime) return c;
-            if (viewInput != 0 && dirtyTime == _viewDirtyTime)
+            if (c != null && dirtyTime == _latencyDirtyTime) {
+                return c;
+            }
+            if (viewInput != 0 && dirtyTime == _viewDirtyTime) {
                 return new PreviewLatencyCycle { ViewChange = true, Input = viewInput, SourceW = srcW, SourceH = srcH };
+            }
             return null;
         }
 
-        public struct DetailPreviewResult
-        {
+        public struct DetailPreviewResult {
             // タイルを並べた変更後(Mono のヒープの外。結果が参照を 1 つ持つ)と、その要求。
             public NativePixels Processed;
             public DetailTileRange Range;
@@ -153,8 +149,7 @@ namespace Iroca
             public NativePixels Raw;
             public DetailTileRange RawRange;
 
-            public void Release()
-            {
+            public void Release() {
                 Processed?.Release();
                 Raw?.Release();
                 Processed = Raw = null;
@@ -165,9 +160,10 @@ namespace Iroca
         /// スクロールされたプレビューの対応するリージョンと正確に整列する詳細クロップをレンダリングする
         /// スクリーン空間矩形を返します。
         /// </summary>
-        public Rect ComputeDetailScreenRect(Rect activePreviewRect, int srcW, int srcH)
-        {
-            if (detailPreviewTexture == null) return activePreviewRect;
+        public Rect ComputeDetailScreenRect(Rect activePreviewRect, int srcW, int srcH) {
+            if (detailPreviewTexture == null) {
+                return activePreviewRect;
+            }
 
             // ソースピクセルあたりのディスプレイピクセル。画像の矩形と土台の寸法から縦横それぞれに求める。取り込みで
             // 縦横比が変わる(2 のべき乗へ丸める。1500×1000 → 1024×1024)と縦と横で違い、丸めだけでも少し違う。
@@ -180,8 +176,8 @@ namespace Iroca
             // 引いてはいけない（マスクペイントやズーム中心合わせも scrollPos を使っていない）。
             // 詳細クロップは元画像のピクセル detailOriginX から始まるので、画像左上
             // (activePreviewRect.x) からの相対位置をそのまま足す。
-            float left   = activePreviewRect.x + detailOriginX * pxPerSrcX;
-            float width  = detailCropW * pxPerSrcX;
+            float left = activePreviewRect.x + detailOriginX * pxPerSrcX;
+            float width = detailCropW * pxPerSrcX;
             float height = detailCropH * pxPerSrcY;
 
             // Y はメモリ行(上向き)と画面 y(下向き)が反転している。detailOriginY はクロップ
@@ -202,14 +198,21 @@ namespace Iroca
         /// displayZoom は画面上の表示倍率(PreviewView.EffectiveZoom。全体表示の倍率込み)。
         /// </summary>
         public void GenerateDetailPreviewAsync(float scale, float displayZoom, Vector2 previewScrollPos,
-            float viewportW, float viewportH, Rect afterRect, Rect beforeRect, PreviewLatencyCycle latency = null)
-        {
+            float viewportW, float viewportH, Rect afterRect, Rect beforeRect, PreviewLatencyCycle latency = null) {
             long prepStart = PreviewLatencyCycle.Now;
             var p = Pipeline;
-            if (_host.SourceTexture == null || p == null) return;
-            if (scale >= 1f) return;
-            if (displayZoom <= DetailMinZoom) return;
-            if (viewportW <= 0f || viewportH <= 0f) return;
+            if (_host.SourceTexture == null || p == null) {
+                return;
+            }
+            if (scale >= 1f) {
+                return;
+            }
+            if (displayZoom <= DetailMinZoom) {
+                return;
+            }
+            if (viewportW <= 0f || viewportH <= 0f) {
+                return;
+            }
             int srcW = p.DetailW, srcH = p.DetailH;
 
             // クロップは「画面に見えている範囲」だけに限定する。以前は画像全幅(previewRect.width
@@ -223,10 +226,13 @@ namespace Iroca
             float pxPerSrcX = afterRect.width / srcW, pxPerSrcY = afterRect.height / srcH;
             var viewRect = ClampedViewRect(previewScrollPos, viewportW, viewportH, afterRect, beforeRect);
             AddVisibleRange(afterRect, viewRect, pxPerSrcX, pxPerSrcY, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
-            if (beforeRect.width > 0f)
+            if (beforeRect.width > 0f) {
                 AddVisibleRange(beforeRect, viewRect, pxPerSrcX, pxPerSrcY, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
+            }
 
-            if (x1 <= x0 || y1 <= y0) return;
+            if (x1 <= x0 || y1 <= y0) {
+                return;
+            }
             // 上下左右に少し余白を足す(小さなパンなら、作り直しが届くまでの間も新しく見えた端が粗くならない)。
             // 余白は画面の大きさで決めるので、切り出しの手間は倍率に依らず見えている範囲の数割増しで済む。
             int marginX = Mathf.CeilToInt(CropMarginPoints / pxPerSrcX);
@@ -242,15 +248,18 @@ namespace Iroca
         /// 範囲は <see cref="GenerateDetailPreviewAsync"/> が見えている範囲から決める(テストは直接呼ぶ)。
         /// </summary>
         internal bool ScheduleRange(int x0, int y0, int x1, int y1, float pxPerSrc,
-            PreviewLatencyCycle latency = null, long prepStart = 0)
-        {
+            PreviewLatencyCycle latency = null, long prepStart = 0) {
             var p = Pipeline;
             var output = p?.DetailOutput;
             var source = p?.DetailSource;
             int w = p?.DetailW ?? 0, h = p?.DetailH ?? 0;
             if (output == null || source == null || w <= 0 || h <= 0
-                || output.Length != w * h || source.Length != w * h) return false;
-            if (x1 <= x0 || y1 <= y0) return false;
+                || output.Length != w * h || source.Length != w * h) {
+                return false;
+            }
+            if (x1 <= x0 || y1 <= y0) {
+                return false;
+            }
 
             var grid = DetailTileGrid.For(w, h, pxPerSrc);
             var range = DetailTileRange.Covering(grid, x0, y0, x1, y1, p.DetailOutputVersion);
@@ -259,14 +268,17 @@ namespace Iroca
             // 切り替えた直後の切り出しと「元を表示」の変更前は、描くときに EnsureDetailRaw が同じ範囲で作る。
             bool needRaw = _host.Preview.diffMode;
             if (_hasShown && _shown.Equals(range) && detailPreviewTexture != null
-                && (!needRaw || (_hasRawShown && _rawShown.Equals(rawRange) && detailRawTexture != null)))
+                && (!needRaw || (_hasRawShown && _rawShown.Equals(rawRange) && detailRawTexture != null))) {
                 return false;
+            }
 
             // 前の要求の先読みは止める(今の切り出しの計算を待たせない)。控えは今の要求に合わせる(前の要求のジョブが
             // 後から作ったタイルは控えに入らない)。
             _prefetchJob.Cancel();
             _afterTiles.Retarget(grid, range.Version);
-            if (needRaw) _beforeTiles.Retarget(grid, rawRange.Version);
+            if (needRaw) {
+                _beforeTiles.Retarget(grid, rawRange.Version);
+            }
             // 範囲と先読みの 1 周(SchedulePrefetch)を控えられるように。
             int tilesWanted = (range.C1 - range.C0 + 2) * (range.R1 - range.R0 + 2);
             _afterTiles.EnsureCapacity(tilesWanted);
@@ -279,43 +291,43 @@ namespace Iroca
 
             // 体感速度の計測(確定表示から引き渡されたときだけ)。値・分岐は変えない。
             var marks = latency?.Detail;
-            if (marks != null)
-            {
+            if (marks != null) {
                 marks.PrepStart = prepStart;
                 marks.Scheduled = PreviewLatencyCycle.Now;
             }
 
             detailJob.Schedule(
-                work: token =>
-                {
-                    if (marks != null) marks.WorkStart = PreviewLatencyCycle.Now;
-                    var result = new DetailPreviewResult { Range = range, RawRange = rawRange };
-                    try
-                    {
-                        result.Processed = DetailTileCache.Assemble(range, outputForTask, afterTiles, token);
-                        if (sourceForTask != null)
-                            result.Raw = DetailTileCache.Assemble(rawRange, sourceForTask, beforeTiles, token);
-                        token.ThrowIfCancellationRequested();
+                work: token => {
+                    if (marks != null) {
+                        marks.WorkStart = PreviewLatencyCycle.Now;
                     }
-                    catch
-                    {
+                    var result = new DetailPreviewResult { Range = range, RawRange = rawRange };
+                    try {
+                        result.Processed = DetailTileCache.Assemble(range, outputForTask, afterTiles, token);
+                        if (sourceForTask != null) {
+                            result.Raw = DetailTileCache.Assemble(rawRange, sourceForTask, beforeTiles, token);
+                        }
+                        token.ThrowIfCancellationRequested();
+                    } catch {
                         result.Release();
                         throw;
                     }
-                    if (marks != null) marks.WorkEnd = PreviewLatencyCycle.Now;
+                    if (marks != null) {
+                        marks.WorkEnd = PreviewLatencyCycle.Now;
+                    }
                     return result;
                 },
-                apply: result =>
-                {
-                    if (marks != null) marks.Applied = PreviewLatencyCycle.Now;
+                apply: result => {
+                    if (marks != null) {
+                        marks.Applied = PreviewLatencyCycle.Now;
+                    }
                     _pending.Release();
                     _pending = result;
                     _pendingDetailLatency = latency;
                     _host.RequestPreviewRepaint();
                     SchedulePrefetch(range, result.Raw != null);
                 },
-                cleanup: () =>
-                {
+                cleanup: () => {
                     outputForTask.Release();
                     sourceForTask?.Release();
                 },
@@ -326,45 +338,53 @@ namespace Iroca
         /// <summary>
         /// 並べたタイルの周り 1 枚分(縮めるタイルだけ)を控えへ作っておく。土台がもう替わっていたら作らない。
         /// </summary>
-        private void SchedulePrefetch(DetailTileRange range, bool withRaw)
-        {
+        private void SchedulePrefetch(DetailTileRange range, bool withRaw) {
             var grid = range.Grid;
-            if (!grid.Shrinks) return;
+            if (!grid.Shrinks) {
+                return;
+            }
             var p = Pipeline;
-            if (p == null || p.DetailOutputVersion != range.Version || p.DetailW != grid.W || p.DetailH != grid.H) return;
+            if (p == null || p.DetailOutputVersion != range.Version || p.DetailW != grid.W || p.DetailH != grid.H) {
+                return;
+            }
             var output = p.DetailOutput;
             var source = withRaw ? p.DetailSource : null;
-            if (output == null) return;
+            if (output == null) {
+                return;
+            }
             int sourceVersion = p.DetailSourceVersion;
             int c0 = Mathf.Max(0, range.C0 - 1), c1 = Mathf.Min(grid.Columns, range.C1 + 1);
             int r0 = Mathf.Max(0, range.R0 - 1), r1 = Mathf.Min(grid.Rows, range.R1 + 1);
-            if (c0 == range.C0 && c1 == range.C1 && r0 == range.R0 && r1 == range.R1) return;
+            if (c0 == range.C0 && c1 == range.C1 && r0 == range.R0 && r1 == range.R1) {
+                return;
+            }
 
             var outputForTask = output.AddRef();
             var sourceForTask = source?.AddRef();
             var afterTiles = _afterTiles;
             var beforeTiles = _beforeTiles;
             _prefetchJob.Schedule(
-                work: token =>
-                {
+                work: token => {
                     int made = 0;
-                    for (int r = r0; r < r1; r++)
-                        for (int c = c0; c < c1; c++)
-                        {
-                            if (c >= range.C0 && c < range.C1 && r >= range.R0 && r < range.R1) continue;
+                    for (int r = r0; r < r1; r++) {
+                        for (int c = c0; c < c1; c++) {
+                            if (c >= range.C0 && c < range.C1 && r >= range.R0 && r < range.R1) {
+                                continue;
+                            }
                             token.ThrowIfCancellationRequested();
-                            if (afterTiles.Prefetch(grid, range.Version, c, r, outputForTask)) made++;
-                            if (sourceForTask != null)
-                            {
+                            if (afterTiles.Prefetch(grid, range.Version, c, r, outputForTask)) {
+                                made++;
+                            }
+                            if (sourceForTask != null) {
                                 token.ThrowIfCancellationRequested();
                                 beforeTiles.Prefetch(grid, sourceVersion, c, r, sourceForTask);
                             }
                         }
+                    }
                     return made;
                 },
                 apply: _ => { },
-                cleanup: () =>
-                {
+                cleanup: () => {
                     outputForTask.Release();
                     sourceForTask?.Release();
                 });
@@ -375,12 +395,15 @@ namespace Iroca
         /// ソースの画素範囲([x0,x1)×[y0,y1)。y はメモリ行＝行 0 が画像下端)として足し合わせる。
         /// </summary>
         private static void AddVisibleRange(Rect panel, Rect view, float pxPerSrcX, float pxPerSrcY, int srcW, int srcH,
-            ref int x0, ref int y0, ref int x1, ref int y1)
-        {
-            if (pxPerSrcX <= 0f || pxPerSrcY <= 0f) return;
+            ref int x0, ref int y0, ref int x1, ref int y1) {
+            if (pxPerSrcX <= 0f || pxPerSrcY <= 0f) {
+                return;
+            }
             float cx0 = Mathf.Max(view.xMin, panel.xMin), cx1 = Mathf.Min(view.xMax, panel.xMax);
             float cy0 = Mathf.Max(view.yMin, panel.yMin), cy1 = Mathf.Min(view.yMax, panel.yMax);
-            if (cx1 <= cx0 || cy1 <= cy0) return;
+            if (cx1 <= cx0 || cy1 <= cy0) {
+                return;
+            }
             float invX = 1f / pxPerSrcX, invY = 1f / pxPerSrcY;
             int px0 = Mathf.Clamp(Mathf.FloorToInt((cx0 - panel.x) * invX), 0, srcW);
             int px1 = Mathf.Clamp(Mathf.CeilToInt((cx1 - panel.x) * invX), 0, srcW);
@@ -389,7 +412,9 @@ namespace Iroca
             // これをしないと、ビュー上端に画像下端のクロップが出る＝表示中の領域とズレる。
             int py0 = Mathf.Clamp(Mathf.FloorToInt(srcH - (cy1 - panel.y) * invY), 0, srcH);
             int py1 = Mathf.Clamp(Mathf.CeilToInt(srcH - (cy0 - panel.y) * invY), 0, srcH);
-            if (px1 <= px0 || py1 <= py0) return;
+            if (px1 <= px0 || py1 <= py0) {
+                return;
+            }
             x0 = Mathf.Min(x0, px0);
             y0 = Mathf.Min(y0, py0);
             x1 = Mathf.Max(x1, px1);
@@ -403,11 +428,9 @@ namespace Iroca
         /// 内容の端(画像の矩形＋余白)に収まるよう丸める。スクロールバーの分だけ実際の可視範囲は狭いので、
         /// その分は広めに取って、実際に見えている範囲を必ず含むようにする。
         /// </summary>
-        private static Rect ClampedViewRect(Vector2 scroll, float viewportW, float viewportH, Rect afterRect, Rect beforeRect)
-        {
+        private static Rect ClampedViewRect(Vector2 scroll, float viewportW, float viewportH, Rect afterRect, Rect beforeRect) {
             float right = afterRect.xMax, bottom = afterRect.yMax;
-            if (beforeRect.width > 0f)
-            {
+            if (beforeRect.width > 0f) {
                 right = Mathf.Max(right, beforeRect.xMax);
                 bottom = Mathf.Max(bottom, beforeRect.yMax);
             }
@@ -419,21 +442,24 @@ namespace Iroca
             return new Rect(sx, sy, viewportW + slack, viewportH + slack);
         }
 
-        public void ApplyPendingResult()
-        {
+        public void ApplyPendingResult() {
             var result = _pending;
             var latency = _pendingDetailLatency;
             _pending = default;
             _pendingDetailLatency = null;
 
-            if (result.Processed == null) return;
-            if (latency != null) latency.Detail.UploadStart = PreviewLatencyCycle.Now;
+            if (result.Processed == null) {
+                return;
+            }
+            if (latency != null) {
+                latency.Detail.UploadStart = PreviewLatencyCycle.Now;
+            }
 
             var range = result.Range;
             detailOriginX = range.OriginX;
             detailOriginY = range.OriginY;
-            detailCropW   = range.SourceW;
-            detailCropH   = range.SourceH;
+            detailCropW = range.SourceW;
+            detailCropH = range.SourceH;
             _shown = range;
             _hasShown = true;
 
@@ -445,8 +471,7 @@ namespace Iroca
             // 差分表示中に作り始めた切り出しは、同じ範囲の変更前の切り出しも持ってくる(切り出しと同じジョブで作って
             // あり、ここで同時に差し替える)。「元を表示」と同じテクスチャに置き、EnsureDetailRaw は同じ範囲なら作り直さない。
             // 持っていない結果のときは何もしない(範囲が変われば、要るときに EnsureDetailRaw が作り直す)。
-            if (result.Raw != null)
-            {
+            if (result.Raw != null) {
                 PreviewRenderer.UploadPixels(ref detailRawTexture, result.Raw);
                 detailRawTexture.filterMode = DetailFilterMode(detailRawTexture.width, detailCropW);
                 _rawShown = result.RawRange;
@@ -456,10 +481,11 @@ namespace Iroca
             result.Release();
 
             // 体感速度: 拡大表示まで含めたレポートで、確定表示時点のものを差し替える。
-            if (latency != null)
-            {
+            if (latency != null) {
                 latency.Detail.UploadEnd = PreviewLatencyCycle.Now;
-                if (PreviewLatency.Publish(latency)) _host.RequestRepaint();
+                if (PreviewLatency.Publish(latency)) {
+                    _host.RequestRepaint();
+                }
             }
         }
 
@@ -479,23 +505,26 @@ namespace Iroca
         /// 切り出しが無い・土台の寸法が合わないときは false。見えている範囲だけなので、押した最初のフレームに
         /// メインスレッドで作る(縮めたタイルは控えを使う)。
         /// </summary>
-        public bool EnsureDetailRaw()
-        {
-            if (detailPreviewTexture == null || !_hasShown) return false;
+        public bool EnsureDetailRaw() {
+            if (detailPreviewTexture == null || !_hasShown) {
+                return false;
+            }
             var p = Pipeline;
             var source = p?.DetailSource;
             var grid = _shown.Grid;
-            if (source == null || p.DetailW != grid.W || p.DetailH != grid.H || source.Length != grid.W * grid.H) return false;
+            if (source == null || p.DetailW != grid.W || p.DetailH != grid.H || source.Length != grid.W * grid.H) {
+                return false;
+            }
             var rawRange = _shown.WithVersion(p.DetailSourceVersion);
-            if (detailRawTexture != null && _hasRawShown && _rawShown.Equals(rawRange)) return true;
+            if (detailRawTexture != null && _hasRawShown && _rawShown.Equals(rawRange)) {
+                return true;
+            }
 
             _beforeTiles.Retarget(grid, rawRange.Version);
             var pixels = DetailTileCache.Assemble(rawRange, source, _beforeTiles, CancellationToken.None);
-            try
-            {
+            try {
                 PreviewRenderer.UploadPixels(ref detailRawTexture, pixels);
-            }
-            finally { pixels.Release(); }
+            } finally { pixels.Release(); }
             detailRawTexture.filterMode = DetailFilterMode(detailRawTexture.width, detailCropW);
             _rawShown = rawRange;
             _hasRawShown = true;
@@ -504,32 +533,30 @@ namespace Iroca
         }
 
         /// <summary>「元を表示」用の変更前の切り出しを手放す(離したとき・切り出しを捨てたとき)。</summary>
-        public void ReleaseDetailRaw()
-        {
+        public void ReleaseDetailRaw() {
             _hasRawShown = false;
-            if (detailRawTexture == null) return;
+            if (detailRawTexture == null) {
+                return;
+            }
             TextureSlot.Release(ref detailRawTexture);
         }
 
         /// <summary>
         /// 縮めたタイルの控えを手放す(拡大表示をやめた・切り出しを捨てた)。表示中の切り出しはそのまま。
         /// </summary>
-        internal void ReleaseTiles()
-        {
+        internal void ReleaseTiles() {
             _prefetchJob.Cancel();
             _afterTiles.Clear();
             _beforeTiles.Clear();
         }
 
-        public void Dispose()
-        {
+        public void Dispose() {
             Suspend();
             detailJob.Dispose();
             _prefetchJob.Dispose();
         }
 
-        public void Suspend()
-        {
+        public void Suspend() {
             // 表示の破棄(InvalidateDisplay)に加えて、作り直し待ちの打刻も消す。
             InvalidateDisplay();
             lastDetailDirtyTime = 0;
@@ -540,8 +567,7 @@ namespace Iroca
         /// 表示範囲が動いただけなら捨てない(<see cref="OnViewMoved"/>)。
         /// lastDetailDirtyTime は呼び出し側が再設定するので維持する。
         /// </summary>
-        public void InvalidateDisplay()
-        {
+        public void InvalidateDisplay() {
             detailJob.Cancel();
             _pending.Release();
             _pending = default;

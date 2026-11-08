@@ -2,18 +2,15 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEditor;
 
-namespace Iroca.DebugTools
-{
+namespace Iroca.DebugTools {
     /// <summary>
     /// Editor 起動時に <see cref="DebugCaptureHooks"/> へファクトリを、<see cref="DebugWindowHooks"/> へ描画フックを登録する。
     /// この asmdef ごと削除すれば <c>InitializeOnLoadMethod</c> は呼ばれず、
     /// 本体 <see cref="DebugCaptureHooks.Factory"/> は null のままで何も起きない。
     /// </summary>
-    internal static class DebugBootstrap
-    {
+    internal static class DebugBootstrap {
         [InitializeOnLoadMethod]
-        private static void Init()
-        {
+        private static void Init() {
             DebugCaptureHooks.Factory = DebugView.CurrentCaptureOrNull;
             // ジョブ完了時（メインスレッド）に埋め終わったキャプチャを公開する。生成時公開だと
             // 背景ジョブの Snapshots.Add と DebugWindow の OnGUI foreach が競合するため。

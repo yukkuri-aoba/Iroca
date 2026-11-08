@@ -9,18 +9,15 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
         /// <summary>
         /// ハイライト候補領域をコア領域から空間伝播させてマスク化する。
         /// strengthの強いピクセル(コア)から、ハイライト候補スコア(highlightPot)を持つ隣接ピクセルへ
         /// strengthを徐々に伝播させ、孤立した白いシャツなどを染めないようにする。
         /// </summary>
         private static void PropagateHighlights(float* strength, float* highlightPot, int w, int h,
-            CancellationToken ct = default)
-        {
+            CancellationToken ct = default) {
             // bbox 制限(P1-5): strength を更新し得るのは下のガード `pot > 0f` を満たす画素のみ。
             // highlightPot>0 の bbox だけ走査すれば、bbox 外画素は元々 skip(何もしない)、bbox 端の
             // 近傍読み(i±1 / i±w)が指す bbox 外画素は pot=0 で本関数では不変のため値が一致し、
@@ -28,8 +25,9 @@ namespace Iroca
             // ハイライト候補はテクスチャの一部に偏在するため実効コストを大きく削減できる。
             // bbox 走査は行ごとに独立(min/max のマージ)なので並列化しても逐次と同一結果。
             if (!TryComputeStrengthBBox(highlightPot, w, h, 0f,
-                    out int minX, out int minY, out int maxX, out int maxY, ct))
+                    out int minX, out int minY, out int maxX, out int maxY, ct)) {
                 return;   // pot>0 の画素が無い → 伝播対象なし
+            }
 
             // 候補画素(pot>0)だけをラスタ順のパック座標列に畳む(出力ビット不変)。
             // 旧実装は bbox の全画素を最大 6 回(3 パス × 前方/後方)走査していたが、
@@ -43,30 +41,38 @@ namespace Iroca
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             int bh = maxY - minY + 1;
             var rowCount = new int[bh];
-            Parallel.For(0, bh, po, ly =>
-            {
+            Parallel.For(0, bh, po, ly => {
                 int rb = (ly + minY) * w;
                 int n = 0;
-                for (int x = minX; x <= maxX; x++) if (IsHlPropCandidate(highlightPot[rb + x], strength[rb + x])) n++;
+                for (int x = minX; x <= maxX; x++) {
+                    if (IsHlPropCandidate(highlightPot[rb + x], strength[rb + x])) {
+                        n++;
+                    }
+                }
                 rowCount[ly] = n;
             });
             var rowOff = new int[bh + 1];
-            for (int ly = 0; ly < bh; ly++) rowOff[ly + 1] = rowOff[ly] + rowCount[ly];
+            for (int ly = 0; ly < bh; ly++) {
+                rowOff[ly + 1] = rowOff[ly] + rowCount[ly];
+            }
             int nCand = rowOff[bh];
-            if (nCand == 0) return;
+            if (nCand == 0) {
+                return;
+            }
 
             // パック座標 (y<<16)|x で保持する(index からの %w・/w を避ける。w/h は Unity の
             // 最大テクスチャ 16384 でも 16bit に収まる)。
             int* cand = s_intPool.Rent(nCand);
-            try
-            {
-                Parallel.For(0, bh, po, ly =>
-                {
+            try {
+                Parallel.For(0, bh, po, ly => {
                     int y = ly + minY;
                     int rb = y * w;
                     int k = rowOff[ly];
-                    for (int x = minX; x <= maxX; x++)
-                        if (IsHlPropCandidate(highlightPot[rb + x], strength[rb + x])) cand[k++] = (y << 16) | x;
+                    for (int x = minX; x <= maxX; x++) {
+                        if (IsHlPropCandidate(highlightPot[rb + x], strength[rb + x])) {
+                            cand[k++] = (y << 16) | x;
+                        }
+                    }
                 });
 
                 // 伝播スイープを、タイル(HlPropTile 角)の斜めの列ごとに並列に回す(出力ビット不変)。
@@ -81,24 +87,25 @@ namespace Iroca
                 int nTiles = ntx * nty;
                 // 候補をタイルごとに分ける(タイルの中はラスタ順のまま)。タイル行ごとに並列。
                 var tileCount = new int[nTiles];
-                Parallel.For(0, nty, po, ty =>
-                {
+                Parallel.For(0, nty, po, ty => {
                     int ly0 = ty * HlPropTile, ly1 = Math.Min(bh, ly0 + HlPropTile);
-                    for (int k = rowOff[ly0]; k < rowOff[ly1]; k++)
+                    for (int k = rowOff[ly0]; k < rowOff[ly1]; k++) {
                         tileCount[ty * ntx + ((cand[k] & 0xFFFF) - minX) / HlPropTile]++;
+                    }
                 });
                 var tileStart = new int[nTiles + 1];
-                for (int t = 0; t < nTiles; t++) tileStart[t + 1] = tileStart[t] + tileCount[t];
+                for (int t = 0; t < nTiles; t++) {
+                    tileStart[t + 1] = tileStart[t] + tileCount[t];
+                }
                 int* tiled = s_intPool.Rent(nCand);
-                try
-                {
-                    Parallel.For(0, nty, po, ty =>
-                    {
+                try {
+                    Parallel.For(0, nty, po, ty => {
                         var fill = new int[ntx];
-                        for (int t = 0; t < ntx; t++) fill[t] = tileStart[ty * ntx + t];
+                        for (int t = 0; t < ntx; t++) {
+                            fill[t] = tileStart[ty * ntx + t];
+                        }
                         int ly0 = ty * HlPropTile, ly1 = Math.Min(bh, ly0 + HlPropTile);
-                        for (int k = rowOff[ly0]; k < rowOff[ly1]; k++)
-                        {
+                        for (int k = rowOff[ly0]; k < rowOff[ly1]; k++) {
                             int c = cand[k];
                             tiled[fill[((c & 0xFFFF) - minX) / HlPropTile]++] = c;
                         }
@@ -121,11 +128,9 @@ namespace Iroca
                     var changedPrev = new bool[nTiles];   // 1 つ前のスイープで変化したタイル
                     var changedCur = new bool[nTiles];    // このスイープで変化したタイル
                     int sweep = 0;
-                    for (int p = 0; p < passes; p++)
-                    {
+                    for (int p = 0; p < passes; p++) {
                         int changedFlag = 0;
-                        for (int dir = 0; dir < 2; dir++)
-                        {
+                        for (int dir = 0; dir < 2; dir++) {
                             ct.ThrowIfCancellationRequested();
                             bool forward = dir == 0;
                             Array.Clear(progress, 0, nty);
@@ -133,30 +138,30 @@ namespace Iroca
                             bool canSkip = sweep > 0;
                             var prevL = changedPrev; var curL = changedCur;
                             int nextRow = 0;
-                            Parallel.For(0, workers, po, _ =>
-                            {
+                            Parallel.For(0, workers, po, _ => {
                                 bool changedLocal = false;
-                                while (true)
-                                {
+                                while (true) {
                                     int r = Interlocked.Increment(ref nextRow) - 1;
-                                    if (r >= nty) break;
+                                    if (r >= nty) {
+                                        break;
+                                    }
                                     int ty = forward ? r : nty - 1 - r;
                                     int prevTy = forward ? ty - 1 : ty + 1;
-                                    for (int c = 0; c < ntx; c++)
-                                    {
-                                        if (r > 0)
-                                        {
+                                    for (int c = 0; c < ntx; c++) {
+                                        if (r > 0) {
                                             int spins = 0;
-                                            while (Volatile.Read(ref progress[prevTy]) <= c)
-                                            {
-                                                if (++spins < 64) Thread.SpinWait(16); else Thread.Yield();
+                                            while (Volatile.Read(ref progress[prevTy]) <= c) {
+                                                if (++spins < 64) {
+                                                    Thread.SpinWait(16);
+                                                } else {
+                                                    Thread.Yield();
+                                                }
                                             }
                                         }
                                         int tx = forward ? c : ntx - 1 - c;
                                         int t = ty * ntx + tx;
                                         bool skip = false;
-                                        if (canSkip && !prevL[t])
-                                        {
+                                        if (canSkip && !prevL[t]) {
                                             // 先に処理する隣(同じ行の手前のタイルと、1 つ前の行のタイル)。
                                             int ta = c > 0 ? (forward ? t - 1 : t + 1) : -1;
                                             int tb = r > 0 ? prevTy * ntx + tx : -1;
@@ -164,30 +169,29 @@ namespace Iroca
                                                 && (tb < 0 || (!prevL[tb] && !curL[tb]));
                                         }
                                         if (!skip && PropagateHighlightRange(strength, highlightPot, tiled,
-                                                tileStart[t], tileStart[t + 1], w, h, forward))
-                                        {
+                                                tileStart[t], tileStart[t + 1], w, h, forward)) {
                                             curL[t] = true;
                                             changedLocal = true;
                                         }
                                         Volatile.Write(ref progress[ty], c + 1);
                                     }
                                 }
-                                if (changedLocal) Volatile.Write(ref changedFlag, 1);
+                                if (changedLocal) {
+                                    Volatile.Write(ref changedFlag, 1);
+                                }
                             });
                             var tmpChanged = changedPrev; changedPrev = changedCur; changedCur = tmpChanged;
                             sweep++;
                         }
 
-                        if (Volatile.Read(ref changedFlag) == 0) break;
+                        if (Volatile.Read(ref changedFlag) == 0) {
+                            break;
+                        }
                     }
-                }
-                finally
-                {
+                } finally {
                     s_intPool.Return(tiled);
                 }
-            }
-            finally
-            {
+            } finally {
                 s_intPool.Return(cand);
             }
         }
@@ -204,60 +208,64 @@ namespace Iroca
         /// 1 画素の更新規則は従来の逐次スイープと同じ(近傍の読む順序も同じ)。変化があれば true。
         /// </summary>
         private static bool PropagateHighlightRange(float* strength, float* highlightPot, int* tiled,
-            int k0, int k1, int w, int h, bool forward)
-        {
+            int k0, int k1, int w, int h, bool forward) {
             bool changed = false;
-            if (forward)
-            {
-                for (int k = k0; k < k1; k++)
-                {
+            if (forward) {
+                for (int k = k0; k < k1; k++) {
                     int packed = tiled[k];
                     int x = packed & 0xFFFF, y = packed >> 16;
                     int i = y * w + x;
                     float pot = highlightPot[i];
-                    if (strength[i] < pot)
-                    {
+                    if (strength[i] < pot) {
                         float maxNeighbor = 0f;
-                        if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
-                        if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
+                        if (x > 0) {
+                            maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
+                        }
+                        if (y > 0) {
+                            maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
+                        }
 
-                        if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
-                        if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
+                        if (x < w - 1) {
+                            maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
+                        }
+                        if (y < h - 1) {
+                            maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
+                        }
 
-                        if (maxNeighbor > 0.1f)
-                        {
+                        if (maxNeighbor > 0.1f) {
                             float newS = Mathf.Min(pot, maxNeighbor * 0.95f);
-                            if (newS > strength[i])
-                            {
+                            if (newS > strength[i]) {
                                 strength[i] = newS;
                                 changed = true;
                             }
                         }
                     }
                 }
-            }
-            else
-            {
-                for (int k = k1 - 1; k >= k0; k--)
-                {
+            } else {
+                for (int k = k1 - 1; k >= k0; k--) {
                     int packed = tiled[k];
                     int x = packed & 0xFFFF, y = packed >> 16;
                     int i = y * w + x;
                     float pot = highlightPot[i];
-                    if (strength[i] < pot)
-                    {
+                    if (strength[i] < pot) {
                         float maxNeighbor = 0f;
-                        if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
-                        if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
+                        if (x < w - 1) {
+                            maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
+                        }
+                        if (y < h - 1) {
+                            maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
+                        }
 
-                        if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
-                        if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
+                        if (x > 0) {
+                            maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
+                        }
+                        if (y > 0) {
+                            maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
+                        }
 
-                        if (maxNeighbor > 0.1f)
-                        {
+                        if (maxNeighbor > 0.1f) {
                             float newS = Mathf.Min(pot, maxNeighbor * 0.95f);
-                            if (newS > strength[i])
-                            {
+                            if (newS > strength[i]) {
                                 strength[i] = newS;
                                 changed = true;
                             }
@@ -272,9 +280,9 @@ namespace Iroca
         // internal: ZoneAutoTuner の閉ループ検証が「帯候補になり得る画素」を同一条件で
         // シミュレートするために参照する（手動同期による定数ドリフトを避ける）。
         internal const float HlBandCoreThreshold = 0.90f;  // 信頼コア（本体）とみなす strength 下限
-        internal const float HlBandAxisEps       = 0.10f;  // sample→白 軸からの許容残差（RGB ユークリッド）
-        internal const float HlBandMinSampleSat  = 0.20f;  // 源色がこれ未満（灰色寄り）なら無効
-        internal const float HlBandMinSatFrac    = 0.15f;  // 帯候補の彩度下限（源色相対）。白素材への流入を防ぐ
+        internal const float HlBandAxisEps = 0.10f;  // sample→白 軸からの許容残差（RGB ユークリッド）
+        internal const float HlBandMinSampleSat = 0.20f;  // 源色がこれ未満（灰色寄り）なら無効
+        internal const float HlBandMinSatFrac = 0.15f;  // 帯候補の彩度下限（源色相対）。白素材への流入を防ぐ
 
         /// <summary>
         /// ハイライト帯成長: matched core（本体）から「sample→白 直線上に乗った同色相の
@@ -292,17 +300,20 @@ namespace Iroca
         private static void GrowHighlightBand(
             float* strength, Color32* originalPixels,
             PixelHsv hsv, ColorZone zone, int w, int h,
-            CancellationToken ct = default, ColorPalette palette = null)
-        {
+            CancellationToken ct = default, ColorPalette palette = null) {
             float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             float sH, sS, sV;
             Color.RGBToHSV(zone.sampleColor, out sH, out sS, out sV);
-            if (sS < HlBandMinSampleSat) return;
+            if (sS < HlBandMinSampleSat) {
+                return;
+            }
 
             float sR = zone.sampleColor.r, sG = zone.sampleColor.g, sB = zone.sampleColor.b;
             float dR = 1f - sR, dG = 1f - sG, dB = 1f - sB;   // sample → 白 方向
             float dsq = dR * dR + dG * dG + dB * dB;
-            if (dsq < 1e-6f) return;
+            if (dsq < 1e-6f) {
+                return;
+            }
 
             float hueCap = Mathf.Max(ColorZone.HighlightHueCapFloor, zone.tolerance * ColorZone.HighlightHueCapTolFrac);
             float satFloor = sS * HlBandMinSatFrac;
@@ -312,174 +323,195 @@ namespace Iroca
             // 早期 return / キャンセル例外を含む全経路で finally から Return する。
             bool* candidate = s_boolPool.Rent(len);
             int* runX0 = null, runX1 = null, parent = null;
-            try
-            {
-            ClearWork(candidate, 0, len);
+            try {
+                ClearWork(candidate, 0, len);
 
-            // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
-            // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
-            // 行並列(per-index デリゲートの 1670 万回呼び出しを避ける)。
-            var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            // 候補判定は画素の色(と色から求めた HSV)だけで決まるので、色の表があれば色ごとに 1 回だけ
-            // 判定して配る(同じ式に同じ入力を与えた結果なのでビット単位で同じ)。
-            bool[] candByColor = null;
-            int* pIdx = palette != null ? palette.Index : null;
-            if (palette != null)
-            {
-                candByColor = new bool[palette.Count];
-                var cols = palette.Colors;
-                float* qH = palette.H, qS = palette.S, qV = palette.V;
-                ForEachPaletteChunk(palette.Count, hlbPo, (k0, k1) =>
-                {
-                    for (int k = k0; k < k1; k++)
-                        candByColor[k] = IsHighlightBandCandidate(qH[k], qS[k], qV[k], cols[k],
-                            sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
-                });
-            }
-            Parallel.For(0, h, hlbPo, y =>
-            {
-                int rowOff = y * w;
-                if (candByColor != null)
-                {
-                    for (int x = 0; x < w; x++)
-                    {
-                        int i = rowOff + x;
-                        if (candByColor[pIdx[i]]) candidate[i] = true;
+                // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
+                // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
+                // 行並列(per-index デリゲートの 1670 万回呼び出しを避ける)。
+                var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+                // 候補判定は画素の色(と色から求めた HSV)だけで決まるので、色の表があれば色ごとに 1 回だけ
+                // 判定して配る(同じ式に同じ入力を与えた結果なのでビット単位で同じ)。
+                bool[] candByColor = null;
+                int* pIdx = palette != null ? palette.Index : null;
+                if (palette != null) {
+                    candByColor = new bool[palette.Count];
+                    var cols = palette.Colors;
+                    float* qH = palette.H, qS = palette.S, qV = palette.V;
+                    ForEachPaletteChunk(palette.Count, hlbPo, (k0, k1) => {
+                        for (int k = k0; k < k1; k++) {
+                            candByColor[k] = IsHighlightBandCandidate(qH[k], qS[k], qV[k], cols[k],
+                                sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
+                        }
+                    });
+                }
+                Parallel.For(0, h, hlbPo, y => {
+                    int rowOff = y * w;
+                    if (candByColor != null) {
+                        for (int x = 0; x < w; x++) {
+                            int i = rowOff + x;
+                            if (candByColor[pIdx[i]]) {
+                                candidate[i] = true;
+                            }
+                        }
+                        return;
                     }
+                    for (int x = 0; x < w; x++) {
+                        int i = rowOff + x;
+                        float pV = pixV[HsvSlot(pixIdx, i)];
+                        if (pV <= sV) {
+                            continue;
+                        }
+                        float pS = pixS[HsvSlot(pixIdx, i)];
+                        if (pS < sS && pS >= satFloor) {
+                            float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH);
+                            if (hd > 0.5f) {
+                                hd = 1f - hd;
+                            }
+                            if (hd < hueCap) {
+                                Color32 op = originalPixels[i];
+                                float pr = op.r / 255f, pg = op.g / 255f, pb = op.b / 255f;
+                                float ox = pr - sR, oy = pg - sG, oz = pb - sB;
+                                float wv = (ox * dR + oy * dG + oz * dB) / dsq;
+                                if (wv < 0f) {
+                                    wv = 0f;
+                                } else if (wv > 1f) {
+                                    wv = 1f;
+                                }
+                                float rr = pr - (sR + wv * dR);
+                                float rg = pg - (sG + wv * dG);
+                                float rb = pb - (sB + wv * dB);
+                                if (rr * rr + rg * rg + rb * rb < HlBandAxisEps * HlBandAxisEps) {
+                                    candidate[i] = true;
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // core(strength ≥ HlBandCoreThreshold)から、core でない候補だけを 4 近傍で辿って届く画素を
+                // strength=1 にする。core は全部が出発点なので、core を経由する道はその core から始まる道と
+                // 同じ。よって届く集合は「core でない候補の 4 連結成分のうち、core に 4 近傍で接する成分」
+                // そのもので、辿る順序に依存しない。行 run + union-find で成分を求め、core に接する成分を
+                // 塗る(旧: core の全画素=数百万を種にした単一スレッドの幅優先探索)。集合は探索と同じなので
+                // 出力はビット単位で同じ。core の判定は書き換える前の strength で行う(探索も同じ)。
+                // 条件の形(!(s >= THR)、s < 1 のときだけ 1 にする)も探索と同じにしてある。
+                var runCount = new int[h];
+                Parallel.For(0, h, hlbPo, y => {
+                    int rb = y * w, n = 0, x = 0;
+                    while (x < w) {
+                        int i = rb + x;
+                        if (!candidate[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
+                        n++;
+                        while (x < w && candidate[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) {
+                            x++;
+                        }
+                    }
+                    runCount[y] = n;
+                });
+                var rowOff = new int[h + 1];
+                for (int y = 0; y < h; y++) {
+                    rowOff[y + 1] = rowOff[y] + runCount[y];
+                }
+                int R = rowOff[h];
+                if (R == 0) {
                     return;
                 }
-                for (int x = 0; x < w; x++)
-                {
-                    int i = rowOff + x;
-                    float pV = pixV[HsvSlot(pixIdx, i)];
-                    if (pV <= sV) continue;
-                    float pS = pixS[HsvSlot(pixIdx, i)];
-                    if (pS < sS && pS >= satFloor)
-                    {
-                        float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH);
-                        if (hd > 0.5f) hd = 1f - hd;
-                        if (hd < hueCap)
-                        {
-                            Color32 op = originalPixels[i];
-                            float pr = op.r / 255f, pg = op.g / 255f, pb = op.b / 255f;
-                            float ox = pr - sR, oy = pg - sG, oz = pb - sB;
-                            float wv = (ox * dR + oy * dG + oz * dB) / dsq;
-                            if (wv < 0f) wv = 0f; else if (wv > 1f) wv = 1f;
-                            float rr = pr - (sR + wv * dR);
-                            float rg = pg - (sG + wv * dG);
-                            float rb = pb - (sB + wv * dB);
-                            if (rr * rr + rg * rg + rb * rb < HlBandAxisEps * HlBandAxisEps)
-                                candidate[i] = true;
+                runX0 = s_intPool.Rent(R);
+                runX1 = s_intPool.Rent(R);
+                parent = s_intPool.Rent(R);
+                var touchesCore = new bool[R];
+                var rx0 = runX0; var rx1 = runX1;
+                Parallel.For(0, h, hlbPo, y => {
+                    int rb = y * w, k = rowOff[y], x = 0;
+                    while (x < w) {
+                        int i = rb + x;
+                        if (!candidate[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
+                        int s0 = x;
+                        while (x < w && candidate[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) {
+                            x++;
+                        }
+                        int s1 = x - 1;
+                        rx0[k] = s0; rx1[k] = s1;
+                        // この run が core に 4 近傍で接するか(左右の隣、上下の行の同じ x 範囲)。
+                        bool t = (s0 > 0 && strength[rb + s0 - 1] >= HlBandCoreThreshold)
+                              || (s1 < w - 1 && strength[rb + s1 + 1] >= HlBandCoreThreshold);
+                        if (!t && y > 0) {
+                            int ub = rb - w;
+                            for (int xx = s0; xx <= s1; xx++) {
+                                if (strength[ub + xx] >= HlBandCoreThreshold) { t = true; break; }
+                            }
+                        }
+                        if (!t && y < h - 1) {
+                            int db = rb + w;
+                            for (int xx = s0; xx <= s1; xx++) {
+                                if (strength[db + xx] >= HlBandCoreThreshold) { t = true; break; }
+                            }
+                        }
+                        touchesCore[k] = t;
+                        k++;
+                    }
+                });
+                for (int r = 0; r < R; r++) {
+                    parent[r] = r;
+                }
+                var par = parent;
+                int Find(int a) {
+                    while (par[a] != a) { par[a] = par[par[a]]; a = par[a]; }
+                    return a;
+                }
+                for (int y = 0; y + 1 < h; y++) {
+                    if ((y & 255) == 0) {
+                        ct.ThrowIfCancellationRequested();
+                    }
+                    int i = rowOff[y], iEnd = rowOff[y + 1];
+                    int j = rowOff[y + 1], jEnd = rowOff[y + 2];
+                    while (i < iEnd && j < jEnd) {
+                        if (rx0[i] <= rx1[j] && rx0[j] <= rx1[i]) {
+                            int a = Find(i), b = Find(j);
+                            if (a != b) {
+                                par[a] = b;
+                            }
+                        }
+                        if (rx1[i] < rx1[j]) {
+                            i++;
+                        } else {
+                            j++;
                         }
                     }
                 }
-            });
-
-            // core(strength ≥ HlBandCoreThreshold)から、core でない候補だけを 4 近傍で辿って届く画素を
-            // strength=1 にする。core は全部が出発点なので、core を経由する道はその core から始まる道と
-            // 同じ。よって届く集合は「core でない候補の 4 連結成分のうち、core に 4 近傍で接する成分」
-            // そのもので、辿る順序に依存しない。行 run + union-find で成分を求め、core に接する成分を
-            // 塗る(旧: core の全画素=数百万を種にした単一スレッドの幅優先探索)。集合は探索と同じなので
-            // 出力はビット単位で同じ。core の判定は書き換える前の strength で行う(探索も同じ)。
-            // 条件の形(!(s >= THR)、s < 1 のときだけ 1 にする)も探索と同じにしてある。
-            var runCount = new int[h];
-            Parallel.For(0, h, hlbPo, y =>
-            {
-                int rb = y * w, n = 0, x = 0;
-                while (x < w)
-                {
-                    int i = rb + x;
-                    if (!candidate[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
-                    n++;
-                    while (x < w && candidate[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) x++;
-                }
-                runCount[y] = n;
-            });
-            var rowOff = new int[h + 1];
-            for (int y = 0; y < h; y++) rowOff[y + 1] = rowOff[y] + runCount[y];
-            int R = rowOff[h];
-            if (R == 0) return;
-            runX0 = s_intPool.Rent(R);
-            runX1 = s_intPool.Rent(R);
-            parent = s_intPool.Rent(R);
-            var touchesCore = new bool[R];
-            var rx0 = runX0; var rx1 = runX1;
-            Parallel.For(0, h, hlbPo, y =>
-            {
-                int rb = y * w, k = rowOff[y], x = 0;
-                while (x < w)
-                {
-                    int i = rb + x;
-                    if (!candidate[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
-                    int s0 = x;
-                    while (x < w && candidate[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) x++;
-                    int s1 = x - 1;
-                    rx0[k] = s0; rx1[k] = s1;
-                    // この run が core に 4 近傍で接するか(左右の隣、上下の行の同じ x 範囲)。
-                    bool t = (s0 > 0 && strength[rb + s0 - 1] >= HlBandCoreThreshold)
-                          || (s1 < w - 1 && strength[rb + s1 + 1] >= HlBandCoreThreshold);
-                    if (!t && y > 0)
-                    {
-                        int ub = rb - w;
-                        for (int xx = s0; xx <= s1; xx++)
-                            if (strength[ub + xx] >= HlBandCoreThreshold) { t = true; break; }
+                // 全 run の根を確定させ(以降は読むだけ)、core に接する run の根に印を付ける。
+                var reach = new bool[R];
+                for (int r = 0; r < R; r++) {
+                    int root = Find(r);
+                    par[r] = root;
+                    if (touchesCore[r]) {
+                        reach[root] = true;
                     }
-                    if (!t && y < h - 1)
-                    {
-                        int db = rb + w;
-                        for (int xx = s0; xx <= s1; xx++)
-                            if (strength[db + xx] >= HlBandCoreThreshold) { t = true; break; }
+                }
+                Parallel.For(0, h, hlbPo, y => {
+                    int rb = y * w;
+                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++) {
+                        if (!reach[par[k]]) {
+                            continue;
+                        }
+                        for (int x = rx0[k]; x <= rx1[k]; x++) {
+                            if (strength[rb + x] < 1f) {
+                                strength[rb + x] = 1f;
+                            }
+                        }
                     }
-                    touchesCore[k] = t;
-                    k++;
+                });
+            } finally {
+                if (parent != null) {
+                    s_intPool.Return(parent);
                 }
-            });
-            for (int r = 0; r < R; r++) parent[r] = r;
-            var par = parent;
-            int Find(int a)
-            {
-                while (par[a] != a) { par[a] = par[par[a]]; a = par[a]; }
-                return a;
-            }
-            for (int y = 0; y + 1 < h; y++)
-            {
-                if ((y & 255) == 0) ct.ThrowIfCancellationRequested();
-                int i = rowOff[y], iEnd = rowOff[y + 1];
-                int j = rowOff[y + 1], jEnd = rowOff[y + 2];
-                while (i < iEnd && j < jEnd)
-                {
-                    if (rx0[i] <= rx1[j] && rx0[j] <= rx1[i])
-                    {
-                        int a = Find(i), b = Find(j);
-                        if (a != b) par[a] = b;
-                    }
-                    if (rx1[i] < rx1[j]) i++; else j++;
+                if (runX1 != null) {
+                    s_intPool.Return(runX1);
                 }
-            }
-            // 全 run の根を確定させ(以降は読むだけ)、core に接する run の根に印を付ける。
-            var reach = new bool[R];
-            for (int r = 0; r < R; r++)
-            {
-                int root = Find(r);
-                par[r] = root;
-                if (touchesCore[r]) reach[root] = true;
-            }
-            Parallel.For(0, h, hlbPo, y =>
-            {
-                int rb = y * w;
-                for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
-                {
-                    if (!reach[par[k]]) continue;
-                    for (int x = rx0[k]; x <= rx1[k]; x++)
-                        if (strength[rb + x] < 1f) strength[rb + x] = 1f;
+                if (runX0 != null) {
+                    s_intPool.Return(runX0);
                 }
-            });
-            }
-            finally
-            {
-                if (parent != null) s_intPool.Return(parent);
-                if (runX1 != null) s_intPool.Return(runX1);
-                if (runX0 != null) s_intPool.Return(runX0);
                 s_boolPool.Return(candidate);
             }
         }
@@ -494,17 +526,28 @@ namespace Iroca
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         internal static bool IsHighlightBandCandidate(float pH, float pS, float pV, Color32 op,
             float sH, float sS, float sV, float sR, float sG, float sB,
-            float dR, float dG, float dB, float dsq, float hueCap, float satFloor)
-        {
-            if (pV <= sV) return false;
-            if (!(pS < sS && pS >= satFloor)) return false;
+            float dR, float dG, float dB, float dsq, float hueCap, float satFloor) {
+            if (pV <= sV) {
+                return false;
+            }
+            if (!(pS < sS && pS >= satFloor)) {
+                return false;
+            }
             float hd = Mathf.Abs(pH - sH);
-            if (hd > 0.5f) hd = 1f - hd;
-            if (!(hd < hueCap)) return false;
+            if (hd > 0.5f) {
+                hd = 1f - hd;
+            }
+            if (!(hd < hueCap)) {
+                return false;
+            }
             float pr = op.r / 255f, pg = op.g / 255f, pb = op.b / 255f;
             float ox = pr - sR, oy = pg - sG, oz = pb - sB;
             float wv = (ox * dR + oy * dG + oz * dB) / dsq;
-            if (wv < 0f) wv = 0f; else if (wv > 1f) wv = 1f;
+            if (wv < 0f) {
+                wv = 0f;
+            } else if (wv > 1f) {
+                wv = 1f;
+            }
             float rr = pr - (sR + wv * dR);
             float rg = pg - (sG + wv * dG);
             float rb = pb - (sB + wv * dB);
@@ -542,10 +585,10 @@ namespace Iroca
         // 外側は 0.87=地色)ため使わない。判定は色量の比と連結性のみで、特定色・座標に依存しない。
         //
         // 連結性は大域演算なので画像全体で解く(画像の一部だけで呼ぶと、切り口に接した閉領域を開領域と誤判定する)。
-        internal const int   EnclosedHlMinPixels  = 64;    // 成分の最小不透明画素数(8×8 相当。これ未満は穴埋めの守備範囲)
+        internal const int EnclosedHlMinPixels = 64;    // 成分の最小不透明画素数(8×8 相当。これ未満は穴埋めの守備範囲)
         internal const float EnclosedHlMaxSelFrac = 0.05f; // 成分の最大画素数(選択画素数比)。芯は本体の数%
-        internal const float EnclosedHlSatFrac    = 0.60f; // 芯の中央値 S < min(サンプル S, リング S) × これ(脱彩の定義。ZoneAutoTuner.EvSheenSatFrac と同値)
-        internal const int   EnclosedHlRingRadius = 4;     // リング = 成分境界から Chebyshev 距離 2..この値 の選択画素
+        internal const float EnclosedHlSatFrac = 0.60f; // 芯の中央値 S < min(サンプル S, リング S) × これ(脱彩の定義。ZoneAutoTuner.EvSheenSatFrac と同値)
+        internal const int EnclosedHlRingRadius = 4;     // リング = 成分境界から Chebyshev 距離 2..この値 の選択画素
 
         /// <summary>
         /// 選択に囲まれた「色相の回った有彩ハイライト芯」を空間条件で復帰させる(有彩サンプル専用)。
@@ -557,16 +600,19 @@ namespace Iroca
         private static int RecoverEnclosedHighlight(
             float* strength, Color32* pixels,
             PixelHsv hsv, ColorZone zone, int w, int h,
-            CancellationToken ct = default)
-        {
+            CancellationToken ct = default) {
             float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out _);
-            if (sS < HlBandMinSampleSat) return 0;   // 灰色寄りのサンプルでは色相が信用できない(帯成長と同じ床)
+            if (sS < HlBandMinSampleSat) {
+                return 0;   // 灰色寄りのサンプルでは色相が信用できない(帯成長と同じ床)
+            }
             // 彩度床: 色相が完全に信用できる彩度(chromaConfidence が 1 に達する chromaThreshold+0.10)と
             // 帯成長の相対床の大きい方。上限はサンプル比の脱彩。窓が空なら対象外。
             float satFloor = Mathf.Max(sS * HlBandMinSatFrac, zone.chromaThreshold + ColorZone.ChromaConfidenceSpan);
             float satCap = sS * EnclosedHlSatFrac;
-            if (satFloor >= satCap) return 0;
+            if (satFloor >= satCap) {
+                return 0;
+            }
 
             const float matchThr = ColorZone.MatchStrengthFloor;
             const float hueGate = ColorZone.ForgivenessHueGate;
@@ -581,56 +627,67 @@ namespace Iroca
             var mergeGate = new object();
             Parallel.For(0, h, po,
                 () => (hist: new int[256], sel: 0, cand: false),
-                (y, _, local) =>
-                {
+                (y, _, local) => {
                     int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
+                    for (int x = 0; x < w; x++) {
                         int i = rowOff + x;
-                        if (pixels[i].a < OpaqueAlphaMin) continue;
-                        if (strength[i] > matchThr)
-                        {
+                        if (pixels[i].a < OpaqueAlphaMin) {
+                            continue;
+                        }
+                        if (strength[i] > matchThr) {
                             local.hist[Mathf.Clamp((int)(pixV[HsvSlot(pixIdx, i)] * 256f), 0, 255)]++;
                             local.sel++;
                             continue;
                         }
-                        if (local.cand) continue;
+                        if (local.cand) {
+                            continue;
+                        }
                         float pS = pixS[HsvSlot(pixIdx, i)];
-                        if (pS < satFloor || pS >= satCap) continue;
-                        float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH); if (hd > 0.5f) hd = 1f - hd;
-                        if (hd < hueGate) local.cand = true;
+                        if (pS < satFloor || pS >= satCap) {
+                            continue;
+                        }
+                        float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH);
+                        if (hd > 0.5f) {
+                            hd = 1f - hd;
+                        }
+                        if (hd < hueGate) {
+                            local.cand = true;
+                        }
                     }
                     return local;
                 },
-                local =>
-                {
-                    lock (mergeGate)
-                    {
-                        for (int b = 0; b < 256; b++) vHist[b] += local.hist[b];
+                local => {
+                    lock (mergeGate) {
+                        for (int b = 0; b < 256; b++) {
+                            vHist[b] += local.hist[b];
+                        }
                         selCount += local.sel;
                         anyCand |= local.cand;
                     }
                 });
-            if (!anyCand || selCount == 0) return 0;
+            if (!anyCand || selCount == 0) {
+                return 0;
+            }
             int maxPixels = (int)(selCount * EnclosedHlMaxSelFrac);
-            if (maxPixels < EnclosedHlMinPixels) return 0;
+            if (maxPixels < EnclosedHlMinPixels) {
+                return 0;
+            }
             // グロー閾値: 本体の典型明度(選択の中央値 V)から、明部免除の立ち上がり(ヘッドルーム比)だけ明るい。
             float medSelV = HistogramMedian(vHist, selCount, 256f);
             float glowThr = medSelV + (1f - medSelV) * ColorZone.HighlightValueHeadroomFrac;
-            if (glowThr >= 1f) return 0;
+            if (glowThr >= 1f) {
+                return 0;
+            }
 
             bool* free = s_boolPool.Rent(len);   // 未選択(閉領域探索の通路)
             bool* open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素。成分走査後は「訪問済み」を兼ねる
             int* stamp = s_intPool.Rent(len);    // +id=現在の成分, -id=その成分のリング判定済み。成分 id は単調増加なのでクリア不要
             int* queue = s_intPool.Rent(len);    // 成分 flood のキュー(パック座標 (y<<16)|x)
             int recovered = 0;
-            try
-            {
-                Parallel.For(0, h, po, y =>
-                {
+            try {
+                Parallel.For(0, h, po, y => {
                     int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
+                    for (int x = 0; x < w; x++) {
                         int i = rowOff + x;
                         free[i] = strength[i] <= matchThr;
                         open[i] = false;
@@ -643,11 +700,12 @@ namespace Iroca
                 using var enc = LabelFreeComponents(free, open, pixels, w, h, ct);
                 var hS = new int[256];
                 var hHd = new int[256];   // 色相距離 0..0.5 を 256 bin
-                for (int e = 0; e < enc.Count; e++)
-                {
+                for (int e = 0; e < enc.Count; e++) {
                     {
                         int nOpaque = enc.Opaque[e];
-                        if (nOpaque < EnclosedHlMinPixels || nOpaque > maxPixels) continue;
+                        if (nOpaque < EnclosedHlMinPixels || nOpaque > maxPixels) {
+                            continue;
+                        }
                         ct.ThrowIfCancellationRequested();
 
                         // 2) 閉領域成分を 4 近傍 flood で集める(free ∧ !open)。open を訪問済みに流用。
@@ -657,70 +715,88 @@ namespace Iroca
                         // 3) 成分の色ゲート(中央値): 同色相帯・脱彩した有彩。ヒストグラムは大きさの条件を
                         //    通った成分でだけ作る(1px の穴など、ほとんどの成分はここまで来ない)。
                         Array.Clear(hS, 0, 256); Array.Clear(hHd, 0, 256);
-                        for (int k = 0; k < qTail; k++)
-                        {
+                        for (int k = 0; k < qTail; k++) {
                             int packed = queue[k];
                             int i = (packed >> 16) * w + (packed & 0xFFFF);
-                            if (pixels[i].a < OpaqueAlphaMin) continue;
+                            if (pixels[i].a < OpaqueAlphaMin) {
+                                continue;
+                            }
                             hS[Mathf.Clamp((int)(pixS[HsvSlot(pixIdx, i)] * 256f), 0, 255)]++;
-                            float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH); if (hd > 0.5f) hd = 1f - hd;
+                            float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH);
+                            if (hd > 0.5f) {
+                                hd = 1f - hd;
+                            }
                             hHd[Mathf.Clamp((int)(hd * 512f), 0, 255)]++;
                         }
                         float medHd = HistogramMedian(hHd, nOpaque, 512f);
-                        if (medHd >= hueGate) continue;
+                        if (medHd >= hueGate) {
+                            continue;
+                        }
                         float medS = HistogramMedian(hS, nOpaque, 256f);
-                        if (medS < satFloor || medS >= satCap) continue;
+                        if (medS < satFloor || medS >= satCap) {
+                            continue;
+                        }
 
                         // 4) リング(成分境界から Chebyshev 距離 2..R の選択画素)の平均 V/S。
                         //    成分に 8 隣接する画素(距離 1 = AA 混色帯)は除く。
                         double sumV = 0, sumS = 0; int ringN = 0;
                         const int R = EnclosedHlRingRadius;
-                        for (int k = 0; k < qTail; k++)
-                        {
+                        for (int k = 0; k < qTail; k++) {
                             int packed = queue[k];
                             int x = packed & 0xFFFF, y = packed >> 16;
                             int i = y * w + x;
                             bool boundary = x == 0 || y == 0 || x == w - 1 || y == h - 1
                                 || stamp[i - 1] != compId || stamp[i + 1] != compId
                                 || stamp[i - w] != compId || stamp[i + w] != compId;
-                            if (!boundary) continue;
+                            if (!boundary) {
+                                continue;
+                            }
                             int yLo = Mathf.Max(0, y - R), yHi = Mathf.Min(h - 1, y + R);
                             int xLo = Mathf.Max(0, x - R), xHi = Mathf.Min(w - 1, x + R);
-                            for (int yy = yLo; yy <= yHi; yy++)
-                            {
+                            for (int yy = yLo; yy <= yHi; yy++) {
                                 int rowJ = yy * w;
-                                for (int xx = xLo; xx <= xHi; xx++)
-                                {
+                                for (int xx = xLo; xx <= xHi; xx++) {
                                     int j = rowJ + xx;
                                     int sj = stamp[j];
-                                    if (sj == compId || sj == -compId) continue;
+                                    if (sj == compId || sj == -compId) {
+                                        continue;
+                                    }
                                     stamp[j] = -compId;   // この成分については判定済み
-                                    if (strength[j] <= matchThr || pixels[j].a < OpaqueAlphaMin) continue;
-                                    if (IsAdjacent8ToStamp(stamp, compId, xx, yy, w, h)) continue;
+                                    if (strength[j] <= matchThr || pixels[j].a < OpaqueAlphaMin) {
+                                        continue;
+                                    }
+                                    if (IsAdjacent8ToStamp(stamp, compId, xx, yy, w, h)) {
+                                        continue;
+                                    }
                                     sumV += pixV[HsvSlot(pixIdx, j)]; sumS += pixS[HsvSlot(pixIdx, j)]; ringN++;
                                 }
                             }
                         }
-                        if (ringN == 0) continue;
+                        if (ringN == 0) {
+                            continue;
+                        }
                         float ringV = (float)(sumV / ringN), ringS = (float)(sumS / ringN);
                         // 5) 文脈ゲート: 周囲がグロー(本体の典型明度より明るい)で、芯はその周囲よりも脱彩している。
-                        if (ringV <= glowThr) continue;
-                        if (medS >= Mathf.Min(sS, ringS) * EnclosedHlSatFrac) continue;
+                        if (ringV <= glowThr) {
+                            continue;
+                        }
+                        if (medS >= Mathf.Min(sS, ringS) * EnclosedHlSatFrac) {
+                            continue;
+                        }
 
                         // 6) 復帰: 成分の不透明画素を full strength へ。
-                        for (int k = 0; k < qTail; k++)
-                        {
+                        for (int k = 0; k < qTail; k++) {
                             int packed = queue[k];
                             int i = (packed >> 16) * w + (packed & 0xFFFF);
-                            if (pixels[i].a < OpaqueAlphaMin) continue;
+                            if (pixels[i].a < OpaqueAlphaMin) {
+                                continue;
+                            }
                             strength[i] = 1f;
                             recovered++;
                         }
                     }
                 }
-            }
-            finally
-            {
+            } finally {
                 s_intPool.Return(queue);
                 s_intPool.Return(stamp);
                 s_boolPool.Return(open);
@@ -748,12 +824,13 @@ namespace Iroca
         private static int RecoverEnclosedNearWhite(
             float* strength, Color32* pixels,
             PixelHsv hsv, ColorZone zone, int w, int h,
-            CancellationToken ct = default)
-        {
+            CancellationToken ct = default) {
             float* pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             Color.RGBToHSV(zone.sampleColor, out _, out float sS, out _);
             // 色相を全面的に信用するサンプルだけ(それ以外の白に近いサンプルは明部免除が純白にも効く)。
-            if (sS < zone.chromaThreshold + ColorZone.ChromaConfidenceSpan) return 0;
+            if (sS < zone.chromaThreshold + ColorZone.ChromaConfidenceSpan) {
+                return 0;
+            }
             float ringSatMax = sS * EnclosedHlSatFrac;
 
             int len = w * h;
@@ -761,42 +838,49 @@ namespace Iroca
 
             // 前提: 色味のわずかに残った未選択の明るい画素(これが無ければ穴の輪郭は出ない)。選択画素の数も取る。
             int selCount = 0, anyCand = 0;
-            Parallel.For(0, h, po, () => 0, (y, _, sel) =>
-            {
+            Parallel.For(0, h, po, () => 0, (y, _, sel) => {
                 int rowOff = y * w;
                 bool cand = false;
-                for (int x = 0; x < w; x++)
-                {
+                for (int x = 0; x < w; x++) {
                     int i = rowOff + x;
-                    if (pixels[i].a < OpaqueAlphaMin) continue;
+                    if (pixels[i].a < OpaqueAlphaMin) {
+                        continue;
+                    }
                     if (strength[i] > ColorZone.MatchStrengthFloor) { sel++; continue; }
-                    if (cand) continue;
+                    if (cand) {
+                        continue;
+                    }
                     float pS = pixS[HsvSlot(pixIdx, i)];
-                    if (pS > 0f && pS < ringSatMax && pixV[HsvSlot(pixIdx, i)] >= ColorZone.HighlightValueMin)
+                    if (pS > 0f && pS < ringSatMax && pixV[HsvSlot(pixIdx, i)] >= ColorZone.HighlightValueMin) {
                         cand = true;
+                    }
                 }
                 // 共有の印は行ごとに 1 回だけ書く(候補の画素ごとに書くと全コアで同じキャッシュ行を取り合う)。
-                if (cand) Volatile.Write(ref anyCand, 1);
+                if (cand) {
+                    Volatile.Write(ref anyCand, 1);
+                }
                 return sel;
             }, sel => Interlocked.Add(ref selCount, sel));
-            if (anyCand == 0 || selCount == 0) return 0;
+            if (anyCand == 0 || selCount == 0) {
+                return 0;
+            }
             int maxPixels = (int)(selCount * EnclosedHlMaxSelFrac);
-            if (maxPixels < EnclosedHlMinPixels) return 0;
+            if (maxPixels < EnclosedHlMinPixels) {
+                return 0;
+            }
 
             bool* free = s_boolPool.Rent(len);   // 探索の通路
             bool* open = s_boolPool.Rent(len);   // 画像端から到達できた通路の画素。成分走査後は「訪問済み」を兼ねる
             int* stamp = s_intPool.Rent(len);    // +id=現在の成分, -id=その成分のリング判定済み
             int* queue = s_intPool.Rent(len);    // 成分 flood のキュー(パック座標 (y<<16)|x)
-            try
-            {
+            try {
                 // 1 回目で戻した所は、2 回目では選択として周りの判定に使う。
                 int recovered = RecoverNearWhitePass(false, strength, pixels, hsv, zone, w, h, maxPixels, ringSatMax, free, open, stamp, queue, po, ct);
-                if (NearWhiteRecolorIsGentle(zone))
+                if (NearWhiteRecolorIsGentle(zone)) {
                     recovered += RecoverNearWhitePass(true, strength, pixels, hsv, zone, w, h, maxPixels, ringSatMax, free, open, stamp, queue, po, ct);
+                }
                 return recovered;
-            }
-            finally
-            {
+            } finally {
                 s_intPool.Return(queue);
                 s_intPool.Return(stamp);
                 s_boolPool.Return(open);
@@ -815,15 +899,20 @@ namespace Iroca
         /// 下げると暗くなって、硬い縁が出る。
         /// 塗り先の色で選択が変わるので、選択キャッシュの鍵に入れる(BuildSelectionKey)。
         /// </summary>
-        private static bool NearWhiteRecolorIsGentle(ColorZone zone)
-        {
+        private static bool NearWhiteRecolorIsGentle(ColorZone zone) {
             OkLab.RgbToOklab(zone.sampleColor.r, zone.sampleColor.g, zone.sampleColor.b, out _, out float sa, out float sb);
             OkLab.RgbToOklab(zone.targetColor.r, zone.targetColor.g, zone.targetColor.b, out float tL, out float ta, out float tb);
-            if (tL * HighlightLMult < 1f) return false;
+            if (tL * HighlightLMult < 1f) {
+                return false;
+            }
             // 彩度の低いサンプル(ComputeAchromaWeight が無彩寄りと見るもの)は、ほぼ白にも色が乗りやすい。
-            if (sa * sa + sb * sb < AchromaSampleC * AchromaSampleC) return false;
+            if (sa * sa + sb * sb < AchromaSampleC * AchromaSampleC) {
+                return false;
+            }
             // 模様保持(valueBlend)を下げると、明るさが塗り先の明るさへ寄って、ほぼ白も暗くなる。
-            if ((1f - zone.valueBlend) * (1f - tL) > EnclosedNearWhiteMaxLightnessDrop) return false;
+            if ((1f - zone.valueBlend) * (1f - tL) > EnclosedNearWhiteMaxLightnessDrop) {
+                return false;
+            }
             return ta * ta + tb * tb <= (sa * sa + sb * sb) * EnclosedNearWhiteMaxChromaGain * EnclosedNearWhiteMaxChromaGain;
         }
 
@@ -836,18 +925,19 @@ namespace Iroca
         // (x,y) の窓(半径 EnclosedHlRingRadius)に未選択の画素が実質無いか。デコンタミが「選択の内部」と見て固める条件
         // (DecontamInteriorBgFrac)と同じなので、弱い選択でも実際に塗られる画素かを選択の段で見分けられる。調べている
         // 成分は戻せば選択になるので数えない(数えると、まっすぐな境目のそばは密と判定されない)。
-        private static bool IsSolidSelected(float* strength, int* stamp, int compId, int x, int y, int w, int h)
-        {
+        private static bool IsSolidSelected(float* strength, int* stamp, int compId, int x, int y, int w, int h) {
             int side = 2 * EnclosedHlRingRadius + 1;
             float limit = Mathf.Max(1f, side * side * DecontamInteriorBgFrac);
             int yLo = Mathf.Max(0, y - EnclosedHlRingRadius), yHi = Mathf.Min(h - 1, y + EnclosedHlRingRadius);
             int xLo = Mathf.Max(0, x - EnclosedHlRingRadius), xHi = Mathf.Min(w - 1, x + EnclosedHlRingRadius);
             int unselected = 0;
-            for (int yy = yLo; yy <= yHi; yy++)
-            {
+            for (int yy = yLo; yy <= yHi; yy++) {
                 int row = yy * w;
-                for (int xx = xLo; xx <= xHi; xx++)
-                    if (strength[row + xx] <= ColorZone.MatchStrengthFloor && stamp[row + xx] != compId && ++unselected >= limit) return false;
+                for (int xx = xLo; xx <= xHi; xx++) {
+                    if (strength[row + xx] <= ColorZone.MatchStrengthFloor && stamp[row + xx] != compId && ++unselected >= limit) {
+                        return false;
+                    }
+                }
             }
             return true;
         }
@@ -857,19 +947,15 @@ namespace Iroca
         private static int RecoverNearWhitePass(bool tintedOnly,
             float* strength, Color32* pixels, PixelHsv hsv, ColorZone zone, int w, int h,
             int maxPixels, float ringSatMax,
-            bool* free, bool* open, int* stamp, int* queue, ParallelOptions po, CancellationToken ct)
-        {
+            bool* free, bool* open, int* stamp, int* queue, ParallelOptions po, CancellationToken ct) {
             float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             Color.RGBToHSV(zone.sampleColor, out float sH, out _, out float sV);
-            Parallel.For(0, h, po, y =>
-            {
+            Parallel.For(0, h, po, y => {
                 int rowOff = y * w;
-                for (int x = 0; x < w; x++)
-                {
+                for (int x = 0; x < w; x++) {
                     int i = rowOff + x;
                     bool passage = strength[i] <= ColorZone.MatchStrengthFloor;
-                    if (passage && tintedOnly)
-                    {
+                    if (passage && tintedOnly) {
                         float pS = pixS[HsvSlot(pixIdx, i)];
                         passage = pS > 0f && pS < ColorZone.ChromaGateActivateSat
                                   && pixV[HsvSlot(pixIdx, i)] >= ColorZone.HighlightValueMin;
@@ -886,13 +972,14 @@ namespace Iroca
             var hV = new int[256];
             var hHd = new int[256];   // 色味のある画素の色相距離 0..0.5(ビンの幅は hS と同じ)
             int recovered = 0;
-            for (int e = 0; e < enc.Count; e++)
-            {
+            for (int e = 0; e < enc.Count; e++) {
                 {
                     int nOpaque = enc.Opaque[e];
                     // 大きさの上限は閉領域だけ(囲まれた別の部品)。2 回目は周りの接し方で絞れていて、1 つの部品だけを塗るときは
                     // ほぼ白の帯が選択の数 % を超える。
-                    if (nOpaque < EnclosedHlMinPixels || (!tintedOnly && nOpaque > maxPixels)) continue;
+                    if (nOpaque < EnclosedHlMinPixels || (!tintedOnly && nOpaque > maxPixels)) {
+                        continue;
+                    }
                     ct.ThrowIfCancellationRequested();
 
                     // 成分を 4 近傍 flood で集める。
@@ -902,70 +989,93 @@ namespace Iroca
                     // 成分の色(中央値): 明るく、色味があるなら同じ色相(純白の色相は意味が無いので数えない)。
                     Array.Clear(hS, 0, 256); Array.Clear(hV, 0, 256); Array.Clear(hHd, 0, 256);
                     int nTinted = 0;
-                    for (int k = 0; k < qTail; k++)
-                    {
+                    for (int k = 0; k < qTail; k++) {
                         int packed = queue[k];
                         int i = (packed >> 16) * w + (packed & 0xFFFF);
-                        if (pixels[i].a < OpaqueAlphaMin) continue;
+                        if (pixels[i].a < OpaqueAlphaMin) {
+                            continue;
+                        }
                         float pS = pixS[HsvSlot(pixIdx, i)];
                         hS[Mathf.Clamp((int)(pS * 256f), 0, 255)]++;
                         hV[Mathf.Clamp((int)(pixV[HsvSlot(pixIdx, i)] * 256f), 0, 255)]++;
-                        if (pS <= 0f) continue;
-                        float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH); if (hd > 0.5f) hd = 1f - hd;
+                        if (pS <= 0f) {
+                            continue;
+                        }
+                        float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH);
+                        if (hd > 0.5f) {
+                            hd = 1f - hd;
+                        }
                         hHd[Mathf.Clamp((int)(hd * 256f), 0, 255)]++;
                         nTinted++;
                     }
-                    if (HistogramMedian(hV, nOpaque, 256f) < ColorZone.HighlightValueMin) continue;
-                    if (nTinted > 0 && HistogramMedian(hHd, nTinted, 256f) >= ColorZone.ForgivenessHueGate) continue;
+                    if (HistogramMedian(hV, nOpaque, 256f) < ColorZone.HighlightValueMin) {
+                        continue;
+                    }
+                    if (nTinted > 0 && HistogramMedian(hHd, nTinted, 256f) >= ColorZone.ForgivenessHueGate) {
+                        continue;
+                    }
 
                     // 周り(成分境界から Chebyshev 距離 2..R の選択画素)の平均 V・S。距離 1 は混色帯なので除く。
                     double sumV = 0, sumS = 0; int ringN = 0, boundaryN = 0, solidN = 0;
-                    for (int k = 0; k < qTail; k++)
-                    {
+                    for (int k = 0; k < qTail; k++) {
                         int packed = queue[k];
                         int x = packed & 0xFFFF, y = packed >> 16;
                         int i = y * w + x;
                         bool boundary = x == 0 || y == 0 || x == w - 1 || y == h - 1
                             || stamp[i - 1] != compId || stamp[i + 1] != compId
                             || stamp[i - w] != compId || stamp[i + w] != compId;
-                        if (!boundary) continue;
+                        if (!boundary) {
+                            continue;
+                        }
                         boundaryN++;
                         int yLo = Mathf.Max(0, y - EnclosedHlRingRadius), yHi = Mathf.Min(h - 1, y + EnclosedHlRingRadius);
                         int xLo = Mathf.Max(0, x - EnclosedHlRingRadius), xHi = Mathf.Min(w - 1, x + EnclosedHlRingRadius);
-                        for (int yy = yLo; yy <= yHi; yy++)
-                        {
+                        for (int yy = yLo; yy <= yHi; yy++) {
                             int rowJ = yy * w;
-                            for (int xx = xLo; xx <= xHi; xx++)
-                            {
+                            for (int xx = xLo; xx <= xHi; xx++) {
                                 int j = rowJ + xx;
                                 int sj = stamp[j];
-                                if (sj == compId || sj == -compId) continue;
+                                if (sj == compId || sj == -compId) {
+                                    continue;
+                                }
                                 stamp[j] = -compId;   // この成分については判定済み
-                                if (strength[j] <= ColorZone.MatchStrengthFloor || pixels[j].a < OpaqueAlphaMin) continue;
-                                if (IsAdjacent8ToStamp(stamp, compId, xx, yy, w, h)) continue;
+                                if (strength[j] <= ColorZone.MatchStrengthFloor || pixels[j].a < OpaqueAlphaMin) {
+                                    continue;
+                                }
+                                if (IsAdjacent8ToStamp(stamp, compId, xx, yy, w, h)) {
+                                    continue;
+                                }
                                 sumV += pixV[HsvSlot(pixIdx, j)]; sumS += pixS[HsvSlot(pixIdx, j)]; ringN++;
-                                if (IsSolidSelected(strength, stamp, compId, xx, yy, w, h)) solidN++;
+                                if (IsSolidSelected(strength, stamp, compId, xx, yy, w, h)) {
+                                    solidN++;
+                                }
                             }
                         }
                     }
-                    if (ringN == 0 || sumV / ringN < ColorZone.HighlightValueMin || sumS / ringN >= ringSatMax) continue;
+                    if (ringN == 0 || sumV / ringN < ColorZone.HighlightValueMin || sumS / ringN >= ringSatMax) {
+                        continue;
+                    }
                     // 周りが実際に塗られる所か。白い服のように弱い選択が点在しているだけの部品(デコンタミが固めず、色が付かない)は、
                     // グラデーションの続きではない。
-                    if (solidN < boundaryN * EnclosedNearWhiteSolidPerBoundary) continue;
+                    if (solidN < boundaryN * EnclosedNearWhiteSolidPerBoundary) {
+                        continue;
+                    }
                     // 成分はほぼ白。サンプルと同じ明るさで彩度だけが抜けた所は、周りの彩度以下でもよい(明部免除はサンプルより
                     // 明るい画素にしか効かないので、白に近いサンプルでは丸めで 1 段暗いだけで落ちる)。別の白い部品は明るさが違う。
                     float medS = HistogramMedian(hS, nOpaque, 256f);
-                    if (medS >= ColorZone.ChromaGateActivateSat)
-                    {
+                    if (medS >= ColorZone.ChromaGateActivateSat) {
                         bool sameValue = Mathf.Abs(HistogramMedian(hV, nOpaque, 256f) - sV) <= EnclosedNearWhiteSameValue;
-                        if (!sameValue || medS >= sumS / ringN) continue;
+                        if (!sameValue || medS >= sumS / ringN) {
+                            continue;
+                        }
                     }
 
-                    for (int k = 0; k < qTail; k++)
-                    {
+                    for (int k = 0; k < qTail; k++) {
                         int packed = queue[k];
                         int i = (packed >> 16) * w + (packed & 0xFFFF);
-                        if (pixels[i].a < OpaqueAlphaMin) continue;
+                        if (pixels[i].a < OpaqueAlphaMin) {
+                            continue;
+                        }
                         strength[i] = 1f;
                         recovered++;
                     }
@@ -976,50 +1086,45 @@ namespace Iroca
 
         // 閉領域の 1 成分を、最初の画素 seed から 4 近傍の幅優先で辿り、画素を queue(パック座標)に並べて数を返す。
         // open を訪問済みに流用し、stamp に compId を書く。近傍を見る順は旧実装(成分の走査の中の flood)と同じ。
-        private static int FloodEnclosed(int seed, int compId, bool* free, bool* open, int* stamp, int* queue, int w, int h)
-        {
+        private static int FloodEnclosed(int seed, int compId, bool* free, bool* open, int* stamp, int* queue, int w, int h) {
             int qHead = 0, qTail = 0;
             int i0 = (seed >> 16) * w + (seed & 0xFFFF);
             open[i0] = true; stamp[i0] = compId; queue[qTail++] = seed;
-            while (qHead < qTail)
-            {
+            while (qHead < qTail) {
                 int packed = queue[qHead++];
                 int x = packed & 0xFFFF, y = packed >> 16;
                 int i = y * w + x;
-                if (x > 0 && free[i - 1] && !open[i - 1])
-                { open[i - 1] = true; stamp[i - 1] = compId; queue[qTail++] = (y << 16) | (x - 1); }
-                if (x < w - 1 && free[i + 1] && !open[i + 1])
-                { open[i + 1] = true; stamp[i + 1] = compId; queue[qTail++] = (y << 16) | (x + 1); }
-                if (y > 0 && free[i - w] && !open[i - w])
-                { open[i - w] = true; stamp[i - w] = compId; queue[qTail++] = ((y - 1) << 16) | x; }
-                if (y < h - 1 && free[i + w] && !open[i + w])
-                { open[i + w] = true; stamp[i + w] = compId; queue[qTail++] = ((y + 1) << 16) | x; }
+                if (x > 0 && free[i - 1] && !open[i - 1]) { open[i - 1] = true; stamp[i - 1] = compId; queue[qTail++] = (y << 16) | (x - 1); }
+                if (x < w - 1 && free[i + 1] && !open[i + 1]) { open[i + 1] = true; stamp[i + 1] = compId; queue[qTail++] = (y << 16) | (x + 1); }
+                if (y > 0 && free[i - w] && !open[i - w]) { open[i - w] = true; stamp[i - w] = compId; queue[qTail++] = ((y - 1) << 16) | x; }
+                if (y < h - 1 && free[i + w] && !open[i + w]) { open[i + w] = true; stamp[i + w] = compId; queue[qTail++] = ((y + 1) << 16) | x; }
             }
             return qTail;
         }
 
         // 画素 (x,y) の 8 近傍に stamp==id の画素があるか(成分に隣接する AA 混色帯の除外用)。
-        private static bool IsAdjacent8ToStamp(int* stamp, int id, int x, int y, int w, int h)
-        {
+        private static bool IsAdjacent8ToStamp(int* stamp, int id, int x, int y, int w, int h) {
             int yLo = Mathf.Max(0, y - 1), yHi = Mathf.Min(h - 1, y + 1);
             int xLo = Mathf.Max(0, x - 1), xHi = Mathf.Min(w - 1, x + 1);
-            for (int yy = yLo; yy <= yHi; yy++)
-            {
+            for (int yy = yLo; yy <= yHi; yy++) {
                 int row = yy * w;
-                for (int xx = xLo; xx <= xHi; xx++)
-                    if (stamp[row + xx] == id) return true;
+                for (int xx = xLo; xx <= xHi; xx++) {
+                    if (stamp[row + xx] == id) {
+                        return true;
+                    }
+                }
             }
             return false;
         }
 
         // ヒストグラム(bin 幅 1/scale)の中央値(bin 中心)。n は総度数。
-        private static float HistogramMedian(int[] hist, int n, float scale)
-        {
+        private static float HistogramMedian(int[] hist, int n, float scale) {
             int half = (n + 1) / 2, acc = 0;
-            for (int b = 0; b < hist.Length; b++)
-            {
+            for (int b = 0; b < hist.Length; b++) {
                 acc += hist[b];
-                if (acc >= half) return (b + 0.5f) / scale;
+                if (acc >= half) {
+                    return (b + 0.5f) / scale;
+                }
             }
             return (hist.Length - 0.5f) / scale;
         }

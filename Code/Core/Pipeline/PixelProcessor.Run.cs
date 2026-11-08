@@ -4,18 +4,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
         /// <summary>
         /// 1 回の処理(ProcessPixelsArrayCore)の、ゾーンをまたいで変わらない入力と置き場。パイプラインを
         /// 「選択 → マスクの契約 → 再着色の段」の呼び出しに分けたので、段へはこれを渡す(0.4.0 の計画の 3-7a)。
         /// 指す先(画素・作業配列・色の表)は ProcessPixelsArrayCore が持っている間だけ生きている。
         /// 計測の時刻(<see cref="Tp"/>)は段の中で進めるので、呼ぶ側は呼ぶ前に入れ、戻ってから読み直す。
         /// </summary>
-        private sealed class RunContext
-        {
+        private sealed class RunContext {
             public int W, H, Len;
             // 入力の控え(処理中は読むだけ)。
             public Color32* Original;
@@ -56,8 +53,7 @@ namespace Iroca
         /// 処理の終わり(例外・取り消しのときも)に <see cref="ReturnAll"/> が返す。どれもゼロ初期化されないので、
         /// 書いた位置しか読まない(占有率だけは借りた直後に 0 で埋める)。
         /// </summary>
-        private sealed class RunBuffers
-        {
+        private sealed class RunBuffers {
             // 占有率: 優先度の高い(リスト上位の)ゾーンが書き込んだカバレッジをピクセル単位で累積する。
             // ゾーンが 1 つのときは借りない(null)。上位のゾーンが無いので読む値はいつも 0 で、同じゾーンの後の段
             // (無彩のフチ消し)が見るのは「占有が 0.001 を超えたか」だけなので、それを ClaimedFlag に持つ
@@ -74,12 +70,19 @@ namespace Iroca
             public float* MixAlphaOrRent(int len) =>
                 MixAlpha != null ? MixAlpha : (MixAlpha = s_floatPool.Rent(len));
 
-            public void ReturnAll()
-            {
-                if (MaskExcluded != null) s_boolPool.Return(MaskExcluded);
-                if (MixAlpha != null) s_floatPool.Return(MixAlpha);
-                if (Claimed != null) s_floatPool.Return(Claimed);
-                if (ClaimedFlag != null) s_boolPool.Return(ClaimedFlag);
+            public void ReturnAll() {
+                if (MaskExcluded != null) {
+                    s_boolPool.Return(MaskExcluded);
+                }
+                if (MixAlpha != null) {
+                    s_floatPool.Return(MixAlpha);
+                }
+                if (Claimed != null) {
+                    s_floatPool.Return(Claimed);
+                }
+                if (ClaimedFlag != null) {
+                    s_boolPool.Return(ClaimedFlag);
+                }
                 MaskExcluded = ClaimedFlag = null;
                 MixAlpha = Claimed = null;
             }
@@ -89,8 +92,7 @@ namespace Iroca
         /// 1 つのゾーンの処理で借りる作業配列の持ち主。段が借りたら入れ、途中で返したら null に戻す。ゾーンの終わり
         /// (例外・取り消しのときも)に <see cref="ReturnAll"/> が残っているものを返す。
         /// </summary>
-        private sealed class ZoneBuffers
-        {
+        private sealed class ZoneBuffers {
             public float* Strength;        // 選択の強度(選択が借り、ぼかしで差し替わることがある)
             public float* HighlightPot;    // ハイライトの伝播の候補(選択の中で返す)
             public bool* MatchConf;        // 連結成分のコアの判定 = 照合の確信度 > 0(選択の中で返す。値は「> 0 か」しか読まないので 1 画素 1 バイト)
@@ -104,17 +106,34 @@ namespace Iroca
             public bool* DecontamAaMask;
             public Color32* DecontamPixels;
 
-            public void ReturnAll()
-            {
-                if (RegMidMap != null) s_floatPool.Return(RegMidMap);
-                if (RegUpMap != null) s_floatPool.Return(RegUpMap);
-                if (HighlightPot != null) s_floatPool.Return(HighlightPot);
-                if (Strength != null) s_floatPool.Return(Strength);
-                if (MatchConf != null) s_boolPool.Return(MatchConf);
-                if (IncludedPx != null) s_boolPool.Return(IncludedPx);
-                if (PalRecolored != null) s_color32Pool.Return(PalRecolored);
-                if (DecontamPixels != null) s_color32Pool.Return(DecontamPixels);
-                if (DecontamAaMask != null) s_boolPool.Return(DecontamAaMask);
+            public void ReturnAll() {
+                if (RegMidMap != null) {
+                    s_floatPool.Return(RegMidMap);
+                }
+                if (RegUpMap != null) {
+                    s_floatPool.Return(RegUpMap);
+                }
+                if (HighlightPot != null) {
+                    s_floatPool.Return(HighlightPot);
+                }
+                if (Strength != null) {
+                    s_floatPool.Return(Strength);
+                }
+                if (MatchConf != null) {
+                    s_boolPool.Return(MatchConf);
+                }
+                if (IncludedPx != null) {
+                    s_boolPool.Return(IncludedPx);
+                }
+                if (PalRecolored != null) {
+                    s_color32Pool.Return(PalRecolored);
+                }
+                if (DecontamPixels != null) {
+                    s_color32Pool.Return(DecontamPixels);
+                }
+                if (DecontamAaMask != null) {
+                    s_boolPool.Return(DecontamAaMask);
+                }
                 RegMidMap = RegUpMap = HighlightPot = Strength = null;
                 IncludedPx = DecontamAaMask = MatchConf = null;
                 PalRecolored = DecontamPixels = null;
@@ -125,8 +144,7 @@ namespace Iroca
         /// 1 つのゾーンの処理で、再着色の段から段へ渡す値(0.4.0 の計画の 3-7b)。ゾーンの入力と選択の出力を入れてから
         /// 段を順に呼び、各段は自分の出力をここへ書く。指す先(強度・含めるマスク)の持ち主は <see cref="ZoneBuffers"/>。
         /// </summary>
-        private sealed class ZoneState
-        {
+        private sealed class ZoneState {
             public ColorZone Zone;
             public ZoneBuffers Buffers;          // このゾーンで借りた作業配列の持ち主
             public ulong* ZoneMask;             // ゾーン別の除外マスクの語(無ければ null。持ち主は MaskSnapshot)
@@ -155,8 +173,7 @@ namespace Iroca
         /// 選択と再着色の境目(0.4.0 の計画の 3-7a)。再着色の段が選択から読むのはこれだけ。旧の選択
         /// (<see cref="RunLegacySelection"/>)も、T5 の新しい選択も、この形で出す。
         /// </summary>
-        private struct SelectionResult
-        {
+        private struct SelectionResult {
             /// <summary>
             /// マスクを掛ける前の強度(長さ Len。内部 1・縁は被覆率)。ゾーンの作業配列(<see cref="ZoneBuffers.Strength"/>)と
             /// 同じものを指し、持ち主はゾーンの作業配列。

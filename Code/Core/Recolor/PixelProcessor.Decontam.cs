@@ -9,10 +9,8 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Iroca
-{
-    internal static unsafe partial class PixelProcessor
-    {
+namespace Iroca {
+    internal static unsafe partial class PixelProcessor {
         // 無彩フチ消し(CleanAchromaFringe)の定数。マッチ境界の外側に残る「地色の残った」混色画素
         // (背景より地色寄り=明るく、暗い再着色色に対し明るいフチに見える)を α 分解で背景へ寄せて消す。
         private const int AchromaFringeMatchRadius = 2;    // マッチ境界からこの px 以内の外側を対象
@@ -53,8 +51,7 @@ namespace Iroca
             bool* aaMask, Color32* decontaminatedPixels, bool hasMatch = true,
             CancellationToken ct = default, bool* maskExcluded = null,
             int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
-            bool solidifyOnly = false)
-        {
+            bool solidifyOnly = false) {
             int len = w * h;
             // 呼び出し側がゾーン間で再利用するバッファを渡す。aaMask は全画素で読まれるため
             // 前ゾーンの結果をクリアしてから書き込む。decontaminatedPixels は aaMask=true の
@@ -62,7 +59,9 @@ namespace Iroca
             ClearWork(aaMask, 0, len);
             // マッチ皆無(strength>0 が無い)なら AA 境界画素も存在しないので、4ch BG 推定
             // (BoxFilterSum)を丸ごと省く。aaMask は上でクリア済み=出力ビット不変。
-            if (!hasMatch) return;
+            if (!hasMatch) {
+                return;
+            }
             bool* localAaMask = aaMask;
             Color32* localDecontaminatedPixels = decontaminatedPixels;
 
@@ -87,11 +86,12 @@ namespace Iroca
             // 窓和(BoxFilterSum)も常に正確な整数=どちらで求めても同じ値で、出力はビット単位で同じ。
             long candCount = CountDecontamCandidates(strength, w, boxMinX, boxMinY, boxMaxX, boxMaxY,
                 interiorThreshold, decontamPo);
-            if (candCount == 0) return;
+            if (candCount == 0) {
+                return;
+            }
             long boxArea = (long)(boxMaxX - boxMinX + 1) * (boxMaxY - boxMinY + 1);
             int costRatio = solidifyOnly ? DecontamDirectCostRatioSolid : DecontamDirectCostRatioFull;
-            if (candCount * winSide * winSide <= costRatio * boxArea)
-            {
+            if (candCount * winSide * winSide <= costRatio * boxArea) {
                 DecontaminateAaDirect(originalPixels, strength, w, h, sampleColor, targetColor, radius,
                     interiorThreshold, interiorBgDensityMin, aaMask, decontaminatedPixels, maskExcluded,
                     boxMinX, boxMinY, boxMaxX, boxMaxY, solidifyOnly, decontamPo);
@@ -126,16 +126,15 @@ namespace Iroca
 
         /// <summary>矩形内の α 分解の対象(0 &lt; strength &lt; interiorThreshold)の数。</summary>
         private static long CountDecontamCandidates(float* strength, int w,
-            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY, float interiorThreshold, ParallelOptions po)
-        {
+            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY, float interiorThreshold, ParallelOptions po) {
             long total = 0;
-            Parallel.For(boxMinY, boxMaxY + 1, po, () => 0L, (y, _, acc) =>
-            {
+            Parallel.For(boxMinY, boxMaxY + 1, po, () => 0L, (y, _, acc) => {
                 int rowOff = y * w;
-                for (int x = boxMinX; x <= boxMaxX; x++)
-                {
+                for (int x = boxMinX; x <= boxMaxX; x++) {
                     float s = strength[rowOff + x];
-                    if (!(s <= 0f || s >= interiorThreshold)) acc++;   // 本体の候補判定と同じ形(NaN も同じ側)
+                    if (!(s <= 0f || s >= interiorThreshold)) {
+                        acc++;   // 本体の候補判定と同じ形(NaN も同じ側)
+                    }
                 }
                 return acc;
             }, acc => Interlocked.Add(ref total, acc));
@@ -153,45 +152,49 @@ namespace Iroca
             Color sampleColor, Color targetColor, int radius,
             float interiorThreshold, float interiorBgDensityMin,
             bool* aaMask, Color32* decontaminatedPixels, bool* maskExcluded,
-            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY, bool solidifyOnly, ParallelOptions po)
-        {
+            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY, bool solidifyOnly, ParallelOptions po) {
             float sR = sampleColor.r * 255f;
             float sG = sampleColor.g * 255f;
             float sB = sampleColor.b * 255f;
             float tR = targetColor.r * 255f;
             float tG = targetColor.g * 255f;
             float tB = targetColor.b * 255f;
-            Parallel.For(boxMinY, boxMaxY + 1, po, y =>
-            {
+            Parallel.For(boxMinY, boxMaxY + 1, po, y => {
                 int rowOff = y * w;
                 int wy0 = Mathf.Max(0, y - radius), wy1 = Mathf.Min(h - 1, y + radius);
-                for (int x = boxMinX; x <= boxMaxX; x++)
-                {
+                for (int x = boxMinX; x <= boxMaxX; x++) {
                     int i = rowOff + x;
                     float s = strength[i];
-                    if (s <= 0f || s >= interiorThreshold) continue;
+                    if (s <= 0f || s >= interiorThreshold) {
+                        continue;
+                    }
                     int wx0 = Mathf.Max(0, x - radius), wx1 = Mathf.Min(w - 1, x + radius);
                     int sumR = 0, sumG = 0, sumB = 0, cnt = 0;
-                    for (int yy = wy0; yy <= wy1; yy++)
-                    {
+                    for (int yy = wy0; yy <= wy1; yy++) {
                         int r2 = yy * w;
-                        for (int xx = wx0; xx <= wx1; xx++)
-                        {
+                        for (int xx = wx0; xx <= wx1; xx++) {
                             int j = r2 + xx;
-                            if (!(strength[j] <= 0f)) continue;   // ドナーの条件は矩形全体の経路と同じ形
+                            if (!(strength[j] <= 0f)) {
+                                continue;   // ドナーの条件は矩形全体の経路と同じ形
+                            }
                             Color32 o = originalPixels[j];
-                            if (o.a == 0) continue;
-                            if (maskExcluded != null && maskExcluded[j]) continue;
+                            if (o.a == 0) {
+                                continue;
+                            }
+                            if (maskExcluded != null && maskExcluded[j]) {
+                                continue;
+                            }
                             sumR += o.r; sumG += o.g; sumB += o.b; cnt++;
                         }
                     }
                     float density = cnt;
-                    if (density < interiorBgDensityMin)
-                    {
+                    if (density < interiorBgDensityMin) {
                         strength[i] = 1f;   // 背景が実質無い=選択の内部(矩形全体の経路と同じ)
                         continue;
                     }
-                    if (solidifyOnly) continue;
+                    if (solidifyOnly) {
+                        continue;
+                    }
 
                     float bR = sumR / density;
                     float bG = sumG / density;
@@ -201,7 +204,9 @@ namespace Iroca
                     float dirG = sG - bG;
                     float dirB = sB - bB;
                     float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
-                    if (dirSq < DecontamDegenEps) continue;
+                    if (dirSq < DecontamDegenEps) {
+                        continue;
+                    }
 
                     float pR = originalPixels[i].r;
                     float pG = originalPixels[i].g;
@@ -210,14 +215,19 @@ namespace Iroca
                     float dot = (pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB;
                     float alpha = dot / dirSq;
                     bool beyondSample = alpha > 1f;
-                    if (alpha < 0f) alpha = 0f;
-                    else if (beyondSample) alpha = 1f;
+                    if (alpha < 0f) {
+                        alpha = 0f;
+                    } else if (beyondSample) {
+                        alpha = 1f;
+                    }
 
                     float projR = bR + alpha * dirR;
                     float projG = bG + alpha * dirG;
                     float projB = bB + alpha * dirB;
                     float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
-                    if (distSq > DecontamLineDistSqMax) continue;
+                    if (distSq > DecontamLineDistSqMax) {
+                        continue;
+                    }
 
                     if (beyondSample) { strength[i] = 1f; continue; }   // 素材そのもの(矩形全体の経路と同じ)
 
@@ -253,8 +263,7 @@ namespace Iroca
             Color sampleColor, Color targetColor, int radius,
             float interiorThreshold, float interiorBgDensityMin,
             bool* aaMask, Color32* decontaminatedPixels, bool* maskExcluded,
-            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY, bool solidifyOnly, ParallelOptions po)
-        {
+            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY, bool solidifyOnly, ParallelOptions po) {
             float sR = sampleColor.r * 255f;
             float sG = sampleColor.g * 255f;
             float sB = sampleColor.b * 255f;
@@ -268,63 +277,67 @@ namespace Iroca
             int bandCount = (boxMaxY - boxMinY + DecontamBandRows) / DecontamBandRows;
             Parallel.For(0, bandCount, po,
                 () => (IntPtr)s_intPool.Rent(span * nch),
-                (band, _, colsPtr) =>
-                {
+                (band, _, colsPtr) => {
                     int* cols = (int*)colsPtr;
                     int* colD = cols;
                     int* colR = solidifyOnly ? null : cols + span;
                     int* colG = solidifyOnly ? null : cols + 2 * span;
                     int* colB = solidifyOnly ? null : cols + 3 * span;
-                    for (int k = 0; k < span * nch; k++) cols[k] = 0;
+                    for (int k = 0; k < span * nch; k++) {
+                        cols[k] = 0;
+                    }
                     int by0 = boxMinY + band * DecontamBandRows;
                     int by1 = Math.Min(boxMaxY, by0 + DecontamBandRows - 1);
                     // 行 yy のドナーを列の和へ足す(sign = +1)・引く(-1)。
-                    void AddRow(int yy, int sign)
-                    {
+                    void AddRow(int yy, int sign) {
                         int rb = yy * w;
-                        for (int x = cx0; x <= cx1; x++)
-                        {
+                        for (int x = cx0; x <= cx1; x++) {
                             int j = rb + x;
-                            if (!(strength[j] <= 0f)) continue;
+                            if (!(strength[j] <= 0f)) {
+                                continue;
+                            }
                             Color32 o = originalPixels[j];
-                            if (o.a == 0) continue;
-                            if (maskExcluded != null && maskExcluded[j]) continue;
+                            if (o.a == 0) {
+                                continue;
+                            }
+                            if (maskExcluded != null && maskExcluded[j]) {
+                                continue;
+                            }
                             int c = x - cx0;
                             colD[c] += sign;
                             if (colR != null) { colR[c] += sign * o.r; colG[c] += sign * o.g; colB[c] += sign * o.b; }
                         }
                     }
-                    for (int yy = Math.Max(0, by0 - radius), ye = Math.Min(h - 1, by0 + radius); yy <= ye; yy++) AddRow(yy, 1);
-                    for (int y = by0; y <= by1; y++)
-                    {
-                        if (y > by0)
-                        {
+                    for (int yy = Math.Max(0, by0 - radius), ye = Math.Min(h - 1, by0 + radius); yy <= ye; yy++) {
+                        AddRow(yy, 1);
+                    }
+                    for (int y = by0; y <= by1; y++) {
+                        if (y > by0) {
                             int sub = y - 1 - radius, add = y + radius;
-                            if (sub >= 0) AddRow(sub, -1);
-                            if (add < h) AddRow(add, 1);
+                            if (sub >= 0) {
+                                AddRow(sub, -1);
+                            }
+                            if (add < h) {
+                                AddRow(add, 1);
+                            }
                         }
                         int rowOff = y * w;
                         // 横の窓 [x-radius, x+radius] を画像の端で切った和を、x を進めながら滑らせる。
                         int sumD = 0, sumR = 0, sumG = 0, sumB = 0;
-                        for (int xx = Math.Max(0, boxMinX - radius), xe = Math.Min(w - 1, boxMinX + radius); xx <= xe; xx++)
-                        {
+                        for (int xx = Math.Max(0, boxMinX - radius), xe = Math.Min(w - 1, boxMinX + radius); xx <= xe; xx++) {
                             int c = xx - cx0;
                             sumD += colD[c];
                             if (colR != null) { sumR += colR[c]; sumG += colG[c]; sumB += colB[c]; }
                         }
-                        for (int x = boxMinX; x <= boxMaxX; x++)
-                        {
-                            if (x > boxMinX)
-                            {
+                        for (int x = boxMinX; x <= boxMaxX; x++) {
+                            if (x > boxMinX) {
                                 int subX = x - 1 - radius, addX = x + radius;
-                                if (subX >= 0)
-                                {
+                                if (subX >= 0) {
                                     int c = subX - cx0;
                                     sumD -= colD[c];
                                     if (colR != null) { sumR -= colR[c]; sumG -= colG[c]; sumB -= colB[c]; }
                                 }
-                                if (addX < w)
-                                {
+                                if (addX < w) {
                                     int c = addX - cx0;
                                     sumD += colD[c];
                                     if (colR != null) { sumR += colR[c]; sumG += colG[c]; sumB += colB[c]; }
@@ -332,10 +345,11 @@ namespace Iroca
                             }
                             int i = rowOff + x;
                             float s = strength[i];
-                            if (s <= 0f || s >= interiorThreshold) continue;
+                            if (s <= 0f || s >= interiorThreshold) {
+                                continue;
+                            }
                             float density = sumD;
-                            if (density < interiorBgDensityMin)
-                            {
+                            if (density < interiorBgDensityMin) {
                                 // 近傍 radius 内に背景(非選択)画素が実質無い = この弱AA画素は選択領域の「内部」。
                                 // 背景が無いので α 分解で再合成できないが、内部なら元色を残すべきでない。weak strength
                                 // のままだと再着色が部分的になり元色(例: 白文字×青地の縁の薄青)が残留する。full に
@@ -346,7 +360,9 @@ namespace Iroca
                                 strength[i] = 1f;
                                 continue;
                             }
-                            if (solidifyOnly) continue;
+                            if (solidifyOnly) {
+                                continue;
+                            }
 
                             float bR = (float)sumR / density;
                             float bG = (float)sumG / density;
@@ -356,7 +372,9 @@ namespace Iroca
                             float dirG = sG - bG;
                             float dirB = sB - bB;
                             float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
-                            if (dirSq < DecontamDegenEps) continue; // sample ≈ BG → α が定義できない
+                            if (dirSq < DecontamDegenEps) {
+                                continue; // sample ≈ BG → α が定義できない
+                            }
 
                             float pR = originalPixels[i].r;
                             float pG = originalPixels[i].g;
@@ -365,15 +383,20 @@ namespace Iroca
                             float dot = (pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB;
                             float alpha = dot / dirSq;
                             bool beyondSample = alpha > 1f;
-                            if (alpha < 0f) alpha = 0f;
-                            else if (beyondSample) alpha = 1f;
+                            if (alpha < 0f) {
+                                alpha = 0f;
+                            } else if (beyondSample) {
+                                alpha = 1f;
+                            }
 
                             // BG–sample 線分から大きく外れる色は、α 分解の前提が成り立たないためスキップする。
                             float projR = bR + alpha * dirR;
                             float projG = bG + alpha * dirG;
                             float projB = bB + alpha * dirB;
                             float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
-                            if (distSq > DecontamLineDistSqMax) continue; // 許容誤差。各チャンネル約31のズレまで許容
+                            if (distSq > DecontamLineDistSqMax) {
+                                continue; // 許容誤差。各チャンネル約31のズレまで許容
+                            }
 
                             // サンプルを BG と反対側へ越えた画素は素材そのもの(説明は DecontamBeyondSampleNote)。
                             if (beyondSample) { strength[i] = 1f; continue; }
@@ -416,15 +439,16 @@ namespace Iroca
             Color32* pixels, Color32* originalPixels, float* strength, float* claimed,
             int w, int h, Color sampleColor, Color targetColor,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY, CancellationToken ct = default,
-            bool* maskExcluded = null, bool* claimedFlag = null)
-        {
+            bool* maskExcluded = null, bool* claimedFlag = null) {
             float sR = sampleColor.r * 255f, sG = sampleColor.g * 255f, sB = sampleColor.b * 255f;
             float tR = targetColor.r * 255f, tG = targetColor.g * 255f, tB = targetColor.b * 255f;
             int x0 = Mathf.Max(0, bbMinX - AchromaFringeMatchRadius);
             int x1 = Mathf.Min(w - 1, bbMaxX + AchromaFringeMatchRadius);
             int y0 = Mathf.Max(0, bbMinY - AchromaFringeMatchRadius);
             int y1 = Mathf.Min(h - 1, bbMaxY + AchromaFringeMatchRadius);
-            if (x1 < x0 || y1 < y0) return;   // 対象矩形が空(マッチ皆無) → 何もしない
+            if (x1 < x0 || y1 < y0) {
+                return;   // 対象矩形が空(マッチ皆無) → 何もしない
+            }
             // フチ消しが触るのは矩形 [x0..x1]×[y0..y1] のうち、マッチ境界の外側(マッチから
             // AchromaFringeMatchRadius 以内の未マッチ画素)の細い帯だけ。
             //   ・「マッチが近くにあるか」は、範囲 F(矩形 ± 背景の窓の半径)の整数の累積和から引く
@@ -437,80 +461,96 @@ namespace Iroca
             int fy0 = Mathf.Max(0, y0 - FringeBgRadius), fy1 = Mathf.Min(h - 1, y1 + FringeBgRadius);
             int fw = fx1 - fx0 + 1, fh = fy1 - fy0 + 1;
             int* satM = null;
-            try
-            {
+            try {
                 satM = s_intPool.Rent(fw * fh);
                 var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
                 // マッチ指標(strength > MatchStrengthFloor)の累積和。近傍の窓(±AchromaFringeMatchRadius)は F の内側か、
                 // F と同じく画像の端で切られる(F = 矩形 ± 背景の窓の半径 ⊇ 矩形 ± マッチの窓の半径)。
                 BuildCountSat(strength, satM, w, fx0, fy0, fx1, fy1, po, ColorZone.MatchStrengthFloor);
                 var satML = satM;
-                Parallel.For(y0, y1 + 1, po, y =>
-                {
+                Parallel.For(y0, y1 + 1, po, y => {
                     int row = y * w;
                     int wy0 = Mathf.Max(0, y - FringeBgRadius), wy1 = Mathf.Min(h - 1, y + FringeBgRadius);
-                    for (int xs = x0; xs <= x1; xs += MixSegment)
-                    {
-                    int xe = Mathf.Min(x1, xs + MixSegment - 1);
-                    // 行の区間の ±AchromaFringeMatchRadius にマッチが無ければ、区間のどの画素も「マッチ境界の
-                    // 近傍」でない(画素の窓は区間の窓の内側)。画素ごとの判定と同じ結論なのでまとめて飛ばす。
-                    if (CountInRect(satML, fw, fx0, fy0, fx1, fy1,
-                            xs - AchromaFringeMatchRadius, y - AchromaFringeMatchRadius,
-                            xe + AchromaFringeMatchRadius, y + AchromaFringeMatchRadius) < 1)
-                        continue;
-                    for (int x = xs; x <= xe; x++)
-                    {
-                        int i = row + x;
-                        if (strength[i] > 1e-4f) continue;            // マッチ済みは既存処理が担当
-                        if (maskExcluded != null && maskExcluded[i]) continue; // 除外マスクは不可侵
-                        // 上位ゾーン占有は不可侵(ゾーンが 1 つのときは claimed の代わりに claimedFlag。RunBuffers.ClaimedFlag)
-                        if (claimed != null ? claimed[i] > ClaimedFlagThreshold : claimedFlag != null && claimedFlag[i]) continue;
-                        if (CountInWindow(satML, fw, fx0, fy0, fx1, fy1, x, y, AchromaFringeMatchRadius) < 1)
-                            continue;                                 // マッチ境界の近傍のみ
-                        // 背景候補(非マッチ かつ α>0。除外マスク画素はドナーから隠す=マスク中立化。
-                        // DecontaminateAaBoundary と同じ扱い)の窓和。
-                        int sumR = 0, sumG = 0, sumB = 0, cnt = 0;
-                        int wx0 = Mathf.Max(0, x - FringeBgRadius), wx1 = Mathf.Min(w - 1, x + FringeBgRadius);
-                        for (int yy = wy0; yy <= wy1; yy++)
-                        {
-                            int r2 = yy * w;
-                            for (int xx = wx0; xx <= wx1; xx++)
-                            {
-                                int j = r2 + xx;
-                                if (!(strength[j] <= 0f)) continue;   // 以前のドナー充填と同じ形(NaN も同じ側)
-                                Color32 o = originalPixels[j];
-                                if (o.a == 0) continue;
-                                if (maskExcluded != null && maskExcluded[j]) continue;
-                                sumR += o.r; sumG += o.g; sumB += o.b; cnt++;
-                            }
+                    for (int xs = x0; xs <= x1; xs += MixSegment) {
+                        int xe = Mathf.Min(x1, xs + MixSegment - 1);
+                        // 行の区間の ±AchromaFringeMatchRadius にマッチが無ければ、区間のどの画素も「マッチ境界の
+                        // 近傍」でない(画素の窓は区間の窓の内側)。画素ごとの判定と同じ結論なのでまとめて飛ばす。
+                        if (CountInRect(satML, fw, fx0, fy0, fx1, fy1,
+                                xs - AchromaFringeMatchRadius, y - AchromaFringeMatchRadius,
+                                xe + AchromaFringeMatchRadius, y + AchromaFringeMatchRadius) < 1) {
+                            continue;
                         }
-                        float density = cnt;
-                        if (density < 1f) continue;
-                        float bR = sumR / density, bG = sumG / density, bB = sumB / density;
-                        float dirR = sR - bR, dirG = sG - bG, dirB = sB - bB;
-                        float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
-                        if (dirSq < DecontamDegenEps) continue;       // sample≈BG → α 未定義
-                        float pR = originalPixels[i].r, pG = originalPixels[i].g, pB = originalPixels[i].b;
-                        float alpha = ((pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB) / dirSq;
-                        // 地色の残りがある背景優勢画素のみ。地色寄り(α≈1)は除外=白拒否を維持。
-                        if (alpha < AchromaFringeMinAlpha || alpha > AchromaFringeMaxAlpha) continue;
-                        float projR = bR + alpha * dirR, projG = bG + alpha * dirG, projB = bB + alpha * dirB;
-                        float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
-                        if (distSq > DecontamLineDistSqMax) continue; // 線から外れる=別色 → 触らない
-                        float om = 1f - alpha;
-                        pixels[i] = new Color32(
-                            (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tR + om * bR), 0, 255),
-                            (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tG + om * bG), 0, 255),
-                            (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tB + om * bB), 0, 255),
-                            originalPixels[i].a);
-                        SetClaimed(claimed, claimedFlag, i, 1f);
-                    }
+                        for (int x = xs; x <= xe; x++) {
+                            int i = row + x;
+                            if (strength[i] > 1e-4f) {
+                                continue;            // マッチ済みは既存処理が担当
+                            }
+                            if (maskExcluded != null && maskExcluded[i]) {
+                                continue; // 除外マスクは不可侵
+                            }
+                            // 上位ゾーン占有は不可侵(ゾーンが 1 つのときは claimed の代わりに claimedFlag。RunBuffers.ClaimedFlag)
+                            if (claimed != null ? claimed[i] > ClaimedFlagThreshold : claimedFlag != null && claimedFlag[i]) {
+                                continue;
+                            }
+                            if (CountInWindow(satML, fw, fx0, fy0, fx1, fy1, x, y, AchromaFringeMatchRadius) < 1) {
+                                continue;                                 // マッチ境界の近傍のみ
+                            }
+                            // 背景候補(非マッチ かつ α>0。除外マスク画素はドナーから隠す=マスク中立化。
+                            // DecontaminateAaBoundary と同じ扱い)の窓和。
+                            int sumR = 0, sumG = 0, sumB = 0, cnt = 0;
+                            int wx0 = Mathf.Max(0, x - FringeBgRadius), wx1 = Mathf.Min(w - 1, x + FringeBgRadius);
+                            for (int yy = wy0; yy <= wy1; yy++) {
+                                int r2 = yy * w;
+                                for (int xx = wx0; xx <= wx1; xx++) {
+                                    int j = r2 + xx;
+                                    if (!(strength[j] <= 0f)) {
+                                        continue;   // 以前のドナー充填と同じ形(NaN も同じ側)
+                                    }
+                                    Color32 o = originalPixels[j];
+                                    if (o.a == 0) {
+                                        continue;
+                                    }
+                                    if (maskExcluded != null && maskExcluded[j]) {
+                                        continue;
+                                    }
+                                    sumR += o.r; sumG += o.g; sumB += o.b; cnt++;
+                                }
+                            }
+                            float density = cnt;
+                            if (density < 1f) {
+                                continue;
+                            }
+                            float bR = sumR / density, bG = sumG / density, bB = sumB / density;
+                            float dirR = sR - bR, dirG = sG - bG, dirB = sB - bB;
+                            float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
+                            if (dirSq < DecontamDegenEps) {
+                                continue;       // sample≈BG → α 未定義
+                            }
+                            float pR = originalPixels[i].r, pG = originalPixels[i].g, pB = originalPixels[i].b;
+                            float alpha = ((pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB) / dirSq;
+                            // 地色の残りがある背景優勢画素のみ。地色寄り(α≈1)は除外=白拒否を維持。
+                            if (alpha < AchromaFringeMinAlpha || alpha > AchromaFringeMaxAlpha) {
+                                continue;
+                            }
+                            float projR = bR + alpha * dirR, projG = bG + alpha * dirG, projB = bB + alpha * dirB;
+                            float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
+                            if (distSq > DecontamLineDistSqMax) {
+                                continue; // 線から外れる=別色 → 触らない
+                            }
+                            float om = 1f - alpha;
+                            pixels[i] = new Color32(
+                                (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tR + om * bR), 0, 255),
+                                (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tG + om * bG), 0, 255),
+                                (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tB + om * bB), 0, 255),
+                                originalPixels[i].a);
+                            SetClaimed(claimed, claimedFlag, i, 1f);
+                        }
                     }
                 });
-            }
-            finally
-            {
-                if (satM != null) s_intPool.Return(satM);
+            } finally {
+                if (satM != null) {
+                    s_intPool.Return(satM);
+                }
             }
         }
 
@@ -521,29 +561,28 @@ namespace Iroca
         /// 行ごとの累積は行並列、列方向の累積は列の帯ごとに並列(どちらも整数加算なので順序に依存しない)。
         /// </summary>
         private static void BuildCountSat(float* src, int* sat, int w, int x0, int y0, int x1, int y1,
-            ParallelOptions po, float minExclusive = 0.5f)
-        {
+            ParallelOptions po, float minExclusive = 0.5f) {
             int satW = x1 - x0 + 1, rows = y1 - y0 + 1;
-            Parallel.For(0, rows, po, r =>
-            {
+            Parallel.For(0, rows, po, r => {
                 int srcRow = (y0 + r) * w;
                 int o = r * satW;
                 int acc = 0;
-                for (int x = x0; x <= x1; x++)
-                {
-                    if (src[srcRow + x] > minExclusive) acc++;
+                for (int x = x0; x <= x1; x++) {
+                    if (src[srcRow + x] > minExclusive) {
+                        acc++;
+                    }
                     sat[o + (x - x0)] = acc;
                 }
             });
             const int Band = 64;
             int bands = (satW + Band - 1) / Band;
-            Parallel.For(0, bands, po, b =>
-            {
+            Parallel.For(0, bands, po, b => {
                 int c0 = b * Band, c1 = Mathf.Min(satW, c0 + Band);
-                for (int r = 1; r < rows; r++)
-                {
+                for (int r = 1; r < rows; r++) {
                     int o = r * satW, prev = o - satW;
-                    for (int c = c0; c < c1; c++) sat[o + c] += sat[prev + c];
+                    for (int c = c0; c < c1; c++) {
+                        sat[o + c] += sat[prev + c];
+                    }
                 }
             });
         }
@@ -553,35 +592,41 @@ namespace Iroca
 
         /// <summary>矩形 [rx0..rx1]×[ry0..ry1] のうち範囲 [x0..x1]×[y0..y1] に入る部分の個数(BuildCountSat の表から)。</summary>
         private static int CountInRect(int* sat, int satW, int x0, int y0, int x1, int y1,
-            int rx0, int ry0, int rx1, int ry1)
-        {
+            int rx0, int ry0, int rx1, int ry1) {
             int xa = Mathf.Max(x0, rx0) - x0, xb = Mathf.Min(x1, rx1) - x0;
             int ya = Mathf.Max(y0, ry0) - y0, yb = Mathf.Min(y1, ry1) - y0;
-            if (xb < xa || yb < ya) return 0;
+            if (xb < xa || yb < ya) {
+                return 0;
+            }
             int s = sat[yb * satW + xb];
-            if (xa > 0) s -= sat[yb * satW + xa - 1];
-            if (ya > 0)
-            {
+            if (xa > 0) {
+                s -= sat[yb * satW + xa - 1];
+            }
+            if (ya > 0) {
                 int up = (ya - 1) * satW;
                 s -= sat[up + xb];
-                if (xa > 0) s += sat[up + xa - 1];
+                if (xa > 0) {
+                    s += sat[up + xa - 1];
+                }
             }
             return s;
         }
 
         /// <summary>(x, y) を中心とする ±r の窓のうち範囲 [x0..x1]×[y0..y1] に入る部分の個数(BuildCountSat の表から)。</summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        private static int CountInWindow(int* sat, int satW, int x0, int y0, int x1, int y1, int x, int y, int r)
-        {
+        private static int CountInWindow(int* sat, int satW, int x0, int y0, int x1, int y1, int x, int y, int r) {
             int xa = Mathf.Max(x0, x - r) - x0, xb = Mathf.Min(x1, x + r) - x0;
             int ya = Mathf.Max(y0, y - r) - y0, yb = Mathf.Min(y1, y + r) - y0;
             int s = sat[yb * satW + xb];
-            if (xa > 0) s -= sat[yb * satW + xa - 1];
-            if (ya > 0)
-            {
+            if (xa > 0) {
+                s -= sat[yb * satW + xa - 1];
+            }
+            if (ya > 0) {
                 int up = (ya - 1) * satW;
                 s -= sat[up + xb];
-                if (xa > 0) s += sat[up + xa - 1];
+                if (xa > 0) {
+                    s += sat[up + xa - 1];
+                }
             }
             return s;
         }

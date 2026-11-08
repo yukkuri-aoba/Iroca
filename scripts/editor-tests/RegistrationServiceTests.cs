@@ -5,16 +5,14 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 「アバターに非破壊で登録」の判断(<see cref="RegistrationService"/>)。ウィンドウ(確認画面)と自動化(警告)が同じ判断を
     /// 使う: 使うレシピの順(結び付き → 登録先のもの → プロジェクトにちょうど 1 つ)と、ほかのアバターのレシピを流用しない
     /// 選び方、登録の計画(書き出した画像・共有のマテリアル)、共有のマテリアルを戻さない登録。
     /// 登録の部品そのものは RecipeRegistrationTests、自動化の通しは AutomationTests が見る。
     /// </summary>
-    public class RegistrationServiceTests
-    {
+    public class RegistrationServiceTests {
         private readonly List<Object> _created = new List<Object>();
         private TestAssets _assets;
 
@@ -22,15 +20,17 @@ namespace Iroca.EditorTests
         public void SetUp() => _assets = TestAssets.Create();
 
         [TearDown]
-        public void TearDown()
-        {
-            foreach (var o in _created)
-            {
-                if (o == null) continue;
+        public void TearDown() {
+            foreach (var o in _created) {
+                if (o == null) {
+                    continue;
+                }
                 // 登録は Undo に記録する。記録を残したまま消すと、Undo の巻き戻しで空の GameObject として復活する。
-                if (o is GameObject go)
-                    foreach (var c in go.GetComponents<Component>())
+                if (o is GameObject go) {
+                    foreach (var c in go.GetComponents<Component>()) {
                         Undo.ClearUndo(c);
+                    }
+                }
                 Undo.ClearUndo(o);
                 Object.DestroyImmediate(o);
             }
@@ -43,10 +43,11 @@ namespace Iroca.EditorTests
         private Texture2D Png(string name) => AssetDatabase.LoadAssetAtPath<Texture2D>(
             _assets.WritePng(name, TestAssets.Solid(4, 4, new Color32(200, 40, 40, 255)), 4, 4));
 
-        private GameObject Make(string name, GameObject parent = null)
-        {
+        private GameObject Make(string name, GameObject parent = null) {
             var go = Track(new GameObject(name));
-            if (parent != null) go.transform.SetParent(parent.transform, false);
+            if (parent != null) {
+                go.transform.SetParent(parent.transform, false);
+            }
             return go;
         }
 
@@ -54,8 +55,7 @@ namespace Iroca.EditorTests
             => RecipeStore.Create(source, IrocaSessionState.CreateDefault(), _assets.Folder);
 
         [Test]
-        public void ChooseRecipe_BoundThenTargetsOwnThenTheOnlyOneInTheProject()
-        {
+        public void ChooseRecipe_BoundThenTargetsOwnThenTheOnlyOneInTheProject() {
             var src = Png("costume");
             var inProject = ProjectRecipe(src);
             var avatar = Make("avatar");
@@ -75,8 +75,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ChooseRecipe_DoesNotShareAnotherAvatarsRecipeWhenAsked()
-        {
+        public void ChooseRecipe_DoesNotShareAnotherAvatarsRecipeWhenAsked() {
             var src = Png("costume");
             var recipe = ProjectRecipe(src);
             var a = Make("avatar A");
@@ -101,8 +100,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Describe_AndSwitchAndAttach_KeepSharedMaterialsWhenAsked()
-        {
+        public void Describe_AndSwitchAndAttach_KeepSharedMaterialsWhenAsked() {
             var src = Png("costume");
             var exported = Png("costume_recolored");
             var sharedMat = new Material(Shader.Find("Standard")) { mainTexture = exported };

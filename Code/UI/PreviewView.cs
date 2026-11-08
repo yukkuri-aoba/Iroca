@@ -3,15 +3,13 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// メインプレビュー描画、比較 / 差分モード、ズーム、プレビュー生成ジョブの起動、
     /// 表示用 Texture の所有を担当する。詳細プレビューは DetailPreviewView を保持する補助形式。
     /// </summary>
     [System.Serializable]
-    internal partial class PreviewView
-    {
+    internal partial class PreviewView {
         public float previewZoom = 1f;
         public bool comparisonMode;
         public bool diffMode;
@@ -30,17 +28,17 @@ namespace Iroca
 
         // テクスチャの縮小率 scale に応じた表示倍率(EffectiveZoom)の上限。
         // ズーム(previewZoom)の上限はこれを全体表示の倍率で割ったもの(Draw 参照)。
-        private static float ComputeMaxZoom(float scale)
-        {
-            if (scale <= 0f) return AbsoluteMaxPreviewZoom;
+        private static float ComputeMaxZoom(float scale) {
+            if (scale <= 0f) {
+                return AbsoluteMaxPreviewZoom;
+            }
             return Mathf.Clamp(PixelInspectTargetPx / scale, PixelInspectTargetPx, AbsoluteMaxPreviewZoom);
         }
 
         // 表示倍率が 104% のような半端な値にならないよう、ズームは「きれいな数字」の
         // 固定ストップにスナップさせる。1 ノッチ＝隣のストップ。25%〜12800% を網羅
         // (全体表示が小さい狭いウィンドウでは、同じ表示倍率に届くのにズームの数字が大きくなる)。
-        private static readonly float[] ZoomStops =
-        {
+        private static readonly float[] ZoomStops = {
             0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 5f, 6f,
             8f, 10f, 12f, 16f, 20f, 24f, 32f, 40f, 48f, 64f, 96f, 128f
         };
@@ -82,9 +80,10 @@ namespace Iroca
         /// 全体表示(ズーム 100%)の倍率。枠の内側(スクロールビューの余白と比較モードの見出し・
         /// パネル間隔を除く)に、画像全体がスクロールバー無しで収まる最大の倍率。
         /// </summary>
-        private float ComputeFitScale(int texW, int texH, int panelCount, float frameW)
-        {
-            if (texW <= 0 || texH <= 0 || frameW <= 1f || !HasFrameHeightBudget) return 1f;
+        private float ComputeFitScale(int texW, int texH, int panelCount, float frameW) {
+            if (texW <= 0 || texH <= 0 || frameW <= 1f || !HasFrameHeightBudget) {
+                return 1f;
+            }
             var pad = GUI.skin.scrollView.padding;
             float innerW = frameW - pad.horizontal - (panelCount - 1) * IrocaConsts.Preview.PanelSpacing - FitSlack;
             float innerH = FrameHeightBudget - pad.vertical - FitSlack
@@ -98,11 +97,14 @@ namespace Iroca
         /// 比較モードの切替・枠より上の UI の増減)は、見ていた位置を保つようにスクロール量
         /// (表示 pt 単位)を同じ比で伸縮し、拡大表示を新しい倍率で作り直させる。
         /// </summary>
-        private void UpdateFitScale(int panelCount, float frameW)
-        {
-            if (previewTexture == null) return;
+        private void UpdateFitScale(int panelCount, float frameW) {
+            if (previewTexture == null) {
+                return;
+            }
             float fit = ComputeFitScale(previewTexture.width, previewTexture.height, panelCount, frameW);
-            if (Mathf.Abs(fit - _fitScale) <= 1e-4f) return;
+            if (Mathf.Abs(fit - _fitScale) <= 1e-4f) {
+                return;
+            }
             _previewScrollPos *= fit / _fitScale;
             _fitScale = fit;
             DetailView.MarkViewChanged();
@@ -122,30 +124,32 @@ namespace Iroca
 
         // 現在のズームから、指定方向(zoomIn=拡大)へ 1 ストップ動いた値を返す。
         // 上限(maxZoom)・下限(MinPreviewZoom)を超えるストップは選ばない。
-        private static float StepZoom(float current, bool zoomIn, float maxZoom)
-        {
-            if (zoomIn)
-            {
-                for (int i = 0; i < ZoomStops.Length; i++)
-                    if (ZoomStops[i] > current + ZoomEpsilon && ZoomStops[i] <= maxZoom + ZoomEpsilon)
+        private static float StepZoom(float current, bool zoomIn, float maxZoom) {
+            if (zoomIn) {
+                for (int i = 0; i < ZoomStops.Length; i++) {
+                    if (ZoomStops[i] > current + ZoomEpsilon && ZoomStops[i] <= maxZoom + ZoomEpsilon) {
                         return ZoomStops[i];
+                    }
+                }
                 return SnapToStop(maxZoom, maxZoom); // これ以上拡大できない
             }
-            for (int i = ZoomStops.Length - 1; i >= 0; i--)
-                if (ZoomStops[i] < current - ZoomEpsilon && ZoomStops[i] >= MinPreviewZoom - ZoomEpsilon)
+            for (int i = ZoomStops.Length - 1; i >= 0; i--) {
+                if (ZoomStops[i] < current - ZoomEpsilon && ZoomStops[i] >= MinPreviewZoom - ZoomEpsilon) {
                     return ZoomStops[i];
+                }
+            }
             return MinPreviewZoom;
         }
 
         // 任意のズーム値を、有効範囲内で最も近いストップに丸める。
         // シリアライズで残った半端な値(例 1.04)を毎フレームここで整える。
-        private static float SnapToStop(float zoom, float maxZoom)
-        {
+        private static float SnapToStop(float zoom, float maxZoom) {
             float best = Mathf.Clamp(zoom, MinPreviewZoom, maxZoom);
             float bestDist = float.MaxValue;
-            foreach (float s in ZoomStops)
-            {
-                if (s < MinPreviewZoom - ZoomEpsilon || s > maxZoom + ZoomEpsilon) continue;
+            foreach (float s in ZoomStops) {
+                if (s < MinPreviewZoom - ZoomEpsilon || s > maxZoom + ZoomEpsilon) {
+                    continue;
+                }
                 float d = Mathf.Abs(zoom - s);
                 if (d < bestDist) { bestDist = d; best = s; }
             }
@@ -168,12 +172,12 @@ namespace Iroca
         /// 編集はウィンドウが EditingSession.Changed を受けて立てる(IrocaWindow.OnEditChanged)。
         /// 自動保存は Changed を直接見る(AutosaveSchedule)。下ろすのは計算の側(受け取ったとき)だけ。
         /// </summary>
-        public bool previewDirty
-        {
+        public bool previewDirty {
             get => _pipeline == null || _pipeline.Dirty;
-            set
-            {
-                if (!value || _pipeline == null) return;
+            set {
+                if (!value || _pipeline == null) {
+                    return;
+                }
                 _pipeline.MarkDirty();
                 // 別ウィンドウ(プレビュー・マスク編集)の描き直しの合図にもする(IrocaWindow.DrawStamp)。
                 _host?.BumpUiState();
@@ -241,11 +245,9 @@ namespace Iroca
 
         [System.NonSerialized] private IrocaWindow _host;
 
-        public void Initialize(IrocaWindow host)
-        {
+        public void Initialize(IrocaWindow host) {
             _host = host;
-            if (_pipeline == null)
-            {
+            if (_pipeline == null) {
                 _pipeline = new PreviewPipeline(host);
                 _pipeline.SourceInvalidated += OnSourceInvalidated;
             }
@@ -271,8 +273,7 @@ namespace Iroca
         public void InvalidateSourceCache() => _pipeline?.InvalidateSourceCache();
 
         // 計算の側が原本から導いた状態を捨てた。表示も旧テクスチャのものを捨てる。
-        private void OnSourceInvalidated()
-        {
+        private void OnSourceInvalidated() {
             _detailHiddenForDrag = false;
             _renderer?.OnSourceInvalidated();
         }
@@ -281,9 +282,10 @@ namespace Iroca
         /// 拡大表示の土台を「元の解像度」の設定(<see cref="DetailFullResolution"/>)に合わせる。Draw が毎回呼び、
         /// 合っていれば何もしない。切り替わったら、今の拡大表示を捨てて作り直させる。
         /// </summary>
-        internal void SyncDetailResolution()
-        {
-            if (_pipeline == null || !_pipeline.SyncDetailResolution()) return;
+        internal void SyncDetailResolution() {
+            if (_pipeline == null || !_pipeline.SyncDetailResolution()) {
+                return;
+            }
             DetailView.InvalidateDisplay();
             DetailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
             _host?.RequestRepaint();
@@ -305,9 +307,10 @@ namespace Iroca
         internal NativePixels FullOutput => _pipeline?.FullOutput;
 
         /// <summary>いま持っている処理用の画素(作業解像度)の寸法(<see cref="PreviewPipeline.TryGetWorkingSize"/>)。</summary>
-        internal bool TryGetWorkingSize(out int w, out int h)
-        {
-            if (_pipeline != null) return _pipeline.TryGetWorkingSize(out w, out h);
+        internal bool TryGetWorkingSize(out int w, out int h) {
+            if (_pipeline != null) {
+                return _pipeline.TryGetWorkingSize(out w, out h);
+            }
             w = h = 0;
             return false;
         }
@@ -325,23 +328,22 @@ namespace Iroca
         /// 自動調整など他ビューが、プレビューと同一の true source 画素(作業解像度)で解析するための読み取り専用アクセサ
         /// (<see cref="PreviewPipeline.TryGetTrueSourcePixels"/>。参照は足さない)。
         /// </summary>
-        public bool TryGetTrueSourcePixels(Texture2D tex, out NativePixels pixels, out int w, out int h)
-        {
-            if (_pipeline != null) return _pipeline.TryGetTrueSourcePixels(tex, out pixels, out w, out h);
+        public bool TryGetTrueSourcePixels(Texture2D tex, out NativePixels pixels, out int w, out int h) {
+            if (_pipeline != null) {
+                return _pipeline.TryGetTrueSourcePixels(tex, out pixels, out w, out h);
+            }
             pixels = null;
             w = h = 0;
             return false;
         }
 
-        public void Dispose()
-        {
+        public void Dispose() {
             Suspend();
             _pipeline?.Dispose();
             _renderer?.Dispose();
         }
 
-        public void Suspend()
-        {
+        public void Suspend() {
             // ジョブを止め、プレビューの原本・確定段の出力・使い回しのバッファ・選択キャッシュ(Mono のヒープの外)を
             // 手放す。閉じる・リロードの前に呼ばれるので、ここで返せば OS へ戻る。開き直したら Initialize が作り直し、
             // Draw が読み直す。
@@ -356,21 +358,20 @@ namespace Iroca
         /// <see cref="Draw"/> の中から進むので、描かないと止まり、シーンのアバターの色(結果で変わる)が追従しなかった。
         /// 届いた結果は表示の前の 1 枚だけが残る(<see cref="PreviewPipeline.TakePendingFrame"/>)。
         /// </summary>
-        internal void TickWithoutDrawing()
-        {
+        internal void TickWithoutDrawing() {
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null || SourceLoadDeferred || PollSource(sourceTexture) != SourceState.Ready) return;
+            if (sourceTexture == null || SourceLoadDeferred || PollSource(sourceTexture) != SourceState.Ready) {
+                return;
+            }
             _pipeline.Tick(pointerHeld: GUIUtility.hotControl != 0);
         }
 
-        public void Draw()
-        {
+        public void Draw() {
             // 見出し行はズーム率を右端に載せるため、ズーム率が確定した後で描く（DrawTitleRow 参照）。
             // プレビューが確立していない経路は、それぞれの return の直前で見出しだけを描く。
             // ここからズーム率確定までの間に GUILayout の呼び出しを置かないこと（見出しより上に積まれる）。
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null)
-            {
+            if (sourceTexture == null) {
                 DrawTitleRow(false, 0f);
                 EditorGUILayout.HelpBox(Localization.SetTexture, MessageType.Info);
                 return;
@@ -378,9 +379,10 @@ namespace Iroca
 
             // Play 中のリロード直後は、ウィンドウが操作されるまで原本を読まない(_deferSourceLoad)。
             // 決めるのは Layout のとき(ボタンの処理で途中から原本を読んでも、同じフレームの描くものを変えない)。
-            if (Event.current.type == EventType.Layout) _deferredAtLayout = SourceLoadDeferred;
-            if (_deferredAtLayout)
-            {
+            if (Event.current.type == EventType.Layout) {
+                _deferredAtLayout = SourceLoadDeferred;
+            }
+            if (_deferredAtLayout) {
                 DrawTitleRow(false, 0f);
                 EditorGUILayout.HelpBox(Localization.PreviewDeferredInPlayMode, MessageType.Info);
                 return;
@@ -392,15 +394,15 @@ namespace Iroca
             // PNG は別スレッドで読み、読み終えるまでは案内だけを出す(エディタを止めない)。読んでいるかは Layout のときに
             // 決める(同じフレームの他のイベントも同じものを描く)。
             var sourceState = PollSource(sourceTexture);
-            if (Event.current.type == EventType.Layout) _loadingAtLayout = sourceState == SourceState.Loading;
-            if (_loadingAtLayout || sourceState == SourceState.Loading)
-            {
+            if (Event.current.type == EventType.Layout) {
+                _loadingAtLayout = sourceState == SourceState.Loading;
+            }
+            if (_loadingAtLayout || sourceState == SourceState.Loading) {
                 DrawTitleRow(false, 0f);
                 EditorGUILayout.LabelField(Localization.PreviewLoadingSource);
                 return;
             }
-            if (sourceState == SourceState.Unavailable)
-            {
+            if (sourceState == SourceState.Unavailable) {
                 DrawTitleRow(false, 0f);
                 return;
             }
@@ -417,8 +419,7 @@ namespace Iroca
 
             string generatingLabel = CurrentGeneratingLabel();
 
-            if (previewTexture == null)
-            {
+            if (previewTexture == null) {
                 // 初回生成中はまだ操作行が無いので、生成状態だけ単独の 1 行で表示する。
                 DrawTitleRow(false, 0f);
                 EditorGUILayout.LabelField(generatingLabel);
@@ -465,8 +466,7 @@ namespace Iroca
             previewZoom = SnapToStop(previewZoom, maxZoom);
 
             int zoomPercent = Mathf.RoundToInt(previewZoom * 100f);
-            if (zoomPercent != _cachedZoomPercent || _cachedZoomLang != Localization.CurrentLanguage || _cachedZoomLabel == null)
-            {
+            if (zoomPercent != _cachedZoomPercent || _cachedZoomLang != Localization.CurrentLanguage || _cachedZoomLabel == null) {
                 _cachedZoomPercent = zoomPercent;
                 _cachedZoomLang = Localization.CurrentLanguage;
                 _cachedZoomLabel = string.Format(Localization.ZoomLabel, zoomPercent);
@@ -481,26 +481,27 @@ namespace Iroca
             // 常に出ていた。トグルは内容幅に縮め、生成状態は右端に置く。
             // ズーム率は見出し行にある（この行に並べると既定幅に収まらない。DrawTitleRow 参照）。
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Toggle(comparisonMode, TempContent.Of(Localization.ComparisonMode, Localization.ComparisonModeTooltip), EditorStyles.miniButtonLeft, GUILayout.ExpandWidth(false)) != comparisonMode)
-            {
+            if (GUILayout.Toggle(comparisonMode, TempContent.Of(Localization.ComparisonMode, Localization.ComparisonModeTooltip), EditorStyles.miniButtonLeft, GUILayout.ExpandWidth(false)) != comparisonMode) {
                 comparisonMode = !comparisonMode;
-                if (comparisonMode) diffMode = false;
+                if (comparisonMode) {
+                    diffMode = false;
+                }
                 // 画像の並び(位置)が変わるので、拡大表示の切り出しを新しい並びで作り直す。
                 DetailView.OnViewMoved();
             }
-            if (GUILayout.Toggle(diffMode, TempContent.Of(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight, GUILayout.ExpandWidth(false)) != diffMode)
-            {
+            if (GUILayout.Toggle(diffMode, TempContent.Of(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight, GUILayout.ExpandWidth(false)) != diffMode) {
                 diffMode = !diffMode;
                 // 拡大表示の差分は、変更後の切り出しと同じ範囲の変更前の切り出しから描く。今の切り出しの分は
                 // 描くときにその場で作る(ShownDetailRawForDiff)ので、作り直しは待たない。
-                if (diffMode) comparisonMode = false;
+                if (diffMode) {
+                    comparisonMode = false;
+                }
             }
             // 押している間だけ変更前を表示する。前後比較(横並び)は高ズームで使えず、差分表示は
             // 「変わった画素」しか示さないため、拡大して細部を見ているときに「元はどうだったか」を
             // 確かめる手段が無かった。比較モード中は両方が既に並んでいるので無効化する。
             bool peekOriginal;
-            using (new EditorGUI.DisabledScope(comparisonMode || rawPreviewTexture == null))
-            {
+            using (new EditorGUI.DisabledScope(comparisonMode || rawPreviewTexture == null)) {
                 peekOriginal = GUILayout.RepeatButton(
                     TempContent.Of(Localization.PeekOriginal, Localization.PeekOriginalTooltip),
                     EditorStyles.miniButton, GUILayout.ExpandWidth(false));
@@ -508,7 +509,9 @@ namespace Iroca
             peekOriginal &= !comparisonMode && rawPreviewTexture != null;
             // RepeatButton は押されている間 true を返し続けるが、Editor は要求が無いと
             // 再描画しない。押下中は継続的に再描画を要求しないと 1 フレームで戻って見える。
-            if (peekOriginal) _host.RequestPreviewRepaint();
+            if (peekOriginal) {
+                _host.RequestPreviewRepaint();
+            }
             DrawAppearanceToggle();
 
             GUILayout.FlexibleSpace();
@@ -534,7 +537,7 @@ namespace Iroca
             bool detailActive = detScale < 1f &&
                                 effZoom > DetailPreviewView.DetailMinZoom;
 
-            float displayW = previewTexture.width  * effZoom;
+            float displayW = previewTexture.width * effZoom;
             float displayH = previewTexture.height * effZoom;
             // 枠内に並べる画像の総幅(比較モードは 2 枚＋間隔)。
             float imagesW = displayW * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing;
@@ -563,8 +566,7 @@ namespace Iroca
             float maxViewH;
             // 画像が枠からはみ出してスクロール(パン)が要るか。
             bool overflowsFrame;
-            if (frameW > 1f && HasFrameHeightBudget)
-            {
+            if (frameW > 1f && HasFrameHeightBudget) {
                 // 枠はカラムの残り(FrameHeightBudget)を上限に、内容の高さまで縮める。全体表示(100%)では
                 // 画像がちょうど収まるので枠＝画像で、スクロールバーは出ない。拡大中は残りいっぱいまで
                 // 使い、縮小中は画像の高さまで縮む(枠の下に余白を作らない)。
@@ -576,9 +578,7 @@ namespace Iroca
                 bool hOverflow = imagesW + scrollPad.horizontal > clientW + 0.5f;
                 maxViewH = Mathf.Min(contentH + (hOverflow ? hBarReserve : FitSlack), budget);
                 overflowsFrame = hOverflow || contentH > maxViewH - (hOverflow ? hBarReserve : 0f) + 0.5f;
-            }
-            else
-            {
+            } else {
                 // 枠の大きさが分からない初回フレーム・カラム寸法を渡さないホスト: 等倍の自然サイズ。
                 contentH = Mathf.Min(displayH, previewTexture.height) + scrollPad.vertical
                            + (panelCount == 2 ? ComparisonLabelHeight : 0f);
@@ -597,11 +597,9 @@ namespace Iroca
             // 開閉など previewDirty を立てないもの)の最終フレームが旧値のレイアウトのまま
             // 画面に固定され、不要なスクロールバー付きの枠が出たままになる。chrome は枠より
             // 上の UI のみで maxViewH に依存しないため、追い再描画は 1 回で収束しループしない。
-            if (Event.current.type == EventType.Repaint)
-            {
+            if (Event.current.type == EventType.Repaint) {
                 float chrome = GUILayoutUtility.GetLastRect().yMax;
-                if (chrome > 1f && Mathf.Abs(chrome - _chromeAboveViewportH) > 0.5f)
-                {
+                if (chrome > 1f && Mathf.Abs(chrome - _chromeAboveViewportH) > 0.5f) {
                     _chromeAboveViewportH = chrome;
                     _host.RequestPreviewRepaint();
                 }
@@ -615,8 +613,7 @@ namespace Iroca
                 _previewScrollPos,
                 GUILayout.Height(maxViewH),
                 frameW > 1f ? GUILayout.Width(frameW) : GUILayout.ExpandWidth(true));
-            if (_previewScrollPos != prevScroll)
-            {
+            if (_previewScrollPos != prevScroll) {
                 // 見えている範囲が動いたので拡大表示を作り直させる(できるまでは前の切り出しを描き続ける)。
                 DetailView.OnViewMoved();
             }
@@ -638,8 +635,7 @@ namespace Iroca
 
             // 拡大表示を重ねてよいか(倍率が足りていて、ドラッグの追従で隠していない)と、重ねる位置を求めるもの。
             var detail = new DetailPlacement(detailActive && !_detailHiddenForDrag, detW, detH);
-            if (comparisonMode && rawPreviewTexture != null)
-            {
+            if (comparisonMode && rawPreviewTexture != null) {
                 // 見出しの幅はラベルの左右マージンぶん詰める。画像と同じ幅にすると、マージンが
                 // パネル幅へ上乗せされて 2 枚で枠をわずかに超え、全体表示でもスクロールバーが出る。
                 float captionW = Mathf.Max(1f, displayW - EditorStyles.label.margin.horizontal);
@@ -660,7 +656,9 @@ namespace Iroca
                 // 変更前・変更後と、拡大中はそれぞれの切り出しを描く。
                 _renderer.DrawComparison(rawRect, activePreviewRect, detail, maskView);
 
-                if (Event.current.type == EventType.Repaint) DetailView.lastBeforeRect = rawRect;
+                if (Event.current.type == EventType.Repaint) {
+                    DetailView.lastBeforeRect = rawRect;
+                }
                 beforePanRect = rawRect;
 
                 zoomHitRect = Rect.MinMaxRect(
@@ -668,9 +666,7 @@ namespace Iroca
                     Mathf.Min(rawRect.y, activePreviewRect.y),
                     Mathf.Max(rawRect.xMax, activePreviewRect.xMax),
                     Mathf.Max(rawRect.yMax, activePreviewRect.yMax));
-            }
-            else
-            {
+            } else {
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
                 zoomHitRect = activePreviewRect;
@@ -683,8 +679,7 @@ namespace Iroca
             EditorGUILayout.EndHorizontal();
 
             // 連続領域モードのシード(任意上書き)を十字オーバーレイで描画。
-            if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
-            {
+            if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0) {
                 // メッシュの UV の島の輪郭(表示を ON にしているときだけ)。目印より下に敷く。
                 DrawMeshIslandOverlay(activePreviewRect);
                 // Scene でモデルをクリックした場所(その UV の島とクリック位置)
@@ -697,15 +692,15 @@ namespace Iroca
             }
 
             // 画像の矩形を控える(拡大表示の切り出しの範囲と、描く位置の計算に使う)。
-            if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
+            if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0) {
                 DetailView.lastPreviewRect = activePreviewRect;
+            }
 
             // 拡大表示の切り出しを作り直す。範囲はこのフレームの配置(画像の矩形・スクロール位置・倍率)で決める
             // (以前は描く前に前のフレームの矩形で決めていたので、ズームした直後は 1 コマ古い範囲を切り出していた)。
-            if (detailActive)
+            if (detailActive) {
                 TickDetailGeneration(detScale, effZoom, panelCount, srcW, srcH);
-            else
-            {
+            } else {
                 // 拡大表示をやめている間は、縮めたタイルの控えと、切り出し用の作業 RenderTexture を持たない(表示中の切り出しは残す)。
                 DetailView.ReleaseTiles();
                 _renderer.ReleaseAppearanceScratch();
@@ -714,10 +709,13 @@ namespace Iroca
             HandlePreviewGlobalInput(zoomHitRect, maxZoom);
 
             // スポイト・シード指定とマスクペイントは排他。ペイントに入ったら解除する(武装は IrocaWindow.ArmEyedropper がブラシを切る)。
-            if (maskView.maskPaintActive)
-            {
-                if (!string.IsNullOrEmpty(_host.EyedropperZoneId)) _host.EyedropperZoneId = null;
-                if (!string.IsNullOrEmpty(_host.SeedPickZoneId)) _host.SeedPickZoneId = null;
+            if (maskView.maskPaintActive) {
+                if (!string.IsNullOrEmpty(_host.EyedropperZoneId)) {
+                    _host.EyedropperZoneId = null;
+                }
+                if (!string.IsNullOrEmpty(_host.SeedPickZoneId)) {
+                    _host.SeedPickZoneId = null;
+                }
             }
 
             bool eyedropperArmed = !string.IsNullOrEmpty(_host.EyedropperZoneId) && !maskView.maskPaintActive;
@@ -729,26 +727,28 @@ namespace Iroca
 
             // スポイト武装中はプレビュークリックを横取りして実画素からサンプル取得に充てる
             // （シード設定・パンより優先。取得すると one-shot で自動解除）。
-            if (eyedropperArmed)
+            if (eyedropperArmed) {
                 HandleEyedropperInput(activePreviewRect, srcW, srcH);
+            }
 
             // 連続領域モードのシード入力。ゾーンカードの「指定」で武装しているときは素のクリックを、
             // それ以外は従来どおり Shift+クリックを受ける。マスクペイント中・スポイト中は無効。
-            if (!maskView.maskPaintActive && !eyedropperArmed)
+            if (!maskView.maskPaintActive && !eyedropperArmed) {
                 HandleFloodFillSeedInput(activePreviewRect, seedPickArmed);
+            }
 
             // ブラシ操作 UI は MaskBrushWindow パレットに分離されたため、メインの
             // マスク foldout の開閉とペイント可否は連動させない（閉じても塗れる）。
-            if (maskView.maskPaintActive)
-            {
+            if (maskView.maskPaintActive) {
                 HandlePreviewPaintInput(activePreviewRect);
             }
 
             // 右クリックメニュー(AI 提案・メッシュのパーツ操作)。どのモードでも左ボタンしか使わないので、
             // ブラシ中でも開ける。スポイト・シード指定は one-shot の左クリック待ちなので、その間は出さない
             // (待ちの最中に別の操作が割り込むと、どちらが効いたのか分からなくなる)。
-            if (!eyedropperArmed && !seedPickArmed)
+            if (!eyedropperArmed && !seedPickArmed) {
                 HandlePreviewContextMenu(activePreviewRect);
+            }
 
             // パンはズーム>1 に限らず「画像がビューポートに収まっていない」とき常に許可する
             // (枠の下限高で止まる低いウィンドウでは、全体表示でも縦がはみ出すことがある。
@@ -763,15 +763,13 @@ namespace Iroca
             // パンできる。以前は塗る/消す中に左ドラッグがブラシへ取られ、拡大して塗っていると
             // スクロールバー以外に表示を動かす手段が無かった（2026-09-11 の UX 見直し）。
             // 素の左ドラッグは、ブラシ・スポイト・シード指定が使っていないときだけパンに充てる。
-            if (previewZoom > 1f || overflowsFrame)
-            {
+            if (previewZoom > 1f || overflowsFrame) {
                 bool leftDragPans = !maskView.maskPaintActive && !eyedropperArmed && !seedPickArmed;
                 HandlePreviewPanInput(activePreviewRect, leftDragPans, beforePanRect);
             }
 
             EditorGUILayout.EndScrollView();
-            if (Event.current.type == EventType.Repaint)
-            {
+            if (Event.current.type == EventType.Repaint) {
                 var frame = GUILayoutUtility.GetLastRect();
                 _previewFrameScreenRect = new Rect(GUIUtility.GUIToScreenPoint(frame.position), frame.size);
             }
@@ -780,11 +778,9 @@ namespace Iroca
             // Repaint 時のみ有効値が返るため、そのときだけ更新する。値が変わったら追い再描画を
             // 1 回要求し、旧幅ベースの表示が画面に固定されないようにする(chrome 実測と同方針。
             // 幅はレイアウト高に影響しないため追い再描画がループすることはない)。
-            if (Event.current.type == EventType.Repaint)
-            {
+            if (Event.current.type == EventType.Repaint) {
                 float vw = GUILayoutUtility.GetLastRect().width;
-                if (vw > 1f && Mathf.Abs(vw - _viewportWidth) > 0.5f)
-                {
+                if (vw > 1f && Mathf.Abs(vw - _viewportWidth) > 0.5f) {
                     _viewportWidth = vw;
                     _host.RequestPreviewRepaint();
                 }
@@ -797,15 +793,14 @@ namespace Iroca
         /// バックグラウンドのジョブ(プレビュー・差分・詳細)が仕上げた結果をテクスチャへ反映する。
         /// <see cref="Draw"/> が毎フレーム、再生成の判断より前に呼ぶ。GUILayout は呼ばない。
         /// </summary>
-        private void ApplyPendingResults()
-        {
+        private void ApplyPendingResults() {
             // バックグラウンドプレビュータスクからの結果を適用（Texture2D API: メインスレッドのみ）
-            if (_pipeline.TakePendingFrame(out var frame))
+            if (_pipeline.TakePendingFrame(out var frame)) {
                 ApplyPendingPreview(frame);
+            }
 
             // バックグラウンド詳細プレビュータスクからの結果を適用
-            if (_renderer.ApplyPendingDetail())
-            {
+            if (_renderer.ApplyPendingDetail()) {
                 // 拡大表示用のマスクの重ね表示も、新しい範囲で作り直す(MaskPaintView.RebuildDetailOverlay)。
                 RebuildDetailMaskOverlay();
                 // 隠している間は新しい切り出ししか作らない(Draw の詳細生成の条件)ので、届いたら見せてよい。
@@ -817,12 +812,13 @@ namespace Iroca
         /// 計算の側から受け取った結果(表示寸法の変更後・変更前)をテクスチャへ上げ、マスクの重ね表示と拡大表示を
         /// 追従させる。
         /// </summary>
-        private void ApplyPendingPreview(PreviewFrame frame)
-        {
+        private void ApplyPendingPreview(PreviewFrame frame) {
             int w = frame.Width;
             int h = frame.Height;
             var stage = frame.Stage;
-            if (stage != null) stage.UploadStart = PreviewLatencyCycle.Now;
+            if (stage != null) {
+                stage.UploadStart = PreviewLatencyCycle.Now;
+            }
 
             _renderer.UploadFrame(frame);
 
@@ -830,8 +826,7 @@ namespace Iroca
             // オーバーレイ寸法はプレビュー寸法の整数倍(表示倍率に追従。OverlayScale が正)。
             int ovScale = maskView.OverlayScale(w, h, EffectiveZoom);
             int ovW = w * ovScale, ovH = h * ovScale;
-            if (maskView.overlayBuiltW != ovW || maskView.overlayBuiltH != ovH || maskView.maskDirty)
-            {
+            if (maskView.overlayBuiltW != ovW || maskView.overlayBuiltH != ovH || maskView.maskDirty) {
                 // 非同期スケジュール：結果は次フレームの Draw 冒頭で ApplyPendingOverlay により反映
                 maskView.RebuildMaskOverlay(ovW, ovH);
                 maskView.maskDirty = false;
@@ -839,16 +834,14 @@ namespace Iroca
 
             // 拡大表示(詳細クロップ)は確定(フル段)の出力から切り出すので、確定を出したときだけ
             // 作り直させる。プロキシの直後は何もしない(切り出し元のフル段の出力がまだ前の状態のまま)。
-            if (frame.IsDrag)
-            {
+            if (frame.IsDrag) {
                 // ドラッグの追従: 古い拡大表示を隠してこのプロキシを見せる。走っている拡大表示のジョブは
                 // 古い切り出し元のものなので取り消す(確定の後で作り直す)。
                 _detailHiddenForDrag = true;
                 _hiddenAtFullVersion = _pipeline.FullOutputVersion;
                 DetailView.detailJob.Cancel();
             }
-            if (frame.IsFinal)
-            {
+            if (frame.IsFinal) {
                 // 走っている切り出しは古いフル段の出力のものなので取り消す(色が古い)。
                 DetailView.lastDetailDirtyTime = System.Math.Max(double.Epsilon, EditorApplication.timeSinceStartup);
                 DetailView.detailJob.Cancel();
@@ -857,15 +850,17 @@ namespace Iroca
             // 体感速度: ここで描いたものがこの OnGUI の終わりに画面へ出る。画面に出るたびに
             // (ドラッグの追従のプロキシも含めて)ここまでのレポートを出す。確定表示(フル)なら
             // 続く拡大表示の再生成も同じ起点で測れるよう引き渡す。
-            if (stage != null)
-            {
+            if (stage != null) {
                 stage.UploadEnd = PreviewLatencyCycle.Now;
                 _pipeline.NoteShown();
                 var latency = frame.Latency;
-                if (latency != null)
-                {
-                    if (ReferenceEquals(stage, latency.Full)) DetailView.AttachLatency(latency);
-                    if (PreviewLatency.Publish(latency)) _host.RequestRepaint();
+                if (latency != null) {
+                    if (ReferenceEquals(stage, latency.Full)) {
+                        DetailView.AttachLatency(latency);
+                    }
+                    if (PreviewLatency.Publish(latency)) {
+                        _host.RequestRepaint();
+                    }
                 }
             }
         }
@@ -874,13 +869,14 @@ namespace Iroca
         /// マスクオーバーレイの反映と、再構築のスケジュール(ペイント中は間引く)。
         /// <see cref="Draw"/> が毎フレーム、再生成の判断の後に呼ぶ。GUILayout は呼ばない。
         /// </summary>
-        private void TickMaskOverlay(MaskPaintView maskView)
-        {
+        private void TickMaskOverlay(MaskPaintView maskView) {
             // バックグラウンドで完了したオーバーレイ Color32[] を先に Texture2D へ適用する。
             maskView.ApplyPendingOverlay();
             maskView.ApplyPendingDetailOverlay();
             // ブラシが直接書いたオーバーレイを、描く直前に 1 回だけ GPU へ上げる(ドラッグのイベントごとには上げない)。
-            if (Event.current.type == EventType.Repaint) maskView.FlushOverlayDirect();
+            if (Event.current.type == EventType.Repaint) {
+                maskView.FlushOverlayDirect();
+            }
 
             // マスクオーバーレイ再構築をスケジュール（バックグラウンド計算）。
             // ペイント中は MouseDrag が毎フレーム maskDirty を立てるため、
@@ -894,23 +890,22 @@ namespace Iroca
             // 寸法(overlayBuilt*)と比べるのは、マスクが空でテクスチャが無いときに毎フレーム
             // 再構築を撃たないため。倍率は画面上の表示倍率(全体表示の倍率込み。値は前フレームで
             // 確定したもの)。
-            if (previewTexture != null)
-            {
+            if (previewTexture != null) {
                 int ovScale = maskView.OverlayScale(previewTexture.width, previewTexture.height, EffectiveZoom);
                 int ovW = previewTexture.width * ovScale;
                 int ovH = previewTexture.height * ovScale;
                 bool sizeStale = maskView.overlayBuiltW != ovW || maskView.overlayBuiltH != ovH;
-                if (maskView.maskDirty || sizeStale)
-                {
+                if (maskView.maskDirty || sizeStale) {
                     bool throttle = maskView.isPainting &&
                         (EditorApplication.timeSinceStartup - maskView.lastOverlayRebuildTime)
                             < PaintOverlayThrottleSeconds;
-                    if (!throttle)
-                    {
+                    if (!throttle) {
                         maskView.lastOverlayRebuildTime = EditorApplication.timeSinceStartup;
                         maskView.RebuildMaskOverlay(ovW, ovH);
                         // マスクが変わったら拡大表示用も作り直す(寸法の変化だけなら範囲は同じなので要らない)。
-                        if (maskView.maskDirty) RebuildDetailMaskOverlay();
+                        if (maskView.maskDirty) {
+                            RebuildDetailMaskOverlay();
+                        }
                         maskView.maskDirty = false;
                     }
                     // throttle 時は maskDirty を残し、次フレームで再評価する。
@@ -923,19 +918,19 @@ namespace Iroca
         /// <summary>
         /// 操作行の右端(初回生成中は単独の 1 行)に出す生成状態の文言。GUILayout は呼ばない。
         /// </summary>
-        private string CurrentGeneratingLabel()
-        {
+        private string CurrentGeneratingLabel() {
             // 「生成中…」インジケータの文言。プレビュー確立後は下の操作行（比較/差分・
             // 元を表示と同じ行）の右端に出す。非生成時も空白 " " を同じ場所に描き、
             // 出入りで UI が上下にジャンプしないよう行高を固定する。
             // 詳細プレビュー生成も同じ表示に統一する（c107e85）。
             string generatingLabel;
-            if (IsGenerating)
+            if (IsGenerating) {
                 generatingLabel = Localization.GeneratingPreview;
-            else if (DetailView.detailJob.IsRunning)
+            } else if (DetailView.detailJob.IsRunning) {
                 generatingLabel = Localization.GeneratingDetailPreview;
-            else
+            } else {
                 generatingLabel = " ";
+            }
             return generatingLabel;
         }
 
@@ -944,45 +939,45 @@ namespace Iroca
         /// 画像の矩形(lastPreviewRect・lastBeforeRect)とスクロール位置から決めるので、Repaint の、画像の矩形が
         /// 決まった後で呼ぶ。作り直し待ち・走っている間は再描画を頼み続ける(終わったらすぐ最新の範囲で作り直す)。
         /// </summary>
-        private void TickDetailGeneration(float detScale, float effZoom, int panelCount, int srcW, int srcH)
-        {
+        private void TickDetailGeneration(float detScale, float effZoom, int panelCount, int srcW, int srcH) {
             var dv = DetailView;
             if (Event.current.type == EventType.Repaint &&
                 !dv.detailJob.IsRunning &&
                 (!_detailHiddenForDrag || FullOutputFreshSinceHide) &&
                 dv.lastDetailDirtyTime > 0 &&
-                dv.lastPreviewRect.width > 0)
-            {
+                dv.lastPreviewRect.width > 0) {
                 var latency = dv.TakeLatencyFor(dv.lastDetailDirtyTime, srcW, srcH);
                 dv.lastDetailDirtyTime = 0;
                 var beforeRect = panelCount == 2 ? dv.lastBeforeRect : default;
                 dv.GenerateDetailPreviewAsync(detScale, effZoom, _previewScrollPos,
                     dv.lastViewportW, dv.lastViewportH, dv.lastPreviewRect, beforeRect, latency);
-            }
-            else if (dv.lastDetailDirtyTime > 0 || dv.detailJob.IsRunning)
-            {
+            } else if (dv.lastDetailDirtyTime > 0 || dv.detailJob.IsRunning) {
                 // 作り直しは Repaint のときにしか始めないので、それ以外の入力のイベント(スクロール・ドラッグ)なら
                 // 次の Repaint を頼む。Layout は後に続くイベントがあるので頼まない(Layout は毎回の描き直しの頭にも来るので、
                 // ここで頼むと描き直しが途切れなくなる)。保険の見回りだけ置く。
                 // 走っている間・Repaint でも始められない間(確定段の出力待ち)は、終わり(切り出し・確定段の apply)が
                 // 描き直しを頼むので、毎フレームは描き直さずに間をあけて見に来るだけにする。
                 var type = Event.current.type;
-                if (!dv.detailJob.IsRunning && type != EventType.Repaint && type != EventType.Layout)
+                if (!dv.detailJob.IsRunning && type != EventType.Repaint && type != EventType.Layout) {
                     _host.RequestPreviewRepaint();
-                else
+                } else {
                     _host.RequestRepaintAfter(PreviewPipeline.BackgroundPollSeconds);
+                }
             }
         }
 
         /// <summary>
         /// 拡大表示用のマスクの重ね表示を、詳細プレビューのいまの範囲で作り直す(詳細が無ければ何もしない)。
         /// </summary>
-        internal void RebuildDetailMaskOverlay()
-        {
+        internal void RebuildDetailMaskOverlay() {
             var mv = _host._maskView;
             var t = DetailView.detailPreviewTexture;
-            if (mv == null || t == null || DetailW <= 0 || DetailH <= 0) return;
-            if (DetailView.detailCropW <= 0 || DetailView.detailCropH <= 0) return;
+            if (mv == null || t == null || DetailW <= 0 || DetailH <= 0) {
+                return;
+            }
+            if (DetailView.detailCropW <= 0 || DetailView.detailCropH <= 0) {
+                return;
+            }
             mv.RebuildDetailOverlay(DetailW, DetailH, DetailView.detailOriginX, DetailView.detailOriginY,
                                     DetailView.detailCropW, DetailView.detailCropH, t.width, t.height);
         }
@@ -996,8 +991,7 @@ namespace Iroca
         /// プレビューを別ウィンドウへ切り出していると手掛かりが画面の外にあり、
         /// 「押したのに何も起きない」「意図せず塗ってしまった」の原因になっていた。
         /// </summary>
-        private void DrawInteractionModeRow()
-        {
+        private void DrawInteractionModeRow() {
             var maskView = _host._maskView;
 
             // ★実際にクリックを取る側の優先順位をそのまま写す★（PreviewView.Draw 末尾の
@@ -1016,35 +1010,32 @@ namespace Iroca
                       && aiCtl != null && aiCtl.PendingClicks.Count > 0;
 
             string mode = null;
-            if (eyedropper)
+            if (eyedropper) {
                 mode = Localization.PreviewModeEyedropper;
-            else if (paintActive)
+            } else if (paintActive) {
                 mode = string.Format(
                     maskView.brushEraseMode ? Localization.PreviewModeEraseFormat
                                             : Localization.PreviewModePaintFormat,
                     maskView.ActiveTargetName(), maskView.ActiveLayerName());
-            else if (seed)
+            } else if (seed) {
                 mode = Localization.PreviewModeSeed;
-            else if (ai)
+            } else if (ai) {
                 mode = Localization.PreviewModeAi;
+            }
 
             var soloZone = _host.SoloZone;
 
             EditorGUILayout.BeginHorizontal();
-            if (mode != null)
-            {
+            if (mode != null) {
                 GUILayout.Label(TempContent.Of(mode + Localization.PreviewModeEscHint, Localization.PreviewModeTooltip),
                                 EditorStyles.miniLabel, GUILayout.MinWidth(0f));
-            }
-            else
-            {
+            } else {
                 // モードが無いときは、Scene でモデルをクリックした結果の案内か、右クリック・Scene のクリックの
                 // 使い方を出す(何も無ければ空白 1 文字)。どれも miniLabel の高さに揃える。行を出入りさせたり高さを
                 // 変えたりするとプレビュー枠が上下に跳ね、chrome 実測（_chromeAboveViewportH）も揺れる。
                 DrawIdleRow();
             }
-            if (soloZone != null)
-            {
+            if (soloZone != null) {
                 GUILayout.FlexibleSpace();
                 var prevContent = GUI.contentColor;
                 GUI.contentColor = IrocaColors.ActiveMaskTarget;
@@ -1068,13 +1059,11 @@ namespace Iroca
         /// miniLabel はボタンの文字より小さく上寄りに描かれて行の中で浮いて見えた。
         /// 見出し行は題名以外が空いているので、ズーム率は元の文字サイズのままこちらへ置く。
         /// </summary>
-        private void DrawTitleRow(bool showZoom, float maxZoom)
-        {
+        private void DrawTitleRow(bool showZoom, float maxZoom) {
             EditorGUILayout.BeginHorizontal();
             var title = TempContent.Of(Localization.StepPrefixPreview + Localization.Preview);
             GUILayout.Label(title, EditorStyles.boldLabel, GUILayout.ExpandWidth(false));
-            if (showZoom)
-            {
+            if (showZoom) {
                 GUILayout.FlexibleSpace();
                 // ズームは Ctrl+スクロールのみ。拡大したあと初期表示へ戻す手段がスクロールを
                 // 戻し切ることしか無かったので、リセットボタンだけ置く（−／＋／全体の段階ボタンは
@@ -1085,24 +1074,24 @@ namespace Iroca
                 // 右端のリセットボタンが見えない位置へ押し出される(外側 ScrollView はカラムより広い
                 // 内容を黙って切る。frameW のコメント参照)。判定はカラム幅だけで決まるので、
                 // 同一フレームの Layout と Repaint で同じ文言になる。
-                if (!TitleRowFits(title, zoom, reset))
+                if (!TitleRowFits(title, zoom, reset)) {
                     zoom.text = _cachedZoomLabelShort;
+                }
                 GUILayout.Label(zoom, GUILayout.ExpandWidth(false));
                 bool smooth = GUILayout.Toggle(SmoothMagnify, SmoothContent, EditorStyles.miniButton, GUILayout.ExpandWidth(false));
-                if (smooth != SmoothMagnify)
-                {
+                if (smooth != SmoothMagnify) {
                     SmoothMagnify = smooth;
                     _host.RequestRepaint();
                 }
                 bool fullRes = GUILayout.Toggle(DetailFullResolution, DetailFullResolutionContent, EditorStyles.miniButton, GUILayout.ExpandWidth(false));
-                if (fullRes != DetailFullResolution)
-                {
+                if (fullRes != DetailFullResolution) {
                     // 土台の作り直しは次の Draw の始め(SyncDetailResolution)。このイベントの残りは今の土台のまま描く。
                     DetailFullResolution = fullRes;
                     _host.RequestRepaint();
                 }
-                if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
+                if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.ExpandWidth(false))) {
                     ResetZoom(maxZoom);
+                }
             }
             EditorGUILayout.EndHorizontal();
         }
@@ -1116,11 +1105,9 @@ namespace Iroca
         private static bool? s_smoothMagnify;
 
         /// <summary>拡大したときに画素の間をなめらかにつなぐか。この PC のいろか全体の表示の設定。</summary>
-        internal static bool SmoothMagnify
-        {
+        internal static bool SmoothMagnify {
             get => s_smoothMagnify ??= EditorPrefs.GetBool(SmoothMagnifyPrefKey, false);
-            set
-            {
+            set {
                 s_smoothMagnify = value;
                 EditorPrefs.SetBool(SmoothMagnifyPrefKey, value);
             }
@@ -1132,8 +1119,7 @@ namespace Iroca
         internal const string DetailFullResolutionPrefKey = PreviewPipeline.DetailFullResolutionPrefKey;
 
         /// <summary>拡大表示を作業解像度のまま映すか(<see cref="PreviewPipeline.DetailFullResolution"/>)。</summary>
-        internal static bool DetailFullResolution
-        {
+        internal static bool DetailFullResolution {
             get => PreviewPipeline.DetailFullResolution;
             set => PreviewPipeline.DetailFullResolution = value;
         }
@@ -1143,9 +1129,10 @@ namespace Iroca
 
         // 見出し行(題名・ズーム率・なめらか・元の解像度・リセット)がカラムの見えている幅に収まるか。
         // カラム幅を渡さないホストでは従来どおり省略しない。
-        private bool TitleRowFits(GUIContent title, GUIContent zoom, GUIContent reset)
-        {
-            if (availableColumnWidth <= 1f) return true;
+        private bool TitleRowFits(GUIContent title, GUIContent zoom, GUIContent reset) {
+            if (availableColumnWidth <= 1f) {
+                return true;
+            }
             var vBar = GUI.skin.verticalScrollbar;
             float avail = availableColumnWidth - vBar.fixedWidth - vBar.margin.left;
             var bold = EditorStyles.boldLabel;
@@ -1160,8 +1147,7 @@ namespace Iroca
         }
 
         /// <summary>ズームを初期表示（100%）へ戻し、表示位置も先頭へ戻す。</summary>
-        private void ResetZoom(float maxZoom)
-        {
+        private void ResetZoom(float maxZoom) {
             previewZoom = Mathf.Clamp(1f, MinPreviewZoom, maxZoom);
             _previewScrollPos = Vector2.zero;
             // 見えている範囲が変わるので拡大表示を作り直させる（Ctrl+スクロール経路と同じ）。

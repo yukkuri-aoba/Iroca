@@ -5,8 +5,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 「適用して保存」（単体）と「一括適用」が共有する書き出しの手順。
     /// 原本の読み込み → （呼び出し側で ProcessPixelsArray）→ PNG 化 → 書き込み → 取り込み、の
@@ -14,10 +13,8 @@ namespace Iroca
     /// なかった（途中で落ちると既存の _recolored.png を壊す）。
     /// UI（ダイアログ・進捗・通知）は持たないので、EditMode テスト（scripts/editor-tests）から直接呼べる。
     /// </summary>
-    internal static class ExportPipeline
-    {
-        internal enum SourceKind
-        {
+    internal static class ExportPipeline {
+        internal enum SourceKind {
             /// <summary>原本ファイル（PNG/JPG）を直接デコードした。</summary>
             File,
             /// <summary>原本をデコードできず、取り込み済みテクスチャ（縮小・圧縮の影響あり）を使った。</summary>
@@ -35,9 +32,10 @@ namespace Iroca
         /// 元と同じフォルダへ（元が Assets の外なら <see cref="PathUtils.ExportFolderFor"/>）、上書きなら元の拡張子を
         /// .png に替えたパス（元が PNG なら元そのもの）。
         /// </summary>
-        public static string SingleOutputPath(string srcPath, bool saveAsNewFile, string newFileName)
-        {
-            if (!saveAsNewFile) return Path.ChangeExtension(srcPath, ".png");
+        public static string SingleOutputPath(string srcPath, bool saveAsNewFile, string newFileName) {
+            if (!saveAsNewFile) {
+                return Path.ChangeExtension(srcPath, ".png");
+            }
             // 区切り文字も置換するのでパストラバーサルはできない。予約名("CON" 等)や
             // 末尾の '.' / ' ' もプリセット保存と同じ規則で直す。
             string safeName = PathUtils.SanitizeFileName(newFileName, "recolored");
@@ -51,8 +49,7 @@ namespace Iroca
         public static string BatchOutputPath(string srcPath)
             => InExportFolder(srcPath, Path.GetFileNameWithoutExtension(srcPath) + PathUtils.RecoloredSuffix + ".png");
 
-        private static string InExportFolder(string srcPath, string fileName)
-        {
+        private static string InExportFolder(string srcPath, string fileName) {
             string folder = PathUtils.ExportFolderFor(srcPath);
             return string.IsNullOrEmpty(folder) ? fileName : folder + "/" + fileName;
         }
@@ -64,11 +61,14 @@ namespace Iroca
         /// PSD/TGA/EXR 等は Unity が取り込み時に変換しているので LoadImage で読めず、取り込み済みテクスチャの画素を使う。
         /// 非破壊ビルドはいろかのウィンドウを閉じた後にも走るので、管理配列で読むとその分(4K で 64MB)Mono のヒープに残る。
         /// </summary>
-        public static SourceKind ReadWorkingPixelsNative(string srcPath, Texture2D imported, out NativePixels pixels)
-        {
+        public static SourceKind ReadWorkingPixelsNative(string srcPath, Texture2D imported, out NativePixels pixels) {
             pixels = TextureIO.DecodeSourceFile(srcPath, imported);
-            if (pixels != null) return SourceKind.File;
-            if (!TextureIO.IsReadable(imported)) return SourceKind.Unavailable;
+            if (pixels != null) {
+                return SourceKind.File;
+            }
+            if (!TextureIO.IsReadable(imported)) {
+                return SourceKind.Unavailable;
+            }
             pixels = WorkingResolution.NativePixelsOf(imported, null);
             return SourceKind.ImportedTexture;
         }
@@ -80,24 +80,23 @@ namespace Iroca
         /// EditMode テスト（EncodePng_RunsOnBackgroundThreadAndMatchesMainThread）で確認している。
         /// Color32[] は sRGB バイト値なので R8G8B8A8_SRGB を指定する（Texture2D(RGBA32).EncodeToPNG と同じ画素）。
         /// </summary>
-        public static byte[] EncodePng(Color32[] pixels, int width, int height)
-        {
+        public static byte[] EncodePng(Color32[] pixels, int width, int height) {
             // Color32 は r, g, b, a の 4 バイトが並ぶ構造体なので、配列のバイト列がそのまま RGBA。写し直さずに渡す
             // (旧: 同じ並びの byte[] へ写していた。8K で 256MB。EncodePng_MatchesRgbaByteArrayPath で同じバイト列を確認)。
             byte[] png = ImageConversion.EncodeArrayToPNG(
                 pixels, GraphicsFormat.R8G8B8A8_SRGB, (uint)width, (uint)height);
-            if (png == null || png.Length == 0)
+            if (png == null || png.Length == 0) {
                 throw new System.Exception(Localization.ExportPngEncodeEmpty);
+            }
             return png;
         }
 
         // .meta ファイルをインポート前に書き込んでおくことで、
         // ImportAsset の 1 回の圧縮パスで正しい設定が適用される（SaveAndReimport 不要）。
         // srcPath は元テクスチャのアセットのパス（Assets/… か Packages/…）。
-        internal static void PreApplyImportSettings(string srcPath, string dstRelPath)
-        {
+        internal static void PreApplyImportSettings(string srcPath, string dstRelPath) {
             string root = Path.GetDirectoryName(Application.dataPath);
-            string sep  = Path.DirectorySeparatorChar.ToString();
+            string sep = Path.DirectorySeparatorChar.ToString();
             string srcRel = PathUtils.ToAssetsRelativeOrNull(srcPath);
             // パッケージ（Packages/…）の実ファイルは Packages/ か Library/PackageCache/ にある。Path.GetFullPath が
             // 実際の置き場所へ解決する（Unity のマニュアルにある方法）。
@@ -106,22 +105,26 @@ namespace Iroca
 
             // 元そのものへ上書きするときは元の .meta をそのまま使う（書き直すと、中身が同じでも
             // 文字コードや改行の違いで差分が出る）。
-            if (IsSameFile(srcMeta, dstMeta)) return;
-            if (!File.Exists(srcMeta)) return;
+            if (IsSameFile(srcMeta, dstMeta)) {
+                return;
+            }
+            if (!File.Exists(srcMeta)) {
+                return;
+            }
 
             // BOM があれば読み飛ばす。改行は元のまま保つ。
             string content = File.ReadAllText(srcMeta, System.Text.Encoding.UTF8);
 
             // 上書きなら既存 GUID を維持、新規ファイルなら新 GUID を生成
             string guid = AssetDatabase.AssetPathToGUID(dstRelPath);
-            if (string.IsNullOrEmpty(guid))
+            if (string.IsNullOrEmpty(guid)) {
                 guid = System.Guid.NewGuid().ToString("N");
+            }
 
             // GUID を差し替えられないまま写すと、元と同じ GUID の .meta になる。Unity はそれを衝突として
             // 書き出し側に新しい GUID を振るので、上書きした画像がマテリアルから外れる。差し替えられなければ
             // 写さず、通常の取り込み（既定のインポート設定）に任せる。
-            if (!MetaFile.TryReplaceGuid(content, guid, out string replaced))
-            {
+            if (!MetaFile.TryReplaceGuid(content, guid, out string replaced)) {
                 Debug.LogWarning($"[Iroca] Import settings were not inherited: no GUID line in {srcMeta}.");
                 return;
             }
@@ -134,15 +137,14 @@ namespace Iroca
         /// AssetDatabase のパスは '/' 区切り、Path.Combine は '\' を混ぜるため、素の文字列比較では
         /// 取りこぼす。フルパスへ正規化してから比較する。
         /// </summary>
-        public static bool IsSameFile(string a, string b)
-        {
-            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
-            try
-            {
+        public static bool IsSameFile(string a, string b) {
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) {
+                return false;
+            }
+            try {
                 return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b),
                     System.StringComparison.OrdinalIgnoreCase);
-            }
-            catch { return false; }
+            } catch { return false; }
         }
     }
 }

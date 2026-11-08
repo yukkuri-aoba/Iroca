@@ -3,8 +3,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// プレビュー専用のサブウィンドウ。描画は IrocaWindow が持つ <see cref="PreviewView"/> へ
     /// 委譲する薄い殻で、状態（ズーム・比較/差分・生成ジョブ・詳細プレビュー）は従来どおり
@@ -19,8 +18,7 @@ namespace Iroca
     /// MenuItem は持たない（到達経路は本体の「プレビューを別ウィンドウで開く」ボタンのみ。
     /// ドメインリロード後にレイアウトへ残った場合は ResolveHost で再接続する）。
     /// </summary>
-    internal sealed class IrocaPreviewWindow : EditorWindow
-    {
+    internal sealed class IrocaPreviewWindow : EditorWindow {
         [SerializeField] private IrocaWindow _host;
 
         // 縦オーバーフロー用の外側スクロール（本体の右カラムと同じ構成）。
@@ -43,10 +41,8 @@ namespace Iroca
         // 本体の _windowShown と同じく、Unity の通知で追い、OnGUI でも立て直す。
         [System.NonSerialized] private bool _shown;
 
-        internal static bool IsShown
-        {
-            get
-            {
+        internal static bool IsShown {
+            get {
                 var win = FindInstance();
                 return win != null && win._shown;
             }
@@ -55,11 +51,11 @@ namespace Iroca
         private void OnBecameVisible() => _shown = true;
         private void OnBecameInvisible() => _shown = false;
 
-        private static IrocaPreviewWindow FindInstance()
-        {
-            if (_instance != null) return _instance;
-            if (!_instanceSearched)
-            {
+        private static IrocaPreviewWindow FindInstance() {
+            if (_instance != null) {
+                return _instance;
+            }
+            if (!_instanceSearched) {
                 _instanceSearched = true;
                 var wins = Resources.FindObjectsOfTypeAll<IrocaPreviewWindow>();
                 _instance = wins.Length > 0 ? wins[0] : null;
@@ -67,8 +63,7 @@ namespace Iroca
             return _instance;
         }
 
-        internal static void Open(IrocaWindow host)
-        {
+        internal static void Open(IrocaWindow host) {
             var win = GetWindow<IrocaPreviewWindow>(
                 utility: false, title: Localization.PreviewWindowTitle, focus: true);
             win._host = host;
@@ -78,46 +73,51 @@ namespace Iroca
             win.Show();
         }
 
-        internal static void FocusIfOpen()
-        {
+        internal static void FocusIfOpen() {
             var win = FindInstance();
-            if (win != null) win.Focus();
+            if (win != null) {
+                win.Focus();
+            }
         }
 
-        internal static void CloseIfOpen()
-        {
+        internal static void CloseIfOpen() {
             var win = FindInstance();
-            if (win != null) win.Close();
+            if (win != null) {
+                win.Close();
+            }
         }
 
         /// <summary>
         /// 本体側（PreviewView からの追い再描画要求を含む）から呼ぶ再描画フック。
         /// プレビューの実測値収束・ジョブ完了の反映は、この窓が描画されないと進まない。
         /// </summary>
-        internal static void RepaintIfOpen()
-        {
+        internal static void RepaintIfOpen() {
             var win = FindInstance();
-            if (win != null) win.Repaint();
+            if (win != null) {
+                win.Repaint();
+            }
         }
 
-        private void OnEnable()
-        {
+        private void OnEnable() {
             _instance = this;
             _instanceSearched = true;
             titleContent = new GUIContent(Localization.PreviewWindowTitle,
                 // "d_" は付けない(ダークスキンでは IconContent が自動で付ける。IrocaWindow 参照)
                 EditorGUIUtility.IconContent("Image Icon").image);
             // シリアライズ参照が切れていたら(ドメインリロード・本体の作り直しなど)、既存の本体へつなぎ直す。
-            if (_host == null) _host = IrocaWindow.FindAnyInstance();
+            if (_host == null) {
+                _host = IrocaWindow.FindAnyInstance();
+            }
         }
 
         /// <summary>
         /// ホスト参照を解決する。シリアライズ参照が切れていたら（ドメインリロード・
         /// ウィンドウ再作成など）既存の IrocaWindow を探して再接続する。
         /// </summary>
-        private IrocaWindow ResolveHost()
-        {
-            if (_host == null) _host = IrocaWindow.FindAnyInstance();
+        private IrocaWindow ResolveHost() {
+            if (_host == null) {
+                _host = IrocaWindow.FindAnyInstance();
+            }
             return _host;
         }
 
@@ -126,29 +126,34 @@ namespace Iroca
         // 本体を見失っている間に、次に探してよい時刻。
         [System.NonSerialized] private double _nextHostSearchAt;
 
-        private void OnGUI()
-        {
+        private void OnGUI() {
             _shown = true;
             // 本体は探さない(探すのは OnInspectorUpdate。同じフレームの Layout と Repaint で見え方を変えない)。
             var host = _host != null ? _host : null;
-            if (Event.current.type == EventType.Repaint) _drawn.Record(host);
-            if (host == null)
-            {
-                if (IrocaWindow.DrawMissingHostNotice()) _nextHostSearchAt = 0;
+            if (Event.current.type == EventType.Repaint) {
+                _drawn.Record(host);
+            }
+            if (host == null) {
+                if (IrocaWindow.DrawMissingHostNotice()) {
+                    _nextHostSearchAt = 0;
+                }
                 return;
             }
             // ここでの操作(ペイント・スポイトなど)を、本体ともう 1 つの別ウィンドウ(マスク編集)に知らせる。
-            if (IrocaWindow.MayChangeState(Event.current.type)) host.BumpUiState();
+            if (IrocaWindow.MayChangeState(Event.current.type)) {
+                host.BumpUiState();
+            }
             // Play 中のリロード直後に待たせているプレビューは、この窓が操作されても始める。
             host.TrackDeferredPreview(this);
 
             var preview = host.Preview;
-            if (preview == null) return;
+            if (preview == null) {
+                return;
+            }
 
             // エクスポート中・手動の自動調整中は本体と同じく操作を止める。ここを開けておくと
             // 本体が固まっている間にプレビュー上のペイント/スポイトだけ通ってしまう。
-            using (new EditorGUI.DisabledScope(host.IsJobBlockingUI))
-            {
+            using (new EditorGUI.DisabledScope(host.IsJobBlockingUI)) {
                 // 横バーは描かない(GUIStyle.none)。この外側 ScrollView は縦オーバーフロー専用で、
                 // 横スクロールは内側プレビューに任せる（本体の右カラムと同じ理由）。
                 _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos,
@@ -167,23 +172,26 @@ namespace Iroca
         // 低頻度ポーリング（OnInspectorUpdate は約 10 回/秒）で、本体の状態が最後に描いたときから
         // 変わっていたら描き直す（IrocaWindow.DrawStamp）。操作していない間は描き直さない。
         // 生成ジョブの進行やパン/ズームの追い再描画は RequestRepaint・RequestPreviewRepaint 経由で即時に届く。
-        private void OnInspectorUpdate()
-        {
-            if (_host == null && EditorApplication.timeSinceStartup >= _nextHostSearchAt)
-            {
+        private void OnInspectorUpdate() {
+            if (_host == null && EditorApplication.timeSinceStartup >= _nextHostSearchAt) {
                 _nextHostSearchAt = EditorApplication.timeSinceStartup + IrocaWindow.HostSearchIntervalSeconds;
                 _host = IrocaWindow.FindAnyInstance();
             }
-            if (_drawn.Changed(_host != null ? _host : null)) Repaint();
+            if (_drawn.Changed(_host != null ? _host : null)) {
+                Repaint();
+            }
         }
 
-        private void OnDestroy()
-        {
-            if (_instance == this) _instance = null;
+        private void OnDestroy() {
+            if (_instance == this) {
+                _instance = null;
+            }
             // 本体側は「別ウィンドウで表示中」の案内を出しているので、
             // 閉じたら通常表示（本体内プレビュー）へ戻す。
             var host = ResolveHost();
-            if (host != null) host.Repaint();
+            if (host != null) {
+                host.Repaint();
+            }
         }
     }
 }

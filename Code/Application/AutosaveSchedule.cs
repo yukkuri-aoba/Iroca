@@ -3,8 +3,7 @@
 using System;
 using UnityEditor;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 編集内容(ゾーン・色・処理設定・マスク、結び付いたレシピ)の自動保存の予定。
     /// <para>
@@ -16,8 +15,7 @@ namespace Iroca
     /// </para>
     /// メインスレッド専用。
     /// </summary>
-    internal sealed class AutosaveSchedule
-    {
+    internal sealed class AutosaveSchedule {
         // 最後の編集から保存するまでの待ち。ドラッグ中は編集のたびに延びるので、止まってから 1 回になる。
         private const double DelaySeconds = 2.0;
         // 忙しいときに見直すまでの間。
@@ -31,8 +29,7 @@ namespace Iroca
 
         /// <param name="busy">今は保存しない(終わってから 1 回保存する)なら true。</param>
         /// <param name="save">保存する。</param>
-        internal AutosaveSchedule(Func<bool> busy, Action save)
-        {
+        internal AutosaveSchedule(Func<bool> busy, Action save) {
             _busy = busy;
             _save = save;
         }
@@ -41,8 +38,7 @@ namespace Iroca
         internal bool IsPending => _due > 0;
 
         /// <summary><paramref name="session"/> の編集を見始める(前に見ていたものはやめる)。</summary>
-        internal void Start(EditingSession session)
-        {
+        internal void Start(EditingSession session) {
             Stop();
             _session = session;
             _session.Changed += OnChanged;
@@ -50,9 +46,10 @@ namespace Iroca
         }
 
         /// <summary>見るのをやめ、予定も消す(呼ぶ側がこの後で保存する)。</summary>
-        internal void Stop()
-        {
-            if (_session != null) _session.Changed -= OnChanged;
+        internal void Stop() {
+            if (_session != null) {
+                _session.Changed -= OnChanged;
+            }
             _session = null;
             EditorApplication.update -= Tick;
             _due = 0;
@@ -62,21 +59,18 @@ namespace Iroca
 
         // EditorApplication.update から毎フレーム呼ばれる。Unity はそこで例外を受け止めないので、投げると
         // 同じフレームで後ろに並んだ他のツールの更新が飛ばされる。ここで受け止め、次の編集まで保存を待つ。
-        private void Tick()
-        {
-            try { TickCore(); }
-            catch (Exception e)
-            {
+        private void Tick() {
+            try { TickCore(); } catch (Exception e) {
                 _due = 0;
                 UnityEngine.Debug.LogException(e);
             }
         }
 
-        private void TickCore()
-        {
-            if (_due <= 0 || EditorApplication.timeSinceStartup < _due) return;
-            if (_busy())
-            {
+        private void TickCore() {
+            if (_due <= 0 || EditorApplication.timeSinceStartup < _due) {
+                return;
+            }
+            if (_busy()) {
                 _due = EditorApplication.timeSinceStartup + BusyRetrySeconds;
                 return;
             }

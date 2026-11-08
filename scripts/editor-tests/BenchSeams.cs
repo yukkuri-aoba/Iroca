@@ -4,16 +4,14 @@ using System;
 using System.Reflection;
 using NUnit.Framework;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 計測（MemoryBenchTests・HiResSmokeTests）が名前で探す製品のメンバーの一覧。
     /// 計測は同じテストを基準のコミット（メンバーが private のまま・まだ無い版）にも当てて比べるので、直接は呼ばず
     /// 名前で探す。名前を変えると計測を回したときに初めて落ちるので、ふだんの EditMode テスト（<see cref="BenchSeamTests"/>）
     /// で、今の製品にその名前があることを確かめる。製品のメンバーを移す・名前を変えるときは、ここも同じコミットで直す。
     /// </summary>
-    internal static class BenchSeams
-    {
+    internal static class BenchSeams {
         private const BindingFlags Static = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
         private const BindingFlags Instance = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
 
@@ -44,11 +42,9 @@ namespace Iroca.EditorTests
     /// <summary>
     /// <see cref="BenchSeams"/> の名前が今の製品にあるか。計測は環境変数が無いと回らないので、ふだんのテストで先に気づく。
     /// </summary>
-    public class BenchSeamTests
-    {
+    public class BenchSeamTests {
         [Test]
-        public void BenchSeams_ExistInCurrentProduct()
-        {
+        public void BenchSeams_ExistInCurrentProduct() {
             Assert.IsNotNull(BenchSeams.BuildZone, "IrocaAutomation.BuildZone");
             Assert.IsNotNull(BenchSeams.SettingsFromDto, "IrocaAutomation.SettingsFromDto");
             Assert.IsNotNull(BenchSeams.GeneratePreviewAsync, "PreviewView.GeneratePreviewAsync");

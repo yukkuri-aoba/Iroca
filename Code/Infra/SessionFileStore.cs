@@ -5,8 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 編集セッション（<see cref="IrocaSessionState"/> のうちマスク以外＝ゾーン定義・色・
     /// 処理パラメータ）の永続化を担う。保存先は
@@ -19,8 +18,7 @@ namespace Iroca
     /// ここでは巨大な base64 を二重に持たないよう、書き出し時に maskState を空へ差し替える。
     /// </para>
     /// </summary>
-    internal static class SessionFileStore
-    {
+    internal static class SessionFileStore {
         private const string CacheDirRelative = "UserSettings/Iroca/SessionCache";
         private const string SessionFileExtension = ".iroca-session.json";
 
@@ -41,34 +39,33 @@ namespace Iroca
             new GuidFileCache(CacheDirRelative, ".iroca-recipe", "Bound recipe", "bound recipe");
 
         /// <summary>テクスチャに最後に結び付いたレシピの GUID を覚える(null・空なら忘れる)。覚えられなくても編集は続けられるので、失敗は警告だけ。</summary>
-        public static void SaveBoundRecipeGuid(string texturePath, string recipeGuid)
-        {
+        public static void SaveBoundRecipeGuid(string texturePath, string recipeGuid) {
             string path = BoundRecipeFiles.PathForAsset(texturePath);
-            if (path == null) return;
-            try
-            {
-                if (string.IsNullOrEmpty(recipeGuid))
-                {
-                    if (File.Exists(path)) File.Delete(path);
+            if (path == null) {
+                return;
+            }
+            try {
+                if (string.IsNullOrEmpty(recipeGuid)) {
+                    if (File.Exists(path)) {
+                        File.Delete(path);
+                    }
                     return;
                 }
                 Directory.CreateDirectory(CacheDir);
                 AtomicFile.WriteAllTextIfChanged(path, recipeGuid);
-            }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
-            {
+            } catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) {
                 Debug.LogWarning($"[Iroca] Could not remember the recipe of the texture: {ex.Message}");
             }
         }
 
         /// <summary>テクスチャに最後に結び付いたレシピの GUID(無い・読めなければ null)。</summary>
-        public static string LoadBoundRecipeGuid(string texturePath)
-        {
+        public static string LoadBoundRecipeGuid(string texturePath) {
             BoundRecipeFiles.RestoreOrphanFor(texturePath);
             string path = BoundRecipeFiles.PathForAsset(texturePath);
-            if (path == null || !File.Exists(path)) return null;
-            try { return File.ReadAllText(path).Trim(); }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { return null; }
+            if (path == null || !File.Exists(path)) {
+                return null;
+            }
+            try { return File.ReadAllText(path).Trim(); } catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { return null; }
         }
 
         /// <summary>
@@ -83,23 +80,20 @@ namespace Iroca
         /// 「空保存 → 無傷ファイルの恒久削除」に化けるのを防ぐ（<see cref="MaskFileStore"/> と同じ防御）。
         /// </para>
         /// </summary>
-        public static bool SaveSession(string texturePath, IrocaSessionState state, bool lastLoadFailed = false)
-        {
+        public static bool SaveSession(string texturePath, IrocaSessionState state, bool lastLoadFailed = false) {
             string path = SessionFilePath(texturePath);
-            if (string.IsNullOrEmpty(path)) return true;
+            if (string.IsNullOrEmpty(path)) {
+                return true;
+            }
 
-            if (IsEmpty(state))
-            {
-                if (File.Exists(path))
-                {
-                    if (lastLoadFailed)
-                    {
+            if (IsEmpty(state)) {
+                if (File.Exists(path)) {
+                    if (lastLoadFailed) {
                         Debug.LogWarning(
                             "[Iroca] セッションファイルの読み込みに失敗したセッションのため、空保存による削除をスキップしました: " + path);
                         return true;
                     }
-                    try { File.Delete(path); }
-                    catch (Exception ex) { Debug.LogWarning($"[Iroca] Session delete failed: {ex.Message}"); return false; }
+                    try { File.Delete(path); } catch (Exception ex) { Debug.LogWarning($"[Iroca] Session delete failed: {ex.Message}"); return false; }
                 }
                 return true;
             }
@@ -108,30 +102,22 @@ namespace Iroca
             // maskState を空へ差し替える（Editor は単一スレッドのため一時的な差し替えで安全）。
             var savedMask = state.maskState;
             state.maskState = new MaskState();
-            try
-            {
+            try {
                 Directory.CreateDirectory(CacheDir);
-                if (lastLoadFailed && File.Exists(path))
-                {
+                if (lastLoadFailed && File.Exists(path)) {
                     // 読めなかった既存データを潰す前に退避する（失敗しても保存は続行）。
-                    try
-                    {
+                    try {
                         File.Copy(path, path + ".bak", overwrite: true);
                         Debug.LogWarning($"[Iroca] 読み込めなかった既存セッションを退避しました: {path}.bak");
-                    }
-                    catch (Exception ex) { Debug.LogWarning($"[Iroca] Session backup failed: {ex.Message}"); }
+                    } catch (Exception ex) { Debug.LogWarning($"[Iroca] Session backup failed: {ex.Message}"); }
                 }
                 // 中身が変わっていなければ書かない(自動保存はマスクだけ・何も変わらない編集でも来る)。
                 AtomicFile.WriteAllTextIfChanged(path, JsonUtility.ToJson(state));
                 return true;
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca] Session save failed: {ex.Message}");
                 return false;
-            }
-            finally
-            {
+            } finally {
                 state.maskState = savedMask;
             }
         }
@@ -143,24 +129,28 @@ namespace Iroca
         /// （呼び出し側はこのセッションでの破壊的保存を抑止すること）。
         /// 返すオブジェクトの maskState は常に空（マスクは別ストアが復元する）。
         /// </summary>
-        public static IrocaSessionState LoadSession(string texturePath, out bool unreadable)
-        {
+        public static IrocaSessionState LoadSession(string texturePath, out bool unreadable) {
             unreadable = false;
             Files.RestoreOrphanFor(texturePath);
             string path = SessionFilePath(texturePath);
-            if (string.IsNullOrEmpty(path)) return null;
-            if (!File.Exists(path)) return null;
-            try
-            {
+            if (string.IsNullOrEmpty(path)) {
+                return null;
+            }
+            if (!File.Exists(path)) {
+                return null;
+            }
+            try {
                 var state = JsonUtility.FromJson<IrocaSessionState>(AtomicFile.ReadAllText(path));
                 if (state == null) { unreadable = true; return null; }
                 // 保存時に空へしているが、防御的に初期化して null 参照を避ける。
-                if (state.zones == null) state.zones = new List<ColorZone>();
-                if (state.maskState == null) state.maskState = new MaskState();
+                if (state.zones == null) {
+                    state.zones = new List<ColorZone>();
+                }
+                if (state.maskState == null) {
+                    state.maskState = new MaskState();
+                }
                 return state;
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca] Session load failed: {ex.Message}");
                 unreadable = true;
                 return null;
@@ -170,8 +160,7 @@ namespace Iroca
         /// <summary>
         /// GUID 直接指定でセッションファイルを <c>.orphan</c> へ退避する(テクスチャ削除フックから。<see cref="CleanupOrphans"/> の説明)。
         /// </summary>
-        public static void RetireSessionByGuid(string guid)
-        {
+        public static void RetireSessionByGuid(string guid) {
             Files.RetireByGuid(guid);
             BoundRecipeFiles.RetireByGuid(guid);
         }
@@ -188,8 +177,7 @@ namespace Iroca
         /// （<c>IrocaWindow.OnEnable</c>）ので、退避→復元は読み込み前に完了する。
         /// </para>
         /// </summary>
-        public static void CleanupOrphans()
-        {
+        public static void CleanupOrphans() {
             Files.CleanupOrphans();
             BoundRecipeFiles.CleanupOrphans();
         }

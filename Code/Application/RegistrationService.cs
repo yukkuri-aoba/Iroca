@@ -3,15 +3,13 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// 「アバターに非破壊で登録」の判断(0.4.0 の計画の 4-3)。どのレシピを使うか・登録で何が起きるかを
     /// 「計画」(<see cref="Plan"/>)にまとめ、ウィンドウは確認画面に、自動化(MCP)は警告にする。同じ判断を 2 か所に書かない。
     /// 登録先の候補選び・コンポーネントの付与・マテリアルの戻し方そのものは <see cref="RecipeRegistration"/>(Infra)。
     /// </summary>
-    internal static class RegistrationService
-    {
+    internal static class RegistrationService {
         /// <summary>
         /// 使うレシピ: <paramref name="preferred"/>(ウィンドウが結び付いているもの) → 登録先に既にある
         /// <paramref name="source"/> のレシピ(登録し直し = 更新) → このテクスチャのレシピがプロジェクトにちょうど 1 つならそれ。
@@ -21,20 +19,23 @@ namespace Iroca
         /// <paramref name="notSharedUsers"/> に使っている所が入る。
         /// </summary>
         internal static IrocaRecipe ChooseRecipe(GameObject target, Texture2D source, IrocaRecipe preferred,
-            bool shareWithOtherAvatars, out IrocaRecipe notShared, out List<IrocaRecolor> notSharedUsers)
-        {
+            bool shareWithOtherAvatars, out IrocaRecipe notShared, out List<IrocaRecolor> notSharedUsers) {
             notShared = null;
             notSharedUsers = null;
-            if (preferred != null) return preferred;
+            if (preferred != null) {
+                return preferred;
+            }
             var recipe = RecipeRegistration.ExistingFor(target, source);
-            if (recipe != null) return recipe;
+            if (recipe != null) {
+                return recipe;
+            }
             var found = RecipeStore.FindForTexture(source);
-            if (found.Count != 1) return null;
-            if (!shareWithOtherAvatars)
-            {
+            if (found.Count != 1) {
+                return null;
+            }
+            if (!shareWithOtherAvatars) {
                 var users = OtherAvatarsUsing(found[0], target);
-                if (users.Count > 0)
-                {
+                if (users.Count > 0) {
                     notShared = found[0];
                     notSharedUsers = users;
                     return null;
@@ -47,13 +48,17 @@ namespace Iroca
         /// 開いているシーンで <paramref name="recipe"/> を使っている、<paramref name="target"/> とは別のアバター(ルートが違う)の
         /// <see cref="IrocaRecolor"/>。<paramref name="target"/> が null なら空。
         /// </summary>
-        internal static List<IrocaRecolor> OtherAvatarsUsing(IrocaRecipe recipe, GameObject target)
-        {
+        internal static List<IrocaRecolor> OtherAvatarsUsing(IrocaRecipe recipe, GameObject target) {
             var users = new List<IrocaRecolor>();
-            if (recipe == null || target == null) return users;
+            if (recipe == null || target == null) {
+                return users;
+            }
             var root = target.transform.root;
-            foreach (var c in RecipeRegistration.OtherUsers(recipe, target))
-                if (c.transform.root != root) users.Add(c);
+            foreach (var c in RecipeRegistration.OtherUsers(recipe, target)) {
+                if (c.transform.root != root) {
+                    users.Add(c);
+                }
+            }
             return users;
         }
 
@@ -64,8 +69,7 @@ namespace Iroca
             => recipe != null && !string.IsNullOrEmpty(recipe.sessionJson) && RecipeStore.Load(recipe) == null;
 
         /// <summary>登録で何が起きるか(確認画面・警告に出す)。</summary>
-        internal sealed class Plan
-        {
+        internal sealed class Plan {
             public GameObject target;
             public Texture2D source;
             /// <summary>使うレシピ(null = 新しく作る)。</summary>
@@ -89,14 +93,16 @@ namespace Iroca
         }
 
         /// <summary><paramref name="target"/> に <paramref name="recipe"/>(null = 新しく作る)を登録するときの計画。</summary>
-        internal static Plan Describe(GameObject target, Texture2D source, IrocaRecipe recipe)
-        {
+        internal static Plan Describe(GameObject target, Texture2D source, IrocaRecipe recipe) {
             var plan = new Plan { target = target, source = source, recipe = recipe };
             RecipeRegistration.Describe(target, source, recipe, out plan.replaced, out plan.components);
             plan.exports = RecipeRegistration.ExportsOf(source);
             plan.exportUsers = RecipeRegistration.MaterialsUsing(target, plan.exports);
-            foreach (var m in plan.exportUsers)
-                if (RecipeRegistration.IsEditableMaterial(m)) plan.switchable++;
+            foreach (var m in plan.exportUsers) {
+                if (RecipeRegistration.IsEditableMaterial(m)) {
+                    plan.switchable++;
+                }
+            }
             plan.shared = RecipeRegistration.UsedOutside(target, plan.exportUsers, out plan.sharedPlaces);
             plan.otherUsers = RecipeRegistration.OtherUsers(recipe, target);
             return plan;
@@ -107,10 +113,11 @@ namespace Iroca
         /// (呼ぶ側の Undo グループに入る)。<paramref name="keepShared"/> なら、登録先の外でも使われているマテリアルは戻さない。
         /// 戻したマテリアルの数を返す。
         /// </summary>
-        internal static int SwitchAndAttach(Plan plan, IrocaRecipe recipe, bool keepShared, out IrocaRecolor component)
-        {
+        internal static int SwitchAndAttach(Plan plan, IrocaRecipe recipe, bool keepShared, out IrocaRecolor component) {
             var switchList = new List<Material>(plan.exportUsers);
-            if (keepShared) switchList.RemoveAll(plan.shared.Contains);
+            if (keepShared) {
+                switchList.RemoveAll(plan.shared.Contains);
+            }
             int switched = RecipeRegistration.SwitchToSource(switchList, plan.source, plan.exports);
             component = RecipeRegistration.Attach(plan.target, recipe);
             return switched;

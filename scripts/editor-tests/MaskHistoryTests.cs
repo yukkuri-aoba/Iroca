@@ -5,15 +5,13 @@ using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// 編集中のマスクの履歴(<see cref="MaskHistory"/>)。版へ戻すと同じ中身になること、変わらない層は共有して量が増えないこと、
     /// やり直しの分を手放すこと、上限で古い版を手放すこと、ファイルへ退避して読み戻せること(壊れたファイルは読まない)、
     /// 持っているものを全部返すこと。
     /// </summary>
-    public class MaskHistoryTests
-    {
+    public class MaskHistoryTests {
         private const int W = 40, H = 30;
 
         private MaskWorkspace _masks;
@@ -21,8 +19,7 @@ namespace Iroca.EditorTests
         private long _liveBefore;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _liveBefore = IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask);
             _masks = new MaskWorkspace();
             _masks.Reset(W, H);
@@ -30,27 +27,30 @@ namespace Iroca.EditorTests
         }
 
         [TearDown]
-        public void TearDown()
-        {
+        public void TearDown() {
             _masks.Clear();
             _history.Clear();
             Assert.AreEqual(0, _history.Bytes, "手放した量と数えた量が合わない");
             Assert.AreEqual(_liveBefore, IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask), "マスクのメモリが残っている");
         }
 
-        private static List<int> Pixels(NativeBitMask m)
-        {
+        private static List<int> Pixels(NativeBitMask m) {
             var got = new List<int>();
-            if (m == null) return got;
-            for (int i = 0; i < m.Length; i++) if (m.Get(i)) got.Add(i);
+            if (m == null) {
+                return got;
+            }
+            for (int i = 0; i < m.Length; i++) {
+                if (m.Get(i)) {
+                    got.Add(i);
+                }
+            }
             return got;
         }
 
         private long Commit(long basis) => _history.Capture(_masks, basis);
 
         [Test]
-        public void Restore_BringsBackEveryLayer()
-        {
+        public void Restore_BringsBackEveryLayer() {
             long v0 = Commit(0);
             _masks.WritableCommon().Set(3, true);
             _masks.WritableLayer(false, "z").Set(4, true);
@@ -75,8 +75,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Restore_OfDifferentSize_SetsTheSize()
-        {
+        public void Restore_OfDifferentSize_SetsTheSize() {
             _masks.WritableCommon().Set(1, true);
             long v0 = Commit(0);
             _masks.Reset(8, 8);
@@ -91,8 +90,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Restore_UnknownRevision_LeavesMasksAlone()
-        {
+        public void Restore_UnknownRevision_LeavesMasksAlone() {
             _masks.WritableCommon().Set(1, true);
             Commit(0);
             Assert.IsFalse(_history.TryRestore(12345, _masks));
@@ -100,8 +98,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Restore_KeepsLayersWhoseContentIsTheSame()
-        {
+        public void Restore_KeepsLayersWhoseContentIsTheSame() {
             _masks.WritableCommon().Set(1, true);
             _masks.WritableLayer(false, "z").Set(2, true);
             long v0 = Commit(0);
@@ -116,8 +113,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Capture_SharesUnchangedLayers()
-        {
+        public void Capture_SharesUnchangedLayers() {
             _masks.WritableCommon().Set(1, true);
             _masks.WritableLayer(false, "z").Set(2, true);
             long v = Commit(0);
@@ -137,8 +133,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Capture_SkipsEmptyLayers()
-        {
+        public void Capture_SkipsEmptyLayers() {
             _masks.WritableLayer(false, "empty");
             long v0 = Commit(0);
             Assert.AreEqual(0, _history.Bytes, "全部 0 の層は載せない(保存形式と同じ)");
@@ -149,8 +144,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Capture_DropsTheRedoBranch()
-        {
+        public void Capture_DropsTheRedoBranch() {
             long v0 = Commit(0);
             _masks.WritableCommon().Set(1, true);
             long v1 = Commit(v0);
@@ -169,11 +163,9 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Capture_RevisionsNeverRepeat()
-        {
+        public void Capture_RevisionsNeverRepeat() {
             long v = Commit(0);
-            for (int i = 0; i < 100; i++)
-            {
+            for (int i = 0; i < 100; i++) {
                 long next = Commit(v);
                 Assert.Greater(next, v);
                 v = next;
@@ -183,11 +175,9 @@ namespace Iroca.EditorTests
         private string SpillFile() => Path.Combine(Path.GetTempPath(), "iroca-mask-history-" + Guid.NewGuid().ToString("N") + ".bin");
 
         [Test]
-        public void Spill_RoundTripsEveryVersionAndKeepsSharing()
-        {
+        public void Spill_RoundTripsEveryVersionAndKeepsSharing() {
             string path = SpillFile();
-            try
-            {
+            try {
                 long v0 = Commit(0);
                 _masks.WritableCommon().Set(3, true);
                 _masks.WritableLayer(false, "z").Set(4, true);
@@ -198,15 +188,13 @@ namespace Iroca.EditorTests
                 _history.SaveTo(path);
 
                 var loaded = new MaskHistory();
-                try
-                {
+                try {
                     Assert.IsTrue(loaded.LoadFrom(path));
                     Assert.AreEqual(3, loaded.Count);
                     Assert.AreEqual(bytes, loaded.Bytes, "共有していた塊は共有のまま");
 
                     var restored = new MaskWorkspace();
-                    try
-                    {
+                    try {
                         Assert.IsTrue(loaded.TryRestore(v1, restored));
                         Assert.AreEqual((W, H), (restored.Width, restored.Height));
                         CollectionAssert.AreEqual(new[] { 3 }, Pixels(restored.Common));
@@ -216,33 +204,26 @@ namespace Iroca.EditorTests
                         CollectionAssert.AreEqual(new[] { 5 }, Pixels(restored.Layer(true, "z")));
                         Assert.IsTrue(loaded.TryRestore(v0, restored));
                         Assert.IsFalse(restored.HasLayers);
-                    }
-                    finally { restored.Clear(); }
+                    } finally { restored.Clear(); }
 
                     Assert.Greater(loaded.Capture(_masks, v2), v2, "読み戻した後の番号も前と重ならない");
-                }
-                finally { loaded.Clear(); }
-            }
-            finally { File.Delete(path); }
+                } finally { loaded.Clear(); }
+            } finally { File.Delete(path); }
         }
 
         [Test]
-        public void Spill_EmptyHistoryRoundTrips()
-        {
+        public void Spill_EmptyHistoryRoundTrips() {
             string path = SpillFile();
-            try
-            {
+            try {
                 _history.SaveTo(path);
                 var loaded = new MaskHistory();
                 Assert.IsTrue(loaded.LoadFrom(path));
                 Assert.AreEqual(0, loaded.Count);
-            }
-            finally { File.Delete(path); }
+            } finally { File.Delete(path); }
         }
 
         [Test]
-        public void Spill_MissingFileLeavesItEmpty()
-        {
+        public void Spill_MissingFileLeavesItEmpty() {
             Commit(0);
             Assert.IsFalse(_history.LoadFrom(SpillFile()));
             Assert.AreEqual(0, _history.Count);
@@ -250,11 +231,9 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Spill_BrokenFilesAreNotRead()
-        {
+        public void Spill_BrokenFilesAreNotRead() {
             string path = SpillFile();
-            try
-            {
+            try {
                 _masks.WritableCommon().Set(3, true);
                 _masks.WritableLayer(false, "z").Set(4, true);
                 long v0 = Commit(0);
@@ -263,8 +242,7 @@ namespace Iroca.EditorTests
                 _history.SaveTo(path);
                 byte[] good = File.ReadAllBytes(path);
 
-                void AssertUnreadable(byte[] bytes, string why)
-                {
+                void AssertUnreadable(byte[] bytes, string why) {
                     File.WriteAllBytes(path, bytes);
                     var h = new MaskHistory();
                     Assert.IsFalse(h.LoadFrom(path), why);
@@ -273,8 +251,7 @@ namespace Iroca.EditorTests
                 }
 
                 // 途中で切れたファイル(書いている途中で落ちた)。どこで切れても読まない。
-                for (int len = 0; len < good.Length; len += Math.Max(1, good.Length / 40))
-                {
+                for (int len = 0; len < good.Length; len += Math.Max(1, good.Length / 40)) {
                     var cut = new byte[len];
                     Array.Copy(good, cut, len);
                     AssertUnreadable(cut, $"{len} バイトで切れた");
@@ -297,16 +274,13 @@ namespace Iroca.EditorTests
                 var badSize = (byte[])good.Clone();
                 badSize[20 + 8] ^= 0x7F;
                 AssertUnreadable(badSize, "寸法が合わない");
-            }
-            finally { File.Delete(path); }
+            } finally { File.Delete(path); }
         }
 
         [Test]
-        public void OverTheLimit_DropsOldestVersionsButKeepsCurrentAndPrevious()
-        {
+        public void OverTheLimit_DropsOldestVersionsButKeepsCurrentAndPrevious() {
             var small = new MaskHistory(maxBytes: 1);
-            try
-            {
+            try {
                 _masks.WritableCommon().Set(1, true);
                 long v0 = small.Capture(_masks, 0);
                 _masks.WritableCommon().Set(2, true);
@@ -319,8 +293,7 @@ namespace Iroca.EditorTests
                 Assert.IsTrue(small.Contains(v2));
                 Assert.IsFalse(small.TryRestore(v0, _masks));
                 CollectionAssert.AreEqual(new[] { 1, 2, 3 }, Pixels(_masks.Common), "戻せなければマスクは変えない");
-            }
-            finally { small.Clear(); }
+            } finally { small.Clear(); }
         }
     }
 }

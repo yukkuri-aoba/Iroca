@@ -4,10 +4,8 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
-    public unsafe partial class IrocaWindow
-    {
+namespace Iroca {
+    public unsafe partial class IrocaWindow {
         // 実行中の自動調整(証拠待ちと解析。null = していない)。流れは AutoTuneService が持ち、ここは上書きの確認・
         // 進み具合・通知・Undo・由来の記録(ウィンドウだけのもの)。
         [System.NonSerialized] private AutoTuneService.Run _autoTune;
@@ -20,9 +18,10 @@ namespace Iroca
         [System.NonSerialized]
         private Dictionary<string, string> _autoTuneProvenance;
 
-        internal string AutoTuneProvenance(string zoneId)
-        {
-            if (_autoTuneProvenance == null || string.IsNullOrEmpty(zoneId)) return "";
+        internal string AutoTuneProvenance(string zoneId) {
+            if (_autoTuneProvenance == null || string.IsNullOrEmpty(zoneId)) {
+                return "";
+            }
             return _autoTuneProvenance.TryGetValue(zoneId, out var s) ? s : "";
         }
 
@@ -30,78 +29,87 @@ namespace Iroca
         [System.NonSerialized]
         private Dictionary<string, AutoTuneService.Input> _autoTuneInputs;
 
-        internal bool TryGetAutoTuneInput(string zoneId, out AutoTuneService.Input input)
-        {
+        internal bool TryGetAutoTuneInput(string zoneId, out AutoTuneService.Input input) {
             input = null;
-            if (_autoTuneInputs == null || string.IsNullOrEmpty(zoneId)) return false;
+            if (_autoTuneInputs == null || string.IsNullOrEmpty(zoneId)) {
+                return false;
+            }
             return _autoTuneInputs.TryGetValue(zoneId, out input) && input != null;
         }
 
         // セッションに無いゾーン(削除した・別のテクスチャに切り替えた)の入力を捨てる。プレビュー生成ごとに
         // 選択キャッシュと同じ id の集合で刈る。削除を Undo で戻したゾーンは入力が無い状態になり、
         // ドメインリロードの後と同じく、再現データに載らず次の自動調整では上書きの確認が出る(安全側)。
-        internal void RetainAutoTuneInputs(ICollection<string> liveZoneIds)
-        {
-            if (_autoTuneInputs == null || _autoTuneInputs.Count == 0) return;
+        internal void RetainAutoTuneInputs(ICollection<string> liveZoneIds) {
+            if (_autoTuneInputs == null || _autoTuneInputs.Count == 0) {
+                return;
+            }
             List<string> gone = null;
-            foreach (var id in _autoTuneInputs.Keys)
-                if (!liveZoneIds.Contains(id)) (gone ??= new List<string>()).Add(id);
-            if (gone == null) return;
-            foreach (var id in gone) _autoTuneInputs.Remove(id);
+            foreach (var id in _autoTuneInputs.Keys) {
+                if (!liveZoneIds.Contains(id)) {
+                    (gone ??= new List<string>()).Add(id);
+                }
+            }
+            if (gone == null) {
+                return;
+            }
+            foreach (var id in gone) {
+                _autoTuneInputs.Remove(id);
+            }
         }
 
         // 「パーツをユーザーが粗く囲った」情報を tolerance 導出に活用する。
         // マスク未使用なら null。
-        private NativeBools BuildCombinedExclusionForZone(ColorZone zone, out int mw, out int mh)
-        {
+        private NativeBools BuildCombinedExclusionForZone(ColorZone zone, out int mw, out int mh) {
             mw = _maskView != null ? _maskView.maskWidth : 0;
             mh = _maskView != null ? _maskView.maskHeight : 0;
-            if (_maskView == null || mw <= 0 || mh <= 0) return null;
+            if (_maskView == null || mw <= 0 || mh <= 0) {
+                return null;
+            }
             return _maskView.Workspace.CombinedExclusion(zone.id);
         }
 
         // internal は WindowUndoTests が走っている途中の Undo を確かめるため。
-        internal void RunAutoTune(ColorZone zone)
-        {
-            if (_autoTune != null || zone == null) return;
-
-            if (!ConfirmAutoTuneOverwriteIfNeeded(zone))
+        internal void RunAutoTune(ColorZone zone) {
+            if (_autoTune != null || zone == null) {
                 return;
+            }
+
+            if (!ConfirmAutoTuneOverwriteIfNeeded(zone)) {
+                return;
+            }
 
             zone.EnsureId();
 
             // メインスレッド前処理: 原本の画素と除外マスクはバックグラウンドへ持ち込めないので、ここで用意する。
             PrepareAutoTunePixels(out NativePixels pixels, out bool trueSource);
-            if (pixels == null)
-            {
+            if (pixels == null) {
                 // GetPixels32 が失敗（非 Readable / 一時例外）。null を背景ジョブへ渡すと
                 // NullReference の生メッセージ通知になるので、読める文言で知らせて中止する。
                 ShowNotification(new GUIContent(Localization.TextureReadError));
                 return;
             }
             // pixels の参照はここで持ち、最後に返す(自動調整は自分の参照を足す)。
-            try
-            {
+            try {
                 // 証拠の元のキーは、画素がプレビュー・右クリックの AI 提案と同じ原本のときだけ渡す
                 // (フォールバックの画素で同じキーを使うと、別の画素の埋め込みと取り違える)。
                 string key = trueSource && _previewView != null ? _previewView.TrueSourceCacheKey() : null;
                 // 除外マスクの持ち主は自動調整になる(終わったら返す)。
                 NativeBools excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
                 var run = AutoTuneService.Start(zone, Session, pixels, key, excluded, mw, mh);
-                if (run.Status == AutoTuneService.Status.Failed)
-                {
+                if (run.Status == AutoTuneService.Status.Failed) {
                     NotifyAutoTuneFailure(run);
                     return;
                 }
-                if (run.ConventionalReason == AutoTuneService.ReasonNoSamplePosition)
+                if (run.ConventionalReason == AutoTuneService.ReasonNoSamplePosition) {
                     ShowNotification(new GUIContent(Localization.AutoTuneNoSamplePosition));
+                }
                 _autoTune = run;
                 _autoTuneShownPct = -1;
                 EditorApplication.update -= TickAutoTune;
                 EditorApplication.update += TickAutoTune;
                 Repaint();
-            }
-            finally { pixels.Release(); }
+            } finally { pixels.Release(); }
         }
 
         /// <summary>
@@ -119,16 +127,21 @@ namespace Iroca
         // 旧かんたんモード（Simple）は詳細パラメータを自動管理する前提なので確認を出さない
         // （モード切替 UI は廃止したが、古いセッションファイルに Simple が残り得るので判定は残す）。
         // 戻り値 false = ユーザーがキャンセル（呼び出し側は実行を中止する）。
-        private bool ConfirmAutoTuneOverwriteIfNeeded(ColorZone zone)
-        {
-            if (editMode == EditMode.Simple) return true;
+        private bool ConfirmAutoTuneOverwriteIfNeeded(ColorZone zone) {
+            if (editMode == EditMode.Simple) {
+                return true;
+            }
             // 失って困るのは「ユーザーが手で入れた値」だけ。新規ゾーンの初期値のままでも、
             // 直前の自動調整が入れた値のままでも確認は要らない（どちらも手調整ではないのに
             // 毎回ダイアログが出て、押すたびに一手増えていた）。
-            if (ZoneParamsUntouchedByUser(zone)) return true;
+            if (ZoneParamsUntouchedByUser(zone)) {
+                return true;
+            }
 
             var overwritten = ZoneAutoTuner.PreviewOverwrittenSettings(zone);
-            if (overwritten.Count == 0) return true;
+            if (overwritten.Count == 0) {
+                return true;
+            }
 
             // applyGlobals は事後判定だが、true になる条件下では globals は既に default
             // のため AutoTuneOverwriteBody の includesGlobals=true の差分は表示しない。
@@ -149,61 +162,50 @@ namespace Iroca
         // いるため追加コストはない。true source が取れないときのみ GetPixels32 へフォールバック。
         // trueSource: 画素がプレビュー/AI 提案と同じ true source キャッシュ（同一の画素）か。
         // pixels は呼び出し側が参照を 1 つ持つ(使い終わったら Release する)。
-        private void PrepareAutoTunePixels(out NativePixels pixels, out bool trueSource)
-        {
+        private void PrepareAutoTunePixels(out NativePixels pixels, out bool trueSource) {
             pixels = null;
             trueSource = false;
             var tex = SourceTexture;
-            if (tex == null) return;
+            if (tex == null) {
+                return;
+            }
 
-            try
-            {
+            try {
                 EditorUtility.DisplayProgressBar(Localization.AutoTune, Localization.AnalyzingTexture, 0.1f);
                 if (_previewView != null &&
-                    _previewView.TryGetTrueSourcePixels(tex, out var shared, out _, out _))
-                {
+                    _previewView.TryGetTrueSourcePixels(tex, out var shared, out _, out _)) {
                     pixels = shared.AddRef();
                     trueSource = true;
                     return;
                 }
 
                 pixels = TextureIO.IsReadable(tex) ? WorkingResolution.NativePixelsOf(tex, null) : null;
-            }
-            catch (UnityEngine.UnityException) { pixels = null; }
-            finally { EditorUtility.ClearProgressBar(); }
+            } catch (UnityEngine.UnityException) { pixels = null; } finally { EditorUtility.ClearProgressBar(); }
         }
 
         // EditorApplication.update から毎フレーム呼ばれる。Unity はそこで例外を受け止めないので、投げたまま
         // 購読を残すと、窓を閉じるまで毎フレーム、後ろに並んだ他のツールの更新まで飛ばし続ける。
         // 例外のときは自動調整をやめて購読を外す。
-        private void TickAutoTune()
-        {
-            try { TickAutoTuneCore(); }
-            catch (System.Exception e)
-            {
+        private void TickAutoTune() {
+            try { TickAutoTuneCore(); } catch (System.Exception e) {
                 EditorApplication.update -= TickAutoTune;
                 Debug.LogException(e);
-                try
-                {
+                try {
                     CancelAutoTune();
                     ShowNotification(new GUIContent(Localization.AutoTuneEvidenceCancelled));
-                }
-                catch (System.Exception e2) { Debug.LogException(e2); }
+                } catch (System.Exception e2) { Debug.LogException(e2); }
             }
         }
 
-        private void TickAutoTuneCore()
-        {
+        private void TickAutoTuneCore() {
             var run = _autoTune;
             // 破棄済みウィンドウ（fake-null）や終わった後は自己解除する。
-            if (this == null || run == null)
-            {
+            if (this == null || run == null) {
                 EditorApplication.update -= TickAutoTune;
                 return;
             }
             run.Advance();
-            switch (run.Status)
-            {
+            switch (run.Status) {
                 case AutoTuneService.Status.Done:
                     StopAutoTuneTick();
                     ApplyAutoTune(run);
@@ -215,47 +217,44 @@ namespace Iroca
             }
             // 準備の進み(モデルロード・埋め込み計算)と解析の進みを進捗バーに映す。
             int pct = Mathf.RoundToInt(run.Progress * 100f);
-            if (pct != _autoTuneShownPct || run.EvidencePreparing != _autoTuneShownPreparing)
-            {
+            if (pct != _autoTuneShownPct || run.EvidencePreparing != _autoTuneShownPreparing) {
                 _autoTuneShownPct = pct;
                 _autoTuneShownPreparing = run.EvidencePreparing;
                 Repaint();
             }
         }
 
-        private void StopAutoTuneTick()
-        {
+        private void StopAutoTuneTick() {
             _autoTune = null;
             EditorApplication.update -= TickAutoTune;
         }
 
-        private void ApplyAutoTune(AutoTuneService.Run run)
-        {
+        private void ApplyAutoTune(AutoTuneService.Run run) {
             // 実行中に削除・追加された可能性があるため、live zone を id で引き直す。
             var targetZone = FindZoneById(run.ZoneId);
-            if (targetZone == null) return;
+            if (targetZone == null) {
+                return;
+            }
 
             // 結果は押してから数秒後に届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
-            SeparateUndo.Record("Auto-tune Zone", () =>
-            {
+            SeparateUndo.Record("Auto-tune Zone", () => {
                 Undo.RegisterCompleteObjectUndo(UndoTarget, "Auto-tune Zone");
                 run.ApplyTo(targetZone, Session);
             });
             (_autoTuneInputs ??= new Dictionary<string, AutoTuneService.Input>())[targetZone.id] = run.ToInput();
             Editing.NotifyChanged(EditChange.Content);
             (_autoTuneProvenance ??= new Dictionary<string, string>())[targetZone.id] = run.Provenance;
-            if (MaskSuggestPerf.Enabled && run.Result.evidenceDiag != null)
+            if (MaskSuggestPerf.Enabled && run.Result.evidenceDiag != null) {
                 MaskSuggestPerf.Log($"自動調整の証拠: {run.Result.evidenceDiag}");
+            }
             ShowNotification(new GUIContent(
                 run.UsedEvidence ? Localization.AutoTuneDoneWithEvidence : Localization.AutoTuneDone));
             Repaint();
         }
 
         // 始められなかった・途中で終わった理由を知らせる(解析は始めない。従来導出へは落とさない)。
-        private void NotifyAutoTuneFailure(AutoTuneService.Run run)
-        {
-            switch (run.Failure)
-            {
+        private void NotifyAutoTuneFailure(AutoTuneService.Run run) {
+            switch (run.Failure) {
                 case AutoTuneService.Failure.AiUnavailable:
                     // AI が無ければ中止して導入を案内する。
                     ShowNotification(new GUIContent(Localization.AutoTuneNeedsAi));
@@ -270,13 +269,12 @@ namespace Iroca
                 case AutoTuneService.Failure.Timeout:
                     ShowNotification(new GUIContent(Localization.AutoTuneEvidenceTimeout));
                     break;
-                case AutoTuneService.Failure.AnalysisFailed:
-                {
-                    var ex = run.Error;
-                    Debug.LogError($"[Iroca] Auto-tune failed: {ex?.Message}\n{ex?.StackTrace}");
-                    ShowNotification(new GUIContent($"{Localization.Error}: {ex?.Message}"));
-                    break;
-                }
+                case AutoTuneService.Failure.AnalysisFailed: {
+                        var ex = run.Error;
+                        Debug.LogError($"[Iroca] Auto-tune failed: {ex?.Message}\n{ex?.StackTrace}");
+                        ShowNotification(new GUIContent($"{Localization.Error}: {ex?.Message}"));
+                        break;
+                    }
                 case AutoTuneService.Failure.Cancelled:
                     break;   // 押した人が止めた
                 default:
@@ -287,10 +285,11 @@ namespace Iroca
         }
 
         // 自動調整の中止（ユーザーの中止・ウィンドウ無効化/破棄）。証拠待ちなら解析は始めない。
-        private void CancelAutoTune()
-        {
+        private void CancelAutoTune() {
             var run = _autoTune;
-            if (run == null) return;
+            if (run == null) {
+                return;
+            }
             StopAutoTuneTick();
             run.Cancel();
         }
@@ -298,9 +297,10 @@ namespace Iroca
         // テクスチャの切り替え・レシピの読み直し・Undo: 押したときの状態はもう無いので、待ちも解析も止めて知らせる。当て先は id で
         // 引き直すが、プリセットやレシピの複製では別のテクスチャのゾーンも同じ id を持ち、Undo で戻したゾーンは
         // 取り消した位置から導いた値で上書きされる。
-        private void AbortAutoTuneForEditChange()
-        {
-            if (_autoTune == null) return;
+        private void AbortAutoTuneForEditChange() {
+            if (_autoTune == null) {
+                return;
+            }
             CancelAutoTune();
             ShowNotification(new GUIContent(Localization.AutoTuneCancelledByEdit));
             Repaint();

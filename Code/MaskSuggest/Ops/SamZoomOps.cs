@@ -2,8 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// AI マスク提案のズームイン再推論(純計算)。
     ///
@@ -17,8 +16,7 @@ namespace Iroca
     ///
     /// 座標規約: マスク・画素・クロップ矩形はすべて下原点(GetPixels32 順)。
     /// </summary>
-    internal static unsafe class SamZoomOps
-    {
+    internal static unsafe class SamZoomOps {
         /// <summary>クロップ辺の下限(これ未満に絞っても利得がなく、文脈が減るだけ)。</summary>
         public const int MinCropSide = 256;
 
@@ -37,46 +35,60 @@ namespace Iroca
         /// (巨大成分でもフラッドフィルが窓内で止まり、コスト・メモリが有界になる)。
         /// </summary>
         public static int ClickComponentBBoxLong(bool[] maskBottomUp, int w, int h,
-                                                 int clickX, int clickY)
-        {
-            if (maskBottomUp == null || maskBottomUp.Length != w * h) return 0;
-            fixed (bool* m = maskBottomUp) return ClickComponentBBoxLong(m, w, h, clickX, clickY);
+                                                 int clickX, int clickY) {
+            if (maskBottomUp == null || maskBottomUp.Length != w * h) {
+                return 0;
+            }
+            fixed (bool* m = maskBottomUp) {
+                return ClickComponentBBoxLong(m, w, h, clickX, clickY);
+            }
         }
 
         /// <summary><see cref="ClickComponentBBoxLong(bool[], int, int, int, int)"/> のポインタ版(マスクは w*h 個)。</summary>
         public static int ClickComponentBBoxLong(bool* maskBottomUp, int w, int h,
-                                                 int clickX, int clickY)
-        {
-            if (maskBottomUp == null) return 0;
+                                                 int clickX, int clickY) {
+            if (maskBottomUp == null) {
+                return 0;
+            }
             clickX = Mathf.Clamp(clickX, 0, w - 1);
             clickY = Mathf.Clamp(clickY, 0, h - 1);
 
-            if (maskBottomUp[clickY * w + clickX])
+            if (maskBottomUp[clickY * w + clickX]) {
                 return ComponentBBoxLongWindowed(maskBottomUp, w, h, clickX, clickY);
+            }
 
             // クリックがマスク外(境界ぎわ等): マスク全体の bbox
             int minX = int.MaxValue, maxX = int.MinValue, minY = int.MaxValue, maxY = int.MinValue;
-            for (int y = 0; y < h; y++)
-            {
+            for (int y = 0; y < h; y++) {
                 int row = y * w;
-                for (int x = 0; x < w; x++)
-                {
-                    if (!maskBottomUp[row + x]) continue;
-                    if (x < minX) minX = x;
-                    if (x > maxX) maxX = x;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
+                for (int x = 0; x < w; x++) {
+                    if (!maskBottomUp[row + x]) {
+                        continue;
+                    }
+                    if (x < minX) {
+                        minX = x;
+                    }
+                    if (x > maxX) {
+                        maxX = x;
+                    }
+                    if (y < minY) {
+                        minY = y;
+                    }
+                    if (y > maxY) {
+                        maxY = y;
+                    }
                 }
             }
-            if (maxX < minX) return 0;
+            if (maxX < minX) {
+                return 0;
+            }
             return Mathf.Max(maxX - minX + 1, maxY - minY + 1);
         }
 
         /// <summary>クリック画素から 4 近傍フラッドフィルで成分 bbox 長辺を測る。
         /// 探索域はクリック中心 ±cap の窓に限定(窓縁到達 = bbox ≥ cap = ズーム対象外が
         /// 確定するため、それ以上の正確さは不要)。</summary>
-        static int ComponentBBoxLongWindowed(bool* mask, int w, int h, int sx, int sy)
-        {
+        static int ComponentBBoxLongWindowed(bool* mask, int w, int h, int sx, int sy) {
             int cap = (Mathf.Max(w, h) + ZoomFactor - 1) / ZoomFactor;
             int wx0 = Mathf.Max(0, sx - cap), wx1 = Mathf.Min(w - 1, sx + cap);
             int wy0 = Mathf.Max(0, sy - cap), wy1 = Mathf.Min(h - 1, sy + cap);
@@ -89,25 +101,29 @@ namespace Iroca
             visited[(sy - wy0) * ww + (sx - wx0)] = true;
             stack.Push(sy * w + sx); // フル座標のまま積む(近傍判定が単純になる)
             int minX = sx, maxX = sx, minY = sy, maxY = sy;
-            while (stack.Count > 0)
-            {
+            while (stack.Count > 0) {
                 int i = stack.Pop();
                 int y = i / w, x = i - y * w;
-                if (x < minX) minX = x;
-                if (x > maxX) maxX = x;
-                if (y < minY) minY = y;
-                if (y > maxY) maxY = y;
-                if (maxX - minX >= cap || maxY - minY >= cap)
+                if (x < minX) {
+                    minX = x;
+                }
+                if (x > maxX) {
+                    maxX = x;
+                }
+                if (y < minY) {
+                    minY = y;
+                }
+                if (y > maxY) {
+                    maxY = y;
+                }
+                if (maxX - minX >= cap || maxY - minY >= cap) {
                     return Mathf.Max(maxX - minX + 1, maxY - minY + 1); // ズーム対象外確定
+                }
 
-                if (x > wx0 && mask[i - 1] && !visited[(y - wy0) * ww + (x - 1 - wx0)])
-                { visited[(y - wy0) * ww + (x - 1 - wx0)] = true; stack.Push(i - 1); }
-                if (x < wx1 && mask[i + 1] && !visited[(y - wy0) * ww + (x + 1 - wx0)])
-                { visited[(y - wy0) * ww + (x + 1 - wx0)] = true; stack.Push(i + 1); }
-                if (y > wy0 && mask[i - w] && !visited[(y - 1 - wy0) * ww + (x - wx0)])
-                { visited[(y - 1 - wy0) * ww + (x - wx0)] = true; stack.Push(i - w); }
-                if (y < wy1 && mask[i + w] && !visited[(y + 1 - wy0) * ww + (x - wx0)])
-                { visited[(y + 1 - wy0) * ww + (x - wx0)] = true; stack.Push(i + w); }
+                if (x > wx0 && mask[i - 1] && !visited[(y - wy0) * ww + (x - 1 - wx0)]) { visited[(y - wy0) * ww + (x - 1 - wx0)] = true; stack.Push(i - 1); }
+                if (x < wx1 && mask[i + 1] && !visited[(y - wy0) * ww + (x + 1 - wx0)]) { visited[(y - wy0) * ww + (x + 1 - wx0)] = true; stack.Push(i + 1); }
+                if (y > wy0 && mask[i - w] && !visited[(y - 1 - wy0) * ww + (x - wx0)]) { visited[(y - 1 - wy0) * ww + (x - wx0)] = true; stack.Push(i - w); }
+                if (y < wy1 && mask[i + w] && !visited[(y + 1 - wy0) * ww + (x - wx0)]) { visited[(y + 1 - wy0) * ww + (x - wx0)] = true; stack.Push(i + w); }
             }
             return Mathf.Max(maxX - minX + 1, maxY - minY + 1);
         }
@@ -119,13 +135,18 @@ namespace Iroca
         /// side/8 グリッドへスナップし境界内へクランプする。
         /// </summary>
         public static bool TryDeriveCropRect(int bboxLong, int clickX, int clickY, int w, int h,
-                                             out int x0, out int y0, out int side)
-        {
+                                             out int x0, out int y0, out int side) {
             x0 = y0 = side = 0;
-            if (bboxLong <= 0) return false;
+            if (bboxLong <= 0) {
+                return false;
+            }
             long s = MinCropSide;
-            while (s < (long)bboxLong * ZoomFactor) s *= 2;
-            if (s >= Mathf.Max(w, h)) return false; // 全体推論と実効解像度が変わらない
+            while (s < (long)bboxLong * ZoomFactor) {
+                s *= 2;
+            }
+            if (s >= Mathf.Max(w, h)) {
+                return false; // 全体推論と実効解像度が変わらない
+            }
             side = (int)System.Math.Min(s, Mathf.Min(w, h));
             int grid = Mathf.Max(1, side / PositionGridDenom);
             x0 = (clickX - side / 2) / grid * grid;
@@ -137,11 +158,11 @@ namespace Iroca
 
         /// <summary>下原点画素列からクロップ矩形を切り出す(下原点のまま)。</summary>
         public static Color32[] ExtractCrop(Color32[] pixelsBottomUp, int w, int h,
-                                            int x0, int y0, int side)
-        {
+                                            int x0, int y0, int side) {
             var crop = new Color32[side * side];
-            for (int y = 0; y < side; y++)
+            for (int y = 0; y < side; y++) {
                 System.Array.Copy(pixelsBottomUp, (y0 + y) * w + x0, crop, y * side, side);
+            }
             return crop;
         }
 
@@ -150,26 +171,26 @@ namespace Iroca
         /// (参照 1。受け取った側が手放す)。
         /// </summary>
         public static NativePixels ExtractCrop(Color32* pixelsBottomUp, int w, int h,
-                                               int x0, int y0, int side)
-        {
+                                               int x0, int y0, int side) {
             var crop = NativePixels.Allocate(side, side);
             long rowBytes = (long)side * sizeof(Color32);
             Color32* dst = crop.Ptr;
-            for (int y = 0; y < side; y++)
+            for (int y = 0; y < side; y++) {
                 System.Buffer.MemoryCopy(pixelsBottomUp + (long)(y0 + y) * w + x0, dst + (long)y * side,
                     rowBytes, rowBytes);
+            }
             return crop;
         }
 
         /// <summary>クロップマスク(下原点 side²)をフル寸(下原点 w*h)へ貼り戻す。
         /// クロップ外は false。true の画素数も返す(areaFrac 再計算用)。</summary>
         public static bool[] PasteCrop(bool[] cropMaskBottomUp, int side, int w, int h,
-                                       int x0, int y0, out int trueCount)
-        {
+                                       int x0, int y0, out int trueCount) {
             var full = new bool[w * h];
             fixed (bool* c = cropMaskBottomUp)
-            fixed (bool* f = full)
+            fixed (bool* f = full) {
                 trueCount = PasteCrop(c, side, w, h, x0, y0, f);
+            }
             return full;
         }
 
@@ -178,23 +199,21 @@ namespace Iroca
         /// (参照 1。受け取った側が手放す)。
         /// </summary>
         public static NativeBools PasteCrop(bool* cropMaskBottomUp, int side, int w, int h,
-                                            int x0, int y0, out int trueCount)
-        {
+                                            int x0, int y0, out int trueCount) {
             var full = NativeBools.Allocate(w, h);
             trueCount = PasteCrop(cropMaskBottomUp, side, w, h, x0, y0, full.Ptr);
             return full;
         }
 
         // full(w*h 個。すべて false)へ貼り戻し、true の数を返す。
-        private static int PasteCrop(bool* cropMaskBottomUp, int side, int w, int h, int x0, int y0, bool* full)
-        {
+        private static int PasteCrop(bool* cropMaskBottomUp, int side, int w, int h, int x0, int y0, bool* full) {
             int count = 0;
-            for (int y = 0; y < side; y++)
-            {
+            for (int y = 0; y < side; y++) {
                 int srcRow = y * side, dstRow = (y0 + y) * w + x0;
-                for (int x = 0; x < side; x++)
-                {
-                    if (!cropMaskBottomUp[srcRow + x]) continue;
+                for (int x = 0; x < side; x++) {
+                    if (!cropMaskBottomUp[srcRow + x]) {
+                        continue;
+                    }
                     full[dstRow + x] = true;
                     count++;
                 }

@@ -4,15 +4,13 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Iroca.DebugTools
-{
+namespace Iroca.DebugTools {
     /// <summary>
     /// 1 回の ProcessPixelsArray 呼び出しで採取されたスナップショット群。
     /// zone × stage の数だけ shrink-wrapped な byte[] を保持する。
     /// 量子化(0..255) と直前ステージとの差分(128 中央) を同時に保存する。
     /// </summary>
-    internal sealed class StageSnapshot
-    {
+    internal sealed class StageSnapshot {
         public string zoneId;
         public string stageName;
         public int width;
@@ -33,8 +31,7 @@ namespace Iroca.DebugTools
     /// メモリ抑制のため strength は byte 量子化、差分も byte で持つ。
     /// 4K テクスチャ × 5 zone × 9 stage × 2 byte/pixel ≒ 360 MB が上限。
     /// </summary>
-    internal sealed class DebugCaptureContext : IDebugCapture
-    {
+    internal sealed class DebugCaptureContext : IDebugCapture {
         public readonly List<StageSnapshot> Snapshots = new List<StageSnapshot>();
         // zone.id → 直前ステージの量子化 strength。差分を取るための前ステージキャッシュ。
         private readonly Dictionary<string, byte[]> _previousStrengthPerZone = new Dictionary<string, byte[]>();
@@ -46,8 +43,7 @@ namespace Iroca.DebugTools
         public int Width { get; private set; }
         public int Height { get; private set; }
 
-        public void BeginCapture(int width, int height)
-        {
+        public void BeginCapture(int width, int height) {
             // コンテキストは再利用されるため、前回のキャプチャを持ち越さない。
             Snapshots.Clear();
             _previousStrengthPerZone.Clear();
@@ -57,34 +53,36 @@ namespace Iroca.DebugTools
             Height = height;
         }
 
-        public void RecordStage(string zoneId, string stageName, float[] strength, int width, int height)
-        {
+        public void RecordStage(string zoneId, string stageName, float[] strength, int width, int height) {
             int len = width * height;
             byte[] quantized = new byte[len];
-            for (int i = 0; i < len; i++)
-            {
+            for (int i = 0; i < len; i++) {
                 float s = strength[i];
-                if (s <= 0f) quantized[i] = 0;
-                else if (s >= 1f) quantized[i] = 255;
-                else quantized[i] = (byte)(s * 255f + 0.5f);
+                if (s <= 0f) {
+                    quantized[i] = 0;
+                } else if (s >= 1f) {
+                    quantized[i] = 255;
+                } else {
+                    quantized[i] = (byte)(s * 255f + 0.5f);
+                }
             }
 
             byte[] delta = null;
-            if (_previousStrengthPerZone.TryGetValue(zoneId, out var prev) && prev.Length == len)
-            {
+            if (_previousStrengthPerZone.TryGetValue(zoneId, out var prev) && prev.Length == len) {
                 delta = new byte[len];
-                for (int i = 0; i < len; i++)
-                {
+                for (int i = 0; i < len; i++) {
                     // 符号付き差分を 128 中央の byte として格納する。
                     int d = quantized[i] - prev[i] + 128;
-                    if (d < 0) d = 0;
-                    else if (d > 255) d = 255;
+                    if (d < 0) {
+                        d = 0;
+                    } else if (d > 255) {
+                        d = 255;
+                    }
                     delta[i] = (byte)d;
                 }
             }
 
-            Snapshots.Add(new StageSnapshot
-            {
+            Snapshots.Add(new StageSnapshot {
                 zoneId = zoneId,
                 stageName = stageName,
                 width = width,
@@ -95,36 +93,34 @@ namespace Iroca.DebugTools
             _previousStrengthPerZone[zoneId] = quantized;
         }
 
-        public void RecordDecontamination(string zoneId, bool[] aaMask, int width, int height)
-        {
+        public void RecordDecontamination(string zoneId, bool[] aaMask, int width, int height) {
             // 呼び出し側は aaMask の配列をゾーン間で使い回し(プールから借りて返す)上書きするので、
             // 影響を受けないよう clone して保持する。
             AaMasks[zoneId] = (bool[])aaMask.Clone();
         }
 
-        public void RecordRecolorBranches(string zoneId, byte[] branchMap, int width, int height)
-        {
+        public void RecordRecolorBranches(string zoneId, byte[] branchMap, int width, int height) {
             BranchMaps[zoneId] = (byte[])branchMap.Clone();
         }
 
         /// <summary>キャプチャに登場した zone id の一覧（重複排除）。</summary>
-        public List<string> CollectZoneIds()
-        {
+        public List<string> CollectZoneIds() {
             var seen = new HashSet<string>();
             var result = new List<string>();
-            foreach (var snap in Snapshots)
-            {
-                if (seen.Add(snap.zoneId)) result.Add(snap.zoneId);
+            foreach (var snap in Snapshots) {
+                if (seen.Add(snap.zoneId)) {
+                    result.Add(snap.zoneId);
+                }
             }
             return result;
         }
 
         /// <summary>指定 zone × stage のスナップショットを探す。なければ null。</summary>
-        public StageSnapshot FindSnapshot(string zoneId, string stageName)
-        {
-            foreach (var snap in Snapshots)
-            {
-                if (snap.zoneId == zoneId && snap.stageName == stageName) return snap;
+        public StageSnapshot FindSnapshot(string zoneId, string stageName) {
+            foreach (var snap in Snapshots) {
+                if (snap.zoneId == zoneId && snap.stageName == stageName) {
+                    return snap;
+                }
             }
             return null;
         }

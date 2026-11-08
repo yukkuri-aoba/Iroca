@@ -3,11 +3,9 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>NDMF が、このいろかの非破壊の色替えに使えるか。</summary>
-    internal enum NdmfSupportState
-    {
+    internal enum NdmfSupportState {
         /// <summary>対応する版(asmdef の範囲 [1.8.0,2.0.0-0))が入っている。</summary>
         Supported,
         /// <summary>入っていない。</summary>
@@ -22,8 +20,7 @@ namespace Iroca
     /// NDMF が使えないときの扱い。版の判定は本体 asmdef の versionDefines(IROCA_NDMF_PRESENT・
     /// IROCA_NDMF_TOO_NEW・IROCA_NDMF_INSTALLED)で決まる。範囲を変えるときは asmdef をそろえる。
     /// </summary>
-    internal static class NdmfSupport
-    {
+    internal static class NdmfSupport {
         public static NdmfSupportState State =>
 #if IROCA_NDMF_PRESENT
             NdmfSupportState.Supported;
@@ -40,25 +37,32 @@ namespace Iroca
         /// あるか。レシピが空のコンポーネントは、NDMF があっても何も変えないので数えない。EditorOnly タグの付いた
         /// オブジェクトとその下にあるものも、アップロードされない(VRChat SDK が外す)ので数えない。
         /// </summary>
-        public static bool HasRecolorToApply(GameObject avatar)
-        {
-            if (avatar == null) return false;
-            foreach (var component in avatar.GetComponentsInChildren<IrocaRecolor>(true))
-            {
-                if (component.recipes == null || IsEditorOnly(component.transform, avatar.transform)) continue;
-                foreach (var recipe in component.recipes)
-                    if (recipe != null && recipe.sourceTexture != null) return true;
+        public static bool HasRecolorToApply(GameObject avatar) {
+            if (avatar == null) {
+                return false;
+            }
+            foreach (var component in avatar.GetComponentsInChildren<IrocaRecolor>(true)) {
+                if (component.recipes == null || IsEditorOnly(component.transform, avatar.transform)) {
+                    continue;
+                }
+                foreach (var recipe in component.recipes) {
+                    if (recipe != null && recipe.sourceTexture != null) {
+                        return true;
+                    }
+                }
             }
             return false;
         }
 
         // t か、avatar までのその親に EditorOnly タグが付いているか。
-        private static bool IsEditorOnly(Transform t, Transform avatar)
-        {
-            for (; t != null; t = t.parent)
-            {
-                if (t.CompareTag("EditorOnly")) return true;
-                if (t == avatar) break;
+        private static bool IsEditorOnly(Transform t, Transform avatar) {
+            for (; t != null; t = t.parent) {
+                if (t.CompareTag("EditorOnly")) {
+                    return true;
+                }
+                if (t == avatar) {
+                    break;
+                }
             }
             return false;
         }
@@ -69,10 +73,11 @@ namespace Iroca
         /// 再生(Av3Emulator などが、再生でもアップロードと同じ前処理を呼ぶ)では止めない。元の色で動くだけで、
         /// 理由はインスペクタの警告に出ている。
         /// </summary>
-        public static bool ShouldBlockUpload(GameObject avatar, NdmfSupportState state, bool playMode, out string message)
-        {
+        public static bool ShouldBlockUpload(GameObject avatar, NdmfSupportState state, bool playMode, out string message) {
             message = null;
-            if (state == NdmfSupportState.Supported || playMode || !HasRecolorToApply(avatar)) return false;
+            if (state == NdmfSupportState.Supported || playMode || !HasRecolorToApply(avatar)) {
+                return false;
+            }
             message = Localization.UploadBlocked(state);
             return true;
         }
@@ -87,20 +92,20 @@ namespace Iroca
     /// 確認でエラーにせず、ビルドで外す。ここで止めないと、色替えされないまま黙って上がる。
     /// </para>
     /// </summary>
-    internal sealed class NdmfUploadGuard : VRC.SDKBase.Editor.BuildPipeline.IVRCSDKPreprocessAvatarCallback
-    {
+    internal sealed class NdmfUploadGuard : VRC.SDKBase.Editor.BuildPipeline.IVRCSDKPreprocessAvatarCallback {
         // ほかのツール(NDMF は -11000、VRCFury は -10000)が重い処理を始める前に止める。
         // SDK が IEditorOnly の部品を外す(-1024)より前であること。
         public int callbackOrder => -20000;
 
-        public bool OnPreprocessAvatar(GameObject avatarGameObject)
-        {
+        public bool OnPreprocessAvatar(GameObject avatarGameObject) {
             if (!NdmfSupport.ShouldBlockUpload(avatarGameObject, NdmfSupport.State,
-                    EditorApplication.isPlayingOrWillChangePlaymode, out var message))
+                    EditorApplication.isPlayingOrWillChangePlaymode, out var message)) {
                 return true;
+            }
             Debug.LogError("[Iroca] " + message);
-            if (!Application.isBatchMode)
+            if (!Application.isBatchMode) {
                 EditorUtility.DisplayDialog(Localization.UploadBlockedTitle, message, Localization.OK);
+            }
             return false;
         }
     }

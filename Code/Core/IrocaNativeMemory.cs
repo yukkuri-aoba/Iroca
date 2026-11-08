@@ -6,8 +6,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// いろかが Mono のヒープの外(Marshal.AllocHGlobal)に持つメモリの確保・解放と、その量の数え上げ。
     /// Unity の Mono のヒープ(Boehm)は一度広がると OS へ返らないので、大きくて長く持つ配列はここに置き、
@@ -15,8 +14,7 @@ namespace Iroca
     /// headless ハーネス(.NET 8)でも同じように動く(NativeArray・UnsafeUtility は Unity の中でしか動かない)。
     /// Unity の Profiler には出ないので、量は <see cref="LiveBytes"/> で見る(デバッグ表示と MemoryBench)。
     /// </summary>
-    internal static class IrocaNativeMemory
-    {
+    internal static class IrocaNativeMemory {
         private static long s_liveBytes;
         // 用途(NativeUsage)ごとのいまの量・最大値・ファイナライザで解放した数(取りこぼし)。
         private const int UsageCount = (int)NativeUsage.Other + 1;
@@ -40,10 +38,10 @@ namespace Iroca
         public static int FinalizedCount(NativeUsage usage) => Volatile.Read(ref s_finalizedByUsage[(int)usage]);
 
         /// <summary>最大値をいまの量に戻す(計測の区切り)。</summary>
-        public static void ResetPeaks()
-        {
-            for (int u = 0; u < UsageCount; u++)
+        public static void ResetPeaks() {
+            for (int u = 0; u < UsageCount; u++) {
                 Interlocked.Exchange(ref s_peakByUsage[u], Interlocked.Read(ref s_liveByUsage[u]));
+            }
         }
 
         internal static void NoteFinalized(NativeUsage usage) => Interlocked.Increment(ref s_finalizedByUsage[(int)usage]);
@@ -64,9 +62,10 @@ namespace Iroca
         /// bytes バイトを確保する(中身は不定)。ふつうは <see cref="NativeBuffer"/> を通す(持ち主と後始末の決まりが
         /// そこにある)。usage は数え上げの区分で、<see cref="Free"/> にも同じ値を渡す。
         /// </summary>
-        public static IntPtr Alloc(long bytes, NativeUsage usage)
-        {
-            if (bytes <= 0) throw new ArgumentOutOfRangeException(nameof(bytes));
+        public static IntPtr Alloc(long bytes, NativeUsage usage) {
+            if (bytes <= 0) {
+                throw new ArgumentOutOfRangeException(nameof(bytes));
+            }
             IntPtr p = GuardPages ? GuardedAlloc(bytes) : Marshal.AllocHGlobal(new IntPtr(bytes));
             Interlocked.Add(ref s_liveBytes, bytes);
             long now = Interlocked.Add(ref s_liveByUsage[(int)usage], bytes);
@@ -76,11 +75,15 @@ namespace Iroca
             return p;
         }
 
-        public static void Free(IntPtr p, long bytes, NativeUsage usage)
-        {
-            if (p == IntPtr.Zero) return;
-            if (GuardPages) GuardedFree(p);
-            else Marshal.FreeHGlobal(p);
+        public static void Free(IntPtr p, long bytes, NativeUsage usage) {
+            if (p == IntPtr.Zero) {
+                return;
+            }
+            if (GuardPages) {
+                GuardedFree(p);
+            } else {
+                Marshal.FreeHGlobal(p);
+            }
             Interlocked.Add(ref s_liveBytes, -bytes);
             Interlocked.Add(ref s_liveByUsage[(int)usage], -bytes);
         }
@@ -88,33 +91,33 @@ namespace Iroca
         // ガードページつきで取った領域の先頭 → OS から取った塊の先頭(解放に使う)。
         private static readonly Dictionary<IntPtr, IntPtr> s_guardedBases = new Dictionary<IntPtr, IntPtr>();
 
-        private static IntPtr GuardedAlloc(long bytes)
-        {
+        private static IntPtr GuardedAlloc(long bytes) {
             long page = Environment.SystemPageSize;
             long dataBytes = (bytes + page - 1) / page * page;
             IntPtr block = VirtualAlloc(IntPtr.Zero, new UIntPtr((ulong)(dataBytes + page)), MemCommit | MemReserve, PageReadWrite);
-            if (block == IntPtr.Zero)
+            if (block == IntPtr.Zero) {
                 throw new OutOfMemoryException($"VirtualAlloc に失敗しました（{bytes} バイト、エラー {Marshal.GetLastWin32Error()}）");
+            }
             var guard = new IntPtr(block.ToInt64() + dataBytes);
-            if (!VirtualProtect(guard, new UIntPtr((ulong)page), PageNoAccess, out _))
-            {
+            if (!VirtualProtect(guard, new UIntPtr((ulong)page), PageNoAccess, out _)) {
                 int error = Marshal.GetLastWin32Error();
                 VirtualFree(block, UIntPtr.Zero, MemRelease);
                 throw new InvalidOperationException($"ガードページを作れませんでした（エラー {error}）");
             }
             // 要求長ちょうどで、末尾がガードページの直前に来る位置を返す(寸法が 4 の倍数なら 4 バイト境界にそろう)。
             var p = new IntPtr(guard.ToInt64() - bytes);
-            lock (s_guardedBases) s_guardedBases.Add(p, block);
+            lock (s_guardedBases) {
+                s_guardedBases.Add(p, block);
+            }
             return p;
         }
 
-        private static void GuardedFree(IntPtr p)
-        {
+        private static void GuardedFree(IntPtr p) {
             IntPtr block;
-            lock (s_guardedBases)
-            {
-                if (!s_guardedBases.TryGetValue(p, out block))
+            lock (s_guardedBases) {
+                if (!s_guardedBases.TryGetValue(p, out block)) {
                     throw new InvalidOperationException("IrocaNativeMemory.Alloc が返した領域ではありません（二重の解放か、ずれた番地）");
+                }
                 s_guardedBases.Remove(p);
             }
             VirtualFree(block, UIntPtr.Zero, MemRelease);
@@ -148,17 +151,17 @@ namespace Iroca
     /// 持ち方は <see cref="NativeBuffer"/> と同じ参照の数: 作った側が 1 つ目を持ち、写している間の読み手は
     /// <see cref="AddRef"/> して持ち、<see cref="Release"/> で返す。返し忘れは NativeBuffer のファイナライザが解放する。
     /// </summary>
-    internal sealed unsafe class NativeFloatBuffer : IDisposable
-    {
+    internal sealed unsafe class NativeFloatBuffer : IDisposable {
         private readonly NativeBuffer _mem;
         public int Length { get; }
 
         // 大きい一括コピーは帯に分けて並列にする(4K の 64MB を 1 本で写すと数十 ms かかる)。
         private const int CopyChunk = 1 << 18;
 
-        public NativeFloatBuffer(int length)
-        {
-            if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length));
+        public NativeFloatBuffer(int length) {
+            if (length <= 0) {
+                throw new ArgumentOutOfRangeException(nameof(length));
+            }
             Length = length;
             _mem = new NativeBuffer((long)length * sizeof(float), NativeUsage.Selection);
         }
@@ -167,8 +170,7 @@ namespace Iroca
         public int RefCount => _mem.RefCount;
 
         /// <summary>参照を 1 つ足す(解放済みなら投げる)。</summary>
-        public NativeFloatBuffer AddRef()
-        {
+        public NativeFloatBuffer AddRef() {
             _mem.AddRef();
             return this;
         }
@@ -179,16 +181,22 @@ namespace Iroca
         /// <summary>持ち主が 1 つのときの後始末(<see cref="Release"/> と同じ)。</summary>
         public void Dispose() => Release();
 
-        public void CopyFrom(float[] src, int count)
-        {
-            if (count > src.Length) throw new ArgumentOutOfRangeException(nameof(count));
-            fixed (float* p = src) Copy(p, count, toNative: true);
+        public void CopyFrom(float[] src, int count) {
+            if (count > src.Length) {
+                throw new ArgumentOutOfRangeException(nameof(count));
+            }
+            fixed (float* p = src) {
+                Copy(p, count, toNative: true);
+            }
         }
 
-        public void CopyTo(float[] dst, int count)
-        {
-            if (count > dst.Length) throw new ArgumentOutOfRangeException(nameof(count));
-            fixed (float* p = dst) Copy(p, count, toNative: false);
+        public void CopyTo(float[] dst, int count) {
+            if (count > dst.Length) {
+                throw new ArgumentOutOfRangeException(nameof(count));
+            }
+            fixed (float* p = dst) {
+                Copy(p, count, toNative: false);
+            }
         }
 
         // 長さ count 以上の領域との出し入れ(作業配列のプールが貸すポインタ)。
@@ -197,31 +205,40 @@ namespace Iroca
         public void CopyTo(float* dst, int count) => Copy(dst, count, toNative: false);
 
         // 少数の画素だけを読む(右クリックの宛先を決める 5×5 画素など)。範囲外は例外。
-        public void ReadAt(int[] indices, float[] dst)
-        {
+        public void ReadAt(int[] indices, float[] dst) {
             float* mine = (float*)_mem.Ptr;
-            if (mine == null) throw new ObjectDisposedException(nameof(NativeFloatBuffer));
-            if (dst.Length < indices.Length) throw new ArgumentOutOfRangeException(nameof(dst));
-            for (int i = 0; i < indices.Length; i++)
-            {
+            if (mine == null) {
+                throw new ObjectDisposedException(nameof(NativeFloatBuffer));
+            }
+            if (dst.Length < indices.Length) {
+                throw new ArgumentOutOfRangeException(nameof(dst));
+            }
+            for (int i = 0; i < indices.Length; i++) {
                 int k = indices[i];
-                if ((uint)k >= (uint)Length) throw new ArgumentOutOfRangeException(nameof(indices));
+                if ((uint)k >= (uint)Length) {
+                    throw new ArgumentOutOfRangeException(nameof(indices));
+                }
                 dst[i] = mine[k];
             }
         }
 
-        private void Copy(float* other, int count, bool toNative)
-        {
+        private void Copy(float* other, int count, bool toNative) {
             float* mine = (float*)_mem.Ptr;
-            if (mine == null) throw new ObjectDisposedException(nameof(NativeFloatBuffer));
-            if (count < 0 || count > Length) throw new ArgumentOutOfRangeException(nameof(count));
+            if (mine == null) {
+                throw new ObjectDisposedException(nameof(NativeFloatBuffer));
+            }
+            if (count < 0 || count > Length) {
+                throw new ArgumentOutOfRangeException(nameof(count));
+            }
             int chunks = (count + CopyChunk - 1) / CopyChunk;
-            Parallel.For(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() }, c =>
-            {
+            Parallel.For(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() }, c => {
                 int s0 = c * CopyChunk;
                 long bytes = (long)Math.Min(CopyChunk, count - s0) * sizeof(float);
-                if (toNative) Buffer.MemoryCopy(other + s0, mine + s0, bytes, bytes);
-                else Buffer.MemoryCopy(mine + s0, other + s0, bytes, bytes);
+                if (toNative) {
+                    Buffer.MemoryCopy(other + s0, mine + s0, bytes, bytes);
+                } else {
+                    Buffer.MemoryCopy(mine + s0, other + s0, bytes, bytes);
+                }
             });
         }
 

@@ -3,10 +3,8 @@
 using System.IO;
 using UnityEngine;
 
-namespace Iroca
-{
-    public partial class IrocaWindow
-    {
+namespace Iroca {
+    public partial class IrocaWindow {
         // 編集状態の持ち主(ゾーン・設定・テクスチャ・レシピ)。Undo の対象もこれ(IrocaEditingDocument の説明)。
         [SerializeField] private IrocaEditingDocument _document;
 
@@ -18,24 +16,21 @@ namespace Iroca
         [SerializeField] private IrocaRecipe _boundRecipe;
 
         // 編集中の文書の中身。閉じた後は作り直さない(閉じた後に走る処理が、読むだけで文書を作らないように)。
-        private IrocaEditingDocument Doc
-        {
-            get
-            {
-                if (_document == null && this != null)
-                {
+        private IrocaEditingDocument Doc {
+            get {
+                if (_document == null && this != null) {
                     _document = IrocaEditingDocument.Create(_session, sourceTexture, _boundRecipe);
-                    if (_editing != null) _editing.Document = _document;
+                    if (_editing != null) {
+                        _editing.Document = _document;
+                    }
                 }
                 return _document;
             }
         }
 
-        internal Texture2D SourceTexture
-        {
+        internal Texture2D SourceTexture {
             get => Doc.sourceTexture;
-            set
-            {
+            set {
                 Doc.sourceTexture = value;
                 _editedTexture = value;
             }
@@ -53,30 +48,30 @@ namespace Iroca
         // レシピを上書きする)。ドメインリロードの後の Undo でも見るので直列化する(文書でなく窓にあるので Undo では戻らない)。
         [SerializeField] private IrocaRecipe _recipeKeptOverUndo;
 
-        private void BindRecipe(IrocaRecipe recipe)
-        {
+        private void BindRecipe(IrocaRecipe recipe) {
             Doc.boundRecipe = recipe;
             _editedRecipe = recipe;
-            if (recipe != null) SessionPersistence.RememberBoundRecipe(SourceTexture, recipe);
+            if (recipe != null) {
+                SessionPersistence.RememberBoundRecipe(SourceTexture, recipe);
+            }
         }
 
-        private void RememberEditedTarget()
-        {
+        private void RememberEditedTarget() {
             _editedTexture = Doc.sourceTexture;
             _editedRecipe = Doc.boundRecipe;
         }
 
         // ドメインリロードで控えに残った複製を手放す(次の保存の直前に指し直す)。0.3.x の控えにはマスクの文字列が入っているが、
         // マスクはこの後ファイルから読むので、文書には持たない。
-        private void AdoptDocumentAfterEnable()
-        {
+        private void AdoptDocumentAfterEnable() {
             _session = Doc.session;
             _session.maskState = new MaskState();
         }
 
-        private void ReleaseDocument()
-        {
-            if (_document == null) return;
+        private void ReleaseDocument() {
+            if (_document == null) {
+                return;
+            }
             UnityEditor.Undo.ClearUndo(_document);
             DestroyImmediate(_document);
         }
@@ -88,39 +83,39 @@ namespace Iroca
         private string MaskHistorySpillPath =>
             Path.Combine(Path.GetDirectoryName(Application.dataPath), "Library", "Iroca", "MaskHistory", GetInstanceID() + ".bin");
 
-        private void SpillMaskHistoryBeforeReload()
-        {
-            if (_editing == null) return;
+        private void SpillMaskHistoryBeforeReload() {
+            if (_editing == null) {
+                return;
+            }
             string path = MaskHistorySpillPath;
-            try { _editing.MaskHistory.SaveTo(path); }
-            catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException)
-            {
+            try { _editing.MaskHistory.SaveTo(path); } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) {
                 Debug.LogWarning($"[Iroca] Mask undo history could not be kept across the reload: {e.Message}");
                 DeleteSpill(path);
             }
         }
 
         // 退避のファイルは読んだら消す。エディタの起動後の最初の有効化なら、落ちたときの残りなので読まない。
-        private void RestoreMaskHistoryAfterReload(bool firstSinceEditorStart)
-        {
+        private void RestoreMaskHistoryAfterReload(bool firstSinceEditorStart) {
             string path = MaskHistorySpillPath;
-            if (!File.Exists(path)) return;
-            if (!firstSinceEditorStart && !Editing.MaskHistory.LoadFrom(path))
+            if (!File.Exists(path)) {
+                return;
+            }
+            if (!firstSinceEditorStart && !Editing.MaskHistory.LoadFrom(path)) {
                 Debug.LogWarning("[Iroca] Mask undo history from before the reload could not be read.");
+            }
             DeleteSpill(path);
         }
 
-        private static void DeleteSpill(string path)
-        {
-            try { File.Delete(path); }
-            catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) { }
+        private static void DeleteSpill(string path) {
+            try { File.Delete(path); } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) { }
         }
 
         // 読み込みスレッドから呼ばれることがあるので Unity の API を使わない(参照を指し直すだけ。文書が破棄された後でも読める)。
-        void ISerializationCallbackReceiver.OnBeforeSerialize()
-        {
+        void ISerializationCallbackReceiver.OnBeforeSerialize() {
             var doc = _document;
-            if (ReferenceEquals(doc, null)) return;
+            if (ReferenceEquals(doc, null)) {
+                return;
+            }
             sourceTexture = doc.sourceTexture;
             _session = doc.session;
             _boundRecipe = doc.boundRecipe;

@@ -7,21 +7,17 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace Iroca.EditorTests
-{
+namespace Iroca.EditorTests {
     /// <summary>
     /// セッション・マスク・プリセットの保存と復元。どれもユーザーの手作業（ゾーン設定・手描きマスク）を
     /// 預かるので、「保存したものが戻る」「読めないファイルを空保存で消さない」「一時的に GUID が
     /// 引けないだけのファイルを消さない」を実機（AssetDatabase 込み）で検査する。
     /// </summary>
-    public class PersistenceTests
-    {
+    public class PersistenceTests {
         // 1 つのファイルに複数のテクスチャがあっても、編集内容のファイルは分ける。
         [Test]
-        public void TexturesInOneAsset_DoNotShareTheirEdits()
-        {
-            using (var assets = TestAssets.Create())
-            {
+        public void TexturesInOneAsset_DoNotShareTheirEdits() {
+            using (var assets = TestAssets.Create()) {
                 string path = assets.Folder + "/two-textures.asset";
                 var main = new Texture2D(2, 2);
                 var sub = new Texture2D(2, 2) { name = "sub" };
@@ -29,8 +25,7 @@ namespace Iroca.EditorTests
                 AssetDatabase.AddObjectToAsset(sub, path);
                 AssetDatabase.SaveAssets();
                 string guid = AssetDatabase.AssetPathToGUID(path);
-                try
-                {
+                try {
                     var a = new IrocaSessionState();
                     a.zones.Add(new ColorZone { name = "本体" });
                     var b = new IrocaSessionState();
@@ -44,10 +39,10 @@ namespace Iroca.EditorTests
                     // 消したら両方退避する。
                     SessionFileStore.RetireSessionByGuid(guid);
                     Assert.AreEqual(2, Directory.GetFiles(SessionFileStore.CacheDir, guid + "*.orphan").Length);
-                }
-                finally
-                {
-                    foreach (var f in Directory.GetFiles(SessionFileStore.CacheDir, guid + "*")) File.Delete(f);
+                } finally {
+                    foreach (var f in Directory.GetFiles(SessionFileStore.CacheDir, guid + "*")) {
+                        File.Delete(f);
+                    }
                 }
             }
         }
@@ -57,8 +52,7 @@ namespace Iroca.EditorTests
         private string _guid;
 
         [SetUp]
-        public void SetUp()
-        {
+        public void SetUp() {
             _assets = TestAssets.Create();
             _tex = _assets.WritePng("tex", TestAssets.Solid(4, 4, new Color32(200, 50, 50, 255)), 4, 4);
             _guid = AssetDatabase.AssetPathToGUID(_tex);
@@ -66,12 +60,14 @@ namespace Iroca.EditorTests
         }
 
         [TearDown]
-        public void TearDown()
-        {
-            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
-            {
-                if (!Directory.Exists(dir)) continue;
-                foreach (var f in Directory.GetFiles(dir, _guid + "*")) File.Delete(f);
+        public void TearDown() {
+            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                if (!Directory.Exists(dir)) {
+                    continue;
+                }
+                foreach (var f in Directory.GetFiles(dir, _guid + "*")) {
+                    File.Delete(f);
+                }
             }
             _assets.Dispose();
         }
@@ -79,8 +75,7 @@ namespace Iroca.EditorTests
         private string SessionPath => Path.Combine(SessionFileStore.CacheDir, _guid + ".iroca-session.json");
         private string MaskPath => Path.Combine(MaskFileStore.CacheDir, _guid + ".iroca-mask.json");
 
-        private static IrocaSessionState SampleSession()
-        {
+        private static IrocaSessionState SampleSession() {
             var s = IrocaSessionState.CreateDefault();
             var z = new ColorZone { name = "服", tolerance = 0.3f, sampleColor = new Color(0.8f, 0.2f, 0.2f), targetColor = Color.blue };
             z.EnsureId();
@@ -92,8 +87,7 @@ namespace Iroca.EditorTests
         // ─── セッション ───
 
         [Test]
-        public void Session_RoundTrip()
-        {
+        public void Session_RoundTrip() {
             var s = SampleSession();
             Assert.IsTrue(SessionFileStore.SaveSession(_tex, s));
             var loaded = SessionFileStore.LoadSession(_tex, out bool unreadable);
@@ -107,8 +101,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Session_DoesNotDuplicateMask()
-        {
+        public void Session_DoesNotDuplicateMask() {
             // マスクは MaskFileStore が唯一の正。セッション側に巨大な base64 を二重に書かない。
             var s = SampleSession();
             s.maskState.width = 4; s.maskState.height = 4; s.maskState.commonMaskBase64 = "AAAA";
@@ -118,8 +111,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Session_EmptySaveDeletesFile()
-        {
+        public void Session_EmptySaveDeletesFile() {
             Assert.IsTrue(SessionFileStore.SaveSession(_tex, SampleSession()));
             Assert.IsTrue(File.Exists(SessionPath));
             Assert.IsTrue(SessionFileStore.SaveSession(_tex, IrocaSessionState.CreateDefault()));
@@ -127,8 +119,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Session_UnreadableFileSurvivesEmptySave()
-        {
+        public void Session_UnreadableFileSurvivesEmptySave() {
             Directory.CreateDirectory(SessionFileStore.CacheDir);
             File.WriteAllText(SessionPath, "{ this is not json");
             LogAssertIgnore();
@@ -147,15 +138,13 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Session_OrphanLifecycle()
-        {
+        public void Session_OrphanLifecycle() {
             Directory.CreateDirectory(SessionFileStore.CacheDir);
             string unknown = Guid.NewGuid().ToString("N");
             string unknownPath = Path.Combine(SessionFileStore.CacheDir, unknown + ".iroca-session.json");
             string expiredOrphan = Path.Combine(SessionFileStore.CacheDir, Guid.NewGuid().ToString("N") + ".iroca-session.json.orphan");
             string ownOrphan = SessionPath + ".orphan";
-            try
-            {
+            try {
                 File.WriteAllText(unknownPath, "{}");
                 File.WriteAllText(expiredOrphan, "{}");
                 File.SetLastWriteTimeUtc(expiredOrphan, DateTime.UtcNow.AddDays(-31));
@@ -172,18 +161,18 @@ namespace Iroca.EditorTests
                 // 退避直後（猶予内）はもう一度掃除しても消えない。
                 SessionFileStore.CleanupOrphans();
                 Assert.IsTrue(File.Exists(unknownPath + ".orphan"));
-            }
-            finally
-            {
-                foreach (var f in new[] { unknownPath, unknownPath + ".orphan", expiredOrphan })
-                    if (File.Exists(f)) File.Delete(f);
+            } finally {
+                foreach (var f in new[] { unknownPath, unknownPath + ".orphan", expiredOrphan }) {
+                    if (File.Exists(f)) {
+                        File.Delete(f);
+                    }
+                }
             }
         }
 
         // ─── マスク ───
 
-        private static MaskState SampleMask()
-        {
+        private static MaskState SampleMask() {
             var m = new MaskState { width = 4, height = 4, commonMaskBase64 = "AQID" };
             m.zones.Add(new MaskZoneEntry { zoneId = "z1", maskBase64 = "BAUG" });
             m.zoneIncludes.Add(new MaskZoneEntry { zoneId = "z1", maskBase64 = "BwgJ" });
@@ -191,8 +180,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Mask_RoundTripWithSchemaVersion()
-        {
+        public void Mask_RoundTripWithSchemaVersion() {
             Assert.IsTrue(MaskFileStore.SaveMask(_tex, SampleMask()));
             var loaded = MaskFileStore.LoadMask(_tex, out bool unreadable);
             Assert.IsFalse(unreadable);
@@ -203,8 +191,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Mask_EmptyJsonIsUnreadableNotMissing()
-        {
+        public void Mask_EmptyJsonIsUnreadableNotMissing() {
             // JsonUtility は空文字や "null" を例外なしで null にする。「マスク無し」と誤認すると
             // 読込失敗時の保護が効かず、空マスクで上書き＝手描きマスクの恒久喪失になる。
             Directory.CreateDirectory(MaskFileStore.CacheDir);
@@ -217,16 +204,14 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Mask_OrphanLifecycle()
-        {
+        public void Mask_OrphanLifecycle() {
             // Session_OrphanLifecycle と同じ規則。処理は GuidFileCache を共有するが、フォルダと拡張子の配線はストアごとなので別に固定する。
             Directory.CreateDirectory(MaskFileStore.CacheDir);
             string unknown = Guid.NewGuid().ToString("N");
             string unknownPath = Path.Combine(MaskFileStore.CacheDir, unknown + ".iroca-mask.json");
             string expiredOrphan = Path.Combine(MaskFileStore.CacheDir, Guid.NewGuid().ToString("N") + ".iroca-mask.json.orphan");
             string ownOrphan = MaskPath + ".orphan";
-            try
-            {
+            try {
                 File.WriteAllText(unknownPath, "{}");
                 File.WriteAllText(expiredOrphan, "{}");
                 File.SetLastWriteTimeUtc(expiredOrphan, DateTime.UtcNow.AddDays(-31));
@@ -243,19 +228,19 @@ namespace Iroca.EditorTests
                 // 退避直後（猶予内）はもう一度掃除しても消えない。
                 MaskFileStore.CleanupOrphans();
                 Assert.IsTrue(File.Exists(unknownPath + ".orphan"));
-            }
-            finally
-            {
-                foreach (var f in new[] { unknownPath, unknownPath + ".orphan", expiredOrphan })
-                    if (File.Exists(f)) File.Delete(f);
+            } finally {
+                foreach (var f in new[] { unknownPath, unknownPath + ".orphan", expiredOrphan }) {
+                    if (File.Exists(f)) {
+                        File.Delete(f);
+                    }
+                }
             }
         }
 
         // 窓を開いたときの掃除の後で GUID が引けるようになったテクスチャでも、退避されたファイルを読む
         // (読まないと空で始まり、次の掃除で退避が消えて以前の編集を失っていた)。
         [Test]
-        public void OrphanedFiles_AreRestoredWhenTheTextureIsLoaded()
-        {
+        public void OrphanedFiles_AreRestoredWhenTheTextureIsLoaded() {
             string tex = _assets.WritePng("orphan", TestAssets.Solid(4, 4, new Color32(1, 2, 3, 255)), 4, 4);
             string guid = AssetDatabase.AssetPathToGUID(tex);
             var state = IrocaSessionState.CreateDefault();
@@ -263,31 +248,31 @@ namespace Iroca.EditorTests
             Assert.IsTrue(SessionFileStore.SaveSession(tex, state));
             var masks = new MaskState { width = 4, height = 4, commonMaskBase64 = MaskRle.Encode(new bool[16], 4, 4) };
             Assert.IsTrue(MaskFileStore.SaveMask(tex, masks));
-            try
-            {
-                foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
-                    foreach (var f in Directory.GetFiles(dir, guid + "*"))
+            try {
+                foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                    foreach (var f in Directory.GetFiles(dir, guid + "*")) {
                         File.Move(f, f + ".orphan");
+                    }
+                }
 
                 var loaded = SessionFileStore.LoadSession(tex, out bool unreadable);
                 Assert.IsFalse(unreadable);
                 Assert.IsNotNull(loaded, "退避されたセッションを読んでいない");
                 Assert.AreEqual("退避された編集", loaded.zones[0].name);
                 Assert.IsNotNull(MaskFileStore.LoadMask(tex, out _), "退避されたマスクを読んでいない");
-            }
-            finally
-            {
-                foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
-                    foreach (var f in Directory.GetFiles(dir, guid + "*"))
+            } finally {
+                foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                    foreach (var f in Directory.GetFiles(dir, guid + "*")) {
                         File.Delete(f);
+                    }
+                }
             }
         }
 
         // ─── プリセット ───
 
         [Test]
-        public void Preset_RoundTripStampsSchema()
-        {
+        public void Preset_RoundTripStampsSchema() {
             string dir = TestAssets.Abs(_assets.Folder);
             string path = PresetStore.PresetFilePath(dir, "テスト");
             var data = new IrocaPresetData { name = "テスト" };
@@ -300,8 +285,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Preset_OutOfRangeRadiusIsClampedOnLoad()
-        {
+        public void Preset_OutOfRangeRadiusIsClampedOnLoad() {
             // プリセットは手で書かれ得る。UI と MCP のどちらから読んでもスライダー範囲へ丸まること。
             var data = new IrocaPresetData { decontaminationRadius = 50 };
             Assert.AreEqual(RecolorSettings.MaxDecontaminationRadius, RecolorSettings.From(data).decontaminationRadius);
@@ -310,8 +294,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Preset_FileNameIsSanitized()
-        {
+        public void Preset_FileNameIsSanitized() {
             string dir = TestAssets.Abs(_assets.Folder);
             Assert.AreEqual(Path.Combine(dir, "_CON.json"), PresetStore.PresetFilePath(dir, "CON"));
             Assert.AreEqual(Path.Combine(dir, ".._evil.json"), PresetStore.PresetFilePath(dir, "../evil"));
@@ -322,8 +305,7 @@ namespace Iroca.EditorTests
             => Assert.IsEmpty(PresetStore.ListJson(Path.Combine(TestAssets.Abs(_assets.Folder), "none")));
 
         [Test]
-        public void Preset_BrokenFileLoadsAsNull()
-        {
+        public void Preset_BrokenFileLoadsAsNull() {
             string path = Path.Combine(TestAssets.Abs(_assets.Folder), "broken.json");
             File.WriteAllText(path, "{ broken");
             LogAssertIgnore();
@@ -332,8 +314,7 @@ namespace Iroca.EditorTests
 
         // プリセットでない JSON を読むと、JsonUtility は既定値のまま返すので、全ゾーンが空で置き換わっていた。
         [Test]
-        public void Preset_OtherJsonLoadsAsNull_ButAPresetWithoutZonesLoads()
-        {
+        public void Preset_OtherJsonLoadsAsNull_ButAPresetWithoutZonesLoads() {
             string path = Path.Combine(TestAssets.Abs(_assets.Folder), "other.json");
             File.WriteAllText(path, "{\"version\":1,\"dependencies\":{}}");
             LogAssertIgnore();
@@ -346,18 +327,17 @@ namespace Iroca.EditorTests
         }
 
         // マスク画面に層を置く(寸法 w×h。各層は (ゾーン id, 含めるか, 画素))。使い終えたら Workspace.Clear() で返す。
-        private static MaskPaintView MaskViewWith(int w, int h, params (string zoneId, bool include, bool[] mask)[] layers)
-        {
+        private static MaskPaintView MaskViewWith(int w, int h, params (string zoneId, bool include, bool[] mask)[] layers) {
             var view = new MaskPaintView();
             view.Workspace.Reset(w, h);
-            foreach (var (zoneId, include, mask) in layers)
+            foreach (var (zoneId, include, mask) in layers) {
                 view.Workspace.SetLayer(include, zoneId, NativeBitMask.FromBools(mask, w, h));
+            }
             return view;
         }
 
         [Test]
-        public void Preset_MaskViewWritesExcludeAndIncludeEntries()
-        {
+        public void Preset_MaskViewWritesExcludeAndIncludeEntries() {
             // マスク画面からプリセットへの書き出し。除外（zoneMasks）と含める（zoneIncludeMasks）を
             // 取り違えないこと、全 false のマスクは書かないこと。_host は使わない経路なのでホスト無しで呼べる。
             var exclude = new bool[8]; exclude[1] = true;
@@ -388,8 +368,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void Preset_MaskViewWritesSizeOnlyWithSomeMask()
-        {
+        public void Preset_MaskViewWritesSizeOnlyWithSomeMask() {
             // 含めるマスクだけでも寸法は載る。何も書かなければ寸法も書かない（0 のまま）。
             var include = new bool[8]; include[0] = true;
             var includeOnly = MaskViewWith(4, 2, ("z1", true, include));

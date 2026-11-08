@@ -3,8 +3,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// AI マスク提案の入力→反映を仲介するコントローラ。
     ///
@@ -21,15 +20,13 @@ namespace Iroca
     /// サービス(Sentis 側)へ求めるのも、提案を受け取るのも <see cref="AiSuggestBroker"/> を通す(待ち行列の持ち主は
     /// そこだけ。自動調整の証拠も同じ待ち行列に並ぶ)。Sentis 不在時はインスタンスも作られない(MaskSuggestSection 参照)。
     /// </summary>
-    internal sealed class MaskSuggestController
-    {
+    internal sealed class MaskSuggestController {
         IrocaWindow _host;
         MaskPaintView _maskView;
         bool _subscribed;
 
         // 反映待ちのクリック 1 件(受理した時刻は E2E 計測用、宛先はメニューで選んだ時点の対象ゾーン × 操作)。
-        sealed class PendingClick
-        {
+        sealed class PendingClick {
             public Vector2 uv;
             public long at;
             public MaskPaintView.MaskDestination dest;
@@ -61,12 +58,10 @@ namespace Iroca
         /// </summary>
         public bool LastProposalEmpty { get; private set; }
 
-        public void Initialize(IrocaWindow host, MaskPaintView maskView)
-        {
+        public void Initialize(IrocaWindow host, MaskPaintView maskView) {
             _host = host;
             _maskView = maskView;
-            if (!_subscribed)
-            {
+            if (!_subscribed) {
                 AiSuggestBroker.StateChanged += OnServiceStateChanged;
                 AiSuggestBroker.EnsureSubscribed();
                 _subscribed = true;
@@ -78,9 +73,10 @@ namespace Iroca
         /// 購読は静的(<see cref="AiSuggestBroker.StateChanged"/>)なので、外さないと閉じたウィンドウの
         /// コントローラがイベント経由で生き続ける。
         /// </summary>
-        public void Shutdown()
-        {
-            if (_subscribed) AiSuggestBroker.StateChanged -= OnServiceStateChanged;
+        public void Shutdown() {
+            if (_subscribed) {
+                AiSuggestBroker.StateChanged -= OnServiceStateChanged;
+            }
             _subscribed = false;
             OnSourceChangedOrClosing();
         }
@@ -89,17 +85,17 @@ namespace Iroca
         /// 処理待ちの提案を取り消す(Esc)。進行中の 1 件はサービス側が完走後に捨てる。
         /// 戻り値 true = 取り消すものがあった。
         /// </summary>
-        public bool CancelPending()
-        {
-            if (_pending.Count == 0) return false;
+        public bool CancelPending() {
+            if (_pending.Count == 0) {
+                return false;
+            }
             ClearQueues();
             _host?.RequestRepaint();
             return true;
         }
 
         // 待ちの要求を取り消し、手元の列を空にする。
-        void ClearQueues()
-        {
+        void ClearQueues() {
             AiSuggestBroker.Cancel(this);
             _pending.Clear();
             _pendingClicks.Clear();
@@ -113,8 +109,7 @@ namespace Iroca
         /// 右クリックメニューを開いた時点(PreviewView.ShowPreviewContextMenu)で走らせて進捗を出す。
         /// メニューを開くたびに呼ばれるが、同一ソースならサービス側で no-op になる。
         /// </summary>
-        public void PrepareSource(NativePixels pixelsBottomUp, string sourceKey)
-        {
+        public void PrepareSource(NativePixels pixelsBottomUp, string sourceKey) {
             // 待機中だけ先行させる。モデルのロードは同期で重いのでここでは開始せず(それはメニュー
             // 項目を選んだときの RequestProposal の仕事)、エラー中も再試行しない(原因が直らないまま
             // メニューを開くたびに走る。復帰はメニューから選び直す = RequestProposal が止めてやり直す)。
@@ -130,16 +125,14 @@ namespace Iroca
         /// </summary>
         public bool RequestProposal(float u, float v, MaskPaintView.MaskDestination dest,
                                     NativePixels pixelsBottomUp, string sourceKey,
-                                    MaskSuggestGranularity? granularity = null)
-        {
+                                    MaskSuggestGranularity? granularity = null) {
             var click = new PendingClick { uv = new Vector2(u, v), at = MaskSuggestPerf.Now, dest = dest };
             // 手元の列には先に積む(受理されなかったら外す)。結果が null(取り消し・破棄・エラー)なら
             // マーカーだけ消す。残ると「処理中」に見え続ける。
             _pending.Add(click);
             _pendingClicks.Add(click.uv);
             if (!AiSuggestBroker.Enqueue(this, sourceKey, pixelsBottomUp, u, v, granularity ?? Granularity,
-                    proposal => OnProposal(click, proposal)))
-            {
+                    proposal => OnProposal(click, proposal))) {
                 RemovePending(click);
                 return false;
             }
@@ -147,32 +140,36 @@ namespace Iroca
             return true;
         }
 
-        void OnProposal(PendingClick click, MaskSuggestProposal proposal)
-        {
+        void OnProposal(PendingClick click, MaskSuggestProposal proposal) {
             // 取り消し後(手元の列から外した後)に届いたものは反映しない。
-            if (!RemovePending(click)) return;
+            if (!RemovePending(click)) {
+                return;
+            }
             // 破棄済みウィンドウ(fake-null)には触れない。Unity の破棄済みオブジェクトは参照自体は非 null のため
             // `?.` をすり抜けるので、判定には Unity がオーバーロードした `==` を使うこと。
-            if (_host == null) return;
-            if (proposal != null) CommitProposalToMask(proposal, click.dest, click.at);
+            if (_host == null) {
+                return;
+            }
+            if (proposal != null) {
+                CommitProposalToMask(proposal, click.dest, click.at);
+            }
             _host.RequestRepaint();
         }
 
-        bool RemovePending(PendingClick click)
-        {
+        bool RemovePending(PendingClick click) {
             int i = _pending.IndexOf(click);
-            if (i < 0) return false;
+            if (i < 0) {
+                return false;
+            }
             _pending.RemoveAt(i);
             _pendingClicks.RemoveAt(i);
             return true;
         }
 
         // サービスの状態の変化(読み込み・埋め込みの計算の進み)を描き直す。
-        void OnServiceStateChanged()
-        {
+        void OnServiceStateChanged() {
             // 破棄済みウィンドウに紐づく購読者(= Shutdown を取りこぼした残骸)は自己解除する。
-            if (_host == null)
-            {
+            if (_host == null) {
                 AiSuggestBroker.StateChanged -= OnServiceStateChanged;
                 _subscribed = false;
                 return;
@@ -186,35 +183,41 @@ namespace Iroca
         /// 反映後は通常のマスクとしてブラシ修正・Ctrl+Z(1 ストローク扱い)が効く。
         /// </summary>
         unsafe void CommitProposalToMask(MaskSuggestProposal proposal, MaskPaintView.MaskDestination dest,
-                                         long clickStartedAt = 0)
-        {
+                                         long clickStartedAt = 0) {
             // 反映できなかったときは黙って戻らず「空だった」と UI に出す。画面上は
             // どのルートも「クリックしたのに何も起きない」に見えてしまうため。
             LastProposalEmpty = true;
             LastCommitEmpty = true;
-            if (_maskView == null) return;
+            if (_maskView == null) {
+                return;
+            }
             var src = proposal.mask;
             int sw = proposal.width, sh = proposal.height;
-            if (src == null || sw <= 0 || sh <= 0 || src.Width != sw || src.Height != sh) return;
+            if (src == null || sw <= 0 || sh <= 0 || src.Width != sw || src.Height != sh) {
+                return;
+            }
 
             _maskView.EnsureMasks();
             int mw = _maskView.maskWidth, mh = _maskView.maskHeight;
-            if (mw <= 0 || mh <= 0) return;
+            if (mw <= 0 || mh <= 0) {
+                return;
+            }
 
             long tCommit = MaskSuggestPerf.Now;
             double applyMs;
             long t;
             // 範囲はマスクの寸法(ヒープの外)。提案のまま使うときは提案のもの、転写したときは自分で作って手放す。
             NativeBools region = ProposalMaskRegion.ToMaskSize(src, mw, mh, _host?.SourceTexture, out bool ownRegion, out var timing);
-            try
-            {
+            try {
                 // 提案が空か(推論が領域を返していない)。要るのは空かどうかだけなので、全画素を数えずに最初の 1 画素で止める
                 // (以前は CountTrue でメインスレッドが 4K で 1600 万画素を毎回数えていた)。
                 bool proposedAny = AnyTrue(region);
                 LastClickFloodWarning = proposal.floodWarning;
                 LastProposalEmpty = !proposedAny;
                 // 空の提案で「この部分だけ」を当てると全体が除外になるので、当てずに止める。
-                if (!proposedAny) return;
+                if (!proposedAny) {
+                    return;
+                }
 
                 t = MaskSuggestPerf.Now;
                 bool ok = false;
@@ -227,33 +230,42 @@ namespace Iroca
                 // 何をしたか(と、指示どおりに塗られない理由)を知らせる。結果は推論待ちの後に届くので、
                 // 黙っていると右クリックの操作と結び付かない。
                 _host?.ShowNotification(new GUIContent(_maskView.DescribeRegionEdit(dest, ok, result)));
-                if (MaskSuggestPerf.Enabled)
+                if (MaskSuggestPerf.Enabled) {
                     MaskSuggestPerf.Log(
                         $"コミット: 転写 {timing.transferMs:F0}ms / GetPixels32 {timing.getPixelsMs:F0}ms / AA包含 {timing.aaMs:F0}ms" +
                         $" / 反映(Undo 込み) {applyMs:F0}ms / 合計 {MaskSuggestPerf.MsSince(tCommit):F0}ms");
-                if (clickStartedAt != 0)
+                }
+                if (clickStartedAt != 0) {
                     MaskSuggestPerf.Log($"クリック→コミット完了 {MaskSuggestPerf.MsSince(clickStartedAt):F0}ms");
+                }
                 // プロキシ段なしの再生成: 確定表示中のプレビューが低解像度へ一瞬戻る「ちらつき」を
                 // 防ぐ(キューで連続コミットすると毎回プロキシが挟まり点滅に見える)。
-                if (clickStartedAt != 0) MaskSuggestPerf.ArmE2EWatch(clickStartedAt);
+                if (clickStartedAt != 0) {
+                    MaskSuggestPerf.ArmE2EWatch(clickStartedAt);
+                }
                 _host?.NotifyMasksEditedFullRefine();
                 _host?.RequestRepaint();
-            }
-            finally
-            {
-                if (ownRegion) region.Release();
+            } finally {
+                if (ownRegion) {
+                    region.Release();
+                }
             }
         }
 
         // 1 画素でも入っているか。8 画素(バイト)ずつ見て、最初に見つかったところで止める。
-        private static unsafe bool AnyTrue(NativeBools m)
-        {
+        private static unsafe bool AnyTrue(NativeBools m) {
             byte* p = (byte*)m.Ptr;
             long len = m.Length, i = 0;
-            for (; i + 8 <= len; i += 8)
-                if (*(ulong*)(p + i) != 0UL) return true;
-            for (; i < len; i++)
-                if (p[i] != 0) return true;
+            for (; i + 8 <= len; i += 8) {
+                if (*(ulong*)(p + i) != 0UL) {
+                    return true;
+                }
+            }
+            for (; i < len; i++) {
+                if (p[i] != 0) {
+                    return true;
+                }
+            }
             return false;
         }
 
@@ -261,17 +273,17 @@ namespace Iroca
         /// Unity Undo/Redo 実行時: ユーザーは巻き戻し中なので、処理待ち・処理中のクリックを
         /// まとめて破棄する(進行中の 1 件は完走後にサービス側が提案を捨てる)。
         /// </summary>
-        public void OnUndoRedoPerformed()
-        {
-            if (_pending.Count > 0) ClearQueues();
+        public void OnUndoRedoPerformed() {
+            if (_pending.Count > 0) {
+                ClearQueues();
+            }
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
             LastProposalEmpty = false;
         }
 
         /// <summary>テクスチャ切替・ウィンドウ破棄時の後始末。</summary>
-        public void OnSourceChangedOrClosing()
-        {
+        public void OnSourceChangedOrClosing() {
             // ほかの要求(別のウィンドウ・自動化)が無ければ、サービスの処理も止めて元の参照を手放させる。
             AiSuggestBroker.Release(this);
             _pending.Clear();

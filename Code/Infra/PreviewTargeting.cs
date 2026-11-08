@@ -3,8 +3,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Iroca
-{
+namespace Iroca {
     /// <summary>
     /// シーン上のプレビュー(NDMF)で、どのテクスチャを何に差し替えるかの規則(NDMF 非依存。EditMode テストから叩く)。
     /// <para>
@@ -19,19 +18,16 @@ namespace Iroca
     /// </list>
     /// </para>
     /// </summary>
-    internal static class PreviewTargeting
-    {
+    internal static class PreviewTargeting {
         /// <summary>シーンにある <see cref="IrocaRecolor"/> 1 つ分(レシピと元テクスチャを読み出し済み)。</summary>
-        internal readonly struct Registered
-        {
+        internal readonly struct Registered {
             public readonly GameObject owner;
             public readonly IrocaRecipe recipe;
             public readonly Texture2D source;
             /// <summary>影の色を合わせるマテリアル(<see cref="IrocaRecolor.shadowMatchMaterials"/> の写し。無ければ null)。</summary>
             public readonly Material[] shadowMatch;
 
-            public Registered(GameObject owner, IrocaRecipe recipe, Texture2D source, Material[] shadowMatch = null)
-            {
+            public Registered(GameObject owner, IrocaRecipe recipe, Texture2D source, Material[] shadowMatch = null) {
                 this.owner = owner;
                 this.recipe = recipe;
                 this.source = source;
@@ -40,14 +36,12 @@ namespace Iroca
         }
 
         /// <summary>差し替え先。<see cref="recipe"/> が null ならライブ(ウィンドウで編集中の内容)。</summary>
-        internal readonly struct Replacement
-        {
+        internal readonly struct Replacement {
             public readonly Texture2D source;
             public readonly IrocaRecipe recipe;
             public readonly Material[] shadowMatch;
 
-            public Replacement(Texture2D source, IrocaRecipe recipe, Material[] shadowMatch = null)
-            {
+            public Replacement(Texture2D source, IrocaRecipe recipe, Material[] shadowMatch = null) {
                 this.source = source;
                 this.recipe = recipe;
                 this.shadowMatch = shadowMatch;
@@ -60,25 +54,24 @@ namespace Iroca
                 => shadowMatch != null && System.Array.IndexOf(shadowMatch, material) >= 0;
         }
 
-        internal sealed class Plan
-        {
+        internal sealed class Plan {
             private readonly Dictionary<GameObject, List<Registered>> _byOwner = new Dictionary<GameObject, List<Registered>>();
             private readonly HashSet<Texture> _registeredSources = new HashSet<Texture>();
             private readonly Texture2D _liveSource;
             private readonly IrocaRecipe _liveRecipe;
 
-            public Plan(IEnumerable<Registered> components, LivePreview.Target live)
-            {
-                foreach (var c in components)
-                {
-                    if (c.owner == null || c.recipe == null || c.source == null) continue;
-                    if (!_byOwner.TryGetValue(c.owner, out var list))
+            public Plan(IEnumerable<Registered> components, LivePreview.Target live) {
+                foreach (var c in components) {
+                    if (c.owner == null || c.recipe == null || c.source == null) {
+                        continue;
+                    }
+                    if (!_byOwner.TryGetValue(c.owner, out var list)) {
                         _byOwner[c.owner] = list = new List<Registered>();
+                    }
                     list.Add(c);
                     _registeredSources.Add(c.source);
                 }
-                if (live != null && live.source != null)
-                {
+                if (live != null && live.source != null) {
                     _liveSource = live.source;
                     _liveRecipe = live.boundRecipe;
                 }
@@ -103,17 +96,20 @@ namespace Iroca
             /// ライブで映すのは、<paramref name="usesLive"/>(Renderer の素材がそれを使っている)ときだけ。使っていない
             /// Renderer ではレシピのままにして、ウィンドウで別のテクスチャを開くたびに差し替え先が変わらないようにする。
             /// </summary>
-            public Routes RoutesFor(Transform renderer, bool usesLive)
-            {
+            public Routes RoutesFor(Transform renderer, bool usesLive) {
                 var found = new List<(Texture, Replacement)>();
-                foreach (var texture in _registeredSources)
-                {
-                    if (!TryResolve(renderer, texture, out var replacement)) continue;
-                    if (replacement.IsLive && !usesLive) replacement = new Replacement(replacement.source, _liveRecipe, replacement.shadowMatch);
+                foreach (var texture in _registeredSources) {
+                    if (!TryResolve(renderer, texture, out var replacement)) {
+                        continue;
+                    }
+                    if (replacement.IsLive && !usesLive) {
+                        replacement = new Replacement(replacement.source, _liveRecipe, replacement.shadowMatch);
+                    }
                     found.Add((texture, replacement));
                 }
-                if (usesLive && ShowsLiveAnywhere && TryResolve(renderer, _liveSource, out var live))
+                if (usesLive && ShowsLiveAnywhere && TryResolve(renderer, _liveSource, out var live)) {
                     found.Add((_liveSource, live));
+                }
                 return new Routes(found);
             }
 
@@ -127,25 +123,27 @@ namespace Iroca
             /// <summary>
             /// <paramref name="renderer"/> が使う <paramref name="texture"/> の差し替え先。差し替えないなら false。
             /// </summary>
-            public bool TryResolve(Transform renderer, Texture texture, out Replacement replacement)
-            {
+            public bool TryResolve(Transform renderer, Texture texture, out Replacement replacement) {
                 replacement = default;
-                if (renderer == null || !IsCandidate(texture)) return false;
+                if (renderer == null || !IsCandidate(texture)) {
+                    return false;
+                }
 
-                for (var t = renderer; t != null; t = t.parent)
-                {
-                    if (!_byOwner.TryGetValue(t.gameObject, out var list)) continue;
-                    foreach (var c in list)
-                    {
-                        if (c.source != texture) continue;
+                for (var t = renderer; t != null; t = t.parent) {
+                    if (!_byOwner.TryGetValue(t.gameObject, out var list)) {
+                        continue;
+                    }
+                    foreach (var c in list) {
+                        if (c.source != texture) {
+                            continue;
+                        }
                         bool live = texture == _liveSource && _liveRecipe != null && c.recipe == _liveRecipe;
                         replacement = new Replacement(c.source, live ? null : c.recipe, c.shadowMatch);
                         return true;
                     }
                 }
 
-                if (texture == _liveSource && !_registeredSources.Contains(texture))
-                {
+                if (texture == _liveSource && !_registeredSources.Contains(texture)) {
                     replacement = new Replacement(_liveSource, null);
                     return true;
                 }
@@ -158,19 +156,16 @@ namespace Iroca
         /// これを NDMF の対象グループに持たせ、中身が変わったときだけノードを作り直させる(ノード自身はシーン全体の
         /// 部品を見張らない)。中身で比べる(元テクスチャ・レシピが同じなら等しい)。
         /// </summary>
-        internal sealed class Routes : System.IEquatable<Routes>
-        {
+        internal sealed class Routes : System.IEquatable<Routes> {
             private readonly Texture[] _textures;
             private readonly Replacement[] _replacements;
 
-            public Routes(List<(Texture texture, Replacement replacement)> routes)
-            {
+            public Routes(List<(Texture texture, Replacement replacement)> routes) {
                 // 見つけた順はハッシュの並びなので、比べられるように並べ替える。
                 routes.Sort((a, b) => a.texture.GetInstanceID().CompareTo(b.texture.GetInstanceID()));
                 _textures = new Texture[routes.Count];
                 _replacements = new Replacement[routes.Count];
-                for (int i = 0; i < routes.Count; i++)
-                {
+                for (int i = 0; i < routes.Count; i++) {
                     _textures[i] = routes[i].texture;
                     _replacements[i] = routes[i].replacement;
                 }
@@ -178,13 +173,12 @@ namespace Iroca
 
             public bool IsEmpty => _textures.Length == 0;
 
-            public bool TryGet(Texture texture, out Replacement replacement)
-            {
-                if (texture != null)
-                {
-                    for (int i = 0; i < _textures.Length; i++)
-                    {
-                        if (_textures[i] != texture) continue;
+            public bool TryGet(Texture texture, out Replacement replacement) {
+                if (texture != null) {
+                    for (int i = 0; i < _textures.Length; i++) {
+                        if (_textures[i] != texture) {
+                            continue;
+                        }
                         replacement = _replacements[i];
                         return true;
                     }
@@ -193,39 +187,46 @@ namespace Iroca
                 return false;
             }
 
-            public bool Equals(Routes other)
-            {
-                if (ReferenceEquals(this, other)) return true;
-                if (other == null || other._textures.Length != _textures.Length) return false;
-                for (int i = 0; i < _textures.Length; i++)
-                {
+            public bool Equals(Routes other) {
+                if (ReferenceEquals(this, other)) {
+                    return true;
+                }
+                if (other == null || other._textures.Length != _textures.Length) {
+                    return false;
+                }
+                for (int i = 0; i < _textures.Length; i++) {
                     if (!ReferenceEquals(_textures[i], other._textures[i])
                         || !ReferenceEquals(_replacements[i].source, other._replacements[i].source)
                         || !ReferenceEquals(_replacements[i].recipe, other._replacements[i].recipe)
-                        || !SameMaterials(_replacements[i].shadowMatch, other._replacements[i].shadowMatch))
+                        || !SameMaterials(_replacements[i].shadowMatch, other._replacements[i].shadowMatch)) {
                         return false;
+                    }
                 }
                 return true;
             }
 
-            private static bool SameMaterials(Material[] a, Material[] b)
-            {
-                if (ReferenceEquals(a, b)) return true;
+            private static bool SameMaterials(Material[] a, Material[] b) {
+                if (ReferenceEquals(a, b)) {
+                    return true;
+                }
                 int count = a != null ? a.Length : 0;
-                if (count != (b != null ? b.Length : 0)) return false;
-                for (int i = 0; i < count; i++)
-                    if (!ReferenceEquals(a[i], b[i])) return false;
+                if (count != (b != null ? b.Length : 0)) {
+                    return false;
+                }
+                for (int i = 0; i < count; i++) {
+                    if (!ReferenceEquals(a[i], b[i])) {
+                        return false;
+                    }
+                }
                 return true;
             }
 
             public override bool Equals(object obj) => Equals(obj as Routes);
 
             // 消えたオブジェクトでも値が変わらないよう、instance ID で(Unity の == は消えると null 扱いになる)。
-            public override int GetHashCode()
-            {
+            public override int GetHashCode() {
                 int hash = _textures.Length;
-                for (int i = 0; i < _textures.Length; i++)
-                {
+                for (int i = 0; i < _textures.Length; i++) {
                     hash = hash * 31 + IdOf(_textures[i]);
                     hash = hash * 31 + IdOf(_replacements[i].recipe);
                 }
