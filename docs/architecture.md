@@ -164,6 +164,17 @@ PNG は別スレッドで読む（`TextureIO.TryDecodePngOffMainThread`。プレ
 GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`bool[]` 1 本で 67MB、`Color32[]` 1 本で 268MB が、
 1 度使っただけでエディタを閉じるまで常駐する。
 
+自前の実装と Unity の実装を並べた実測（2026-11-09、Unity 2022.3 の中、1 ケース 1 プロセス）:
+
+| 部品 | 自前 / Unity の実装 | 自前にした理由 |
+|---|---|---|
+| PNG の読み込み（`PngFileDecoder` / `LoadImage`） | 4K で 155 / 298ms、私用メモリの山 183 / 338MB。8K で 420 / 645ms・342 / 757MB。全画素一致 | メモリ（LoadImage は開くたびにファイルの大きさの配列を Mono のヒープに作る）。速さは結果として上回った |
+| 画素のバッファ（`NativePixels` / `Color32[]`・`NativeArray`） | 速さは 3 つとも同じ。10 回使って広がる Mono のヒープは管理配列が 4K で 480MB・8K で 1.4GB、ほかの 2 つは雑音の内 | メモリ。`NativeArray` との差は無く、使わないのはハーネス（.NET 8）で動かないため |
+| sRGB の換算（`ColorTintLut` / `Mathf`） | 1 呼び出し 53 / 40ns。byte の表 256 段は全部一致 | Unity なしのテスト。表を作るときにしか呼ばないので、差は体感に出ない |
+| クリック位置（`MeshRaycast` / `MeshCollider` + `Physics.Raycast`） | 7 万三角形で 1 クリック 4.1ms / 焼き直し + 1 本 16ms（形が動かなければ焼いた後の 1 本は 0.001ms） | 機能（コライダーの無いアバター）。ポーズのたびに焼き直す条件では自前の方が速い |
+
+測り方と全表は dev_safe の `docs/builtin_vs_custom_bench_2026-11-09/`（`run_unity.ps1` で測り直せる）。
+
 - 画素数の大きさの配列を管理配列で作らない。`test_no_pixel_sized_managed_arrays.py` が `new T[w * h]` の形と Unity の
   API が返す画素の管理配列（`GetPixels32()` など）を数え、一覧（`scripts/source_checks/pixel_sized_managed_arrays.json`）
   から増えたら落とす。一覧に残るのはテスト・ハーネス・デバッグの口と Unity の API の都合だけで、ファイルごとに理由を
