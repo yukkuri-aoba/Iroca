@@ -299,7 +299,15 @@ namespace Iroca {
         /// そのまま)。同じ寸法で中身が保存形式の文字列と同じ層は、展開し直さずにそのまま使う(Undo/Redo の書き戻しで
         /// 変わるのはふつう 1 枚だけ)。
         /// </summary>
-        public bool DecodeFrom(MaskState ms) {
+        public bool DecodeFrom(MaskState ms) => DecodeFrom(ms, out _);
+
+        /// <summary>
+        /// <see cref="DecodeFrom(MaskState)"/> と同じで、読み飛ばした項目の数を <paramref name="dropped"/> に返す(壊れた文字列・
+        /// 寸法の合わない項目・ゾーン id の無い項目。文字列が空の項目は層が無いだけなので数えない)。読み飛ばした項目はゾーンの id つきで
+        /// 警告に出す。黙って捨てると、次の保存で保存先からも消えるので、読んだ側が数を見て元のファイルを退避する。
+        /// </summary>
+        public bool DecodeFrom(MaskState ms, out int dropped) {
+            dropped = 0;
             var oldCommon = _common;
             var oldExcludes = new Dictionary<string, NativeBitMask>(_excludes);
             var oldIncludes = new Dictionary<string, NativeBitMask>(_includes);
@@ -315,9 +323,13 @@ namespace Iroca {
                 Height = ms.height;
                 if (!string.IsNullOrEmpty(ms.commonMaskBase64)) {
                     _common = DecodeSized(ms.commonMaskBase64, sameSize ? oldCommon : null);
+                    if (_common == null) {
+                        dropped++;
+                        WarnDropped(null, include: false);
+                    }
                 }
-                ReadEntries(ms.zones, _excludes, sameSize ? oldExcludes : null);
-                ReadEntries(ms.zoneIncludes, _includes, sameSize ? oldIncludes : null);
+                dropped += ReadEntries(ms.zones, _excludes, sameSize ? oldExcludes : null, include: false);
+                dropped += ReadEntries(ms.zoneIncludes, _includes, sameSize ? oldIncludes : null, include: true);
                 return true;
             } finally {
                 // 使い回さなかった前の層を手放す(使い回した層は新しい持ち主へ移っている)。
@@ -354,19 +366,33 @@ namespace Iroca {
             return false;
         }
 
-        private void ReadEntries(List<MaskZoneEntry> src, Dictionary<string, NativeBitMask> dst,
-            Dictionary<string, NativeBitMask> previous) {
+        // 読み飛ばした項目の数を返す。
+        private int ReadEntries(List<MaskZoneEntry> src, Dictionary<string, NativeBitMask> dst,
+            Dictionary<string, NativeBitMask> previous, bool include) {
             if (src == null) {
-                return;
+                return 0;
             }
+            int dropped = 0;
             foreach (var entry in src) {
-                if (entry == null || string.IsNullOrEmpty(entry.zoneId)) {
+                if (entry == null) {
+                    continue;
+                }
+                bool hasData = !string.IsNullOrEmpty(entry.maskBase64);
+                if (string.IsNullOrEmpty(entry.zoneId)) {
+                    if (hasData) {
+                        dropped++;
+                        WarnDropped("", include);
+                    }
                     continue;
                 }
                 NativeBitMask candidate = null;
                 previous?.TryGetValue(entry.zoneId, out candidate);
                 var m = DecodeSized(entry.maskBase64, candidate);
                 if (m == null) {
+                    if (hasData) {
+                        dropped++;
+                        WarnDropped(entry.zoneId, include);
+                    }
                     continue;
                 }
                 // 同じ id が 2 度出たら後のものが勝つ。前に置いたものが使い回しでなければ手放す。
@@ -376,6 +402,16 @@ namespace Iroca {
                 }
                 dst[entry.zoneId] = m;
             }
+            return dropped;
+        }
+
+        // zoneId = null は全ゾーン共通の除外、空はゾーンの id が無い項目。
+        private void WarnDropped(string zoneId, bool include) {
+            string layer = zoneId == null ? "the all-zones exclusion mask" : include ? "an include mask" : "an exclude mask";
+            string zone = string.IsNullOrEmpty(zoneId) ? "" : $" of zone {zoneId}";
+            string reason = zoneId != null && zoneId.Length == 0 ? "it has no zone id"
+                : $"its data is broken or its size does not match {Width}x{Height}";
+            UnityEngine.Debug.LogWarning($"[Iroca] Skipped {layer}{zone}: {reason}.");
         }
 
         // 寸法がいまの Width/Height と同じときだけ採る。candidate(前に持っていた同じ層)を符号化すると encoded になるなら、

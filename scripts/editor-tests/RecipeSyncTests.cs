@@ -85,6 +85,29 @@ namespace Iroca.EditorTests {
             Assert.AreEqual("{ broken", File.ReadAllText(file + ".bak"), "読めなかったファイルを退避していない");
         }
 
+        // マスクのファイルに読めない項目(壊れた文字列・寸法違い)があっても、読めた分で開く。読めなかった項目は黙って捨てず、
+        // 次の保存の前に元のファイルを .bak に残す(捨てたまま保存すると、ファイルからも消える)。
+        [Test]
+        public void MaskFileWithUnreadableEntry_IsBackedUpBeforeSaving() {
+            _win.Editing.Masks.Reset(4, 4);
+            _win.Editing.Masks.WritableCommon().Set(3, true);
+            Save();
+            string file = Directory.GetFiles(MaskFileStore.CacheDir, _guid + "*")[0];
+            var ms = JsonUtility.FromJson<MaskState>(File.ReadAllText(file));
+            ms.zones.Add(new MaskZoneEntry { zoneId = "broken", maskBase64 = "R:###" });
+            string withBroken = JsonUtility.ToJson(ms);
+            File.WriteAllText(file, withBroken);
+
+            LogAssert.ignoreFailingMessages = true;
+            try {
+                _win._maskView.RestoreFromSession();
+                Assert.IsTrue(_win.Editing.Masks.Common != null && _win.Editing.Masks.Common.Get(3), "読めた分を読んでいない");
+                Assert.IsTrue(_win._maskView.MaskLoadFailed, "読めない項目を黙って捨てた");
+                Save();
+            } finally { LogAssert.ignoreFailingMessages = false; }
+            Assert.AreEqual(withBroken, File.ReadAllText(file + ".bak"), "読めない項目のあったファイルを退避していない");
+        }
+
         [Test]
         public void OwnSaves_AreWrittenToTheRecipe() {
             SetZoneName("窓で直した内容");

@@ -95,6 +95,35 @@ namespace Iroca.EditorTests {
             ws.Clear();
         }
 
+        // 読み飛ばした項目の数を返す(読んだ側がファイルを退避するため)。文字列が空の項目は層が無いだけなので数えない。
+        [Test]
+        public void DecodeFrom_CountsTheEntriesItSkips() {
+            var ws = Fill(out _, out _, out _);
+            var ms = new MaskState();
+            ws.EncodeTo(ms);
+            var fresh = new MaskWorkspace();
+            try {
+                Assert.IsTrue(fresh.DecodeFrom(ms, out int dropped));
+                Assert.AreEqual(0, dropped, "全部読めた");
+
+                ms.zones.Add(new MaskZoneEntry { zoneId = "broken", maskBase64 = "R:###" });
+                ms.zoneIncludes.Add(new MaskZoneEntry { zoneId = "small", maskBase64 = MaskRle.Encode(new bool[4] { true, false, true, false }, 2, 2) });
+                ms.zones.Add(new MaskZoneEntry { zoneId = "", maskBase64 = ms.zones[0].maskBase64 });
+                ms.zones.Add(new MaskZoneEntry { zoneId = "blank", maskBase64 = "" });
+                Assert.IsTrue(fresh.DecodeFrom(ms, out dropped));
+                Assert.AreEqual(3, dropped, "壊れた・寸法の合わない・id の無い項目");
+                Assert.IsNotNull(fresh.Layer(false, "za"), "読める項目は読む");
+
+                ms.commonMaskBase64 = "R:###";
+                Assert.IsTrue(fresh.DecodeFrom(ms, out dropped));
+                Assert.AreEqual(4, dropped, "共通の除外も数える");
+                Assert.IsNull(fresh.Common);
+            } finally {
+                fresh.Clear();
+                ws.Clear();
+            }
+        }
+
         [Test]
         public void DecodeFrom_InvalidSizeDropsLayersAndKeepsSize() {
             var ws = Fill(out _, out _, out _);

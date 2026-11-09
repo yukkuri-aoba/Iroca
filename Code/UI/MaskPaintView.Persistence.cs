@@ -73,7 +73,13 @@ namespace Iroca {
             var fileState = MaskFileStore.LoadMask(path, out bool unreadable);
             if (fileState != null && fileState.width > 0 && fileState.height > 0) {
                 // 展開規則(寸法不一致・壊れた項目は捨てる)は Core の MaskStateCodec と同じ(MaskWorkspace.DecodeFrom)。
-                Workspace.DecodeFrom(fileState);
+                Workspace.DecodeFrom(fileState, out int dropped);
+                // 読めない項目があったら、読めた分で開くが、読めなかったファイルと同じく扱う(次の保存の前に元のファイルを .bak に
+                // 残し、窓に帯を出す)。黙って捨てると、次の保存でファイルからも消える。レシピから読むときは .bak の仕組みが無いので、
+                // 警告(DecodeFrom が出す)だけ。
+                if (dropped > 0) {
+                    _maskLoadFailed = true;
+                }
                 maskDirty = true;
                 return Workspace.HasLayers;
             }
