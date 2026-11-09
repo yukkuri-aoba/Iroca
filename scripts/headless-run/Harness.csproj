@@ -32,6 +32,15 @@
     <EnableSourceLink>false</EnableSourceLink>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Deterministic>true</Deterministic>
+    <!-- ビルドしたディレクトリにも DLL のバイト列を左右させない(2026-11-10)。PE には PDB の絶対パス(RSDS)が
+         入り、PDB はソースの絶対パスを持つので、別のディレクトリ(worktree・一時ディレクトリへ書き出した
+         index の中身)で同じソースをビルドすると DLL も実行キャッシュの鍵も変わっていた。リポジトリの
+         ルートを固定の名前へ写す。同じ中身なら、どこでビルドしても同じ DLL になる。
+         git の中かどうかでも変えない: SDK は git の中だと git に無いファイル(obj に生成した属性の .cs)を
+         PDB に埋め込むので、git の外(一時ディレクトリ)でのビルドと DLL が違っていた(実測)。git には問い合わせない。 -->
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\'))=/_/</PathMap>
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <EmbedUntrackedSources>false</EmbedUntrackedSources>
   </PropertyGroup>
 
   <PropertyGroup>

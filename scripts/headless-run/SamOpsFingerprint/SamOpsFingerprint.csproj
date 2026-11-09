@@ -24,6 +24,10 @@
     <EnableSourceLink>false</EnableSourceLink>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Deterministic>true</Deterministic>
+    <!-- Harness.csproj と同じく、ビルドしたディレクトリで DLL(= AI 提案の鍵)が変わらないようにする。 -->
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\'))=/_/</PathMap>
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <EmbedUntrackedSources>false</EmbedUntrackedSources>
     <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
     <UnityManaged Condition="'$(UnityManaged)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityManaged>
   </PropertyGroup>
