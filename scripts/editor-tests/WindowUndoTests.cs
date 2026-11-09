@@ -1,5 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
@@ -549,6 +550,25 @@ namespace Iroca.EditorTests {
             Undo.PerformUndo();
             Assert.AreEqual(2, _win.Session.zones.Count, "テストの前提: ゾーンが減っている");
             Assert.IsFalse(_win.IsDraggingZone, "Undo の後もドラッグが続いている");
+        }
+
+        // 本体が裏のタブ(OnGUI が来ない)でも、別窓のプレビューで「スポイトで色を追加」したらゾーンができる。
+        // CreateInstance の窓は表示されないので、裏のタブと同じ。
+        [UnityTest]
+        public IEnumerator NewZoneFromSample_IsMadeWithoutTheWindowDrawing() {
+            AddZones("服");
+            _win.ArmEyedropper(IrocaWindow.NewZoneEyedropperId);
+            var picked = new Color(0.2f, 0.4f, 0.6f, 1f);
+            _win.RequestNewZoneFromSample(picked, new Vector2(0.25f, 0.75f));
+            for (int i = 0; i < 5 && _win.Session.zones.Count < 2; i++) {
+                yield return null;
+            }
+            Assert.AreEqual(2, _win.Session.zones.Count, "ゾーンができない");
+            var zone = _win.Session.zones[1];
+            Assert.AreEqual(picked, zone.sampleColor, "取った色が入っていない");
+            Assert.AreEqual(1, _win._maskView.activeMaskTarget, "作ったゾーンを直す対象にしていない");
+            yield return null;
+            Assert.AreEqual(2, _win.Session.zones.Count, "二重に作った");
         }
 
         // テクスチャを選ぶ前に作ったゾーンは、そのテクスチャに編集内容が無ければ引き継ぐ。

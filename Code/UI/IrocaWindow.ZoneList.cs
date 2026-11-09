@@ -17,7 +17,7 @@ namespace Iroca {
         private int _pendingRemoveZoneIndex = -1;
 
         // 「スポイトで変えたい色を選ぶ / 別の色を追加」のクリックで作るゾーン（NewZoneEyedropperId 参照）。
-        // プレビューの MouseDown で受け、ゾーンの追加と色の設定を次の Layout イベントで一緒に行う。
+        // プレビューの MouseDown で受け、ゾーンの追加と色の設定をその後で一緒に行う(RequestNewZoneFromSample)。
         private bool _pendingNewZoneFromSample;
         private Color _pendingNewZoneColor;
         private Vector2 _pendingNewZoneUV;
@@ -39,11 +39,35 @@ namespace Iroca {
         // 前の描画で記録したゾーンカードの矩形(カードを押したらそのゾーンを直す対象にする判定用)。
         [System.NonSerialized] private List<Rect> _zoneCardRects;
 
+        /// <summary>
+        /// 「スポイトで色を追加」のクリックで、その色のゾーンを作る。クリックはプレビューの入力の途中なので、作るのはその後:
+        /// 本体の次の Layout か、次のエディタの更新(EditorApplication.update を 1 回だけ)の先に来た方(印で二重に作らない)。
+        /// 本体が裏のタブだと OnGUI が来ないので、別窓のプレビューでクリックしてもゾーンができなかった。
+        /// (delayCall はテストランナーの数フレームでは回らなかったので、毎回回る update を使う。)
+        /// </summary>
         internal void RequestNewZoneFromSample(Color picked, Vector2 uv) {
             _pendingNewZoneFromSample = true;
             _pendingNewZoneColor = picked;
             _pendingNewZoneUV = uv;
+            EditorApplication.update -= ApplyPendingNewZoneFromSampleOnUpdate;
+            EditorApplication.update += ApplyPendingNewZoneFromSampleOnUpdate;
             Repaint();
+        }
+
+        private void ApplyPendingNewZoneFromSampleOnUpdate() {
+            EditorApplication.update -= ApplyPendingNewZoneFromSampleOnUpdate;
+            ApplyPendingNewZoneFromSample();
+        }
+
+        private void ApplyPendingNewZoneFromSample() {
+            if (this == null || !_pendingNewZoneFromSample) {
+                return;
+            }
+            _pendingNewZoneFromSample = false;
+            SetCurrentZoneIndex(Editing.AddZoneFromSample(_pendingNewZoneColor, _pendingNewZoneUV));
+            zonesFoldout = true;
+            // 別窓(プレビュー・マスク編集)も描き直す(新しいゾーンの見本・カーソル)。
+            RequestRepaint();
         }
 
         // ゾーン並べ替え（ドラッグ）用。並び順が優先度なので、リスト上のドラッグで優先度を変える。
@@ -165,11 +189,7 @@ namespace Iroca {
                 _pendingAddZone = false;
                 SetCurrentZoneIndex(Editing.AddZone());
             }
-            if (_pendingNewZoneFromSample) {
-                _pendingNewZoneFromSample = false;
-                SetCurrentZoneIndex(Editing.AddZoneFromSample(_pendingNewZoneColor, _pendingNewZoneUV));
-                zonesFoldout = true;
-            }
+            ApplyPendingNewZoneFromSample();
             if (_pendingReorderFrom >= 0 && _pendingReorderTo >= 0) {
                 int from = _pendingReorderFrom;
                 int to = _pendingReorderTo;

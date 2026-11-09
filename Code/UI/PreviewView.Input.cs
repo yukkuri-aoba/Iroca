@@ -392,7 +392,7 @@ namespace Iroca {
                         if (SampleTrueSourceColor(uv.x, uv.y, srcW, srcH, out Color picked)) {
                             if (_host.EyedropperZoneId == IrocaWindow.NewZoneEyedropperId) {
                                 // ゾーンがまだ無いときの開始操作: ゾーンを作ってこの色を入れる。
-                                // ゾーンリストの変更は次の Layout イベントで適用する（遅延ミューテーション）。
+                                // ゾーンリストの変更はこのイベントの後で適用する（遅延ミューテーション。本体が裏のタブでも作る）。
                                 // 編集の合図はそのときに出る(EditingSession.AddZoneFromSample)。
                                 _host.RequestNewZoneFromSample(picked, uv);
                             } else {
