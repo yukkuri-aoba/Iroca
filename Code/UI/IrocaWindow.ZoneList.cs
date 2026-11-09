@@ -62,6 +62,37 @@ namespace Iroca {
         // ドラッグを始めたときに hotControl に据えた ID(離すときの照合に使う)。
         private int _dragCapturedId;
 
+        /// <summary>☰ でゾーンを掴んで動かしている途中か。</summary>
+        internal bool IsDraggingZone => _dragZoneIndex >= 0;
+
+        /// <summary>
+        /// ☰ を押してゾーンを掴む。マウスを掴み(hotControl)、ウィンドウの外で離しても MouseUp を受け取る。
+        /// <paramref name="controlId"/> は前のフレームの <see cref="HandleZoneReorderDrag"/> が確保した ID。押したときの値を控え、
+        /// 離すときはそれで照合する(並びが変わって次のフレームの ID がずれても離せるように)。internal はテストが呼ぶため。
+        /// </summary>
+        internal void BeginZoneDrag(int index, float grabOffsetY, int controlId) {
+            _dragZoneIndex = index;
+            _dragGrabOffsetY = grabOffsetY;
+            _dragCapturedId = controlId;
+            GUIUtility.hotControl = controlId;
+        }
+
+        /// <summary>
+        /// ☰ のドラッグを並べ替えずにやめる。自分がマウスを掴んでいれば放す。ドラッグの途中でゾーンが減った・Undo で並びが
+        /// 変わった・欄をたたんだときに呼ぶ。掴んだままにすると、離す処理(<see cref="HandleZoneReorderDrag"/>)が来ないので、
+        /// ほかの操作がマウスを取れなくなる。
+        /// </summary>
+        private void CancelZoneDrag() {
+            if (_dragZoneIndex < 0) {
+                return;
+            }
+            _dragZoneIndex = -1;
+            if (GUIUtility.hotControl == _dragCapturedId) {
+                GUIUtility.hotControl = 0;
+            }
+            Repaint();
+        }
+
         // 設定列のスクロールの見えている範囲(画面座標。前の Repaint のもの)。スクロールの外のクリックでも座標はスクロールの中へ
         // 写されるので、これを見ないと、書き出し欄を押したのに隠れたカードが選ばれる。
         [System.NonSerialized] private Rect _settingsScrollScreenRect;
@@ -207,6 +238,8 @@ namespace Iroca {
                 TempContent.Of(Localization.StepPrefixZones + Localization.ColorZones
                     + (StepZonesDone ? Localization.StepDoneMark : ""), Localization.ColorZonesTooltip));
             if (!zonesFoldout) {
+                // たたんでいる間は離す処理(HandleZoneReorderDrag)を通らない。
+                CancelZoneDrag();
                 EditorGUILayout.EndFoldoutHeaderGroup();
                 return;
             }
@@ -214,8 +247,9 @@ namespace Iroca {
             // 並び順＝優先度（重なりは上のゾーンのみ適用）。説明は ☰ ハンドルのツールチップ
             // (ZoneDragHandleTooltip) に集約し、常時表示の HelpBox は置かない。
 
+            // 掴んでいたゾーンが消えた(自動化・プリセットの読み込みなど)。掴んだ番号のままでは離す処理を通らない。
             if (_dragZoneIndex >= zones.Count) {
-                _dragZoneIndex = -1;
+                CancelZoneDrag();
             }
 
             // ドラッグハンドル用スタイルとヘッダ行の GUIContent は静的キャッシュを使う
@@ -439,13 +473,7 @@ namespace Iroca {
             EditorGUIUtility.AddCursorRect(handleRect, MouseCursor.Pan);
             if (GUI.enabled && Event.current.type == EventType.MouseDown
                 && handleRect.Contains(Event.current.mousePosition) && MouseInSettingsScroll()) {
-                _dragZoneIndex = index;
-                _dragGrabOffsetY = Event.current.mousePosition.y - handleRect.y;
-                // マウスキャプチャを取得（ウィンドウ外リリースでも MouseUp を確実に受け取るため）。
-                // _dragControlId は前フレームの HandleZoneReorderDrag が確保した ID。押したときの値を控え、
-                // 離すときはそれで照合する(並びが変わって次のフレームの ID がずれても離せるように)。
-                _dragCapturedId = _dragControlId;
-                GUIUtility.hotControl = _dragControlId;
+                BeginZoneDrag(index, Event.current.mousePosition.y - handleRect.y, _dragControlId);
                 Event.current.Use();
             }
             zone.enabled = UndoHelper.ToggleLeft(UndoTarget,

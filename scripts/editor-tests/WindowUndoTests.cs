@@ -538,6 +538,19 @@ namespace Iroca.EditorTests {
             Assert.IsNull(_win.EyedropperZoneId);
         }
 
+        // ☰ でゾーンを掴んでいる途中に Undo でゾーンの並びが変わったら、ドラッグをやめる。続けると、掴んだ番号が別のゾーン(または
+        // 無いゾーン)を指し、離しても並べ替えが確定しない・別のゾーンを動かす。マウスを掴んだ(hotControl)ままだと Unity は Undo を
+        // 行わないので、ここでは掴まずに始める(掴んでいれば CancelZoneDrag が放す)。
+        [Test]
+        public void ZoneDrag_IsCancelledByUndo() {
+            AddZones("服", "靴", "帽子");
+            _win.BeginZoneDrag(2, 0f, 0);
+            Assert.IsTrue(_win.IsDraggingZone, "テストの前提: 掴んでいる");
+            Undo.PerformUndo();
+            Assert.AreEqual(2, _win.Session.zones.Count, "テストの前提: ゾーンが減っている");
+            Assert.IsFalse(_win.IsDraggingZone, "Undo の後もドラッグが続いている");
+        }
+
         // テクスチャを選ぶ前に作ったゾーンは、そのテクスチャに編集内容が無ければ引き継ぐ。
         [Test]
         public void ZonesMadeWithoutTexture_AreCarriedToTheTexture() {

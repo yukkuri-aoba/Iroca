@@ -539,6 +539,8 @@ namespace Iroca {
                 return;
             }
 
+            // ☰ で掴んだ番号は、ゾーンの並びが戻ると別のゾーン(か無いゾーン)を指す。
+            CancelZoneDrag();
             AbortAutoTuneForEditChange();
             // 文書のマスクの版の番号が Undo で戻ったら、編集中のマスクをその版へ戻してオーバーレイ・プレビューを更新させる。
             if (_maskView != null) {
