@@ -25,9 +25,19 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
+
+# numpy より前に、回帰(dev_safe/Tests/conftest.py)と同じメモリの設定をする(2026-11-09)。どれも確保の仕方だけで、
+# 出力は変わらない。立てる前の compare は OpenBLAS が読み込むだけで 1GB のコミットを持ち(numpy と scipy が
+# それぞれスレッド数ぶんの作業領域を取る。1 にすると 40MB)、出力のプロセス内メモも 12 件(4K で 1 件 64MB)まで
+# 溜めていた。外から値を渡したときはそちらを使う。
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("IROCA_HARNESS_MEM_ENTRIES", "2")
+os.environ.setdefault("DOTNET_gcConcurrent", "0")
+os.environ.setdefault("DOTNET_GCConserveMemory", "7")
 
 import numpy as np
 from PIL import Image, ImageDraw
