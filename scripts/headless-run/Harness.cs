@@ -107,6 +107,13 @@ namespace Iroca {
         public string input { get; set; }
         public string mask { get; set; }
         public List<BatchCase> cases { get; set; } = new List<BatchCase>();
+        // true なら、製品のプレビューと同じく選択の結果をケース間で使い回す(SelectionCache を持ち越し、
+        // 設定の中で同じ位置のゾーンを同じゾーンとみなす。製品で 1 つのゾーンの色や名前を変えても id が変わらない
+        // のと同じ)。使えるかどうかは選択の鍵の一致で決まるので、どのゾーンを同じとみなしても結果は変わらない。
+        // 回帰の 5 色ケースは変更先の色(とゾーン名)だけが違い、選択は同じなので、毎ケース一から計算していた分が省ける。出力が単発実行とビット一致することは
+        // dev_safe の test_harness_batch_parity が見る(使い回しの正しさは製品の契約で、test_session_state も見る)。
+        // 既定は false(性能計測などで、ケースごとに選択から測りたい呼び出しのため)。
+        public bool shareSelection { get; set; }
     }
 
     // ─── --session <json> 用 DTO ───
@@ -693,22 +700,29 @@ namespace Iroca {
         // みなして id を引き継ぐ(製品ではゾーン id が適用を跨いで安定なのを再現する。
         // SelectionCache の持ち越しはゾーン id 単位なので、これが無いと毎ステップ全ミスになり
         // ヒット経路を検証できない)。null(単発/--batch)なら従来どおり毎回新規 id。
+        // bySlot: 名前でなく設定の中の位置で引き継ぐ(--batch の shareSelection)。
         private static (List<ColorZone> zones, SettingsCfg settings,
                         List<(string zoneId, string path, bool include)> zoneMasks,
                         List<string> evidencePaths) LoadZones(
-            string path, Dictionary<string, string> persistentIds = null) {
+            string path, Dictionary<string, string> persistentIds = null, bool bySlot = false) {
             var cfg = JsonSerializer.Deserialize<ZonesConfig>(File.ReadAllText(path), CaseInsensitiveJson);
             var list = new List<ColorZone>();
             var zoneMasks = new List<(string zoneId, string path, bool include)>();
             // 証拠マスク(--autotune 専用入力)はゾーンと同じ並びで返す(未指定は null)。
             var evidencePaths = new List<string>();
+            // 1 つの設定に同じ名前のゾーンが 2 つあっても同じ id にしないよう、何番目に出た名前かも鍵に入れる。
+            var seen = persistentIds != null ? new Dictionary<string, int>() : null;
             foreach (var z in cfg.zones) {
                 var zone = BuildZone(z);
                 if (persistentIds != null) {
-                    if (persistentIds.TryGetValue(zone.name, out var known)) {
+                    string name = zone.name ?? "";
+                    seen.TryGetValue(name, out int nth);
+                    seen[name] = nth + 1;
+                    string idKey = bySlot ? "slot#" + list.Count : nth == 0 ? name : name + "#" + nth;
+                    if (persistentIds.TryGetValue(idKey, out var known)) {
                         zone.id = known;
                     } else {
-                        persistentIds[zone.name] = zone.id;
+                        persistentIds[idKey] = zone.id;
                     }
                 }
                 list.Add(zone);
@@ -753,28 +767,43 @@ namespace Iroca {
         }
 
         // ─── --batch: 同一入力・複数ゾーン設定をまとめて処理 ───
-        // 各ケースは元入力のクローンから始め、マスクも複製して渡すので、
-        // ケースを跨いだ状態の持ち越しは無い(単発実行と byte 一致することをテストで検証している)。
+        // 各ケースは元入力のクローンから始め、マスクも複製して渡す。shareSelection が false なら
+        // ケースを跨いだ状態の持ち越しは無い。true なら選択の結果だけを製品のプレビューと同じ規則で持ち越す
+        // (どちらも単発実行と byte 一致することをテストで検証している)。
         private static int RunBatch(string batchPath) {
             var cfg = JsonSerializer.Deserialize<BatchConfig>(File.ReadAllText(batchPath), CaseInsensitiveJson);
 
             var (w, h, basePixels) = ReadRgbaRaw(cfg.input);
 
             var (mw, mh, common) = ReadMaskRaw(cfg.mask);
-            foreach (var c in cfg.cases) {
-                var (zoneList, st, zoneMasks, _) = LoadZones(c.zones);
-                var pixels = (Color32[])basePixels.Clone();
-                var masks = new MaskSnapshot {
-                    common = NativeBitMask.FromBools(common, mw, mh),
-                    width = mw,
-                    height = mh,
-                    zones = null,
-                };
-                AttachZoneMasks(masks, zoneMasks);
-                ProcessZones(pixels, w, h, masks, zoneList, st, source: basePixels);
-                masks.Release();
-                WriteRawRgba(c.@out, w, h, pixels);
-                Console.WriteLine($"OK {w}x{h} -> {c.@out} (zones={zoneList.Count})");
+            var selCache = cfg.shareSelection ? new SelectionCache() : null;
+            var ids = cfg.shareSelection ? new Dictionary<string, string>() : null;
+            try {
+                foreach (var c in cfg.cases) {
+                    var (zoneList, st, zoneMasks, _) = LoadZones(c.zones, ids, bySlot: true);
+                    if (selCache != null) {
+                        // 今のケースに無いゾーンの選択(4K で 1 つ 64MB)は捨てる。製品が毎回生きているゾーンだけ残すのと同じ。
+                        var live = new List<string>();
+                        foreach (var z in zoneList) {
+                            live.Add(z.id);
+                        }
+                        selCache.RetainOnly(live);
+                    }
+                    var pixels = (Color32[])basePixels.Clone();
+                    var masks = new MaskSnapshot {
+                        common = NativeBitMask.FromBools(common, mw, mh),
+                        width = mw,
+                        height = mh,
+                        zones = null,
+                    };
+                    AttachZoneMasks(masks, zoneMasks);
+                    ProcessZones(pixels, w, h, masks, zoneList, st, selCache, source: basePixels);
+                    masks.Release();
+                    WriteRawRgba(c.@out, w, h, pixels);
+                    Console.WriteLine($"OK {w}x{h} -> {c.@out} (zones={zoneList.Count})");
+                }
+            } finally {
+                selCache?.Dispose();
             }
             return 0;
         }
