@@ -189,5 +189,30 @@ namespace Iroca.EditorTests {
             CollectionAssert.AreEqual(common, ToBools(_editing.Masks.Common), "マスクは今のまま");
             Assert.IsNull(_editing.Masks.Layer(false, zoneId));
         }
+
+        // マスクを読み込まなくても、プリセットに無いゾーンのマスクは外す(残すと保存とその後のプリセットへ運ばれ、同じ id のゾーンが
+        // 戻ると黙って効き直す)。共通の除外とプリセットにある id のマスクは残す。Undo 1 回で戻る。
+        [Test]
+        public void ApplyPreset_WithoutMasksDropsMasksOfZonesThatAreGone() {
+            _editing.AddZone();
+            string gone = _host.session.zones[0].id;
+            var preset = PresetWithMask(out string kept, out _);
+            _editing.Masks.Reset(W, H);
+            _editing.Masks.SetCommon(NativeBitMask.FromBools(Bits(1), W, H));
+            _editing.Masks.SetLayer(false, gone, NativeBitMask.FromBools(Bits(2), W, H));
+            _editing.Masks.SetLayer(true, kept, NativeBitMask.FromBools(Bits(3), W, H));
+
+            Undo.IncrementCurrentGroup();
+            Assert.IsFalse(_editing.ApplyPreset(preset, applyMasks: false));
+            Undo.IncrementCurrentGroup();
+            Assert.IsNull(_editing.Masks.Layer(false, gone), "プリセットに無いゾーンのマスクが残った");
+            CollectionAssert.AreEqual(Bits(1), ToBools(_editing.Masks.Common), "共通の除外は残す");
+            CollectionAssert.AreEqual(Bits(3), ToBools(_editing.Masks.Layer(true, kept)), "プリセットにある id のマスクは残す");
+
+            Undo.PerformUndo();
+            Assert.AreEqual(gone, _host.session.zones[0].id, "ゾーンが戻る");
+            Assert.IsTrue(_editing.RestoreMasksAfterUndo());
+            CollectionAssert.AreEqual(Bits(2), ToBools(_editing.Masks.Layer(false, gone)), "外したマスクも戻る");
+        }
     }
 }

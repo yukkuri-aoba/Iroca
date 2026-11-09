@@ -119,6 +119,31 @@ namespace Iroca {
             RemoveLayer(true, zoneId);
         }
 
+        /// <summary>
+        /// <paramref name="zoneIds"/> に無いゾーンの層(除外・含める)を外す。全ゾーン共通の除外は残す。外したら true。
+        /// 外すのはどのゾーンにも効いていない層だけなので、色替えの結果は変わらない(残すと保存とその後のプリセットへ運ばれ、同じ id の
+        /// ゾーンが戻ると黙って効き直す)。
+        /// </summary>
+        public bool RetainZones(ICollection<string> zoneIds) =>
+            RetainZones(_excludes, zoneIds) | RetainZones(_includes, zoneIds);
+
+        private static bool RetainZones(Dictionary<string, NativeBitMask> map, ICollection<string> zoneIds) {
+            List<string> gone = null;
+            foreach (var kv in map) {
+                if (zoneIds == null || !zoneIds.Contains(kv.Key)) {
+                    (gone ??= new List<string>()).Add(kv.Key);
+                }
+            }
+            if (gone == null) {
+                return false;
+            }
+            foreach (var id in gone) {
+                map[id].Release();
+                map.Remove(id);
+            }
+            return true;
+        }
+
         /// <summary>層を全部手放す(寸法はそのまま)。</summary>
         public void Clear() {
             _common?.Release();

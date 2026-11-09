@@ -142,6 +142,23 @@ namespace Iroca {
             return null;
         }
 
+        /// <summary>
+        /// 今のゾーンに無い id の層を外す(全ゾーン共通の除外は残す。<see cref="MaskWorkspace.RetainZones"/>)。外したら true。
+        /// 記録と版にするのは呼び出し側。
+        /// </summary>
+        internal bool RetainMasksOfCurrentZones() {
+            var ids = new HashSet<string>();
+            var zones = State?.zones;
+            if (zones != null) {
+                foreach (var z in zones) {
+                    if (z != null && !string.IsNullOrEmpty(z.id)) {
+                        ids.Add(z.id);
+                    }
+                }
+            }
+            return Masks.RetainZones(ids);
+        }
+
         /// <summary>id 未設定のゾーンへ GUID を振る。</summary>
         internal void EnsureAllZoneIds() {
             var zones = State?.zones;
@@ -319,7 +336,7 @@ namespace Iroca {
         /// <summary>
         /// プリセットを読み込む(ゾーンと処理設定。<paramref name="applyMasks"/> ならマスクも。規則は <see cref="PresetApplier"/>)。
         /// Undo 1 ステップでゾーン・設定・マスクがそろって戻る。
-        /// マスクを読み込まないときは、今のマスクを残す。マスクを読み込んだら true。
+        /// マスクを読み込まないときは、今のマスクを残す(プリセットに無いゾーンのマスクは外す)。マスクを読み込んだら true。
         /// </summary>
         internal bool ApplyPreset(IrocaPresetData preset, bool applyMasks) {
             RecordMaskEdit("Load Preset");
@@ -327,6 +344,10 @@ namespace Iroca {
             bool masks = applyMasks && PresetApplier.HasMasks(preset);
             if (masks) {
                 Masks.DecodeFrom(PresetApplier.MaskStateOf(preset));
+                CommitMaskEdit();
+            } else if (RetainMasksOfCurrentZones()) {
+                // 消えたゾーンのマスクは画面から消す手段が無く、保存・その後に作るプリセットへ運ばれ、同じ id のゾーンが戻ると黙って
+                // 効き直す。同じ記録の中で版にするので、Undo 1 回で戻る。
                 CommitMaskEdit();
             }
             NotifyChanged(EditChange.Replaced);
