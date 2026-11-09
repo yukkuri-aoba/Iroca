@@ -240,7 +240,7 @@ namespace Iroca {
             Workspace.Clear();
             isPainting = false;
             _maskStrokeStarted = false;
-            lastPaintUV = -Vector2.one;
+            lastPaintUV = NoLastPaintUV;
             TextureSlot.Release(ref maskOverlayTexture);
             TextureSlot.Release(ref zoneMaskOverlayTexture);
             overlayBuiltW = overlayBuiltH = 0;

@@ -61,7 +61,9 @@ namespace Iroca {
         [System.NonSerialized] private bool _strokeHadDirectOverlayWrite;
 
         [System.NonSerialized] public bool isPainting;
-        [System.NonSerialized] public Vector2 lastPaintUV = -Vector2.one;
+        // 前のスタンプの位置(UV)。ストロークの始めは NoLastPaintUV。塗るときの位置は画像の外(負の値)にもなるので、値の範囲で印にしない。
+        internal static readonly Vector2 NoLastPaintUV = new Vector2(float.NaN, float.NaN);
+        [System.NonSerialized] public Vector2 lastPaintUV = NoLastPaintUV;
         // ペイント中の RebuildMaskOverlay 間引き用タイムスタンプ（PreviewView から参照）。
         [System.NonSerialized] public double lastOverlayRebuildTime;
 
@@ -207,7 +209,7 @@ namespace Iroca {
             isPainting = false;
             // ストローク終了: 編集中のマスクを新しい版にして、編集を知らせる。
             EndStroke();
-            lastPaintUV = -Vector2.one;
+            lastPaintUV = NoLastPaintUV;
             _host.Editing.NotifyChanged(EditChange.Masks);
         }
 
@@ -1014,7 +1016,7 @@ namespace Iroca {
             _maskStrokeStarted = false;
             _overlayDirectPendingApply = null;
             _strokeHadDirectOverlayWrite = false;
-            lastPaintUV = -Vector2.one;
+            lastPaintUV = NoLastPaintUV;
             TextureSlot.Release(ref maskOverlayTexture);
             TextureSlot.Release(ref zoneMaskOverlayTexture);
         }

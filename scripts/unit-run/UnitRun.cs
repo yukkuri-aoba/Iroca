@@ -955,6 +955,29 @@ namespace Iroca.UnitRun {
             Check.True(Bit(target, 0) && x0 == 0 && y0 == 0, "clipped at the corner");
         }
 
+        public static void MaskEdit_StampDiskWithCenterOutsidePaintsOnlyTheOverlap() {
+            // 塗りながら画像の外へ出ると、ブラシの中心は画像の外になる(プレビューは中心を縁へ寄せない。寄せると縁に沿って
+            // 帯状に塗れる)。中心が外でも、円が画像にかかる所だけを塗り、かからなければ何も塗らない。
+            const int W = 8, H = 8;
+            var target = PackBits(W * H);
+            Stamp(target, null, W, H, -1.5f, 4.5f, 1f, true, out int x0, out int y0, out int x1, out int y1);
+            Check.Equal(0, CountBits(target, W * H), "left: the circle does not reach the image");
+            Check.True(x1 <= x0 && y1 <= y0, "left: empty bbox");
+            Stamp(target, null, W, H, 4.5f, H + 1.5f, 1f, true, out x0, out y0, out x1, out y1);
+            Check.Equal(0, CountBits(target, W * H), "top: the circle does not reach the image");
+            // 左の外 0.5 画素・半径 1.2: 重なるのは (0, 4) だけ(縁の列の上下には広がらない)。
+            Stamp(target, null, W, H, -0.5f, 4.5f, 1.2f, true, out x0, out y0, out x1, out y1);
+            Check.Equal(1, CountBits(target, W * H), "left: one pixel");
+            Check.True(Bit(target, 4 * W + 0), "left: the overlapping pixel");
+            Check.Equal(0, x0, "bbox x0"); Check.Equal(1, x1, "bbox x1");
+            Check.Equal(4, y0, "bbox y0"); Check.Equal(5, y1, "bbox y1");
+            // 右の外も同じ。
+            target = PackBits(W * H);
+            Stamp(target, null, W, H, W + 0.5f, 4.5f, 1.2f, true, out _, out _, out _, out _);
+            Check.Equal(1, CountBits(target, W * H), "right: one pixel");
+            Check.True(Bit(target, 4 * W + W - 1), "right: the overlapping pixel");
+        }
+
         public static void MaskEdit_BrushPaintClearsOppositeLayerInSpanOnly() {
             // 含めるを [1, 4) に塗る: 同じゾーンの除外はその区間だけ消え、区間の外(0, 4, 5)は残る。
             var inc = Layer();

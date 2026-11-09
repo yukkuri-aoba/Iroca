@@ -205,7 +205,7 @@ namespace Iroca {
                         GUIUtility.hotControl = controlId;
                         maskView.isPainting = true;
                         maskView._maskStrokeStarted = false;
-                        maskView.lastPaintUV = -Vector2.one;
+                        maskView.lastPaintUV = MaskPaintView.NoLastPaintUV;
                         PaintAtScreenPos(e.mousePosition, previewRect);
                         e.Use();
                         // 塗った所を GPU へ上げるのは次の Repaint(TickMaskOverlay)なので、描き直しを頼む。
@@ -514,15 +514,18 @@ namespace Iroca {
             // ストローク開始時に1度だけ Unity Undo を登録する。
             maskView.BeginStroke();
 
-            var currentUV = PreviewCoords.ScreenToUv(screenPos, previewRect);
+            var currentUV = ScreenToUvForBrush(screenPos, previewRect);
 
             // ブラシの半径(マスクの画素単位)。ブラシサイズは全体表示のプレビュー格子セル単位で、拡大すると
             // その倍率だけ小さく塗る(画面上の大きさは変わらない。MaskPaintView.BrushRadiusPx)。
             maskView.EnsureMasks();
             int gridW = previewTexture != null ? previewTexture.width : maskView.maskWidth;
             float radiusPx = maskView.BrushRadiusPx(gridW, previewZoom);
+            // 中心が画像からこれより離れたスタンプは、円が画像にかからない(塗る画素が無い)ので飛ばす(UV の単位)。
+            float reachU = (radiusPx + 1f) / Mathf.Max(1, maskView.maskWidth);
+            float reachV = (radiusPx + 1f) / Mathf.Max(1, maskView.maskHeight);
 
-            if (maskView.lastPaintUV.x >= 0f) {
+            if (!float.IsNaN(maskView.lastPaintUV.x)) {
                 // 補間ステップは半径の半分(最小 0.5 画素)。UV 距離は正規化空間なので、長辺の画素数で割る
                 // (短辺基準だと縦長/横長テクスチャで長辺方向のスタンプ間隔が空いて点線になる)。
                 float dist = Vector2.Distance(maskView.lastPaintUV, currentUV);
@@ -532,14 +535,32 @@ namespace Iroca {
                     int steps = Mathf.CeilToInt(dist / step);
                     for (int i = 1; i < steps; i++) {
                         Vector2 lerped = Vector2.Lerp(maskView.lastPaintUV, currentUV, (float)i / steps);
-                        maskView.PaintMask(lerped, radiusPx);
+                        if (StampReachesImage(lerped, reachU, reachV)) {
+                            maskView.PaintMask(lerped, radiusPx);
+                        }
                     }
                 }
             }
 
-            maskView.PaintMask(currentUV, radiusPx);
+            if (StampReachesImage(currentUV, reachU, reachV)) {
+                maskView.PaintMask(currentUV, radiusPx);
+            }
             maskView.lastPaintUV = currentUV;
             // 直接書き込みしたオーバーレイを GPU へ上げるのは、描く直前に 1 フレーム 1 回(TickMaskOverlay)。
         }
+
+        private static bool StampReachesImage(Vector2 uv, float reachU, float reachV) =>
+            uv.x > -reachU && uv.x < 1f + reachU && uv.y > -reachV && uv.y < 1f + reachV;
+
+        /// <summary>
+        /// ブラシで塗るときのスクリーン座標 → UV(下原点)。<see cref="PreviewCoords.ScreenToUv"/> と同じ換算で、0〜1 に丸めない。
+        /// 丸めると、塗りながら画像の外へ出たブラシの中心が縁へ寄せられ、縁に沿って帯状に塗れていた。円は塗る側
+        /// (<see cref="MaskRegionEdit.StampDisk"/>・オーバーレイへの直接書き込み)が画像の中で切るので、中心が外なら重なった所だけ塗る。
+        /// PreviewCoords は Core(ハーネスがコンパイルし、視覚レビューの対象になる)なので、丸めない版はここに置く。
+        /// 換算を変えるときは PreviewCoords.ScreenToUv と揃える。
+        /// </summary>
+        private static Vector2 ScreenToUvForBrush(Vector2 screenPos, Rect previewRect) => new Vector2(
+            (screenPos.x - previewRect.x) / previewRect.width,
+            1f - (screenPos.y - previewRect.y) / previewRect.height);
     }
 }
