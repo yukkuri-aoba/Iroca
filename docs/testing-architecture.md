@@ -393,6 +393,10 @@ $env:IROCA_HARNESS_CACHE = "0"; $env:IROCA_RESULT_CACHE = "0"; $env:IROCA_ROW_CA
 最後に使ったのが古い順に空きが戻るまで消す。6 時間以内に使ったもの（走っている別のテストの分）は消さない。
 それでも足りなければ pytest の要約に、キャッシュ以外（取り込み済みの worktree・scratchpad・
 Unity の確認用ホスト）を見直すよう 1 行出す。これらは掃除の対象にしない。
+キャッシュ置き場の中のハーネスのビルド（`stamp.json`・`*.runtimeconfig.json`・書き出した `Harness.csproj` のある
+フォルダ。`builds/<sha>/`・`gtless_probe/<名前>/` など）は、ファイル単位でなく 1 つのまとまりとして扱う。中のどれかが
+日数以内に更新されていれば丸ごと残し、全部古ければ丸ごと消す（2026-11-09）。dotnet build が写す `UnityEngine.*.dll` は
+元の日時のままなので、ファイル単位ではビルドした直後でも消され、ハーネスが起動しなくなっていた。
 `tools/visual_review.py compare --engine csharp` の固定 104 ケースも同じ `run_harness_many`
 （キャッシュ + `--batch`）を通るので、直前に回帰スイートを回していれば dotnet を起動せずに
 同じ DLL の出力が返る（以前は 1 件ずつ単発起動で約 15 分かかっていた）。
