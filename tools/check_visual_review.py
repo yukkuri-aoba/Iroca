@@ -10,6 +10,7 @@ Harness.csproj から導出 = tools/harness_scope.py）がステージされて�
   3. approved.json が全ステージファイルより新しいか（視覚レビュー実施の確認）。
   4. 出力品質ゲートのしきい値較正が健全か（quality_report.py --validate が
      good/bad ラベルを分離できているか）。SKIP_QUALITY_GATE=1 でスキップ可。
+     **保存済みの CSV を読むだけで、今のコードの出力は測らない**（通っても「品質ゲート OK」ではない）。
 
 【設計メモ】品質ゲート本体(test_recolor_quality_gate.py)はフル計測に数分かかるため
 pre-commit では走らせない(コミットを重くしない)。代わりに既存 CSV を使った高速な
@@ -161,9 +162,10 @@ def run_quality_gate_validate() -> None:
             "（このチェックは SKIP_QUALITY_GATE=1 で一時的に回避できます）\n\n"
             + (res.stdout or "") + (res.stderr or "")
         )
-    print("[pre-commit] 品質ゲートしきい値較正 OK (good/bad を分離)")
-    print("  ※ フルな品質ゲートは改善サイクルで: "
-          "pytest dev_safe/Tests/regression/test_recolor_quality_gate.py")
+    print("[pre-commit] 品質ゲートのしきい値の較正 OK（保存済みの CSV で good/bad を分離。"
+          "今のコードの出力は測っていない）")
+    print("  ※ 今のコードの品質は改善サイクルで測る: pytest dev_safe/Tests/regression/ -q"
+          "（IROCA_CSHARP_GATE_FULL=1・IROCA_AUTOTUNE_GATE_FULL=1）")
 
 
 def _fail(message: str) -> None:

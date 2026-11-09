@@ -712,7 +712,8 @@ python tools/visual_review.py approve --note "確認した範囲と根拠"   # �
   snapshot が無ければ null）が同じ役をする。目視するのは変化のあるケースと変更前の無いケースだけで
   （ビット一致のケースは読まなくてよい）、compare はそのパネルだけを一覧に出す。
 - pre-commit フック（`scripts/hooks/pre-commit`）が承認の鮮度と品質ゲート較正
-  （`tools/check_visual_review.py`）を検査する。鮮度は二方式で見る:
+  （`tools/check_visual_review.py`）を検査する。較正は保存済みの CSV で good/bad の分離を見るだけで、
+  今のコードの出力は測らない（通っても品質ゲートが通ったことにはならない）。鮮度は二方式で見る:
   - 固定設定: `approved.json` の承認時刻が、ステージしたゲート対象ファイルの **mtime** より新しいこと
     （`approve` 自体も、比較パネルがゲート対象ファイルの mtime より新しいことを要求する）。内容が同じでも
     mtime が進めば無効になるので、`git stash` の往復やチェックアウトは compare → approve の前に済ませる。
