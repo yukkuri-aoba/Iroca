@@ -36,6 +36,8 @@ namespace Iroca {
             NoEnabledZones,
             /// <summary>原本も取り込み済みテクスチャも読めない。</summary>
             SourceUnreadable,
+            /// <summary>原本の PNG/JPG が壊れているか扱えない形式で、取り込み済みテクスチャも読めない(Read/Write が無い)。</summary>
+            SourceUndecodable,
         }
 
         // キャッシュの中身の作り方を変えたら上げる(古いキャッシュを読まないため)。
@@ -391,7 +393,10 @@ namespace Iroca {
                 failure = Failure.SourceUnreadable;
                 return false;
             }
-            if (kind == ExportPipeline.SourceKind.Unavailable) { failure = Failure.SourceUnreadable; return false; }
+            if (!ExportPipeline.HasPixels(kind)) {
+                failure = kind == ExportPipeline.SourceKind.Undecodable ? Failure.SourceUndecodable : Failure.SourceUnreadable;
+                return false;
+            }
             return true;
         }
 

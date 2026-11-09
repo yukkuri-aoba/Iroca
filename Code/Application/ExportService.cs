@@ -17,7 +17,8 @@ namespace Iroca {
         /// 書き出しの原本を元の解像度で読む(メインスレッド専用。参照 1 で返すので、呼ぶ側が Release する)。
         /// PNG/JPG はファイルを直接デコードするので取り込み設定(Max Size・圧縮・Read/Write)の影響を受けない。
         /// PSD/TGA/EXR 等は Unity が取り込み時に変換しているので LoadImage で読めず、取り込み済みテクスチャの画素を使う
-        /// (縮小・圧縮を受けている)。どちらも読めなければ <see cref="ExportPipeline.SourceKind.Unavailable"/> で、画素は null。
+        /// (縮小・圧縮を受けている)。どちらも読めなければ <see cref="ExportPipeline.SourceKind.Unavailable"/> か
+        /// <see cref="ExportPipeline.SourceKind.Undecodable"/>(原本が壊れた PNG/JPG)で、画素は null。
         /// </summary>
         internal static ExportPipeline.SourceKind ReadSource(string srcPath, Texture2D imported, out NativePixels pixels) {
             pixels = TextureIO.ReadSourceFile(srcPath, imported, workingSize: false);
@@ -25,7 +26,7 @@ namespace Iroca {
                 return ExportPipeline.SourceKind.File;
             }
             if (!TextureIO.IsReadable(imported)) {
-                return ExportPipeline.SourceKind.Unavailable;
+                return ExportPipeline.Unreadable(srcPath);
             }
             // 取り込み済みテクスチャの寸法のまま(GetPixels32 と同じ値。非圧縮の形式は管理配列を経由しない)。
             pixels = WorkingResolution.NativePixelsOf(imported, null);

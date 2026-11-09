@@ -117,6 +117,12 @@ namespace Iroca {
             return decoded == null ? null : WorkingResolution.FitToWorkingSize(decoded, importW, importH);
         }
 
+        /// <summary>
+        /// 先頭が PNG か JPG のファイルか(<see cref="DecodeSourceFile"/> が中身を読むもの。拡張子は見ない)。デコードできなかったときに、
+        /// 壊れている・扱えない形式なのか(true)、Unity が取り込みで変換する形式なのか(false)を見分けるため。開けなければ IOException。
+        /// </summary>
+        internal static bool IsPngOrJpeg(string path) => SniffImage(path) != ImageKind.Other;
+
         private enum ImageKind { Png, Jpeg, Other }
 
         // ファイルの先頭で見分ける(拡張子は当てにならない。中身が PNG の .tga や、大文字の .PNG がある)。

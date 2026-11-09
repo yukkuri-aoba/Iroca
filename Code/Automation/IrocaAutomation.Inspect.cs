@@ -263,7 +263,7 @@ namespace Iroca {
             string abs = PhysicalPath(info.path);
             if (abs == null) { r.warnings.Add("texture file not found; colors are not available."); return; }
             var kind = ReadWorkingPixels(abs, tex, out NativePixels pixels);
-            if (kind == ExportPipeline.SourceKind.Unavailable) {
+            if (!ExportPipeline.HasPixels(kind)) {
                 r.warnings.Add("could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).");
                 return;
             }

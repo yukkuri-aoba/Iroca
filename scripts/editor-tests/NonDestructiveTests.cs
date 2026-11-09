@@ -161,6 +161,20 @@ namespace Iroca.EditorTests {
             Assert.IsTrue(RecipeTextureBuilder.TryRecolor(recipe, out _, out _, out _, out var after), after.ToString());
         }
 
+        // 原本の PNG の画素(IDAT)が壊れていて、取り込み済みも Read/Write が無く読めない。「ファイルを開けない」ではなく
+        // 「壊れているか扱えない形式」と報告する(NDMF の案内を分けるため)。
+        [Test]
+        public void TryRecolor_BrokenSourceWithoutReadWrite_ReportsUndecodable() {
+            var src = ImportSource(readable: false);
+            var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
+            TestAssets.BreakPngDeflate(TestAssets.Abs(AssetDatabase.GetAssetPath(src)));
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            try {
+                Assert.IsFalse(RecipeTextureBuilder.TryRecolor(recipe, out _, out _, out _, out var failure));
+                Assert.AreEqual(RecipeTextureBuilder.Failure.SourceUndecodable, failure);
+            } finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
+        }
+
         [Test]
         public void Recipe_Save_WritesOnlyWhenChanged() {
             var src = ImportSource();

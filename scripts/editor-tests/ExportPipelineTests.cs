@@ -194,6 +194,28 @@ namespace Iroca.EditorTests {
             Assert.IsNull(none);
         }
 
+        // 原本の PNG の画素(IDAT)だけが壊れたとき: 取り込み済みが読めればそれを使い、読めなければ「壊れているか扱えない形式」と
+        // 分けて返す(Read/Write を有効にしてと案内するだけの「読めない」と区別する)。
+        [Test]
+        public void ReadSource_BrokenPng_FallsBackOrReportsUndecodable() {
+            string readable = _assets.WritePng("readable", Pattern(8, 8), 8, 8, readable: true);
+            string noReadWrite = _assets.WritePng("noReadWrite", Pattern(8, 8), 8, 8, readable: false);
+            TestAssets.BreakPngDeflate(TestAssets.Abs(readable));
+            TestAssets.BreakPngDeflate(TestAssets.Abs(noReadWrite));
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            try {
+                Assert.AreEqual(ExportPipeline.SourceKind.ImportedTexture,
+                    ExportService.ReadSource(readable, AssetDatabase.LoadAssetAtPath<Texture2D>(readable), out var pixels));
+                pixels.Release();
+                Assert.AreEqual(ExportPipeline.SourceKind.Undecodable,
+                    ExportService.ReadSource(noReadWrite, AssetDatabase.LoadAssetAtPath<Texture2D>(noReadWrite), out var none));
+                Assert.IsNull(none);
+                Assert.AreEqual(ExportPipeline.SourceKind.Undecodable, ExportPipeline.ReadWorkingPixelsNative(noReadWrite,
+                    AssetDatabase.LoadAssetAtPath<Texture2D>(noReadWrite), out var noneWorking));
+                Assert.IsNull(noneWorking);
+            } finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
+        }
+
         // 自動化（IrocaAutomation）も原本を同じ手順で読むが、取り込み済みテクスチャは渡さない（PNG/JPG のみ）。
         // 読めない原本では取り込み済みへ逃げず、デコード失敗のエラーを返すこと。
         private const string AutomationZones = "{\"zones\":[{\"name\":\"z\"}]}";

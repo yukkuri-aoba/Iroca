@@ -21,7 +21,22 @@ namespace Iroca {
             ImportedTexture,
             /// <summary>原本も取り込み側も読めない（Read/Write を有効にすれば後者が使える）。</summary>
             Unavailable,
+            /// <summary>
+            /// 原本は PNG/JPG だが画素を読めない（壊れている・扱えない形式）。取り込み側も読めない（Unity が取り込めていれば、
+            /// Read/Write を有効にすると後者が使える）。
+            /// </summary>
+            Undecodable,
         }
+
+        /// <summary>画素を読めたか(<see cref="SourceKind.File"/> か <see cref="SourceKind.ImportedTexture"/>)。</summary>
+        public static bool HasPixels(SourceKind kind) => kind == SourceKind.File || kind == SourceKind.ImportedTexture;
+
+        /// <summary>
+        /// 原本も取り込み側も読めなかったときの区別。原本が PNG/JPG なのにデコードできなければ <see cref="SourceKind.Undecodable"/>、
+        /// それ以外(PSD・TGA など Unity が取り込みで変換する形式)は <see cref="SourceKind.Unavailable"/>。
+        /// </summary>
+        internal static SourceKind Unreadable(string srcPath) =>
+            TextureIO.IsPngOrJpeg(srcPath) ? SourceKind.Undecodable : SourceKind.Unavailable;
 
         /// <summary>元のファイルへ上書きして書き出せるか。書くのは Assets の下だけ(パッケージの中は取り込まれず、更新で消える)。</summary>
         public static bool CanOverwriteInPlace(string srcPath) =>
@@ -72,7 +87,7 @@ namespace Iroca {
                 return SourceKind.File;
             }
             if (!TextureIO.IsReadable(imported)) {
-                return SourceKind.Unavailable;
+                return Unreadable(srcPath);
             }
             pixels = WorkingResolution.NativePixelsOf(imported, null);
             return SourceKind.ImportedTexture;

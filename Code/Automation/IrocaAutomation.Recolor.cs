@@ -409,7 +409,7 @@ namespace Iroca {
                 return $"texture file not found: {r.texture}";
             }
             var kind = ReadWorkingPixels(abs, tex, out job.work);
-            if (kind == ExportPipeline.SourceKind.Unavailable) {
+            if (!ExportPipeline.HasPixels(kind)) {
                 return "could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).";
             }
             job.w = job.work.Width;
@@ -757,8 +757,7 @@ namespace Iroca {
             if (!job.workIsFullResolution) {
                 // 「適用して保存」と同じ読み方(ExportService。PNG/JPG はファイルを直接、ほかは取り込み済みテクスチャ)。
                 string srcAbs = PhysicalPath(job.r.texture);
-                if (srcAbs == null || ExportService.ReadSource(srcAbs, job.tex, out full)
-                        == ExportPipeline.SourceKind.Unavailable) {
+                if (srcAbs == null || !ExportPipeline.HasPixels(ExportService.ReadSource(srcAbs, job.tex, out full))) {
                     return "failed to read the source texture at its original resolution.";
                 }
             }

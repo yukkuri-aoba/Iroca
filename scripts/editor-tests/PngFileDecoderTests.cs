@@ -259,6 +259,20 @@ namespace Iroca.EditorTests {
             Assert.IsNull(PngFileDecoder.TryDecode(headerOnly), "署名だけ");
         }
 
+        // zlib の中身だけが壊れた PNG(チャンクの CRC は正しい)。Unity の Mono の DeflateStream は IOException("Corrupted data ReadInternal")
+        // を投げるが、ファイルを読めない(ほかのアプリが開いている)のとは違うので、null を返して LoadImage と取り込み済みに任せる。
+        [Test]
+        public void BrokenFiles_CorruptDeflateData_IsNotDecoded() {
+            string path = WritePng("corrupt", 8, 6, Rows(W * 4), 4);
+            TestAssets.BreakPngDeflate(path);
+            Assert.IsTrue(PngFileDecoder.CanDecode(path), "テストの前提: 見出しは読める");
+            Assert.IsNull(PngFileDecoder.TryDecode(path));
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            try {
+                Assert.IsNull(TextureIO.DecodeSourceFile(path, null), "LoadImage でも読めない");
+            } finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
+        }
+
         [Test]
         public void LockedFile_ThrowsLikeTheOtherPath() {
             string path = WritePng("locked", 8, 6, Rows(W * 4), 4);

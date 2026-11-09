@@ -113,6 +113,41 @@ namespace Iroca.EditorTests {
             return task.Result;
         }
 
+        /// <summary>
+        /// PNG ファイルの最初の IDAT の deflate の中身だけを壊す(最初のブロックの種類を予約値の 11 にする)。チャンクの CRC は
+        /// 付け直すので、見出しと寸法は読めて、展開で初めて失敗する。取り込みはし直さない(取り込み済みのテクスチャは前のまま)。
+        /// </summary>
+        public static void BreakPngDeflate(string path) {
+            byte[] bytes = File.ReadAllBytes(path);
+            for (int at = 8; at + 12 <= bytes.Length;) {
+                int length = bytes[at] << 24 | bytes[at + 1] << 16 | bytes[at + 2] << 8 | bytes[at + 3];
+                if (bytes[at + 4] == 'I' && bytes[at + 5] == 'D' && bytes[at + 6] == 'A' && bytes[at + 7] == 'T') {
+                    bytes[at + 8 + 2] |= 0x06;   // zlib の見出し 2 バイトの次 = 最初のブロックの見出し(BTYPE は 2〜3 ビット目)
+                    uint crc = Crc32(bytes, at + 4, 4 + length);
+                    int c = at + 8 + length;
+                    bytes[c] = (byte)(crc >> 24);
+                    bytes[c + 1] = (byte)(crc >> 16);
+                    bytes[c + 2] = (byte)(crc >> 8);
+                    bytes[c + 3] = (byte)crc;
+                    File.WriteAllBytes(path, bytes);
+                    return;
+                }
+                at += 12 + length;
+            }
+            throw new InvalidDataException("no IDAT chunk: " + path);
+        }
+
+        private static uint Crc32(byte[] bytes, int offset, int count) {
+            uint c = 0xFFFFFFFF;
+            for (int i = offset; i < offset + count; i++) {
+                c ^= bytes[i];
+                for (int k = 0; k < 8; k++) {
+                    c = (c & 1) != 0 ? 0xEDB88320 ^ (c >> 1) : c >> 1;
+                }
+            }
+            return c ^ 0xFFFFFFFF;
+        }
+
         public static Color32[] Solid(int w, int h, Color32 c) {
             var px = new Color32[w * h];
             for (int i = 0; i < px.Length; i++) {

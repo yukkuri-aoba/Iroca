@@ -51,6 +51,10 @@ namespace Iroca.EditorTests {
             Assert.AreEqual((nadena.dev.ndmf.ErrorSeverity.NonFatal, "iroca.texture_not_used"), notUsed);
             Assert.AreEqual(nadena.dev.ndmf.ErrorSeverity.Error, Iroca.NdmfIntegration.NdmfMessages.Classify(
                 NonDestructiveApplier.Problem.BuildFailed, RecipeTextureBuilder.Failure.SourceUnreadable).Item1);
+            // 壊れた画像は「ほかのアプリで開いているなら閉じて」ではなく、画像が壊れているか扱えない形式だと案内する。
+            Assert.AreEqual((nadena.dev.ndmf.ErrorSeverity.Error, "iroca.build_failed.source_undecodable"),
+                Iroca.NdmfIntegration.NdmfMessages.Classify(NonDestructiveApplier.Problem.BuildFailed,
+                    RecipeTextureBuilder.Failure.SourceUndecodable));
         }
 
         [Test]

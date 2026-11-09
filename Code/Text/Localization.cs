@@ -542,6 +542,10 @@ namespace Iroca {
         public static string ExportSourceUnavailable => IsJapanese
             ? "元ファイルを読めず、テクスチャからも画素を取れません。インポート設定で Read/Write を有効にするか、PNG / JPG のテクスチャを使ってください。"
             : "The source file could not be read, and pixels are not available from the texture either. Turn on Read/Write in the import settings, or use a PNG/JPG texture.";
+        // 原本は PNG/JPG だが、壊れているか扱えない形式で読めない(取り込み済みのテクスチャも Read/Write が無く読めない)。
+        public static string ExportSourceUndecodable => IsJapanese
+            ? "元の画像ファイルが壊れているか、扱えない形式なので読めません。画像を編集ソフトで開いて PNG で保存し直してください。Unity がこのテクスチャを取り込めているなら、インポート設定で Read/Write を有効にすると、取り込み済みの画素から書き出せます。"
+            : "The source image file is broken or in a format that cannot be read. Open it in an image editor and save it again as PNG. If Unity has imported this texture, turning on Read/Write in the import settings lets the export use the imported pixels.";
         public static string SaveAsNewFile => IsJapanese ? "新規ファイルとして保存" : "Save as new file";
         public static string FileName => IsJapanese ? "ファイル名" : "File Name";
         public static string ApplyAndSave => IsJapanese ? "適用して保存" : "Apply & Save";

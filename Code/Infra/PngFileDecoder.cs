@@ -33,10 +33,27 @@ namespace Iroca {
         /// </summary>
         public static NativePixels TryDecode(string path, CancellationToken cancel = default) {
             using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, ReadBufferBytes)) {
-                try { return Decode(file, cancel, headerOnly: false, out _); }
-                // 長さの足りないファイルも IOException の仲間なので、ここで分ける(開けないときの例外は上へ出す)。
-                catch (EndOfStreamException) { return null; } catch (InvalidDataException) { return null; }
+                try {
+                    return Decode(file, cancel, headerOnly: false, out _);
+                } catch (EndOfStreamException) {
+                    // 長さの足りないファイルも IOException の仲間なので、ここで分ける(開けないときの例外は上へ出す)。
+                    return null;
+                } catch (InvalidDataException) {
+                    return null;   // 壊れたデータ(zlib の展開の失敗も、展開のスレッドがこれに替える)
+                } catch (SourceReadFailed e) {
+                    // 画素のデータを読む途中でファイルを読めなくなった。包む前の例外を、今までどおりの型で外へ出す。
+                    ExceptionDispatchInfo.Capture(e.InnerException).Throw();
+                    throw;
+                }
             }
+        }
+
+        /// <summary>
+        /// IDAT を読む途中でファイルの読み込みそのものが失敗した(本当の I/O の失敗)。zlib の展開は壊れたデータでも IOException を
+        /// 投げる(Unity の Mono の DeflateStream は "Corrupted data ReadInternal")ので、ファイルから出たものだけをこれで包んで見分ける。
+        /// </summary>
+        private sealed class SourceReadFailed : IOException {
+            public SourceReadFailed(IOException inner) : base(inner.Message, inner) { }
         }
 
         /// <summary>
@@ -463,7 +480,8 @@ namespace Iroca {
         /// 管理配列は 1 枚あたり約 256KB(画素数ではなく束の大きさで決まる)。
         /// <para>
         /// 展開のスレッドで出た例外は、受け取る側の <see cref="Next"/> で同じ型のまま投げ直す(1 本のスレッドで読んでいた
-        /// ときと同じ扱いになる)。データが行の数に足りなければ Next が false。<see cref="Dispose"/> は展開のスレッドが
+        /// ときと同じ扱いになる)。ただし展開の失敗の IOException(壊れたデータ)は InvalidDataException に替える。
+        /// データが行の数に足りなければ Next が false。<see cref="Dispose"/> は展開のスレッドが
         /// 抜けるのを待つ(呼び出し側がファイルを閉じる前に必ず抜ける)。
         /// </para>
         /// </summary>
@@ -513,6 +531,11 @@ namespace Iroca {
                             _filled.Release();
                         }
                     }
+                } catch (IOException e) when (!(e is EndOfStreamException) && !(e is SourceReadFailed)) {
+                    // ファイルからでない IOException は展開の失敗(壊れたデータ)。Unity の Mono の DeflateStream は
+                    // IOException("Corrupted data ReadInternal") を投げるので、壊れたファイルとして扱えるように替える
+                    // (そのままだと「ファイルを読めない」として外へ出て、LoadImage と取り込み済みへ回らない)。
+                    _error = ExceptionDispatchInfo.Capture(new InvalidDataException(e.Message, e));
                 } catch (Exception e) {
                     _error = ExceptionDispatchInfo.Capture(e);
                 } finally {
@@ -576,25 +599,30 @@ namespace Iroca {
             }
 
             public override int Read(byte[] buffer, int offset, int count) {
-                while (_left == 0) {
-                    if (_ended) {
-                        return 0;
+                try {
+                    while (_left == 0) {
+                        if (_ended) {
+                            return 0;
+                        }
+                        Skip(_file, 4);   // CRC
+                        ReadExactly(_file, _head, 8);
+                        if (FourCc(_head, 4) != FourCc("IDAT")) { _ended = true; return 0; }
+                        uint length = BigEndian(_head, 0);
+                        if (length > int.MaxValue) {
+                            throw new InvalidDataException("IDAT too long");
+                        }
+                        _left = (int)length;
                     }
-                    Skip(_file, 4);   // CRC
-                    ReadExactly(_file, _head, 8);
-                    if (FourCc(_head, 4) != FourCc("IDAT")) { _ended = true; return 0; }
-                    uint length = BigEndian(_head, 0);
-                    if (length > int.MaxValue) {
-                        throw new InvalidDataException("IDAT too long");
+                    int n = _file.Read(buffer, offset, Math.Min(count, _left));
+                    if (n <= 0) {
+                        throw new EndOfStreamException();
                     }
-                    _left = (int)length;
+                    _left -= n;
+                    return n;
+                } catch (IOException e) when (!(e is EndOfStreamException)) {
+                    // ファイルの読み込みの失敗。展開(DeflateStream)の失敗と見分けられるように包む(TryDecode が元の型に戻す)。
+                    throw new SourceReadFailed(e);
                 }
-                int n = _file.Read(buffer, offset, Math.Min(count, _left));
-                if (n <= 0) {
-                    throw new EndOfStreamException();
-                }
-                _left -= n;
-                return n;
             }
 
             public override bool CanRead => true;

@@ -31,6 +31,10 @@ namespace Iroca.NdmfIntegration {
             ["iroca.build_failed.source_unreadable"] = "いろか: 元テクスチャを読めません",
             ["iroca.build_failed.source_unreadable:description"] = "{0} のレシピ {1} の元テクスチャを読めなかったので、色替えできませんでした。",
             ["iroca.build_failed.source_unreadable:hint"] = "ほかのアプリでファイルを開いているなら閉じ、同期サービスのオンライン専用のファイルならこの PC に保存してから、もう一度試してください。PNG/JPG 以外の形式なら、テクスチャのインポート設定で Read/Write を有効にしてください。",
+
+            ["iroca.build_failed.source_undecodable"] = "いろか: 元テクスチャの画像ファイルを読めません",
+            ["iroca.build_failed.source_undecodable:description"] = "{0} のレシピ {1} の元テクスチャのファイルが壊れているか、いろかの扱えない形式なので、色替えできませんでした。",
+            ["iroca.build_failed.source_undecodable:hint"] = "画像を編集ソフトで開いて PNG で保存し直してください。Unity がそのテクスチャを取り込めているなら、インポート設定で Read/Write を有効にすると、取り込み済みの画素で色替えします。",
         };
 
         private static readonly Dictionary<string, string> En = new Dictionary<string, string> {
@@ -53,6 +57,10 @@ namespace Iroca.NdmfIntegration {
             ["iroca.build_failed.source_unreadable"] = "Iroca: Cannot read the source texture",
             ["iroca.build_failed.source_unreadable:description"] = "The source texture of recipe {1} of {0} could not be read, so it could not be recolored.",
             ["iroca.build_failed.source_unreadable:hint"] = "If another app has the file open, close it; if it is an online-only file of a sync service, keep it on this PC; then try again. For formats other than PNG/JPG, enable Read/Write in the texture's import settings.",
+
+            ["iroca.build_failed.source_undecodable"] = "Iroca: Cannot read the source image file",
+            ["iroca.build_failed.source_undecodable:description"] = "The source texture file of recipe {1} of {0} is broken or in a format Iroca cannot read, so it could not be recolored.",
+            ["iroca.build_failed.source_undecodable:hint"] = "Open the image in an image editor and save it again as PNG. If Unity has imported the texture, turning on Read/Write in its import settings lets Iroca recolor the imported pixels.",
         };
 
         private static readonly Localizer Localizer = new Localizer("en-US", () =>
@@ -97,6 +105,8 @@ namespace Iroca.NdmfIntegration {
                     return (ErrorSeverity.Error, "iroca.build_failed.no_source");
                 case RecipeTextureBuilder.Failure.UnreadableRecipe:
                     return (ErrorSeverity.Error, "iroca.build_failed.unreadable_recipe");
+                case RecipeTextureBuilder.Failure.SourceUndecodable:
+                    return (ErrorSeverity.Error, "iroca.build_failed.source_undecodable");
                 default:
                     return (ErrorSeverity.Error, "iroca.build_failed.source_unreadable");
             }

@@ -394,9 +394,10 @@ namespace Iroca {
                 NotifyError(string.Format(Localization.ExportSourceReadFailedFormat, e.Message));
                 return;
             }
-            if (source == ExportPipeline.SourceKind.Unavailable) {
-                // 原本も取り込み側も読めない。Read/Write を有効にすれば後者が使える。
-                NotifyError(Localization.ExportSourceUnavailable);
+            if (!ExportPipeline.HasPixels(source)) {
+                // 原本も取り込み側も読めない。Read/Write を有効にすれば後者が使える(原本が壊れた PNG/JPG なら、まず保存し直す)。
+                NotifyError(source == ExportPipeline.SourceKind.Undecodable
+                    ? Localization.ExportSourceUndecodable : Localization.ExportSourceUnavailable);
                 return;
             }
             if (pixels != null) {
@@ -725,8 +726,9 @@ namespace Iroca {
                         // 読み込み・PNG 化・書き込みは単体書き出しと同じ ExportService を通す
                         // （以前は一括だけ書き込みがアトミックでなかった）。画素も PNG もヒープの外。
                         var source = ExportService.ReadSource(srcPath, tex, out pixels);
-                        // 原本も取り込み側も読めない（PSD/TGA 等で Read/Write 無効）。
-                        if (source == ExportPipeline.SourceKind.Unavailable) {
+                        // 原本も取り込み側も読めない（PSD/TGA 等で Read/Write 無効・壊れた PNG/JPG）。
+                        if (!ExportPipeline.HasPixels(source)) {
+                            Debug.LogWarning($"[Iroca] Batch: skipped {tex.name}; the source file could not be read ({source}).");
                             continue;
                         }
                         if (source == ExportPipeline.SourceKind.ImportedTexture) {

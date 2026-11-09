@@ -348,8 +348,10 @@ namespace Iroca {
 
             // ── ディスクの PNG を直接読む（import 設定/readable に依存せず製品経路と一致させる） ──
             // imported が null なら ExportPipeline のフォールバックは起きず PNG/JPG のみを受け付ける。
-            if (ExportService.ReadSource(srcAbs, null, out NativePixels pixels)
-                    == ExportPipeline.SourceKind.Unavailable) { result.error = "failed to decode source image."; return result; }
+            if (!ExportPipeline.HasPixels(ExportService.ReadSource(srcAbs, null, out NativePixels pixels))) {
+                result.error = "failed to decode source image.";
+                return result;
+            }
 
             NativePixels originalPixels = null;
             NativeMemoryLifecycle.WorkStarted();
