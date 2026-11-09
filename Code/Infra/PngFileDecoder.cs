@@ -102,6 +102,7 @@ namespace Iroca {
 
             int width = 0, height = 0, bitDepth = 0, colorType = 0;
             Color32[] palette = null;
+            int paletteSize = 0;   // PLTE の色の数(palette は番号の全部 256 を持つ)
             bool colorKey = false;
             bool haveHeader = false;
             var chunkHead = new byte[8];
@@ -160,14 +161,19 @@ namespace Iroca {
                     haveHeader = true;
                     Skip(file, 4);
                 } else if (type == FourCc("PLTE")) {
-                    if (length % 3 != 0 || length > 768) {
+                    // 色の無いパレットは LoadImage と同じ画素にできるか確かめていないので任せる。
+                    if (length == 0 || length % 3 != 0 || length > 768) {
                         return null;
                     }
                     var entries = new byte[length];
                     ReadExactly(file, entries, (int)length);
+                    paletteSize = (int)length / 3;
+                    // PLTE より先の番号(仕様では誤り)は、LoadImage と同じく不透明の黒にする(PngFileDecoderTests で確かめた)。
                     palette = new Color32[256];
-                    for (int i = 0; i < length / 3; i++) {
-                        palette[i] = new Color32(entries[i * 3], entries[i * 3 + 1], entries[i * 3 + 2], 255);
+                    for (int i = 0; i < palette.Length; i++) {
+                        palette[i] = i < paletteSize
+                            ? new Color32(entries[i * 3], entries[i * 3 + 1], entries[i * 3 + 2], 255)
+                            : new Color32(0, 0, 0, 255);
                     }
                     Skip(file, 4);
                 } else if (type == FourCc("tRNS")) {
@@ -175,10 +181,10 @@ namespace Iroca {
                         // グレー・RGB の透明色は LoadImage に任せる。
                         colorKey = true;
                         Skip(file, length + 4);
+                    } else if (length > paletteSize) {
+                        // PLTE より長い tRNS は、LoadImage と同じく丸ごと使わない(どの番号も不透明。PngFileDecoderTests で確かめた)。
+                        Skip(file, length + 4);
                     } else {
-                        if (length > 256) {
-                            return null;
-                        }
                         var alphas = new byte[length];
                         ReadExactly(file, alphas, (int)length);
                         for (int i = 0; i < length; i++) {

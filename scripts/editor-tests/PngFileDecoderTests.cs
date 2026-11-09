@@ -213,6 +213,24 @@ namespace Iroca.EditorTests {
             AssertSameAsLoadImage(WritePng("p8a", 8, 3, Rows(W), 1, Palette(), new byte[] { 0, 64, 128, 200 }));
         [Test] public void SeveralDataChunks() => AssertSameAsLoadImage(WritePng("split", 8, 6, Rows(W * 4), 4, splitIdat: true));
 
+        // パレットの端(仕様では誤りだが手元の素材にもありうる形)。LoadImage と同じ画素にする。
+        private static byte[] ShortPalette(int entries) {
+            var plte = new byte[entries * 3];
+            Buffer.BlockCopy(Palette(), 0, plte, 0, plte.Length);
+            return plte;
+        }
+
+        // PLTE が 4 色なのに、画素の番号は 0〜255。
+        [Test]
+        public void Palette_IndexBeyondThePalette() =>
+            AssertSameAsLoadImage(WritePng("p-short", 8, 3, Rows(W), 1, ShortPalette(4)));
+
+        // tRNS が PLTE より長い(4 色に 6 つ)。番号は PLTE の中だけ。
+        [Test]
+        public void Palette_TransparencyLongerThanThePalette() =>
+            AssertSameAsLoadImage(WritePng("p-long-trns", 8, 3, Masked(Rows(W), 0x03), 1, ShortPalette(4),
+                new byte[] { 0, 64, 128, 200, 10, 20 }));
+
         // 展開した行は約 64KB の束で受け渡す。束の境目(前の束の最後の行を上の行に使う)と、束を何周も使い回すところを通す。
         [Test] public void ManyRows_RgbaSpanSeveralBlocks() => AssertSameAsLoadImage(WritePng("tall-rgba", 8, 6, Rows(W * 4, 3001), 4));
         [Test] public void ManyRows_RgbSpanSeveralBlocks() => AssertSameAsLoadImage(WritePng("tall-rgb", 8, 2, Rows(W * 3, 3001), 3));
