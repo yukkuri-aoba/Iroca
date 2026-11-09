@@ -162,6 +162,12 @@ namespace Iroca {
         public static string EyedropperActive => IsJapanese
             ? "■ クリックで取得"
             : "■ Click to pick";
+        // スポイトのカーソルの横の見本(クリックしたら取れる色)に添える文字。見本は元のテクスチャの画素の色で、プレビューは色替えの
+        // 結果や「アバターの色」で描くので、カーソルの下と違って見えることがある。
+        public static string EyedropperSwatchLabel => IsJapanese ? "テクスチャの色" : "Texture color";
+        public static string EyedropperSwatchTooltip => IsJapanese
+            ? "スポイトが取るのは、元のテクスチャの画素の色です。\nプレビューは色替えの結果や「アバターの色」（マテリアルの色の設定を掛けた見た目）で描くので、カーソルの下の色と違って見えることがあります。"
+            : "The eyedropper picks the color of the original texture pixel.\nThe preview shows the recolor result or the colors \"On avatar\" (with the material's color settings applied), so it can look different from the color under the cursor.";
         public static string EyedropperTooltip => IsJapanese
             ? "押すとスポイトモードになり、プレビュー上をクリックするとそのピクセルの色を\nこのゾーンの「サンプルカラー」に取り込みます。\n実テクスチャの画素から直接取得するため、カラーピッカーのスポイトより正確です。\nもう一度押すと解除します。"
             : "Enters eyedropper mode; click the preview to load that pixel's color into this zone's Sample Color.\nIt reads the actual texture pixel directly, so it is more accurate than the color picker's eyedropper.\nClick again to cancel.";

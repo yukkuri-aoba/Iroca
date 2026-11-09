@@ -441,10 +441,15 @@ namespace Iroca {
         private const float EyedropperSwatchSize = 28f;
         private const float EyedropperSwatchOffset = 16f;
 
+        // 見本に添える文字(「テクスチャの色」)の書式(暗い下地に白い小さな文字)。
+        private static GUIStyle s_eyedropperLabelStyle;
+        private const float EyedropperLabelGap = 4f;
+
         /// <summary>
         /// スポイトのカーソルの右下に、クリックしたら取れる色の見本を描く。枠の右・下の端からはみ出すときは
         /// カーソルの反対側へ置く(拡大中は画像が枠より大きく、枠の外は見えない)。どの色の上でも見えるよう
-        /// 黒と白の二重の縁を付ける。
+        /// 黒と白の二重の縁を付ける。見本の横(カーソルと反対の側)に「テクスチャの色」と添える: 見本は元のテクスチャの画素の色で、
+        /// プレビューは色替えの結果や「アバターの色」で描くので、カーソルの下と違って見えることがある(点検の D-20)。
         /// </summary>
         private void DrawEyedropperSwatch(Vector2 mouse, Color color) {
             float s = EyedropperSwatchSize, off = EyedropperSwatchOffset;
@@ -462,6 +467,37 @@ namespace Iroca {
             EditorGUI.DrawRect(new Rect(r.x - 1f, r.y - 1f, r.width + 2f, r.height + 2f), Color.white);
             color.a = 1f;
             EditorGUI.DrawRect(r, color);
+            DrawEyedropperSwatchLabel(mouse, r);
+        }
+
+        private void DrawEyedropperSwatchLabel(Vector2 mouse, Rect swatch) {
+            if (s_eyedropperLabelStyle == null) {
+                s_eyedropperLabelStyle = new GUIStyle(EditorStyles.miniLabel) {
+                    padding = new RectOffset(3, 3, 1, 1),
+                    alignment = TextAnchor.MiddleCenter,
+                };
+                s_eyedropperLabelStyle.normal.textColor = Color.white;
+            }
+            var content = TempContent.Of(Localization.EyedropperSwatchLabel, Localization.EyedropperSwatchTooltip);
+            Vector2 size = s_eyedropperLabelStyle.CalcSize(content);
+            bool swatchRight = swatch.x > mouse.x;
+            float y = swatch.center.y - size.y * 0.5f;
+            var label = swatchRight
+                ? new Rect(swatch.xMax + EyedropperLabelGap, y, size.x, size.y)
+                : new Rect(swatch.x - EyedropperLabelGap - size.x, y, size.x, size.y);
+            // 枠の横からはみ出すなら、見本の下(見本がカーソルの上にあれば上)へ、カーソルの側へ伸ばして置く(見本は枠の中にあるので、
+            // 見本の外側の端にそろえれば枠の中に収まる)。
+            if (_previewFrameScreenRect.width > 0f) {
+                Vector2 min = GUIUtility.GUIToScreenPoint(label.position);
+                if (min.x < _previewFrameScreenRect.xMin || min.x + size.x > _previewFrameScreenRect.xMax) {
+                    bool swatchBelow = swatch.y > mouse.y;
+                    label = new Rect(swatchRight ? swatch.xMax + 2f - size.x : swatch.x - 2f,
+                        swatchBelow ? swatch.yMax + EyedropperLabelGap : swatch.y - EyedropperLabelGap - size.y,
+                        size.x, size.y);
+                }
+            }
+            EditorGUI.DrawRect(label, new Color(0f, 0f, 0f, 0.75f));
+            GUI.Label(label, content, s_eyedropperLabelStyle);
         }
 
         // カーソルが前の描画でプレビューの上にあったか(出たときに 1 回だけ描き直して、見本・カーソルを消す)。
