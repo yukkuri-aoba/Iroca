@@ -484,18 +484,29 @@ namespace Iroca {
             }
 
             // 自動調整: 各ゾーンの推奨値を導出して適用する（かんたんモード/手動 Auto-Tune 相当）。
-            // mask.raw に除外指定があれば実機 RunAutoTune と同様にマスクを渡す(マスク認識経路の検証用)。
+            // 除外があれば実機 RunAutoTune と同様にマスクを渡す(マスク認識経路の検証用)。渡すのは製品
+            // (AutoTuneService)と同じ「共通(mask.raw) ∪ そのゾーンの除外(zones JSON の excludeMask)」。
+            // 2026-11-10 まで共通だけを渡していて、ゾーン別の除外が自動調整に効いていなかった。
             if (autotune) {
-                int exCount = 0;
-                for (int k = 0; k < common.Length; k++) {
-                    if (common[k]) {
-                        exCount++;
-                    }
-                }
-                bool useMask = exCount > 0 && exCount < common.Length;
                 var session = IrocaSessionState.CreateDefault();
                 for (int zi = 0; zi < zoneList.Count; zi++) {
                     var z = zoneList[zi];
+                    bool[] excluded = common;
+                    if (masks.zones != null && masks.zones.TryGetValue(z.id, out var zoneExclude) && zoneExclude != null) {
+                        excluded = (bool[])common.Clone();
+                        for (int k = 0; k < excluded.Length; k++) {
+                            if (zoneExclude.Get(k)) {
+                                excluded[k] = true;
+                            }
+                        }
+                    }
+                    int exCount = 0;
+                    for (int k = 0; k < excluded.Length; k++) {
+                        if (excluded[k]) {
+                            exCount++;
+                        }
+                    }
+                    bool useMask = exCount > 0 && exCount < excluded.Length;
                     // 証拠マスク(zones JSON の evidenceMask)があれば証拠つき導出(セグメント教師)。
                     bool[] evidence = null;
                     int evW = 0, evH = 0;
@@ -509,10 +520,10 @@ namespace Iroca {
                     var tune = evidence != null
                         ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, w, h, z, sessionInput,
                             evidence, evW, evH,
-                            excluded: useMask ? common : null,
+                            excluded: useMask ? excluded : null,
                             maskW: useMask ? mw : 0, maskH: useMask ? mh : 0)
                         : useMask
-                            ? ZoneAutoTuner.Analyze(pixels, w, h, z, sessionInput, common, mw, mh)
+                            ? ZoneAutoTuner.Analyze(pixels, w, h, z, sessionInput, excluded, mw, mh)
                             : ZoneAutoTuner.Analyze(pixels, w, h, z, sessionInput, excluded: null, maskW: 0, maskH: 0);
                     // 導出結果 → ゾーン/グローバルの写像は製品 UI と同じ TuneResult.ApplyTo
                     // （正規化サンプル・内部マルチサンプル・globals を含む。ここに項目を並べ直さない）。
