@@ -437,10 +437,15 @@ namespace Iroca {
             } else {
                 // 読めなかった印は再読み込みで消える(ここではセッションを読み直さない)ので、読めるかを確かめ直す。
                 RecheckSessionFile(adoptMissed: true);
-                _maskView.RestoreFromSession();
+                bool fileHasMasks = _maskView.RestoreFromSession();
                 // 再読み込みの前にファイルへ書けなかったら、ファイルのマスクは古い。今の版は履歴にある。履歴も無ければ、保存の失敗でも
                 // レシピには書けているので、そちらを読む(古いファイルのマスクで続けると、次の保存でレシピも古くなる)。
-                if (Editing.RestoreCurrentMasksFromHistory()) {
+                // ただし、マスクのファイルもセッションのファイル(RecheckSessionFile)と同じ規則で、読めないまま空で開いた後に読めるように
+                // なったら(ファイルに層がある・今の版は空・レシピが結び付いていない)ファイルの方を採る。履歴の空の版を戻すと、次の保存で
+                // ファイルを消す(読めなかった印は再読み込みで消えている)。
+                if (fileHasMasks && BoundRecipe == null && Editing.CurrentMaskVersionIsEmpty) {
+                    Editing.CommitMaskEdit();
+                } else if (Editing.RestoreCurrentMasksFromHistory()) {
                     _maskView.maskDirty = true;
                 } else if (_lastSaveFailed) {
                     _maskView.RestoreMasksFromBoundRecipe();

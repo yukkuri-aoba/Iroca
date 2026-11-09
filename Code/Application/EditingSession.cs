@@ -104,6 +104,9 @@ namespace Iroca {
             return MaskHistory.TryRestore(revision, Masks);
         }
 
+        /// <summary>今の版を履歴に持っていて、その版のマスクが空か(ドメインリロードの後に、履歴とファイルのどちらを採るかに使う)。</summary>
+        internal bool CurrentMaskVersionIsEmpty => MaskHistory.IsEmpty(Document.maskRevision);
+
         /// <summary>
         /// 編集中のマスクを今の版の中身へ戻す(ドメインリロードの後。履歴はファイルより新しいことがある)。今の版が履歴に無ければ false。
         /// </summary>

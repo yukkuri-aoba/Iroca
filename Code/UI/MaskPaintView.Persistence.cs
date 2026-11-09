@@ -54,11 +54,13 @@ namespace Iroca {
         /// MaskCache ファイルから全マスクを復元する。
         /// ファイルが見つからない場合は、旧 SessionState 形式の残存データを
         /// 一度だけマイグレートして MaskCache へ書き出し、SessionState 側を消去する。
+        /// MaskCache ファイルから層を読めたら true(ドメインリロードの後に、履歴の版とファイルのどちらを採るかを決めるのに使う。
+        /// ファイルを 2 回読まないように返す)。
         /// </summary>
-        public void RestoreFromSession() {
+        public bool RestoreFromSession() {
             string path = MaskTexturePath();
             if (path == null) {
-                return;
+                return false;
             }
 
             // テクスチャ(セッション)切替: AI 提案の積み上げ・進行中推論は旧テクスチャ由来なので破棄
@@ -73,7 +75,7 @@ namespace Iroca {
                 // 展開規則(寸法不一致・壊れた項目は捨てる)は Core の MaskStateCodec と同じ(MaskWorkspace.DecodeFrom)。
                 Workspace.DecodeFrom(fileState);
                 maskDirty = true;
-                return;
+                return Workspace.HasLayers;
             }
 
             // ファイルは存在するのに使える状態を得られなかった（IO失敗 or 形状不正の JSON）。
@@ -83,14 +85,14 @@ namespace Iroca {
             // レシピが結び付いていれば、同じ内容がレシピにある。読めないまま空で進むと、次の保存でレシピのマスクまで空になる
             // (印が守るのはファイルだけ)。印は残すので、ファイルは次の保存で退避してから書き直す。
             if (_maskLoadFailed && RestoreFromBoundRecipe()) {
-                return;
+                return false;
             }
 
             // 2) ファイルが無ければ、旧 SessionState 形式（Phase 6 以前のデータ）からマイグレート。
             if (TryMigrateFromLegacySessionState(path)) {
                 maskDirty = true;
-                return;
             }
+            return false;
         }
 
         /// <summary>

@@ -56,6 +56,12 @@ namespace Iroca {
 
         public bool Contains(long revision) => Find(revision) != null;
 
+        /// <summary>その版を持っていて、層が 1 枚も無い(全部 0 の層は載せないので、マスクが空の)版か。</summary>
+        public bool IsEmpty(long revision) {
+            var version = Find(revision);
+            return version != null && version.Entries.Count == 0;
+        }
+
         /// <summary>
         /// 今のマスクを新しい版にして、番号を返す。<paramref name="baseRevision"/> はいまの版で、それより新しい版(Undo で戻した先の
         /// やり直しの分)はもう戻れないので手放す。中身が <paramref name="baseRevision"/> の版と同じ層は同じ塊を共有する。

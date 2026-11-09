@@ -398,6 +398,44 @@ namespace Iroca.EditorTests {
             StringAssert.Contains("前の編集", File.ReadAllText(file));
         }
 
+        // マスクのファイルも同じ。読めないまま空で開いた後、再読み込みの間に読めるようになったら、履歴の空の版でなくファイルを読む
+        // (空の版で上書きすると、次の保存でファイルを消す)。
+        [Test]
+        public void MaskFileThatBecameReadable_IsNotDeletedByReload() {
+            string file = Path.Combine(MaskFileStore.CacheDir, _guid + ".iroca-mask.json");
+            string json;
+            var painted = new MaskWorkspace();
+            try {
+                painted.Reset(W, H);
+                painted.WritableCommon().Set(3, true);
+                var ms = new MaskState();
+                painted.EncodeTo(ms);
+                json = JsonUtility.ToJson(ms);
+            } finally { painted.Clear(); }
+            Directory.CreateDirectory(MaskFileStore.CacheDir);
+            _win.SwitchSourceTexture(null);
+            File.WriteAllText(file, "{ broken");
+            LogAssert.ignoreFailingMessages = true;
+            try {
+                _win.SwitchSourceTexture(AssetDatabase.LoadAssetAtPath<Texture2D>(_tex));
+                Assert.IsTrue(_win._maskView.MaskLoadFailed, "テストの前提: 読めない");
+                Assert.IsFalse(_win.Editing.Masks.HasLayers);
+            } finally { LogAssert.ignoreFailingMessages = false; }
+
+            File.WriteAllText(file, json);
+            _win.OnEnable();   // 再読み込み
+
+            var common = _win.Editing.Masks.Common;
+            Assert.IsTrue(common != null && common.Get(3), "読めるようになったマスクを読まなかった");
+            Assert.IsTrue(_win.SavePersistedSessionForCurrentTexture());
+            Assert.IsTrue(File.Exists(file), "空の保存でマスクのファイルを消した");
+            var fromFile = new MaskWorkspace();
+            try {
+                Assert.IsTrue(fromFile.DecodeFrom(MaskFileStore.LoadMask(_tex, out _)));
+                Assert.IsTrue(fromFile.Common.Get(3));
+            } finally { fromFile.Clear(); }
+        }
+
         // 再読み込みの前にマスクをファイルへ書けなくても、塗った分は履歴から戻る。
         [Test]
         public void MaskStrokeNotWrittenToFile_ComesBackFromHistoryAfterReload() {
