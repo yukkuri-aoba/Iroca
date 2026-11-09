@@ -442,6 +442,17 @@ namespace Iroca {
                 return;
             }
 
+            var component = CommitRegistration(plan, recipe, choice);
+            EditorGUIUtility.PingObject(component);
+            ShowNotification(new GUIContent(string.Format(Localization.RegisterDoneFormat, target.name)));
+        }
+
+        /// <summary>
+        /// 確認の後の登録の本体: 窓の内容(マスク込み)をレシピへ書き(<paramref name="recipe"/> が null なら新しく作る)、結び付け、
+        /// マテリアルを戻してコンポーネントへ足す。<paramref name="choice"/> は確認画面の答え(0 = 登録、2 = 共有のマテリアルは
+        /// 戻さずに登録)。付けた(足した)コンポーネントを返す。internal は WindowUndoTests が確認画面を出さずに呼ぶため。
+        /// </summary>
+        internal IrocaRecolor CommitRegistration(RegistrationService.Plan plan, IrocaRecipe recipe, int choice) {
             // マスク込みで保存する。
             var saved = Editing.ToSaveState();
             if (recipe == null) {
@@ -459,8 +470,7 @@ namespace Iroca {
             Undo.SetCurrentGroupName(Localization.RegisterNonDestructive);
             RegistrationService.SwitchAndAttach(plan, recipe, keepShared: choice == 2, out var component);
             Undo.CollapseUndoOperations(undoGroup);
-            EditorGUIUtility.PingObject(component);
-            ShowNotification(new GUIContent(string.Format(Localization.RegisterDoneFormat, target.name)));
+            return component;
         }
 
         // 確認画面に出すオブジェクト名の並び(多ければ 3 つと残りの数)。
