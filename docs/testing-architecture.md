@@ -278,8 +278,9 @@ dotnet 側（`scripts/build-check`）も asmdef と同じ境目で分けてあ�
 # 実 C# 品質ゲートを bandana 以外の被写体（hair/costume/sneakers）まで広げる（旧名 VACC_CSHARP_GATE_FULL も効く）
 $env:IROCA_CSHARP_GATE_FULL = "1"
 
-# 自動調整の品質ゲート(compute_all_metrics)を全被写体へ広げる（採否判断時に必須。この変数は旧名のみで IROCA_ の名前は無い）
-$env:VACC_AUTOTUNE_GATE_FULL = "1"
+# 自動調整の品質ゲート(compute_all_metrics)を全被写体へ広げる（採否判断時に必須。旧名 VACC_AUTOTUNE_GATE_FULL も効く。
+# 立てないときに測っていない被写体は、-ra の skip 理由に出る）
+$env:IROCA_AUTOTUNE_GATE_FULL = "1"
 
 # golden（C# 出力ハッシュの固定）・ソース構造検査・ユニットテスト — dev_safe を必要としない自己完結テスト
 .\.venv\Scripts\python.exe -m pytest scripts/golden scripts/source_checks scripts/unit-run -q
@@ -487,7 +488,7 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
   帯成長の合成 2 ケースを、通常の実行とハーネスの `IROCA_NO_PALETTE=1`（表を作らない）で回してビット単位で比べる。
   色ごとの経路を足したら、そこを踏むケースがあるか（片側だけ変えて落ちるか）を確かめること。
 - **改善サイクルの採否判断では `IROCA_CSHARP_GATE_FULL=1`（旧名 `VACC_CSHARP_GATE_FULL` も効く）と
-  `VACC_AUTOTUNE_GATE_FULL=1` を必ず立てる**（品質ゲートの既定は bandana のみで、残り被写体の実 C# 品質を測らずに
+  `IROCA_AUTOTUNE_GATE_FULL=1`（旧名 `VACC_AUTOTUNE_GATE_FULL` も効く）を必ず立てる**（品質ゲートの既定は bandana のみで、残り被写体の実 C# 品質を測らずに
   「全パス」と誤認するため）。
 - **自動調整（スポイト→自動調整＝ユーザーの主経路）の選択ゲートは既定 ON**（2026-08-21〜）:
   `test_autotune_accuracy` は 4 被写体の選択床を常時、アトラス被写体の自動調整テスト（6 被写体）と
