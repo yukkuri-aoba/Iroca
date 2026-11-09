@@ -30,10 +30,15 @@ namespace Iroca {
         /// <summary>
         /// 単体書き出しの出力先。新規ファイルなら名前を <see cref="PathUtils.SanitizeFileName"/> で直して
         /// 元と同じフォルダへ（元が Assets の外なら <see cref="PathUtils.ExportFolderFor"/>）、上書きなら元の拡張子を
-        /// .png に替えたパス（元が PNG なら元そのもの）。
+        /// .png に替えたパス（元が PNG なら、拡張子の大小も含めて元そのもの）。
         /// </summary>
         public static string SingleOutputPath(string srcPath, bool saveAsNewFile, string newFileName) {
             if (!saveAsNewFile) {
+                // 大文字の .PNG を .png に替えると、Windows は置き換えたファイルを渡した名前の大小で付け直す(大小を区別する
+                // ファイルシステムでは隣に別のファイルができる)。元が PNG なら元のパスのまま書く。
+                if (string.Equals(Path.GetExtension(srcPath), ".png", System.StringComparison.OrdinalIgnoreCase)) {
+                    return srcPath;
+                }
                 return Path.ChangeExtension(srcPath, ".png");
             }
             // 区切り文字も置換するのでパストラバーサルはできない。予約名("CON" 等)や

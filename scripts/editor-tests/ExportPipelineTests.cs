@@ -51,6 +51,27 @@ namespace Iroca.EditorTests {
             Assert.AreEqual("Assets/Tex/a.png", Norm(ExportPipeline.SingleOutputPath("Assets/Tex/a.jpg", false, null)));
         }
 
+        // 拡張子が大文字の .PNG を上書きしても、ディスク上の名前を変えない(Windows は置き換えるときに、渡した名前の大小で
+        // 付け直す。大小を区別するファイルシステムでは隣に別のファイルができる)。
+        [Test]
+        public void Overwrite_UpperCasePng_KeepsTheFileName() {
+            Assert.AreEqual("Assets/Tex/Body.PNG", Norm(ExportPipeline.SingleOutputPath("Assets/Tex/Body.PNG", false, null)));
+
+            string src = _assets.WriteBytes("Body.PNG", ExportPipeline.EncodePng(Pattern(8, 8), 8, 8));
+            string guid = AssetDatabase.AssetPathToGUID(src);
+            string output = ExportPipeline.SingleOutputPath(src, false, null);
+            Assert.AreEqual(src, Norm(output));
+            WriteAndImport(TestAssets.Abs(output), ExportPipeline.EncodePng(Pattern(8, 8), 8, 8), src, true);
+            var names = new System.Collections.Generic.List<string>();
+            foreach (var f in Directory.GetFiles(TestAssets.Abs(_assets.Folder))) {
+                if (!f.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)) {
+                    names.Add(Path.GetFileName(f));
+                }
+            }
+            CollectionAssert.AreEqual(new[] { "Body.PNG" }, names);
+            Assert.AreEqual(guid, AssetDatabase.AssetPathToGUID(src));
+        }
+
         // 元が PNG 以外で隣に同じ名前の PNG があると、それを置き換える。「新規作成」と案内して黙って失わない。
         [Test]
         public void InPlaceSaveConfirm_NonPngWithExistingPng_AsksToReplaceIt() {
