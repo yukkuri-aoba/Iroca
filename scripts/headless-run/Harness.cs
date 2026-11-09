@@ -1200,13 +1200,22 @@ namespace Iroca {
             // 7) 作業配列のプールの決まり(テスト用の別のプールで)。手元の量は直近の貸し出し中の最大量の HoldFactor 倍まで
             //    (新しく作るときに空きを大きい順に手放す)。ReleaseFree で直近の最大量を今の貸し出し中の量へ戻す。
             //    検証用(IROCA_POOL_POISON=1)では、返した塊は寝かせるので、返したものをもう一度返すと投げる。
+            //    検証用のはみ出し検出(IROCA_NATIVE_GUARD=1)では、返した塊をその場で解放する(解放後の読み書きを捕まえる)。
             bool poison = Environment.GetEnvironmentVariable("IROCA_POOL_POISON") == "1";
             var pool = new NativeWorkPool<float>(maxPerClass: 4);
             const int MB = 1 << 18;   // float で 1MB
             unsafe {
+                long workBefore = IrocaNativeMemory.LiveBytesOf(NativeUsage.Work);
                 float* a = pool.Rent(MB);
+                long workRented = IrocaNativeMemory.LiveBytesOf(NativeUsage.Work);
                 pool.Return(a);
-                if (poison) {
+                if (IrocaNativeMemory.GuardPages) {
+                    // 2026-11-10 まで、返した塊は解放されずにファイナライザまで残っていた。
+                    Check(workRented >= workBefore + (long)MB * sizeof(float)
+                          && IrocaNativeMemory.LiveBytesOf(NativeUsage.Work) == workBefore && pool.FreeBytes == 0,
+                        $"pool (guard): a returned block is freed right away (work before={workBefore}, rented={workRented}, "
+                        + $"after={IrocaNativeMemory.LiveBytesOf(NativeUsage.Work)})");
+                } else if (poison) {
                     threw = false;
                     float* other = pool.Rent(MB);   // 寝かせている間は同じ塊を貸さない
                     try { pool.Return(a); } catch (InvalidOperationException) { threw = true; }

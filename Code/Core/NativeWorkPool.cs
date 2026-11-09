@@ -251,6 +251,8 @@ namespace Iroca {
                 return;
             }
             NativeBlockStore.Block b;
+            // lock の外で解放する塊(解放は OS を呼ぶので、ほかのスレッドの Rent/Return を待たせない)。
+            NativeBlockStore.Block drop = null;
             lock (_gate) {
                 if (!_rented.TryGetValue((IntPtr)p, out b)) {
                     throw new InvalidOperationException("このプールが貸した塊ではありません");
@@ -264,21 +266,23 @@ namespace Iroca {
                 _rentedBytes -= b.Bytes;
                 _store.RentedBytes -= b.Bytes;
                 // 検証用のはみ出し検出では使い回さず、すぐ解放する(解放後の読み書きも捕まえる)。
+                // 2026-11-10 まで、ここで b を null にしてから解放していたので何も解放されず、塊はファイナライザまで残り、
+                // 返した後の読み書きも捕まらなかった。
                 if (IrocaNativeMemory.GuardPages) {
-                    b = null;
-                } else if (s_poison) {
-                    // 返した後に読む所を見つけるため埋め、しばらく貸さない(寝かせている分も手元の量 = 空きに数える。
-                    // 貸せないだけで、プールが持っているのは同じ)。
-                    new Span<byte>((void*)b.Ptr, checked((int)Math.Min(b.Bytes, int.MaxValue))).Fill(0xDD);
-                    _store.Quarantine.Enqueue(b);
-                    PutToFree(b);
-                    if (_store.Quarantine.Count <= QuarantineLength) {
-                        return;
+                    drop = b;
+                } else {
+                    if (s_poison) {
+                        // 返した後に読む所を見つけるため埋め、しばらく貸さない(寝かせている分も手元の量 = 空きに数える。
+                        // 貸せないだけで、プールが持っているのは同じ)。
+                        new Span<byte>((void*)b.Ptr, checked((int)Math.Min(b.Bytes, int.MaxValue))).Fill(0xDD);
+                        _store.Quarantine.Enqueue(b);
+                        PutToFree(b);
+                        if (_store.Quarantine.Count <= QuarantineLength) {
+                            return;
+                        }
+                        b = _store.Quarantine.Dequeue();
+                        TakeFromFree(b);
                     }
-                    b = _store.Quarantine.Dequeue();
-                    TakeFromFree(b);
-                }
-                if (b != null) {
                     if (!_store.Free.TryGetValue(b.Bytes, out var list)) {
                         _store.Free[b.Bytes] = list = new List<NativeBlockStore.Block>();
                     }
@@ -287,9 +291,10 @@ namespace Iroca {
                         PutToFree(b);
                         return;
                     }
+                    drop = b;   // 区分ごとに残す数を超えた
                 }
             }
-            b?.FreeNow();
+            drop?.FreeNow();
         }
 
         /// <summary>

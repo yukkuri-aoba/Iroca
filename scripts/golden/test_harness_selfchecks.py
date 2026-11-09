@@ -16,6 +16,7 @@ Harness.cs は変えない。環境不備は skip（CI の IROCA_REQUIRE_HARNESS
 from __future__ import annotations
 
 import json
+import os
 import re
 import struct
 import subprocess
@@ -37,11 +38,24 @@ def harness() -> Path:
     return G.HARNESS_DLL
 
 
-def _run(harness: Path, *args) -> subprocess.CompletedProcess:
+def _run(harness: Path, *args, env: dict | None = None) -> subprocess.CompletedProcess:
+    run_env = None
+    if env:
+        run_env = dict(os.environ)
+        run_env.update(env)
     return subprocess.run(
         ["dotnet", str(harness), *(str(a) for a in args)],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=G.RUN_TIMEOUT_S)
+        timeout=G.RUN_TIMEOUT_S, env=run_env)
+
+
+# 検証用の環境変数(docs/testing-architecture.md の「ネイティブメモリのはみ出しを捕まえる」)。どちらも出力は変えないが、
+# プールの振る舞い(返した塊をすぐ解放する・寝かせる)が変わるので、自己検査もその形で回す。
+_NATIVE_MODES = [
+    pytest.param({}, id="default"),
+    pytest.param({"IROCA_NATIVE_GUARD": "1"}, id="guard",
+                 marks=pytest.mark.skipif(sys.platform != "win32", reason="ガードページは Windows だけ")),
+]
 
 
 def test_preview_selftest(harness):
@@ -56,9 +70,14 @@ def test_preview_selftest(harness):
     assert not failed, "不変量に反した項目があります:\n" + "\n".join(failed)
 
 
-def test_native_memory_selftest(harness):
-    """作業配列・色の表(Mono のヒープの外)が処理の後に全部解放でき、使用中の色の表を追い出しても出力が変わらない。"""
-    r = _run(harness, "--nativememselftest")
+@pytest.mark.parametrize("env", _NATIVE_MODES)
+def test_native_memory_selftest(harness, env):
+    """作業配列・色の表(Mono のヒープの外)が処理の後に全部解放でき、使用中の色の表を追い出しても出力が変わらない。
+
+    guard は IROCA_NATIVE_GUARD=1 で回す。返した塊をその場で解放しないと、処理の後に塊が残り(ファイナライザ任せ)、
+    解放後の読み書きも捕まらない(2026-11-10 まで。点検 B-3)。
+    """
+    r = _run(harness, "--nativememselftest", env=env)
     lines = r.stdout.splitlines()
     assert r.returncode == 0, (
         f"--nativememselftest が失敗 (exit={r.returncode}):\n{r.stdout}\n{r.stderr}")
