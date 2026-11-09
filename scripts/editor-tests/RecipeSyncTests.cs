@@ -184,6 +184,35 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(withMask, _recipe.sessionJson, "ビルド直前の書き出しで揺れた");
         }
 
+        // 開いただけでは(編集しなければ)レシピを書かない。読んで書き直すと形だけが変わるレシピ(前の版で作った・id の無いゾーン・
+        // 手で書いた JSON)は、開くと 2 秒後の自動保存で新しい形に書き直され、git に差分が出ていた。閉じる・再コンパイル・ビルドの
+        // 直前の保存も同じ所を通る。編集すれば書き、編集して戻したら戻した中身を書く。
+        [Test]
+        public void OpeningOnly_DoesNotRewriteTheRecipe() {
+            Object.DestroyImmediate(_win);
+            // 前の版で作ったレシピ(ゾーンに id が無く、形式の版も古い)。
+            _recipe.sessionJson = JsonUtility.ToJson(State("登録した内容"));
+            _recipe.formatVersion = 1;
+            string opened = _recipe.sessionJson;
+            _win = ScriptableObject.CreateInstance<IrocaWindow>();
+            Assert.AreSame(_recipe, _win.BoundRecipe, "テストの前提: レシピから開いている");
+            Assert.IsFalse(string.IsNullOrEmpty(_win.Session.zones[0].id), "テストの前提: 開くとゾーンに id が付く");
+
+            Save();   // 自動保存・閉じる・再コンパイルの直前と同じ保存
+            NonDestructiveApplier.RaiseBeforeApplyForTests();
+            Assert.AreEqual(opened, _recipe.sessionJson, "開いただけでレシピを書き直した");
+            Assert.AreEqual(1, _recipe.formatVersion, "開いただけで形式の版を書き換えた");
+
+            SetZoneName("窓で直した内容");
+            Save();
+            Assert.AreEqual("窓で直した内容", RecipeZoneName(), "編集がレシピに書かれない");
+            Assert.AreEqual(IrocaRecipe.CurrentFormatVersion, _recipe.formatVersion);
+
+            SetZoneName("登録した内容");
+            Save();
+            Assert.AreEqual("登録した内容", RecipeZoneName(), "戻した中身がレシピに書かれない");
+        }
+
         private void ChangeOutside(string zoneName) => _recipe.sessionJson = JsonUtility.ToJson(State(zoneName));
 
         private string ZoneName() => _win.Session.zones[0].name;

@@ -11,6 +11,7 @@ namespace Iroca {
     /// <item>復元の優先順: 結び付いたレシピ → テクスチャごとのセッションのファイル(SessionFileStore) → 既定。</item>
     /// <item>前回編集していたテクスチャ(EditorPrefs。Unity を起動して最初に開いたときに読む)。</item>
     /// <item>外(git など)でのレシピの書き換えの検出(下の「外でのレシピの書き換え」)。</item>
+    /// <item>開いただけでは古い形のレシピを書き直さない(下の「開いただけでは書かない」)。</item>
     /// </list>
     /// 編集状態を差し替える・Undo に積む・マスクの作業用バッファと同期する・利用者に知らせるのは、呼び出し側
     /// (いろかのウィンドウ)。マスクのファイル(MaskFileStore)は今はマスクの編集(MaskPaintView)が読み書きする。
@@ -110,13 +111,17 @@ namespace Iroca {
         /// <summary>
         /// 結び付いたレシピへ編集内容(マスク込み)を書く。マスクは呼び出し側で state へ同期済みであること。
         /// 外(git など)で書き換わったレシピは窓の古い内容で上書きせず false(呼び出し側がレシピから読み直す)。
-        /// 読めないレシピ(新しい版で作られた等)は上書きしない。
+        /// 読めないレシピ(新しい版で作られた等)は上書きしない。開いたときの内容のまま(編集していない)なら書かない
+        /// (<see cref="MarkRecipeOpened"/>)。
         /// </summary>
         internal static bool SaveToRecipe(IrocaRecipe recipe, IrocaSessionState state) {
             if (RecipeChangedOutside(recipe)) {
                 return false;
             }
-            RecipeStore.SaveUnlessUnreadable(recipe, state);
+            if (RecipeStore.SaveUnlessUnreadable(recipe, state, json => UnchangedSinceOpened(recipe, json))) {
+                // 書いた後のレシピは今の形(次からはいつもの比べ方で足りる)。
+                ForgetRecipeOpened(recipe);
+            }
             MarkRecipeSynced(recipe);
             return true;
         }
@@ -262,5 +267,49 @@ namespace Iroca {
         /// <summary>レシピの今の中身が、窓が前に同期したことのある中身か(最後に同期したものより前も含む)。</summary>
         internal static bool WasRecipeSyncedBefore(IrocaRecipe recipe)
             => recipe != null && System.Array.IndexOf(RecipeSyncedHashes(recipe), RecipeJsonHash(recipe.sessionJson)) >= 0;
+
+        // ─────────────── 開いただけでは書かない ───────────────
+        // 前の版で作った・ゾーンに id が無い・自動化や手で書いた JSON のレシピは、読んで書き直すと文字列が変わる(新しい形になる。
+        // 同じ版で書いたレシピは変わらない)。開いただけで(編集しなくても)自動保存・閉じる・再コンパイル・ビルドの直前の保存が新しい形で
+        // 書き、git で管理している .asset に差分が出ていた。
+        // そこで、窓がレシピから読んだ直後に「そのときのレシピの文字列」と「読んだ内容をそのまま書いたらこうなる JSON」のハッシュを覚え、
+        // 書こうとする JSON が後者のままで、レシピも前者のままなら書かない。編集すれば書き、編集して戻したら(一度書いた後なら)戻した中身を
+        // 書く。覚える場所は同期の印と同じ SessionState(ドメインリロードをまたぐ。Unity を閉じたら、次に開いたときに読み直して覚え直す)。
+
+        private static string RecipeOpenedKey(IrocaRecipe recipe) {
+            string guid = recipe != null ? AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(recipe)) : null;
+            return string.IsNullOrEmpty(guid) ? null : IrocaPrefs.RecipeOpenedPrefix + guid;
+        }
+
+        /// <summary>
+        /// 窓がレシピから読んだ直後に呼ぶ。<paramref name="asLoaded"/> は読んだ内容をそのまま保存するときの形(マスク込み。
+        /// <see cref="EditingSession.ToSaveState"/>。ゾーンの id など、窓が読むときに足したものも入っている)。
+        /// </summary>
+        internal static void MarkRecipeOpened(IrocaRecipe recipe, IrocaSessionState asLoaded) {
+            string key = RecipeOpenedKey(recipe);
+            if (key == null || asLoaded == null) {
+                return;
+            }
+            SessionState.SetString(key, RecipeJsonHash(recipe.sessionJson) + "," + RecipeJsonHash(JsonUtility.ToJson(asLoaded)));
+        }
+
+        private static void ForgetRecipeOpened(IrocaRecipe recipe) {
+            string key = RecipeOpenedKey(recipe);
+            if (key != null) {
+                SessionState.EraseString(key);
+            }
+        }
+
+        // 書こうとする JSON が、開いたときの内容のままで、レシピも開いたときのままか。
+        private static bool UnchangedSinceOpened(IrocaRecipe recipe, string json) {
+            string key = RecipeOpenedKey(recipe);
+            string value = key != null ? SessionState.GetString(key, "") : "";
+            int comma = value.IndexOf(',');
+            if (comma < 0) {
+                return false;
+            }
+            return value.Substring(comma + 1) == RecipeJsonHash(json)
+                && value.Substring(0, comma) == RecipeJsonHash(recipe.sessionJson);
+        }
     }
 }

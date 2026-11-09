@@ -58,14 +58,22 @@ namespace Iroca {
         /// 作られた等)は上書きしない(自動保存用)。読めるかは書き換えるときだけ確かめる。以前は自動保存のたびに
         /// マスク込みの全体を読み直していた。
         /// </summary>
-        public static bool SaveUnlessUnreadable(IrocaRecipe recipe, IrocaSessionState state) => Save(recipe, state, keepUnreadable: true);
+        /// <param name="keepAsIs">
+        /// 書こうとする JSON を受け取り、true なら書かない(レシピの今の中身と同じ意味のまま。開いただけの古い形のレシピを新しい形で
+        /// 書き直さない。<see cref="SessionPersistence"/>)。null なら見ない。
+        /// </param>
+        public static bool SaveUnlessUnreadable(IrocaRecipe recipe, IrocaSessionState state, Func<string, bool> keepAsIs = null)
+            => Save(recipe, state, keepUnreadable: true, keepAsIs);
 
-        private static bool Save(IrocaRecipe recipe, IrocaSessionState state, bool keepUnreadable) {
+        private static bool Save(IrocaRecipe recipe, IrocaSessionState state, bool keepUnreadable, Func<string, bool> keepAsIs = null) {
             if (recipe == null || state == null) {
                 return false;
             }
             string json = JsonUtility.ToJson(state);
             if (json == recipe.sessionJson && recipe.formatVersion == IrocaRecipe.CurrentFormatVersion) {
+                return false;
+            }
+            if (keepAsIs != null && keepAsIs(json)) {
                 return false;
             }
             if (keepUnreadable && !string.IsNullOrEmpty(recipe.sessionJson) && Load(recipe) == null) {

@@ -135,6 +135,8 @@ namespace Iroca {
             EnsureAllZoneIds();
             _maskView?.RestoreFromRecipeState();
             Editing.CommitMaskEdit();
+            // 開いただけでは(古い形の)レシピを書き直さないよう、読んだ内容を保存するときの形を覚える。
+            SessionPersistence.MarkRecipeOpened(Doc.boundRecipe, Editing.ToSaveState());
             Editing.NotifyChanged(EditChange.Replaced);
             return true;
         }
