@@ -97,58 +97,62 @@ namespace Iroca.DebugTools {
             File.WriteAllText(Path.Combine(dir, "zones.json"), JsonUtility.ToJson(req, true));
 
             var snap = win.BuildMaskSnapshot();
-            var meta = new MetaDto {
-                assetPath = AssetDatabase.GetAssetPath(tex),
-                textureW = w,
-                textureH = h,
-                maskW = snap?.width ?? 0,
-                maskH = snap?.height ?? 0,
-                unityVersion = Application.unityVersion,
-                packageVersion = PackageVersion(),
-                createdAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-            };
-            if (snap != null) {
-                WriteMaskPng(Path.Combine(dir, "mask_common.png"), snap.common?.ToWords(), snap.width, snap.height);
-            }
-            for (int i = 0; i < zones.Count; i++) {
-                var zm = new ZoneMetaDto { name = zones[i].name, id = zones[i].id };
-                if (zones[i].extraSamples != null) {
-                    foreach (var c in zones[i].extraSamples) {
-                        zm.extraSamples.AddRange(new[] { c.r, c.g, c.b });
-                    }
-                }
-                if (zones[i].HasSampleUV) {
-                    zm.sampleUV.AddRange(new[] { zones[i].sampleUV.x, zones[i].sampleUV.y });
-                }
-                zm.autoTune = win.AutoTuneProvenance(zones[i].id);
-                // 自動調整の入力(ワンショット再現用)。証拠はテクスチャ解像度のときだけ書く
-                // (テクスチャ差し替え後の古い証拠は寸法が合わないので載せない)。
-                if (win.TryGetAutoTuneInput(zones[i].id, out var ati) && ati.texW == w && ati.texH == h) {
-                    zm.autoTuneInputSample.AddRange(new[] { ati.sample.r, ati.sample.g, ati.sample.b });
-                    zm.autoTuneInputTarget.AddRange(new[] { ati.target.r, ati.target.g, ati.target.b });
-                    zm.autoTuneMaskUsed = ati.maskUsed;
-                    zm.autoTuneParamsIntact = AutoTuneService.ParamsIntact(zones[i], ati);
-                    if (ati.evidence != null && ati.evW == w && ati.evH == h
-                        && ati.evidence.Length >= ((long)w * h + 63) >> 6) {
-                        zm.autoTuneEvidence = $"zone{i}_evidence.png";
-                        WriteMaskPng(Path.Combine(dir, zm.autoTuneEvidence), ati.evidence, w, h);
-                    }
-                }
+            // 書き出しの途中で投げても(IOException など)、スナップショットが借りたマスクは返す。
+            try {
+                var meta = new MetaDto {
+                    assetPath = AssetDatabase.GetAssetPath(tex),
+                    textureW = w,
+                    textureH = h,
+                    maskW = snap?.width ?? 0,
+                    maskH = snap?.height ?? 0,
+                    unityVersion = Application.unityVersion,
+                    packageVersion = PackageVersion(),
+                    createdAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                };
                 if (snap != null) {
-                    NativeBitMask packed;
-                    if (snap.zones != null && snap.zones.TryGetValue(zones[i].id, out packed) && packed != null) {
-                        zm.excludeMask = $"zone{i}_exclude.png";
-                        WriteMaskPng(Path.Combine(dir, zm.excludeMask), packed.ToWords(), snap.width, snap.height);
-                    }
-                    if (snap.zoneIncludes != null && snap.zoneIncludes.TryGetValue(zones[i].id, out packed) && packed != null) {
-                        zm.includeMask = $"zone{i}_include.png";
-                        WriteMaskPng(Path.Combine(dir, zm.includeMask), packed.ToWords(), snap.width, snap.height);
-                    }
+                    WriteMaskPng(Path.Combine(dir, "mask_common.png"), snap.common?.ToWords(), snap.width, snap.height);
                 }
-                meta.zones.Add(zm);
+                for (int i = 0; i < zones.Count; i++) {
+                    var zm = new ZoneMetaDto { name = zones[i].name, id = zones[i].id };
+                    if (zones[i].extraSamples != null) {
+                        foreach (var c in zones[i].extraSamples) {
+                            zm.extraSamples.AddRange(new[] { c.r, c.g, c.b });
+                        }
+                    }
+                    if (zones[i].HasSampleUV) {
+                        zm.sampleUV.AddRange(new[] { zones[i].sampleUV.x, zones[i].sampleUV.y });
+                    }
+                    zm.autoTune = win.AutoTuneProvenance(zones[i].id);
+                    // 自動調整の入力(ワンショット再現用)。証拠はテクスチャ解像度のときだけ書く
+                    // (テクスチャ差し替え後の古い証拠は寸法が合わないので載せない)。
+                    if (win.TryGetAutoTuneInput(zones[i].id, out var ati) && ati.texW == w && ati.texH == h) {
+                        zm.autoTuneInputSample.AddRange(new[] { ati.sample.r, ati.sample.g, ati.sample.b });
+                        zm.autoTuneInputTarget.AddRange(new[] { ati.target.r, ati.target.g, ati.target.b });
+                        zm.autoTuneMaskUsed = ati.maskUsed;
+                        zm.autoTuneParamsIntact = AutoTuneService.ParamsIntact(zones[i], ati);
+                        if (ati.evidence != null && ati.evW == w && ati.evH == h
+                            && ati.evidence.Length >= ((long)w * h + 63) >> 6) {
+                            zm.autoTuneEvidence = $"zone{i}_evidence.png";
+                            WriteMaskPng(Path.Combine(dir, zm.autoTuneEvidence), ati.evidence, w, h);
+                        }
+                    }
+                    if (snap != null) {
+                        NativeBitMask packed;
+                        if (snap.zones != null && snap.zones.TryGetValue(zones[i].id, out packed) && packed != null) {
+                            zm.excludeMask = $"zone{i}_exclude.png";
+                            WriteMaskPng(Path.Combine(dir, zm.excludeMask), packed.ToWords(), snap.width, snap.height);
+                        }
+                        if (snap.zoneIncludes != null && snap.zoneIncludes.TryGetValue(zones[i].id, out packed) && packed != null) {
+                            zm.includeMask = $"zone{i}_include.png";
+                            WriteMaskPng(Path.Combine(dir, zm.includeMask), packed.ToWords(), snap.width, snap.height);
+                        }
+                    }
+                    meta.zones.Add(zm);
+                }
+                File.WriteAllText(Path.Combine(dir, "meta.json"), JsonUtility.ToJson(meta, true));
+            } finally {
+                snap?.Release();
             }
-            File.WriteAllText(Path.Combine(dir, "meta.json"), JsonUtility.ToJson(meta, true));
-            snap?.Release();
             return dir;
         }
 
