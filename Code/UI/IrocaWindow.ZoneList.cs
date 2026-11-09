@@ -38,6 +38,12 @@ namespace Iroca {
 
         // 前の描画で記録したゾーンカードの矩形(カードを押したらそのゾーンを直す対象にする判定用)。
         [System.NonSerialized] private List<Rect> _zoneCardRects;
+        // 同じ描画で記録した各カードの × の矩形(× を押しても直す対象を替えない判定用)と、描いている途中の 1 枚分。
+        [System.NonSerialized] private List<Rect> _zoneRemoveRects;
+        [System.NonSerialized] private Rect _lastRemoveButtonRect;
+
+        private bool OnZoneRemoveButton(int index, Vector2 mouse) =>
+            _zoneRemoveRects != null && index < _zoneRemoveRects.Count && _zoneRemoveRects[index].Contains(mouse);
 
         /// <summary>
         /// 「スポイトで色を追加」のクリックで、その色のゾーンを作る。クリックはプレビューの入力の途中なので、作るのはその後:
@@ -292,15 +298,25 @@ namespace Iroca {
             }
             if (ev.type == EventType.MouseDown && _zoneCardRects != null && MouseInSettingsScroll()) {
                 for (int i = 0; i < _zoneCardRects.Count && i < zones.Count; i++) {
-                    if (_zoneCardRects[i].Contains(ev.mousePosition)) { SetCurrentZoneIndex(i); break; }
+                    if (!_zoneCardRects[i].Contains(ev.mousePosition)) {
+                        continue;
+                    }
+                    // × は押したゾーンを消すだけで、直す対象を替えない。替えると、消した後に同じ位置の別のゾーンが直す対象に
+                    // なっていた(A を直している途中に B を消すと C に替わる)。
+                    if (!OnZoneRemoveButton(i, ev.mousePosition)) {
+                        SetCurrentZoneIndex(i);
+                    }
+                    break;
                 }
             }
 
             int removeIndex = -1;
+            var removeRects = new List<Rect>(zones.Count);
             for (int i = 0; i < zones.Count; i++) {
                 if (DrawZoneCard(zones[i], i)) {
                     removeIndex = i;
                 }
+                removeRects.Add(_lastRemoveButtonRect);
                 // ドロップ位置判定・インジケータ描画用に、このゾーン全体の矩形を記録。
                 // GetLastRect は Layout パスではダミー値だが、判定・描画は非 Layout パスでのみ行う。
                 zoneRects.Add(GUILayoutUtility.GetLastRect());
@@ -309,6 +325,7 @@ namespace Iroca {
 
             if (ev.type == EventType.Repaint) {
                 _zoneCardRects = zoneRects;
+                _zoneRemoveRects = removeRects;
             }
 
             HandleZoneReorderDrag(zoneRects);
@@ -531,6 +548,8 @@ namespace Iroca {
             if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth))) {
                 removeRequested = true;
             }
+            // カードを押したときに × かを見分ける(DrawZoneList)。
+            _lastRemoveButtonRect = GUILayoutUtility.GetLastRect();
             EditorGUILayout.EndHorizontal();
             return removeRequested;
         }
