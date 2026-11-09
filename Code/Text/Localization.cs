@@ -432,6 +432,10 @@ namespace Iroca {
             ? "マスクだけは、ここまで前へ戻せませんでした（古い履歴は手放しています）。ゾーンと設定は戻りましたが、マスクは戻す前のままです（なくなったゾーンのマスクは外しました）。Ctrl+Y でやり直せば、マスクも合っている状態に戻せます。"
             : "The masks could not go back this far (older history has been released). Zones and settings went back, but the masks stay as they were (masks of zones that no longer exist were removed). Press Ctrl+Y to redo back to where the masks match.";
         public static string NotifyMaskNoChange => IsJapanese ? "変わりませんでした（すでにそうなっています）" : "Nothing changed (it was already that way)";
+        // ブラシを使っている間に、カードを開いて直すゾーン(ブラシの塗り先)が替わったときの知らせ。{0} = ゾーン名、{1} = 除外 / 含める。
+        public static string NotifyBrushTargetFormat => IsJapanese
+            ? "ブラシの塗り先: {0}（{1}）"
+            : "Brush now paints: {0} ({1})";
         public static string NotifyMaskNotAdded => IsJapanese
             ? "当てられませんでした（直すゾーンが無いか、この場所に島がありません）"
             : "Could not apply (the zone is gone, or there is no island here)";

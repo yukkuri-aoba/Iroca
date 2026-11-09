@@ -33,6 +33,12 @@ namespace Iroca {
             }
             _maskView.activeMaskTarget = index;
             _maskView.maskDirty = true;     // 明るく出すマスク(編集中)が変わる
+            // ブラシを使っている間に替わったら、塗り先のゾーンを知らせる。カードを開いて設定を見ただけでも、次の一筆はそのゾーンに
+            // 入る(開くと宛先も替わるのは今の仕様。点検の D-19 で (a) 今のままにして知らせる、に決めた)。
+            if (_maskView.maskPaintActive) {
+                ShowNotification(new GUIContent(string.Format(Localization.NotifyBrushTargetFormat,
+                    _maskView.ActiveTargetName(), _maskView.ActiveLayerName())));
+            }
             Repaint();
         }
 
