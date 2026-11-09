@@ -236,20 +236,13 @@ namespace Iroca {
                && (claimed == null || 1f - claimed[i] >= AnchorStrengthMin)
                && (statsExclude == null || !statsExclude[i]);
 
-        // コア画素(地色の推定と同じ条件)の彩度の中央値。無ければ 0。色の表があれば彩度は表から読む(同じ色に同じ変換なので値は同じ)。
-        private static float ComputeCoreChromaMedian(
+        // コア画素(地色の推定と同じ条件)の彩度の中央値と分位 q(0..1)を、1 つのヒストグラムから求める。コア画素が無ければ
+        // どちらも 0。色の表があれば彩度は表から読む(同じ色に同じ変換なので値は同じ)。
+        private static void ComputeCoreChromaMedianAndPercentile(
             Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
-            bool* statsExclude, float* claimed, CancellationToken ct, ColorPalette palette) {
-            return ComputeCoreChromaPercentile(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
-                statsExclude, claimed, ct, palette, 0.5f);
-        }
-
-        // コア画素(ComputeCoreChromaMedian と同じ画素)の彩度の分位 q(0..1)。無ければ 0。
-        private static float ComputeCoreChromaPercentile(
-            Color32* px, float* strength, int w,
-            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
-            bool* statsExclude, float* claimed, CancellationToken ct, ColorPalette palette, float q) {
+            bool* statsExclude, float* claimed, CancellationToken ct, ColorPalette palette, float q,
+            out float median, out float percentile) {
             if (palette != null) {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
             }
@@ -278,7 +271,8 @@ namespace Iroca {
                 }
                 return n;
             }, ct);
-            return count > 0 ? Histogram.ValueAtPercentile(cHist, count, q, AnchorChromaHistMax) : 0f;
+            median = count > 0 ? Histogram.ValueAtPercentile(cHist, count, 0.5f, AnchorChromaHistMax) : 0f;
+            percentile = count > 0 ? Histogram.ValueAtPercentile(cHist, count, q, AnchorChromaHistMax) : 0f;
         }
 
         // L ヒストグラム(256 ビン、count 画素)の P95−P05 が AnchorMinLSpread 未満(フラット領域)か。

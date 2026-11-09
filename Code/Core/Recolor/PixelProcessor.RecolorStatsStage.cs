@@ -82,17 +82,16 @@ namespace Iroca {
                         includedPx, run.Buf.Claimed, cancellationToken, palette)) {
                     float zSC0 = zSC;
                     zAnchored = true;
-                    zDeepC = ComputeCoreChromaPercentile(originalPixels, strength, w,
+                    ComputeCoreChromaMedianAndPercentile(originalPixels, strength, w,
                         ppMinX, ppMinY, ppMaxX, ppMaxY, includedPx, run.Buf.Claimed, cancellationToken, palette,
-                        AchromaDeepChromaPercentile);
+                        AchromaDeepChromaPercentile, out float coreMedianC, out zDeepC);
                     zSL = anchorL;
                     zGateC = anchorC;
                     // 彩度の倍率の基準は、塗る範囲の彩度の中央値より下げない。白へ抜ける布で少数の淡い面が基準に選ばれると、
                     // その彩度を塗り先まで上げる倍率が布全体に掛かり、元の淡い所まで色が乗って濃淡の比が崩れる。淡い面が
                     // 大半を占める素材(明るい髪など)では中央値が基準以下なので、これまでどおり面が塗り先の彩度に届く。
                     // クリックの位置では決めない(濃い筋をクリックした髪が地味になり、結果がクリックに左右される)。
-                    zSC = Mathf.Max(anchorC, ComputeCoreChromaMedian(originalPixels, strength, w,
-                        ppMinX, ppMinY, ppMaxX, ppMaxY, includedPx, run.Buf.Claimed, cancellationToken, palette));
+                    zSC = Mathf.Max(anchorC, coreMedianC);
                     // 暗部脱彩の領域相対化(アンカー採用時のみ): 絶対 V 閾値のままだと暗い
                     // パーツは全体が閾値未満になり一律最大50%脱彩される(=入力明度で出力彩度
                     // が変わる)。閾値に地色アンカーの V(地色の代表明度)を乗じ「パーツ内の
