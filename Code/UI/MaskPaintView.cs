@@ -623,6 +623,11 @@ namespace Iroca {
             if (d.zoneId != null && FindZone(d.zoneId) == null) {
                 return false;
             }
+            // ブラシで塗っている途中に届いた AI 提案(推論を待ってから届く)は、塗りの前半と同じ「元に戻す」にまとめない(1 提案 = 1 Undo)。
+            // 前半をここで版にして区切る。塗りの続きは、次に塗るときの BeginStroke が新しく記録する。
+            if (_maskStrokeStarted) {
+                EndStroke();
+            }
             // 消す物が無かった「消す」は何も書かない(Undo にも空の手を積まない)。
             bool wrote = false;
             bool ok = Workspace.ApplyRegion(region, d.zoneId, d.op, () => { wrote = true; BeginStroke(); }, out result);

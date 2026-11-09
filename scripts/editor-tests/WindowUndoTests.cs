@@ -139,6 +139,34 @@ namespace Iroca.EditorTests {
             return layer != null && layer.Get(pixel);
         }
 
+        // 塗っている途中に AI 提案が届いても(推論は待ってから届く)、提案は塗りと別の「元に戻す」1 回分(1 提案 = 1 Undo)。
+        [Test]
+        public void SuggestionDuringStroke_IsItsOwnUndoStep() {
+            AddZones("服");
+            string id = _win.Session.zones[0].id;
+            var masks = _win._maskView;
+            Undo.IncrementCurrentGroup();
+            masks.isPainting = true;
+            masks.BeginStroke();
+            _win.Editing.Masks.WritableCommon().Set(1, true);
+            // MaskSuggestController と同じく、届いた提案は別の「元に戻す」で当てる。
+            SeparateUndo.Record("AI Mask Suggestion", () =>
+                Assert.IsTrue(masks.ApplyRegion(Pixels(5), new MaskPaintView.MaskDestination(id, MaskRegionOp.DontPaintHere), out _)));
+            masks.BeginStroke();   // 塗りの続き(PreviewView は塗るたびに呼ぶ)
+            _win.Editing.Masks.WritableCommon().Set(2, true);
+            masks.FinishStroke();
+            Undo.IncrementCurrentGroup();
+
+            Undo.PerformUndo();
+            Assert.IsFalse(_win.Editing.Masks.Common.Get(2), "1 回目で塗りの後半が戻らない");
+            Assert.IsTrue(ZoneExcludes(id, 5), "1 回目で提案まで戻った");
+            Undo.PerformUndo();
+            Assert.IsFalse(ZoneExcludes(id, 5), "2 回目で提案が戻らない");
+            Assert.IsTrue(_win.Editing.Masks.Common.Get(1), "提案と塗りの前半が 1 回にまとまっている");
+            Undo.PerformUndo();
+            Assert.IsFalse(_win.Editing.Masks.Common != null && _win.Editing.Masks.Common.Get(1), "3 回目で塗りの前半が戻らない");
+        }
+
         // 読めなかったセッションのファイルは、新しい中身を書く前に .bak へ退避する。2 回目の保存で .bak を上書きしない。
         [Test]
         public void UnreadableSessionFile_BackupSurvivesTheNextSaves() {
