@@ -260,7 +260,7 @@ namespace Iroca {
             // 「畳まれた折りたたみを開く」の一段に統一している（2026-09-11 の UX 見直し）。
             // 旧・上級限定のパラメータは、ゾーン側は「詳細設定」内の「マッチング距離の重み」、
             // 加工設定側は「詳細設定」の折りたたみへ移した。
-            zonesFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(zonesFoldout,
+            zonesFoldout = FoldoutHeaderGroupKeepingChanged(zonesFoldout,
                 TempContent.Of(Localization.StepPrefixZones + Localization.ColorZones
                     + (StepZonesDone ? Localization.StepDoneMark : ""), Localization.ColorZonesTooltip));
             if (!zonesFoldout) {
@@ -477,10 +477,9 @@ namespace Iroca {
             // 残り（連続領域モードを含む）は「詳細設定」へ畳む（既定で閉じる）。旧・上級モード限定だった
             // マッチング距離の重みもこの中に入っている（モードトグル廃止。DrawZoneList 参照）。
             EditorGUILayout.Space(2);
-            zone.detailFoldout = EditorGUILayout.Foldout(
+            zone.detailFoldout = FoldoutKeepingChanged(
                 zone.detailFoldout,
-                TempContent.Of(Localization.ZoneDetailFoldout, Localization.ZoneDetailFoldoutTooltip),
-                true);
+                TempContent.Of(Localization.ZoneDetailFoldout, Localization.ZoneDetailFoldoutTooltip));
             if (zone.detailFoldout) {
                 DrawZoneAdvancedParams(zone);
             }

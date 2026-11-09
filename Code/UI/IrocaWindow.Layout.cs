@@ -680,6 +680,23 @@ namespace Iroca {
             EditorGUILayout.EndHorizontal();
         }
 
+        // 設定列の開閉だけの折りたたみ。開閉は保存する内容(レシピの JSON)を変えないので、立った GUI.changed を戻す。設定列は
+        // ChangeCheck で囲まれていて、立ったままだと開閉のたびにプレビューの作り直しと保存の試み(全マスクの符号化)が走っていた
+        // (ArmedToggleButton と同じ)。
+        private static bool FoldoutHeaderGroupKeepingChanged(bool open, GUIContent content) {
+            bool changed = GUI.changed;
+            open = EditorGUILayout.BeginFoldoutHeaderGroup(open, content);
+            GUI.changed = changed;
+            return open;
+        }
+
+        private static bool FoldoutKeepingChanged(bool open, GUIContent content) {
+            bool changed = GUI.changed;
+            open = EditorGUILayout.Foldout(open, content, true);
+            GUI.changed = changed;
+            return open;
+        }
+
         // テクスチャ欄で選んだテクスチャ(次の Layout で切り替える)。外す(null)こともあるので、選んだかどうかは別の印で持つ。
         [System.NonSerialized] private bool _pendingSourceTextureSet;
         [System.NonSerialized] private Texture2D _pendingSourceTexture;
@@ -881,7 +898,7 @@ namespace Iroca {
         }
 
         private void DrawProcessingSection() {
-            processingFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(processingFoldout,
+            processingFoldout = FoldoutHeaderGroupKeepingChanged(processingFoldout,
                 TempContent.Of(Localization.Processing, Localization.ProcessingTooltip));
             if (!processingFoldout) {
                 EditorGUILayout.EndFoldoutHeaderGroup();
@@ -907,9 +924,8 @@ namespace Iroca {
             // 制御していた（さらにプリセットの「詳細」もあって三重）。モードトグルを廃し、
             // 「畳まれた折りたたみを開く」の一段に統一する（2026-09-11 の UX 見直し）。
             EditorGUILayout.Space(2);
-            processingDetailFoldout = EditorGUILayout.Foldout(processingDetailFoldout,
-                TempContent.Of(Localization.ProcessingDetailFoldout, Localization.ProcessingDetailFoldoutTooltip),
-                true);
+            processingDetailFoldout = FoldoutKeepingChanged(processingDetailFoldout,
+                TempContent.Of(Localization.ProcessingDetailFoldout, Localization.ProcessingDetailFoldoutTooltip));
             if (processingDetailFoldout) {
                 using (new EditorGUI.IndentLevelScope()) {
                     holeFillPasses = UndoHelper.IntSlider(UndoTarget,
