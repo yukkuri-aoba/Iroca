@@ -1,0 +1,47 @@
+<!--
+  AI 提案の純計算(ハーネスの samops 系のモード)の結果キャッシュの鍵を作るためだけの DLL。実行はしない。
+  dev_safe の fixtures.samops_digest が、この DLL と Harness.cs のダイジェストを提案の結果キャッシュの鍵にする
+  (以前は IrocaHeadless.dll 全体のダイジェストで、選択や再着色を変えるたびに提案を作り直していた)。
+
+  取り込むのは Code/MaskSuggest/Ops と、それが使う Core のファイルだけ。Ops が新しい Core の型を使うと
+  ここがコンパイルできなくなり、fixtures は警告を出して DLL 全体のダイジェストに戻る(古い結果は使わない)。
+  そのときは足りないファイルをここへ足す。Ops から PixelProcessor を呼ばない(Core の大半を取り込むことになる。
+  並列度は CoreParallelism.Max() を使う)。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <OutputType>Library</OutputType>
+    <RootNamespace>Iroca</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>0414;0649;CS0219;CS8632;CS0169;CS0618</NoWarn>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AssemblyName>IrocaSamOpsFingerprint</AssemblyName>
+    <EnableSourceLink>false</EnableSourceLink>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Deterministic>true</Deterministic>
+    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
+    <UnityManaged Condition="'$(UnityManaged)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityManaged>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\..\Code\MaskSuggest\Ops\*.cs" />
+    <Compile Include="..\..\..\Code\Core\NativeBuffer.cs" />
+    <Compile Include="..\..\..\Code\Core\NativeBools.cs" />
+    <Compile Include="..\..\..\Code\Core\NativePixels.cs" />
+    <Compile Include="..\..\..\Code\Core\IrocaNativeMemory.cs" />
+    <Compile Include="..\..\..\Code\Core\Foundation\CoreParallelism.cs" />
+    <Compile Include="..\..\..\Code\Core\MaskRle.cs" />
+    <Compile Include="..\..\..\Code\Core\NativeBitMask.cs" />
+    <Compile Include="..\..\..\Code\Core\NativeWorkPool.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(UnityManaged)\UnityEngine\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

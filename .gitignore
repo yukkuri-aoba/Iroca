@@ -86,6 +86,10 @@ scripts/build-check/unity-test-framework/obj/
 !scripts/headless-run/Harness.cs
 scripts/headless-run/bin/
 scripts/headless-run/obj/
+# AI 提案の結果キャッシュの鍵だけに使う DLL(dev_safe の fixtures.samops_digest)
+!scripts/headless-run/SamOpsFingerprint/SamOpsFingerprint.csproj
+scripts/headless-run/SamOpsFingerprint/bin/
+scripts/headless-run/SamOpsFingerprint/obj/
 !scripts/unit-run/UnitRun.csproj
 scripts/unit-run/bin/
 scripts/unit-run/obj/
