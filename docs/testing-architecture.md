@@ -490,6 +490,11 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
 - **改善サイクルの採否判断では `IROCA_CSHARP_GATE_FULL=1`（旧名 `VACC_CSHARP_GATE_FULL` も効く）と
   `IROCA_AUTOTUNE_GATE_FULL=1`（旧名 `VACC_AUTOTUNE_GATE_FULL` も効く）を必ず立てる**（品質ゲートの既定は bandana のみで、残り被写体の実 C# 品質を測らずに
   「全パス」と誤認するため）。
+- **製品の挙動を測るゲートは、ゾーンを `fixtures._zone_to_harness` で全項目書く**（2026-11-10〜）。zones JSON の既定
+  （`ZonesJsonDefaults`）には製品の新しいゾーンと意図的に違う値がある（`highlightRecovery` は JSON が false・UI が true、
+  変更先の色は JSON が黒・UI が白）。項目を省いた dict は製品と違う設定を測る（C# の品質ゲートはこれでハイライト系の段を
+  通さずに測っていた）。JSON の既定のままで測る理由のあるテストは、dev_safe の `zones_json_default_reliance.json` に
+  理由つきで載せる。`test_zones_schema_parity` が、載っていない部分的なゾーンの dict を落とし、減ったら一覧も減らさせる。
 - **自動調整（スポイト→自動調整＝ユーザーの主経路）の選択ゲートは既定 ON**（2026-08-21〜）:
   `test_autotune_accuracy` は 4 被写体の選択床を常時、アトラス被写体の自動調整テスト（6 被写体）と
   `test_synth_gen2` の 3 クリック位置も既定で回る。ハーネス実行は fixtures の
