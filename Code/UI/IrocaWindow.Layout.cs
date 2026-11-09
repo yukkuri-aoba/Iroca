@@ -56,6 +56,7 @@ namespace Iroca {
             TrackDeferredPreview(this);
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
+            ProcessPendingSourceTextureSwitch();
             PublishLivePreviewTarget();
 
             // スポイト武装中にテクスチャが外れた／対象ゾーンが消えたら解除（クリックで解けなくなるのを防ぐ）。
@@ -679,6 +680,36 @@ namespace Iroca {
             EditorGUILayout.EndHorizontal();
         }
 
+        // テクスチャ欄で選んだテクスチャ(次の Layout で切り替える)。外す(null)こともあるので、選んだかどうかは別の印で持つ。
+        [System.NonSerialized] private bool _pendingSourceTextureSet;
+        [System.NonSerialized] private Texture2D _pendingSourceTexture;
+
+        /// <summary>
+        /// テクスチャ欄で選んだテクスチャへ、次の Layout で切り替える。欄はドラッグ＆ドロップ・ピッカーの選択のイベントの途中で値を
+        /// 返すので、その場で切り替えると、同じイベントの残りを別のテクスチャの編集内容(ゾーンの数など)で並べることになり、Layout で
+        /// 並べた要素と食い違って IMGUI がエラーを出す。
+        /// </summary>
+        private void RequestSourceTextureSwitch(Texture2D tex) {
+            _pendingSourceTexture = tex;
+            _pendingSourceTextureSet = true;
+            Repaint();
+        }
+
+        // OnGUI の先頭で呼ぶ。Layout のときだけ切り替える。
+        private void ProcessPendingSourceTextureSwitch() {
+            if (!_pendingSourceTextureSet || Event.current.type != EventType.Layout) {
+                return;
+            }
+            var tex = _pendingSourceTexture;
+            _pendingSourceTextureSet = false;
+            _pendingSourceTexture = null;
+            if (tex != SourceTexture) {
+                SwitchSourceTexture(tex);
+                // ゾーンの並びが替わった。名前欄・色の窓の入力先を、描く前に手放す。
+                ReleaseZoneFields();
+            }
+        }
+
         private void DrawTextureField() {
             EditorGUILayout.Space(4);
             DrawTranslationNotice();
@@ -694,15 +725,18 @@ namespace Iroca {
                 EditorGUILayout.HelpBox(Localization.WorkflowHint, MessageType.Info);
             }
 
+            bool changedBefore = GUI.changed;
             var newTex = (Texture2D)EditorGUILayout.ObjectField(
                 TempContent.Of(Localization.Texture, Localization.TextureTooltip),
-                SourceTexture, typeof(Texture2D), false,
+                _pendingSourceTextureSet ? _pendingSourceTexture : SourceTexture, typeof(Texture2D), false,
                 // 1 行高に固定する。Texture2D の ObjectField は既定で 64px のサムネイル枠になり、
                 // 右端の小さな枠のために行の左側が 3 行ぶん空いて、下の設定列とプレビューの
                 // 高さを恒常的に奪っていた。絵はプレビューで見えるのでここでは名前だけで足りる。
                 GUILayout.Height(EditorGUIUtility.singleLineHeight));
-            if (newTex != SourceTexture) {
-                SwitchSourceTexture(newTex);
+            if (newTex != (_pendingSourceTextureSet ? _pendingSourceTexture : SourceTexture)) {
+                RequestSourceTextureSwitch(newTex);
+                // 切り替えは次の Layout。今の編集の変更ではないので、プレビューの作り直しと保存の合図を出さない。
+                GUI.changed = changedBefore;
             }
 
             // 保存と読み込みの失敗は Console だけでは気づけないので、直るまで出す。
