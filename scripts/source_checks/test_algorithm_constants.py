@@ -10,13 +10,18 @@
   - 台帳にあってソースに無い（消した・改名した）→ 台帳から消す。
   - 名前の無い小数のリテラルの数が、ファイルごとの記録と違う → 増えたなら名前を付けて台帳へ、
     減ったなら台帳の数を下げる（増やさないための歯止め）。
+  - 名前の無い小数のリテラルの値が、ファイルごとの記録（unnamed_float_literals.json の値の多重集合）と違う
+    → 数が同じでも値を変えた・入れ替えたなら落とす（2026-11-10〜。数だけでは値を変えても通った）。
 
 C# ソースを直接読むだけなのでハーネス不要・常時実行。
+記録の JSON を作り直すとき（差分を確かめた後）: python scripts/source_checks/test_algorithm_constants.py --write-unnamed
 """
 from __future__ import annotations
 
 import fnmatch
+import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -24,6 +29,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LEDGER = REPO_ROOT / "docs" / "algorithm-constants.md"
+# 名前の無い小数の値の記録。台帳の md とは別のファイルにする（md は人が根拠を書き足す所で、値の並びまで
+# 入れると読みにくく、並行して編集するとぶつかる）。
+UNNAMED_VALUES = Path(__file__).resolve().parent / "unnamed_float_literals.json"
 
 # 台帳の対象。出力（選択・再着色・自動調整・AI 提案のマスク）に効くファイルだけ。
 # 0.4.0 の作り替えでファイルをサブフォルダへ移したり名前を変えたりしても台帳から黙って外れないよう、
@@ -304,3 +312,58 @@ def test_unnamed_float_literals_do_not_grow(ledger):
     stale = sorted(set(counts) - {_rel(p) for p in scope_files()})
     diffs += [f"{f}: 台帳の「名前の無い小数」の表にあるが対象のファイルではありません" for f in stale]
     assert not diffs, "名前の無い小数のリテラルの数が台帳と違います:\n  " + "\n  ".join(diffs)
+
+
+def _literal_sort_key(tok: str) -> tuple[float, str]:
+    return float(tok.rstrip("fFdDmM")), tok
+
+
+def current_unnamed_values() -> dict[str, list[str]]:
+    """{ファイル: 名前の無い小数の字句（書いたとおり。f などの接尾辞も含む）を値の順に並べたもの}。0 個のファイルは載せない。"""
+    out = {}
+    for p in scope_files():
+        toks = sorted((t for _, t in inline_literals(p)), key=_literal_sort_key)
+        if toks:
+            out[_rel(p)] = toks
+    return out
+
+
+def test_unnamed_float_literal_values_match_record():
+    """名前の無い小数の値をファイルごとの多重集合で記録と比べる（数が同じでも、値を変えた・入れ替えたら落ちる）。"""
+    assert UNNAMED_VALUES.exists(), f"記録がありません: {UNNAMED_VALUES}"
+    recorded = json.loads(UNNAMED_VALUES.read_text(encoding="utf-8"))["files"]
+    now = current_unnamed_values()
+    assert sum(len(v) for v in now.values()) > 50, "名前の無い小数の抽出が少なすぎます（パーサの退行?）"
+    diffs = []
+    for f in sorted(set(recorded) | set(now)):
+        rec, cur = Counter(recorded.get(f, [])), Counter(now.get(f, []))
+        if rec == cur:
+            continue
+        added = sorted((cur - rec).elements(), key=_literal_sort_key)
+        removed = sorted((rec - cur).elements(), key=_literal_sort_key)
+        where = [f"{ln} 行 {t}" for ln, t in inline_literals(REPO_ROOT / f)
+                 if t in set(added)] if (REPO_ROOT / f).is_file() else []
+        diffs.append(f"{f}: 増えた {added or '-'} / 消えた {removed or '-'}"
+                     + (f"（{', '.join(where[:5])}）" if where else ""))
+    assert not diffs, (
+        f"名前の無い小数の値が {UNNAMED_VALUES.name} の記録と違います:\n  " + "\n  ".join(diffs) + "\n"
+        "→ 調整した値なら名前を付けて台帳（docs/algorithm-constants.md）へ載せてください。式の都合の値を変えた・\n"
+        f"  消しただけなら、{UNNAMED_VALUES.name} の値を直してください（数が変わったなら台帳の数の表も）。")
+
+
+def write_unnamed_values() -> None:
+    doc = {
+        "_note": ("名前の無い小数のリテラル(自明なものを除く)の、ファイルごとの値の多重集合。"
+                  "test_algorithm_constants.py の test_unnamed_float_literal_values_match_record が"
+                  "今のソースと比べる。数は台帳(docs/algorithm-constants.md)の表と同じ。"),
+        "files": current_unnamed_values(),
+    }
+    UNNAMED_VALUES.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+if __name__ == "__main__":
+    if "--write-unnamed" in sys.argv[1:]:
+        write_unnamed_values()
+        print(f"書きました: {UNNAMED_VALUES}")
+    else:
+        print("使い方: python scripts/source_checks/test_algorithm_constants.py --write-unnamed")

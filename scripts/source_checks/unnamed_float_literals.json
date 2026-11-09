@@ -1,0 +1,166 @@
+{
+  "_note": "名前の無い小数のリテラル(自明なものを除く)の、ファイルごとの値の多重集合。test_algorithm_constants.py の test_unnamed_float_literal_values_match_record が今のソースと比べる。数は台帳(docs/algorithm-constants.md)の表と同じ。",
+  "files": {
+    "Code/Core/Color/OkLab.cs": [
+      "0.0031308f",
+      "0.0040720468f",
+      "0.0041960863f",
+      "0.0259040371f",
+      "0.04045f",
+      "0.0514459929f",
+      "0.055f",
+      "0.055f",
+      "0.0638541728f",
+      "0.0883024619f",
+      "0.0894841775f",
+      "0.1055613458f",
+      "0.1073969566f",
+      "0.2104542553f",
+      "0.2119034982f",
+      "0.2158037573f",
+      "0.2309699292f",
+      "0.2817188376f",
+      "0.3413193965f",
+      "0.3963377774f",
+      "0.4122214708f",
+      "0.4505937099f",
+      "0.5363325363f",
+      "0.6299787005f",
+      "0.6806995451f",
+      "0.7034186147f",
+      "0.7827717662f",
+      "0.7936177850f",
+      "0.8086757660f",
+      "1.055f",
+      "1.055f",
+      "1.2684380046f",
+      "1.2914855480f",
+      "1.7076147010f",
+      "1.9779984951f",
+      "2.4f",
+      "2.4f",
+      "2.4285922050f",
+      "2.6097574011f",
+      "3.3077115913f",
+      "4.0767416621f",
+      "12.92f",
+      "12.92f"
+    ],
+    "Code/Core/ColorZone.cs": [
+      "0.01f",
+      "0.05f",
+      "0.05f",
+      "0.10f",
+      "0.15f",
+      "0.35f"
+    ],
+    "Code/Core/Pipeline/PixelProcessor.cs": [
+      "1000.0"
+    ],
+    "Code/Core/Recolor/PixelProcessor.ComposeStage.cs": [
+      "0.001f",
+      "0.999f",
+      "0.999f"
+    ],
+    "Code/Core/Recolor/PixelProcessor.Recolor.cs": [
+      "0.01f",
+      "0.05f",
+      "0.05f",
+      "0.95f",
+      "1048576f",
+      "1048576f"
+    ],
+    "Code/Core/Recolor/PixelProcessor.RecolorBranchRecorder.cs": [
+      "0.01f"
+    ],
+    "Code/Core/Recolor/PixelProcessor.RecolorStatsStage.cs": [
+      "0.999f"
+    ],
+    "Code/Core/Selection/Legacy/ColorZone.Match.cs": [
+      "0.01f",
+      "0.01f",
+      "0.01f",
+      "0.01f",
+      "0.02f",
+      "0.08f"
+    ],
+    "Code/Core/Selection/Legacy/PixelProcessor.FloodFill.cs": [
+      "0.75f"
+    ],
+    "Code/Core/Selection/Legacy/PixelProcessor.Highlight.cs": [
+      "0.1f",
+      "0.1f",
+      "0.95f",
+      "0.95f",
+      "512f",
+      "512f"
+    ],
+    "Code/Core/Selection/Legacy/PixelProcessor.Selection.cs": [
+      "0.01f",
+      "0.999f"
+    ],
+    "Code/Core/ZoneAutoTuner.cs": [
+      "0.001f",
+      "0.02f",
+      "0.05f",
+      "0.05f",
+      "0.05f",
+      "0.10f",
+      "0.10f",
+      "0.10f",
+      "0.10f",
+      "0.10f",
+      "0.10f",
+      "0.10f",
+      "0.12f",
+      "0.12f",
+      "0.15f",
+      "0.15f",
+      "0.15f",
+      "0.15f",
+      "0.20f",
+      "0.25f",
+      "0.30f",
+      "0.30f",
+      "0.3f",
+      "0.35f",
+      "0.40f",
+      "0.4f",
+      "0.4f",
+      "0.55f",
+      "0.62f",
+      "0.65f",
+      "0.7f",
+      "0.75f",
+      "0.85f",
+      "0.90f",
+      "0.90f",
+      "0.90f",
+      "0.9f",
+      "0.92f",
+      "0.95f",
+      "0.98f"
+    ],
+    "Code/Core/ZoneAutoTuner.Evidence.cs": [
+      "0.25f",
+      "0.40f",
+      "0.58f",
+      "0.68f",
+      "0.78f",
+      "0.88f",
+      "0.98f"
+    ],
+    "Code/Core/ZoneAutoTuner.Tolerance.cs": [
+      "0.01f",
+      "0.01f",
+      "0.10f",
+      "0.10f",
+      "0.90f"
+    ],
+    "Code/MaskSuggest/Ops/SamMaskRefine.cs": [
+      "0.75f",
+      "82f",
+      "410f"
+    ]
+  }
+}

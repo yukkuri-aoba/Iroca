@@ -7,6 +7,8 @@
 - 値を変えた（→ 値と根拠を直す。測り直したならその記録を根拠に）
 - 定数を消した・改名した（→ 行を消す・直す）
 - 名前の無い小数のリテラルが増えた・減った（→ 増えたなら名前を付けて台帳へ、減ったなら数を下げる）
+- 名前の無い小数のリテラルの値を変えた・入れ替えた（→ 調整した値なら名前を付けて台帳へ。式の都合の値なら
+  `scripts/source_checks/unnamed_float_literals.json` の値を直す）
 
 対象は出力（選択・再着色・自動調整の結果・AI 提案のマスク）に効くファイルだけ: `Code/Core` の `ColorZone*`・
 `PixelProcessor*`・`ZoneAutoTuner*`・`HighlightSampleCorrector`・`UvChartMap` と `Code/MaskSuggest/Ops`。UI の寸法・
@@ -88,6 +90,8 @@
 
 定数の宣言の外にある小数のリテラルのうち、0・1・2・3・4・0.5・255・256 と 1e-4 以下の ε を除いた数。
 テストはこの数と一致することを確かめる。調整した値を直書きで足すと増えて落ちる（名前を付けて上の台帳へ）。
+値そのものは `scripts/source_checks/unnamed_float_literals.json` にファイルごとの多重集合で記録し、数が同じでも
+値を変えると落ちる（2026-11-10〜。この表は数だけ）。
 整数（`Mathf.Max(50, …)` のような画素数の床）は添字やループと見分けられないので数えていない。
 
 多いのは 2 つ。`Color/OkLab.cs` の 43 は sRGB・OkLab の変換係数（定義）。`ZoneAutoTuner.cs` の 40 は
