@@ -26,6 +26,10 @@ namespace Iroca {
         /// GUILayout は呼ばない。
         /// </summary>
         private void TickAppearance() {
+            if (Event.current.type == EventType.Layout) {
+                // 本体が裏のタブでも(別窓のプレビューだけが描かれる)、今のテクスチャのマテリアルを使う。
+                _host?.RefreshMaterialColors();
+            }
             var report = AppearanceReport;
             if (Event.current.type == EventType.Layout) {
                 _appearanceAvailableAtLayout = AppearanceRenderer.KindOf(report) != AppearanceRenderer.Kind.None;

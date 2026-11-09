@@ -35,8 +35,11 @@ namespace Iroca {
         /// 読み取り結果を必要なら作り直す。Layout のときだけ動く(同じフレームの Repaint と並ぶ要素をそろえる)。
         /// テクスチャか開いているシーンが替わったら探し直し、シーンで見つけていたら時々探し直す
         /// (素材フォルダから探したときは重いので繰り返さない)。それ以外は値だけを時々読み直す。
+        /// 本体の描画(テクスチャ欄の下の案内)と、プレビューの描画(<see cref="PreviewView"/> の「アバターの色」)の両方から呼ぶ。
+        /// 本体が裏のタブだと本体の OnGUI が来ないので、別窓のプレビューが前のテクスチャのマテリアルの色で描いていた。
+        /// 同じフレームに 2 回呼ばれても、探し直し・読み直しは間隔をあけるので 2 回目は何もしない。
         /// </summary>
-        private void RefreshMaterialColors() {
+        internal void RefreshMaterialColors() {
             if (Event.current.type != EventType.Layout) {
                 return;
             }
