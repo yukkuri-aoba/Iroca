@@ -310,6 +310,45 @@ namespace Iroca.EditorTests {
             Assert.AreEqual("レシピの内容", RecipeStore.Load(b).zones[0].name, "開く前の内容でレシピを上書きした");
         }
 
+        // 結び付いていない窓から、登録先などのレシピを流用して登録すると、レシピの中身を窓の内容で置き換える。Ctrl+Z 1 回で
+        // コンポーネント・レシピの中身・結び付きがそろって戻る(結び付きだけ残すと、戻ったレシピを外での書き換えと取り違えて
+        // 読み直し、窓の内容が消える)。
+        [Test]
+        public void RegisteringFromUnboundWindow_UndoBringsTheRecipeBack() {
+            AddZones("窓の内容");
+            var texture = _win.SourceTexture;
+            var content = new IrocaSessionState();
+            content.zones.Add(new ColorZone { name = "レシピの内容" });
+            var recipe = RecipeStore.Create(texture, content, _assets.Folder);
+            string before = recipe.sessionJson;
+            Assert.IsNull(_win.BoundRecipe, "テストの前提: 結び付いていない");
+
+            // 確認画面で、中身を置き換えることを知らせる(中身が窓と同じなら知らせない)。
+            var plan = RegistrationService.Describe(Avatar(), texture, recipe);
+            string label = AssetDatabase.GetAssetPath(recipe);
+            string overwrite = string.Format(Localization.RegisterRecipeOverwriteFormat, label);
+            Assert.IsTrue(_win.RegistrationOverwritesRecipe(recipe));
+            StringAssert.Contains(overwrite, IrocaWindow.RegisterMessage(plan, label, overwritesRecipe: true));
+            StringAssert.DoesNotContain(overwrite, IrocaWindow.RegisterMessage(plan, label, overwritesRecipe: false));
+            var same = RecipeStore.Create(texture, _win.Editing.ToSaveState(), _assets.Folder);
+            Assert.IsFalse(_win.RegistrationOverwritesRecipe(same), "中身が同じでも置き換えを知らせた");
+
+            Undo.IncrementCurrentGroup();
+            var component = _win.CommitRegistration(plan, recipe, 0);
+            Undo.IncrementCurrentGroup();
+            Assert.IsFalse(_win.RegistrationOverwritesRecipe(recipe), "結び付いたレシピは置き換えではない");
+            Assert.AreEqual("窓の内容", RecipeStore.Load(recipe).zones[0].name, "窓の内容で置き換える");
+            Assert.AreSame(recipe, _win.BoundRecipe);
+
+            Undo.PerformUndo();
+            Assert.IsTrue(component == null, "コンポーネントが戻っていない");
+            Assert.AreEqual(before, recipe.sessionJson, "レシピの中身が戻っていない");
+            Assert.IsNull(_win.BoundRecipe, "結び付きが戻っていない");
+            Assert.AreEqual("窓の内容", _win.Session.zones[0].name, "窓の内容は変わらない");
+            _win.SavePersistedSessionForCurrentTexture();
+            Assert.AreEqual(before, recipe.sessionJson, "戻したレシピを保存で書き換えた");
+        }
+
         // 複数のレシピがあるテクスチャは、最後に結び付いたレシピへ開き直す。Undo で外したら開き直しても結び付けない。
         [Test]
         public void ReopeningTextureWithSeveralRecipes_BindsTheLastOne() {

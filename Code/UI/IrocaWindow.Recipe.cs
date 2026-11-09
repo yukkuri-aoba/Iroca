@@ -402,40 +402,8 @@ namespace Iroca {
                 return;
             }
 
-            // 登録で何が起きるか(RegistrationService.Describe)を確認画面に出す。
-            // コンポーネントは登録先に 1 つ(既にあればそこへ足す)。置き換え・まとめが起きるなら先に知らせる。
-            // 以前「適用して保存」で書き出した画像を差しているマテリアルは、元のテクスチャへ戻す
-            // (戻さないと非破壊の色替えが効かない)。書き換えられない場所のものは知らせるだけ。
-            // 戻すのは .mat そのものなので、登録先の外で同じマテリアルを使っている所も元の色に戻る。開いているシーンで
-            // 数えて知らせ、それらは戻さずに登録することもできるようにする。
             var plan = RegistrationService.Describe(target, SourceTexture, recipe);
-            // 冒頭の「マテリアルは変わりません」は、戻すマテリアルがあるときは正しくない。
-            var message = string.Format(plan.switchable > 0 ? Localization.RegisterConfirmSwitchFormat : Localization.RegisterConfirmFormat,
-                target.name, SourceTexture.name, recipeLabel);
-            if (plan.switchable > 0) {
-                message += "\n\n" + string.Format(Localization.RegisterSwitchExportsFormat, plan.switchable, SourceTexture.name);
-            }
-            if (plan.shared.Count > 0) {
-                message += "\n\n" + string.Format(Localization.RegisterSharedExportsFormat, plan.shared.Count, plan.sharedPlaces,
-                    Localization.RegisterKeepShared);
-            }
-            if (plan.exportUsers.Count > plan.switchable) {
-                message += "\n\n" + string.Format(Localization.RegisterLockedExportsFormat, plan.exportUsers.Count - plan.switchable);
-            }
-            if (plan.components >= 2) {
-                message += "\n\n" + string.Format(Localization.RegisterMergeFormat, plan.components);
-            } else if (plan.components == 1) {
-                message += "\n\n" + Localization.RegisterAddToExisting;
-            }
-            if (plan.replaced != null) {
-                message += "\n\n" + string.Format(Localization.RegisterReplaceFormat, SourceTexture.name,
-                    AssetDatabase.GetAssetPath(plan.replaced));
-            }
-            // 流用するレシピ(別のアバターに登録済みの同じテクスチャのレシピなど)をほかでも使っていれば、
-            // 登録した後の編集がそちらの色にも効くことを知らせる。
-            if (plan.otherUsers.Count > 0) {
-                message += "\n\n" + string.Format(Localization.RegisterRecipeSharedFormat, NameList(plan.otherUsers));
-            }
+            string message = RegisterMessage(plan, recipeLabel, RegistrationOverwritesRecipe(recipe));
             // 0 = 登録、1 = キャンセル(閉じたときも)、2 = 共有のマテリアルは戻さずに登録。
             int choice = plan.shared.Count > 0
                 ? EditorUtility.DisplayDialogComplex(Localization.RegisterNonDestructive, message,
@@ -452,6 +420,57 @@ namespace Iroca {
         }
 
         /// <summary>
+        /// 登録で、結び付いていないレシピ(登録先にある・プロジェクトにひとつだけある同じテクスチャのもの)の中身を、窓の内容で
+        /// 置き換えるか(流用するレシピの中身が窓と違う)。そのレシピは窓と同期したことが無いので、外での書き換えの確認には使えない。
+        /// </summary>
+        internal bool RegistrationOverwritesRecipe(IrocaRecipe recipe) =>
+            recipe != null && recipe != BoundRecipe && JsonUtility.ToJson(Editing.ToSaveState()) != recipe.sessionJson;
+
+        /// <summary>
+        /// 登録の確認画面の文。登録で何が起きるか(<see cref="RegistrationService.Describe"/>)を出す。
+        /// コンポーネントは登録先に 1 つ(既にあればそこへ足す)。置き換え・まとめが起きるなら先に知らせる。
+        /// 以前「適用して保存」で書き出した画像を差しているマテリアルは、元のテクスチャへ戻す
+        /// (戻さないと非破壊の色替えが効かない)。書き換えられない場所のものは知らせるだけ。
+        /// 戻すのは .mat そのものなので、登録先の外で同じマテリアルを使っている所も元の色に戻る。開いているシーンで
+        /// 数えて知らせ、それらは戻さずに登録することもできるようにする。
+        /// <paramref name="overwritesRecipe"/> は流用するレシピの中身を窓の内容で置き換えるとき(<see cref="RegistrationOverwritesRecipe"/>)。
+        /// internal は WindowUndoTests が確認画面を出さずに文を見るため。
+        /// </summary>
+        internal static string RegisterMessage(RegistrationService.Plan plan, string recipeLabel, bool overwritesRecipe) {
+            string texture = plan.source.name;
+            // 冒頭の「マテリアルは変わりません」は、戻すマテリアルがあるときは正しくない。
+            var message = string.Format(plan.switchable > 0 ? Localization.RegisterConfirmSwitchFormat : Localization.RegisterConfirmFormat,
+                plan.target.name, texture, recipeLabel);
+            if (overwritesRecipe) {
+                message += "\n\n" + string.Format(Localization.RegisterRecipeOverwriteFormat, recipeLabel);
+            }
+            if (plan.switchable > 0) {
+                message += "\n\n" + string.Format(Localization.RegisterSwitchExportsFormat, plan.switchable, texture);
+            }
+            if (plan.shared.Count > 0) {
+                message += "\n\n" + string.Format(Localization.RegisterSharedExportsFormat, plan.shared.Count, plan.sharedPlaces,
+                    Localization.RegisterKeepShared);
+            }
+            if (plan.exportUsers.Count > plan.switchable) {
+                message += "\n\n" + string.Format(Localization.RegisterLockedExportsFormat, plan.exportUsers.Count - plan.switchable);
+            }
+            if (plan.components >= 2) {
+                message += "\n\n" + string.Format(Localization.RegisterMergeFormat, plan.components);
+            } else if (plan.components == 1) {
+                message += "\n\n" + Localization.RegisterAddToExisting;
+            }
+            if (plan.replaced != null) {
+                message += "\n\n" + string.Format(Localization.RegisterReplaceFormat, texture, AssetDatabase.GetAssetPath(plan.replaced));
+            }
+            // 流用するレシピ(別のアバターに登録済みの同じテクスチャのレシピなど)をほかでも使っていれば、
+            // 登録した後の編集がそちらの色にも効くことを知らせる。
+            if (plan.otherUsers.Count > 0) {
+                message += "\n\n" + string.Format(Localization.RegisterRecipeSharedFormat, NameList(plan.otherUsers));
+            }
+            return message;
+        }
+
+        /// <summary>
         /// 確認の後の登録の本体: 窓の内容(マスク込み)をレシピへ書き(<paramref name="recipe"/> が null なら新しく作る)、結び付け、
         /// マテリアルを戻してコンポーネントへ足す。<paramref name="choice"/> は確認画面の答え(0 = 登録、2 = 共有のマテリアルは
         /// 戻さずに登録)。付けた(足した)コンポーネントを返す。internal は WindowUndoTests が確認画面を出さずに呼ぶため。
@@ -459,24 +478,34 @@ namespace Iroca {
         internal IrocaRecolor CommitRegistration(RegistrationService.Plan plan, IrocaRecipe recipe, int choice) {
             // マスク込みで保存する。
             var saved = Editing.ToSaveState();
-            var previouslyBound = BoundRecipe;
+            // 結び付いていない窓から、ほかのレシピ(登録先にある・プロジェクトにひとつだけある同じテクスチャのもの)を流用するか
+            // (登録し直し = 更新)。中身を窓の内容で置き換えるので、下の Undo のまとまりの中で書く。
+            bool reuse = recipe != null && recipe != BoundRecipe;
             if (recipe == null) {
+                // 作ったアセットのファイルは Undo で消せない。新しく結び付いたので、それより前の記録まで戻しても外さない印を付ける。
                 recipe = RecipeStore.Create(SourceTexture, saved);
-            } else {
+                BindRecipe(recipe);
+                _recipeKeptOverUndo = recipe;
+            } else if (!reuse) {
+                // 結び付いているレシピは窓と同期しているので、自動保存と同じく Undo に積まない(印も付けない。「いろかで開く」で
+                // 結び付いたなら、開く前まで戻したら一緒に外す。外さないと、開く前の内容でレシピを上書きする)。
                 RecipeStore.Save(recipe, saved);
             }
-            BindRecipe(recipe);
-            // 登録で新しく結び付いたときだけ、Undo で外さない印を付ける。既に結び付いていたなら(「いろかで開く」)、その結び付きは
-            // 開いたときのものなので、開く前まで戻したら一緒に外す(外さないと、開く前の内容でレシピを上書きする)。
-            if (recipe != previouslyBound) {
-                _recipeKeptOverUndo = recipe;
-            }
-            SessionPersistence.MarkRecipeSynced(recipe);
 
             // マテリアルを戻すのとコンポーネントの登録を 1 回の Undo にまとめる。
             Undo.IncrementCurrentGroup();
             int undoGroup = Undo.GetCurrentGroup();
             Undo.SetCurrentGroupName(Localization.RegisterNonDestructive);
+            if (reuse) {
+                // 流用するレシピの書く前の中身と、窓の結び付き(文書)を同じまとまりに記録する(RecipeStore.Save は Undo に積まない)。
+                // Ctrl+Z 1 回でコンポーネント・レシピの中身・結び付きがそろって戻る。結び付きだけ残すと、戻ったレシピを外での書き換えと
+                // 取り違えて読み直し、窓の内容が消える。印は付けない(戻したら結び付きも外す)。
+                Undo.RegisterCompleteObjectUndo(recipe, Localization.RegisterNonDestructive);
+                Undo.RegisterCompleteObjectUndo(UndoTarget, Localization.RegisterNonDestructive);
+                RecipeStore.Save(recipe, saved);
+                BindRecipe(recipe);
+            }
+            SessionPersistence.MarkRecipeSynced(recipe);
             RegistrationService.SwitchAndAttach(plan, recipe, keepShared: choice == 2, out var component);
             Undo.CollapseUndoOperations(undoGroup);
             return component;

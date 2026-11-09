@@ -1422,6 +1422,10 @@ namespace Iroca {
             ? "シーンに、このテクスチャを書き出した画像を使っているマテリアルが {0} 個あります。非破壊で色替えするには、「アバターに非破壊で登録」で元のテクスチャに戻してください（登録のときにまとめて戻せます）。"
             : "{0} material(s) in the scene use an image exported from this texture. To recolor non-destructively, switch them back to the original texture with \"Register to avatar (non-destructive)\" (it does this for you when registering).";
         public static string RegisterRecipeNew => IsJapanese ? "{0}（新しく作ります）" : "{0} (new)";
+        // 結び付いていない窓から、登録先などにある同じテクスチャのレシピを流用するとき、その中身が窓と違えば出す。{0} = レシピのパス。
+        public static string RegisterRecipeOverwriteFormat => IsJapanese
+            ? "レシピ（{0}）の今の中身を、いろかウィンドウの今の内容で置き換えます（Ctrl+Z で戻せます）。"
+            : "The current content of the recipe ({0}) is replaced with what is in the Iroca window now (Ctrl+Z restores it).";
         public static string RegisterDoneFormat => IsJapanese ? "「{0}」に登録しました" : "Registered to \"{0}\"";
         public static string RegisterOk => IsJapanese ? "登録" : "Register";
         // いろかウィンドウとインスペクタの警告。入っていない・古い・新しすぎるで直し方が違う。
