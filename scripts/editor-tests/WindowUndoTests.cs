@@ -134,6 +134,11 @@ namespace Iroca.EditorTests {
             Assert.IsFalse(_win.Editing.Masks.Common != null && _win.Editing.Masks.Common.Get(1), "Esc で閉じたストロークが戻らない");
         }
 
+        private bool ZoneExcludes(string zoneId, int pixel) {
+            var layer = _win.Editing.Masks.Layer(false, zoneId);
+            return layer != null && layer.Get(pixel);
+        }
+
         // 読めなかったセッションのファイルは、新しい中身を書く前に .bak へ退避する。2 回目の保存で .bak を上書きしない。
         [Test]
         public void UnreadableSessionFile_BackupSurvivesTheNextSaves() {
@@ -896,6 +901,38 @@ namespace Iroca.EditorTests {
             Undo.PerformUndo();
             Assert.IsFalse(_win.Editing.Masks.Common.Get(3), "その後の編集は取り消せる");
             Assert.IsTrue(_win.Editing.Masks.Common.Get(2));
+        }
+
+        // 戻せない版へ同じテクスチャのまま Undo すると、ゾーンは戻るのにマスクは新しいまま。今のゾーンに無いゾーンのマスクは外す
+        // (残すと、消えたゾーンのマスクが保存され、同じゾーンが戻ると黙って効き直す)。
+        [Test]
+        public void UndoToMissingMaskVersion_DropsMasksOfZonesThatAreGone() {
+            AddZones("a");
+            string a = _win.Session.zones[0].id;
+            ApplyToMask(a, MaskRegionOp.DontPaintHere, 1);
+            AddZones("b");
+            string b = _win.Session.zones[1].id;
+            ApplyToMask(b, MaskRegionOp.DontPaintHere, 2);
+            _win.Editing.MaskHistory.Clear();   // 上限で手放した状態
+
+            Assert.IsFalse(_win.MaskUndoTooOld, "テストの前提: 帯は出ていない");
+            Undo.PerformUndo();   // b のマスク(戻せない)
+            Assert.IsTrue(_win.MaskUndoTooOld, "戻せなかったことを窓の帯で知らせない");
+            Undo.PerformUndo();   // b の追加
+            Assert.AreEqual(1, _win.Session.zones.Count, "テストの前提: ゾーンは戻る");
+            Assert.IsFalse(ZoneExcludes(b, 2) || _win.Editing.Masks.Layer(false, b) != null, "消えたゾーンのマスクが残っている");
+            Assert.IsTrue(ZoneExcludes(a, 1), "残っているゾーンのマスクまで外した");
+            Assert.IsTrue(_win.MaskUndoTooOld, "帯が消えた");
+            Assert.IsTrue(_win.SavePersistedSessionForCurrentTexture());
+            StringAssert.DoesNotContain(b, File.ReadAllText(Path.Combine(MaskFileStore.CacheDir, _guid + ".iroca-mask.json")),
+                "消えたゾーンのマスクを保存した");
+
+            ApplyToMask(a, MaskRegionOp.DontPaintHere, 3);
+            Assert.IsFalse(_win.MaskUndoTooOld, "マスクを直したら帯は消える");
+            Undo.PerformUndo();
+            Assert.IsFalse(_win.MaskUndoTooOld, "直した後の Undo は戻せる");
+            Assert.IsFalse(ZoneExcludes(a, 3));
+            Assert.IsTrue(ZoneExcludes(a, 1));
         }
 
         [Test]

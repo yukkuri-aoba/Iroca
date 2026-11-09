@@ -549,6 +549,12 @@ namespace Iroca {
                         _maskView.RestoreFromSession();
                     }
                 }
+                // 戻せない版へ戻ったまま(ゾーンと設定は戻ったのにマスクは新しいまま)なら、今のゾーンに無いゾーンのマスクを外す(残すと、
+                // 消えたゾーンのマスクが保存され、同じゾーンが戻ると黙って効き直す)。続く Undo でゾーンだけが減ったとき(版の番号は
+                // 変わらない)も外す。知らせは窓の帯(MaskUndoTooOld)。
+                if (!textureChanged && Editing.MasksNewerThanDocument && Editing.RetainMasksOfCurrentZones()) {
+                    _maskView.maskDirty = true;
+                }
                 // ゾーンの並びが戻っても、いま直しているゾーンを指し続ける(番号は Undo で巻き戻らない)。
                 _maskView.FollowActiveTargetAfterUndo();
                 // 保留中の AI 提案は Undo 前の状態に対する提案なので重ねない

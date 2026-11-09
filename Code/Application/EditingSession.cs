@@ -62,6 +62,15 @@ namespace Iroca {
         // 編集中のマスクが、どの版の中身か。
         private long _appliedMaskRevision;
 
+        // Undo で戻る版を上限で手放していて戻せず、編集中のマスクが文書の版より新しいままか。戻せた・新しい版にしたら下ろす。
+        private bool _masksNewerThanDocument;
+
+        /// <summary>
+        /// Undo で戻る版を上限で手放していて戻せず、ゾーンと設定は戻ったのにマスクは新しいままか(MaskHistory の上限)。
+        /// 戻せる版へ移った(Redo など)・マスクを新しい版にした(塗る・読み込む)ら false。
+        /// </summary>
+        internal bool MasksNewerThanDocument => _masksNewerThanDocument;
+
         /// <summary>
         /// マスクを書き換える操作の前に呼ぶ(Undo に記録する)。書き換えたら <see cref="CommitMaskEdit"/> を呼ぶ。
         /// 今の版が履歴に無ければ(マスクをまだ版にしていない・上限で手放した)、今のマスクをここで版にする。
@@ -89,11 +98,12 @@ namespace Iroca {
         internal void CommitMaskEdit() {
             _appliedMaskRevision = MaskHistory.Capture(Masks, Document.maskRevision);
             Document.maskRevision = _appliedMaskRevision;
+            _masksNewerThanDocument = false;
         }
 
         /// <summary>
         /// Undo/Redo の後に呼ぶ。文書の番号が変わっていれば、編集中のマスクをその版へ戻す(番号が同じなら何もしない。スライダーの
-        /// Undo でマスクに触らない)。その版を上限で手放していて戻せなければ false(マスクはそのまま)。
+        /// Undo でマスクに触らない)。その版を上限で手放していて戻せなければ false(マスクはそのまま。<see cref="MasksNewerThanDocument"/>)。
         /// </summary>
         internal bool RestoreMasksAfterUndo() {
             long revision = Document.maskRevision;
@@ -101,7 +111,9 @@ namespace Iroca {
                 return true;
             }
             _appliedMaskRevision = revision;
-            return MaskHistory.TryRestore(revision, Masks);
+            bool restored = MaskHistory.TryRestore(revision, Masks);
+            _masksNewerThanDocument = !restored;
+            return restored;
         }
 
         /// <summary>今の版を履歴に持っていて、その版のマスクが空か(ドメインリロードの後に、履歴とファイルのどちらを採るかに使う)。</summary>
@@ -116,6 +128,7 @@ namespace Iroca {
                 return false;
             }
             _appliedMaskRevision = revision;
+            _masksNewerThanDocument = false;
             return true;
         }
 

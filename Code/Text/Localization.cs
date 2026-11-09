@@ -427,6 +427,10 @@ namespace Iroca {
         public static string NotifyMaskUndoTooOld => IsJapanese
             ? "マスクはこれより前へ戻せません（履歴が残っていません）"
             : "Masks cannot go back further (no history is left)";
+        // 戻せない版まで Undo したあと、マスクを直すか戻せる所まで Redo するまで、ウィンドウの上の帯に出す。
+        public static string MaskUndoTooOldBanner => IsJapanese
+            ? "マスクだけは、ここまで前へ戻せませんでした（古い履歴は手放しています）。ゾーンと設定は戻りましたが、マスクは戻す前のままです（なくなったゾーンのマスクは外しました）。Ctrl+Y でやり直せば、マスクも合っている状態に戻せます。"
+            : "The masks could not go back this far (older history has been released). Zones and settings went back, but the masks stay as they were (masks of zones that no longer exist were removed). Press Ctrl+Y to redo back to where the masks match.";
         public static string NotifyMaskNoChange => IsJapanese ? "変わりませんでした（すでにそうなっています）" : "Nothing changed (it was already that way)";
         public static string NotifyMaskNotAdded => IsJapanese
             ? "当てられませんでした（直すゾーンが無いか、この場所に島がありません）"

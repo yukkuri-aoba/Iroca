@@ -599,6 +599,14 @@ namespace Iroca {
         /// </summary>
         // DrawTextureField が描いている案内の文面（NextStepHint の結果を Layout ごとに取り直す）。
         [System.NonSerialized] private string _nextStepHint;
+        // DrawTextureField がマスクを戻せなかった帯を出しているか（Layout ごとに取り直す）。
+        [System.NonSerialized] private bool _showMaskUndoTooOld;
+
+        /// <summary>
+        /// マスクを戻せない版まで Undo して、ゾーンと設定だけが戻り、マスクは新しいままか(窓の帯で知らせる)。
+        /// internal は WindowUndoTests が見るため。
+        /// </summary>
+        internal bool MaskUndoTooOld => _editing != null && _editing.MasksNewerThanDocument;
 
         private string NextStepHint() {
             if (!StepTextureDone) {
@@ -703,6 +711,15 @@ namespace Iroca {
             }
             if (_sessionLoadFailed || (_maskView != null && _maskView.MaskLoadFailed)) {
                 EditorGUILayout.HelpBox(Localization.EditLoadFailedBanner, MessageType.Warning);
+            }
+            // マスクを戻せない版まで Undo した(ゾーンと設定だけが戻った)。通知は数秒で消え、その状態が自動保存されるので、マスクを
+            // 新しい版にする(塗る・読み込む)か、戻せる版へ Redo するまで出す。出すかどうかは Layout のときに決める(同じフレームの
+            // ほかのイベントと高さをそろえる)。
+            if (Event.current.type == EventType.Layout) {
+                _showMaskUndoTooOld = MaskUndoTooOld;
+            }
+            if (_showMaskUndoTooOld) {
+                EditorGUILayout.HelpBox(Localization.MaskUndoTooOldBanner, MessageType.Warning);
             }
 
             // どのレシピにも結び付いていないと、編集はレシピ(シーンのプレビューとアップロード)に入らない。
