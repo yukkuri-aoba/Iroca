@@ -243,7 +243,9 @@ namespace Iroca {
             h += RegisterHeight(primary: false);
 #endif
             if (!string.IsNullOrEmpty(_lastError)) {
-                h += 40f + lineH;     // エラー HelpBox +「閉じる」ボタン
+                // エラー HelpBox +「閉じる」ボタン。エラーの文は長く(パスを含む)、狭い窓では何行にも折り返すので、文で測る
+                // (固定の 40 では足りず、「閉じる」が窓の下で切れた)。
+                h += HelpBoxHeight(_lastError) + lineH;
             }
             return h;
         }
@@ -255,11 +257,9 @@ namespace Iroca {
                 h += lineH;           // ファイル名フィールド
             }
             h += lineH;               // inheritImportSettings トグル
-            // HelpBox は内容と幅で高さが変わるため固定では測れない。狭い設定列で 2 行に
-            // 折り返す想定の概算を置く。過小だとエクスポートが画面外へ押し出されるので、
-            // 切り上げ側（安全側）に取る。
+            // HelpBox は内容と幅で高さが変わるので、文で測る(HelpBoxHeight)。
             if (_host != null && _host.SoloZone != null) {
-                h += 40f;             // ソロ表示中の注意
+                h += HelpBoxHeight(Localization.ExportSoloWarning);   // ソロ表示中の注意
             }
             h += primary ? PrimaryButtonHeight + EditorGUIUtility.standardVerticalSpacing : lineH; // ApplyAndSave ボタン
             h += lineH;               // OpenFolder / Project で表示（1 行に横並び）
