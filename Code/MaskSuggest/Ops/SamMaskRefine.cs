@@ -26,14 +26,16 @@ namespace Iroca {
         const int MinSamples = 16;
 
         /// <summary>
-        /// Ops 共通の並列設定。並列度は PixelProcessor.GetMaxParallelism() と同じ規則
+        /// Ops 共通の並列設定。並列度は Core の規則(CoreParallelism.Max())に従う
         /// (直書きしない。既定のスレッド数と DebugCaptureHooks.ParallelismOverride は向こうで決める)。
+        /// PixelProcessor の転送役を経由しないのは、Ops が PixelProcessor 本体に依存しないようにするため
+        /// (テストは AI 提案の結果を、Ops と Ops が使う Core だけのダイジェストでキャッシュする)。
         /// token を渡すと Parallel.For がパーティション境界でキャンセルを観測する
         /// (破棄確定の後処理が計算用のスレッドを占有し続け、次クリックの計算と奪い合うのを防ぐ)。
         /// </summary>
         internal static ParallelOptions MakeParallelOptions(System.Threading.CancellationToken token = default) => new ParallelOptions {
             CancellationToken = token,
-            MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(),
+            MaxDegreeOfParallelism = CoreParallelism.Max(),
         };
 
         /// <summary>

@@ -231,7 +231,7 @@ namespace Iroca {
                 throw new ArgumentOutOfRangeException(nameof(count));
             }
             int chunks = (count + CopyChunk - 1) / CopyChunk;
-            Parallel.For(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() }, c => {
+            Parallel.For(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, c => {
                 int s0 = c * CopyChunk;
                 long bytes = (long)Math.Min(CopyChunk, count - s0) * sizeof(float);
                 if (toNative) {

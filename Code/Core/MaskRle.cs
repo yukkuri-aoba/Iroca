@@ -54,7 +54,7 @@ namespace Iroca {
         // 継ぎ目をつなぐ。出力は 1 画素ずつ数えたときと同じバイト列。
         private static unsafe string EncodeCore(bool[] mask, int w, int h, out bool any) {
             int len = mask.Length;
-            int parts = len >= EncodeParallelMinPixels ? PixelProcessor.GetMaxParallelism() : 1;
+            int parts = len >= EncodeParallelMinPixels ? CoreParallelism.Max() : 1;
             int per = (len + parts - 1) / parts;
             parts = (len + per - 1) / per;   // 空の区間を作らない
             var runs = new List<uint>[parts];
