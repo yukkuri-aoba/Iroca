@@ -89,8 +89,9 @@ namespace Iroca {
         /// <summary>
         /// プレビューをクリックするモード(スポイト・シード指定・ブラシ)に入ったとき、クリックできるプレビューが画面に無ければ出す。
         /// 狭い窓(縦並び)では本体にプレビューを描かないので、別窓を閉じたままだと押した後にクリックする先が無かった。
-        /// 別窓が開いていても裏のタブにあれば前に出す。ボタンの押下から呼ぶ(<see cref="ArmEyedropper"/> 自体は
-        /// テストや自動化からも呼ばれるので、そこでは窓を開かない)。
+        /// 広い窓でも、本体が裏のタブなら(パレットから押したとき)本体のプレビューは見えない。本体を前に出す(Focus)と、パレットが
+        /// 同じ区画のタブだとパレットが隠れるので、別窓を開く。別窓が開いていても裏のタブにあれば前に出す。ボタンの押下から呼ぶ
+        /// (<see cref="ArmEyedropper"/> 自体はテストや自動化からも呼ばれるので、そこでは窓を開かない)。
         /// </summary>
         internal void EnsureClickablePreview() {
             if (IrocaPreviewWindow.IsOpen) {
@@ -99,7 +100,7 @@ namespace Iroca {
                 }
                 return;
             }
-            if (position.width < IrocaUiConsts.Layout.SideBySideMinWidth) {
+            if (position.width < IrocaUiConsts.Layout.SideBySideMinWidth || !_windowShown) {
                 IrocaPreviewWindow.Open(this);
             }
         }
