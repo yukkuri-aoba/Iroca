@@ -324,7 +324,6 @@ The list of creators and products is kept in one place, in the [Japanese section
 ### How the data is handled
 
 - The distributed packages (zip and installer) contain no model or texture data from the above.
-- The data was used only to develop and test the algorithms, never to train any AI model.
 - The screenshots, demo images, and intro video of the online manual (including the thumbnails at the top of the README and the manual) show the textures and model of かなリぁ's "ハオラン-HAOLAN" (some recolored), under its license.
 - AI is used for coding, with settings that opt out of model training. It was not used to train the AI mask suggestion model either.
 - We believe we have not violated the licenses (such as the VN3 license) provided by the creators of each avatar and outfit. If you find any problem, please contact us.
