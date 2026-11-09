@@ -20,7 +20,7 @@ namespace Iroca.EditorTests {
     ///
     /// 入力は IROCA_MEM_CASES が指す JSON:
     ///   { "steps": 12, "releaseWaitSeconds": 60, "gcEachStep": false, "reuseOutput": false,
-    ///     "hashOutput": true,
+    ///     "hashOutput": true, "threads": 0,
     ///     "cases": [ { "name": "...", "png": "<絶対パス>", "zones": "<zones JSON の絶対パス>", "importMaxSize": 0, "exportAfterStep": -1 } ] }
     /// importMaxSize が 0 より大きいと、取り込み設定の Max Size がその値のときの作業解像度(WorkingResolution)へ
     /// プレビューと同じ読み方で縮めてから処理する(0 は元ファイルの解像度。辺が 8192 以下なら Max Size に関係なくこれと同じ)。
@@ -49,7 +49,7 @@ namespace Iroca.EditorTests {
     [Category("Memory")]
     public partial class MemoryBenchTests {
         [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; public int importMaxSize; public int exportAfterStep = -1; public int cancelOverlapRounds; public int refineRounds; public bool window; public string scenario = ""; }
-        [Serializable] private class CasesDto { public int steps = 12; public int releaseWaitSeconds = 60; public bool gcEachStep; public bool reuseOutput; public bool hashOutput = true; public List<CaseDto> cases = new List<CaseDto>(); }
+        [Serializable] private class CasesDto { public int steps = 12; public int releaseWaitSeconds = 60; public bool gcEachStep; public bool reuseOutput; public bool hashOutput = true; public int threads; public List<CaseDto> cases = new List<CaseDto>(); }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct ProcessMemoryCounters {
@@ -286,6 +286,8 @@ namespace Iroca.EditorTests {
             }
 
             var sb = new StringBuilder();
+            // threads が 1 以上なら、いろかの並列度をその本数に絞る(遅い PC の再現。0 は製品の既定)。
+            DebugCaptureHooks.ParallelismOverride = cfg.threads;
             try {
                 foreach (var c in cfg.cases) {
                     if (!string.IsNullOrEmpty(c.scenario)) {
@@ -478,6 +480,7 @@ namespace Iroca.EditorTests {
                     GC.KeepAlive(heldOutput);
                 }
             } finally {
+                DebugCaptureHooks.ParallelismOverride = 0;
                 File.WriteAllText(reportPath, sb.ToString());
             }
         }
