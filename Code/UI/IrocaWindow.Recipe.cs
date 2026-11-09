@@ -223,9 +223,13 @@ namespace Iroca {
             if (win == null) {
                 return;
             }
+            bool newlyBound = win.BoundRecipe != recipe;
             win.Editing.RecordMaskEdit(undoName);
             win.BindRecipe(recipe);
-            win._recipeKeptOverUndo = recipe;
+            // 新しく結び付いたときだけ(登録と同じ。「いろかで開く」で結び付けたレシピなら、開く前まで戻したら外す)。
+            if (newlyBound) {
+                win._recipeKeptOverUndo = recipe;
+            }
             win.LoadPersistedSessionForCurrentTexture();
             win._maskView?.ResetActiveTarget();
             win.Repaint();
@@ -455,13 +459,18 @@ namespace Iroca {
         internal IrocaRecolor CommitRegistration(RegistrationService.Plan plan, IrocaRecipe recipe, int choice) {
             // マスク込みで保存する。
             var saved = Editing.ToSaveState();
+            var previouslyBound = BoundRecipe;
             if (recipe == null) {
                 recipe = RecipeStore.Create(SourceTexture, saved);
             } else {
                 RecipeStore.Save(recipe, saved);
             }
             BindRecipe(recipe);
-            _recipeKeptOverUndo = recipe;
+            // 登録で新しく結び付いたときだけ、Undo で外さない印を付ける。既に結び付いていたなら(「いろかで開く」)、その結び付きは
+            // 開いたときのものなので、開く前まで戻したら一緒に外す(外さないと、開く前の内容でレシピを上書きする)。
+            if (recipe != previouslyBound) {
+                _recipeKeptOverUndo = recipe;
+            }
             SessionPersistence.MarkRecipeSynced(recipe);
 
             // マテリアルを戻すのとコンポーネントの登録を 1 回の Undo にまとめる。

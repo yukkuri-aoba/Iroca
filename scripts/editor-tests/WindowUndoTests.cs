@@ -1,5 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using UnityEditor;
@@ -21,6 +22,8 @@ namespace Iroca.EditorTests {
         private string _prefKey;
         private string _prefBefore;
         private IrocaWindow _win;
+        // 登録先にしたオブジェクト(TearDown で消す)。
+        private readonly List<GameObject> _avatars = new List<GameObject>();
 
         [SetUp]
         public void SetUp() {
@@ -42,6 +45,12 @@ namespace Iroca.EditorTests {
             if (_win != null) {
                 Object.DestroyImmediate(_win);
             }
+            foreach (var go in _avatars) {
+                if (go != null) {
+                    Object.DestroyImmediate(go);
+                }
+            }
+            _avatars.Clear();
             if (_prefBefore == null) {
                 EditorPrefs.DeleteKey(_prefKey);
             } else {
@@ -245,6 +254,58 @@ namespace Iroca.EditorTests {
             Undo.PerformUndo();
             Assert.AreEqual("開く前", _win.Session.zones[0].name, "テストの前提: 内容が戻っている");
             Assert.IsNull(_win.BoundRecipe, "読み込みを戻したのに結び付きが残っている");
+            _win.SavePersistedSessionForCurrentTexture();
+            Assert.AreEqual("レシピの内容", RecipeStore.Load(b).zones[0].name, "開く前の内容でレシピを上書きした");
+        }
+
+        private GameObject Avatar() {
+            var go = new GameObject("avatar");
+            _avatars.Add(go);
+            return go;
+        }
+
+        // 「いろかで開く」で結び付けたレシピ b に、同じ窓から登録する(レシピ 2 つ・結び付きは開いたときのもの)。
+        private IrocaRecipe OpenSecondRecipe(out Texture2D texture) {
+            AddZones("開く前");
+            texture = _win.SourceTexture;
+            var content = new IrocaSessionState();
+            content.zones.Add(new ColorZone { name = "レシピの内容" });
+            RecipeStore.Create(texture, content, _assets.Folder);
+            var b = RecipeStore.Create(texture, content, _assets.Folder);
+            Undo.IncrementCurrentGroup();
+            _win.SwitchSourceTexture(texture, b);
+            Undo.IncrementCurrentGroup();
+            Assert.AreSame(b, _win.BoundRecipe, "テストの前提: 結び付いている");
+            return b;
+        }
+
+        // 「いろかで開く」の後に登録しても、結び付きは開いたときのもの。開く前まで Undo したら結び付きも戻る(残すと、開く前の内容で
+        // レシピを上書きする)。
+        [Test]
+        public void UndoOfOpeningRecipe_AfterRegistering_DoesNotOverwriteTheRecipe() {
+            var b = OpenSecondRecipe(out var texture);
+            _win.CommitRegistration(RegistrationService.Describe(Avatar(), texture, b), b, 0);
+            Undo.IncrementCurrentGroup();
+
+            Undo.PerformUndo();   // 登録
+            Undo.PerformUndo();   // 開く
+            Assert.AreEqual("開く前", _win.Session.zones[0].name, "テストの前提: 内容が戻っている");
+            Assert.IsNull(_win.BoundRecipe, "開く前まで戻したのに結び付きが残っている");
+            _win.SavePersistedSessionForCurrentTexture();
+            Assert.AreEqual("レシピの内容", RecipeStore.Load(b).zones[0].name, "開く前の内容でレシピを上書きした");
+        }
+
+        // 自動化(MCP の色替え)が結び付いたレシピを書き換えて窓を読み直させた後も同じ。
+        [Test]
+        public void UndoOfOpeningRecipe_AfterAutomationReload_DoesNotOverwriteTheRecipe() {
+            var b = OpenSecondRecipe(out _);
+            IrocaWindow.ReloadFromRecipe(b, "automation");
+            Undo.IncrementCurrentGroup();
+
+            Undo.PerformUndo();   // 読み直し
+            Undo.PerformUndo();   // 開く
+            Assert.AreEqual("開く前", _win.Session.zones[0].name, "テストの前提: 内容が戻っている");
+            Assert.IsNull(_win.BoundRecipe, "開く前まで戻したのに結び付きが残っている");
             _win.SavePersistedSessionForCurrentTexture();
             Assert.AreEqual("レシピの内容", RecipeStore.Load(b).zones[0].name, "開く前の内容でレシピを上書きした");
         }
