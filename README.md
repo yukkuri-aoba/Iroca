@@ -33,6 +33,23 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - 自動調整と AI マスク提案には、Unity Sentis 2.1.3（Unity 2022.3.11f1 以降）と AI モデル（約 44 MB）が必要です。ウィンドウ上部の案内から導入できます。Sentis を入れると、VRChat SDK も使う Burst と Collections、テスト用の Test Framework なども新しい版に上がります（いろかを外しても残ります）
 - 8192×8192 までのテクスチャで検証しています。編集も書き出しも元の画像の解像度で行います（8K の画像では数 GB のメモリを使います）。辺が 8192 を超える画像は、編集をインポート設定の Max Size の大きさで行い、書き出し（「適用して保存」）だけ元の解像度で行います
 
+#### 目安のスペック
+
+- **メモリ**: 8GB 以上、16GB 以上を推奨します。いろかが使うメモリは、Unity でアバターのプロジェクトを開いている分に加えて、2K〜4K のテクスチャで 1GB 前後です。8GB の PC でも 2K〜4K なら普段どおり動く見込みです。8K のテクスチャでは Unity 全体で 5〜7GB になるので、8GB の PC ではメモリが足りずにディスクへの退避が起き、処理が遅くなったり PC 全体が重くなったりします。8K を扱うなら 16GB 以上を推奨します（8GB の PC は、Unity が使える実メモリを 4GB に制限して再現しました）
+- **CPU**: 下限はありません（Unity 2022 が動く PC なら動きます）。複数のコアで並列に処理するので、コア数が多いほど速くなります。処理時間の目安は下の表です
+- **GPU**: なくても動きます。AI マスク提案は、GPU が使えるときは GPU で、使えないときは CPU で動きます
+
+処理時間の目安（作者の PC での実測）:
+
+| 操作 | 環境 | 2K | 4K | 8K |
+|---|---|---|---|---|
+| 色の選択・変更 1 回 | Core Ultra X7 358H（16 スレッド） | 約 0.1 秒 | 0.1〜0.3 秒 | 0.5〜1 秒 |
+| | 遅い環境 | 0.2〜0.5 秒 | 0.6〜1.6 秒 | 2〜4.5 秒 |
+| 自動調整 | Core Ultra X7 358H（16 スレッド） | 約 2 秒 | 約 2.5 秒 | 約 9 秒 |
+| | 遅い環境 | 約 11 秒 | 約 13 秒 | 約 50 秒 |
+
+「遅い環境」は、同じ PC でターボを切って 1.9GHz に固定し（1 コアの速さが約 2.5 分の 1）、いろかが使うスレッドを 4 本に制限して再現したものです。
+
 ### クイックスタート
 
 1. [Releases](https://github.com/yukkuri-aoba/Iroca/releases) から `Iroca_v<バージョン>.zip` をダウンロードして展開し、中の `Iroca_Installer.unitypackage` を Unity Editor のプロジェクトウィンドウにドラッグ＆ドロップして「Import」をクリックします
@@ -148,6 +165,23 @@ VRChat のプロジェクトには、次のどちらかで導入します。ど�
 - Non-destructive recoloring uses NDMF 1.8 or later (below 2.0). The installer installs it together with Iroca (for VCC / ALCOM, see [Installation](#installation)). Without NDMF, exporting images still works (if NDMF is missing or an unsupported version, uploading an avatar with "Iroca Recolor" is stopped with instructions)
 - Auto-tune and AI Mask Suggestion need Unity Sentis 2.1.3 (Unity 2022.3.11f1 or later) and the AI models (about 44 MB). You can install them from the notice at the top of the window. Installing Sentis also updates Burst and Collections, which the VRChat SDK uses too, and packages such as the Test Framework (they stay even after you remove Iroca)
 - Tested with textures up to 8192×8192. Editing and exporting use the original image resolution (8K images use several GB of memory). For images with a side over 8192, editing uses the import Max Size and only exporting ("Apply & Save") uses the original resolution
+
+#### Recommended specs
+
+- **Memory**: 8 GB or more; 16 GB or more is recommended. On top of what Unity uses for your avatar project, Iroca uses about 1 GB for 2K–4K textures, so 2K–4K textures should work normally even on an 8 GB PC. With 8K textures, Unity as a whole uses about 5–7 GB, so an 8 GB PC runs short of memory and swaps to disk, which can make processing slow or the whole PC sluggish. For 8K textures, 16 GB or more is recommended (we emulated an 8 GB PC by limiting the physical memory Unity can use to 4 GB)
+- **CPU**: No minimum (any PC that runs Unity 2022 works). Iroca processes in parallel on multiple cores, so more cores make it faster. See the table below for typical times
+- **GPU**: Not required. AI Mask Suggestion uses the GPU when available and falls back to the CPU otherwise
+
+Typical processing times (measured on the author's PC):
+
+| Operation | Setup | 2K | 4K | 8K |
+|---|---|---|---|---|
+| One color selection / change | Core Ultra X7 358H (16 threads) | about 0.1 s | 0.1–0.3 s | 0.5–1 s |
+| | Slow setup | 0.2–0.5 s | 0.6–1.6 s | 2–4.5 s |
+| Auto-tune | Core Ultra X7 358H (16 threads) | about 2 s | about 2.5 s | about 9 s |
+| | Slow setup | about 11 s | about 13 s | about 50 s |
+
+"Slow setup" is the same PC with turbo disabled and the clock fixed at 1.9 GHz (about 2.5 times slower per core), with Iroca limited to 4 threads.
 
 ### Quick Start
 
