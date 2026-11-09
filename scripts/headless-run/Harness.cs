@@ -882,6 +882,25 @@ namespace Iroca {
                 bool changed = KeyOf(z) != baseKey;
                 Console.WriteLine($"SELKEY {f.Name} {(changed ? 1 : 0)}");
             }
+
+            // 派生で選択に効く入力: 塗り先の色と模様保持(valueBlend)はそのものは鍵に入らないが、
+            // NearWhiteRecolorIsGentle(白へ抜ける途中のほぼ白を 2 回目に戻すか)を通して選択を変える。鍵には
+            // その bool が入っているので、gentle が変わる 2 つのゾーンで鍵が違うことを確かめる(1 本ずつ動かして
+            // 鍵を見る上の監査では 1 つ動かしても bool が変わらないことがあり、bool を鍵から消しても気づけない)。
+            // 色の淡い青のサンプル → 同じ色の塗り先・模様保持 1 なら gentle。暗い塗り先(明るさの上限に届かない)、
+            // または模様保持 0(明るさが塗り先へ寄る)なら gentle ではない。
+            var gentle = new ColorZone {
+                sampleColor = new Color(0.55f, 0.70f, 0.95f, 1f),
+                targetColor = new Color(0.55f, 0.70f, 0.95f, 1f),
+                valueBlend = 1f,
+            };
+            var darkTarget = gentle.Clone();
+            darkTarget.targetColor = new Color(0.05f, 0.05f, 0.05f, 1f);
+            var lowBlend = gentle.Clone();
+            lowBlend.valueBlend = 0f;
+            string gentleKey = KeyOf(gentle);
+            bool derived = KeyOf(darkTarget) != gentleKey && KeyOf(lowBlend) != gentleKey;
+            Console.WriteLine($"SELKEY-DERIVED nearWhiteGentle {(derived ? 1 : 0)}");
             return 0;
         }
 

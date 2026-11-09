@@ -14,6 +14,10 @@ PixelProcessor の選択キャッシュは「選択に影響する ColorZone フ
   - SELECTION_IRRELEVANT の記載が実在フィールドと食い違えば fail（台帳の陳腐化防止）。
   - キー側に「無関係」フィールドが入っているのは安全側（ミスヒットが増えるだけ）なので
     許容する（BuildSelectionKey の設計コメントと同じ方針）。
+  - そのものは鍵に入れず、鍵に入れた派生の値（bool など）を通して選択に効くフィールドは
+    SELECTION_VIA_DERIVED に分け、派生の値ごとの `SELKEY-DERIVED <名前> 1`（その値が変わる 2 つの
+    ゾーンで鍵が違う）を要求する。1 つずつ動かす監査だけだと、派生の値を鍵から消しても気づけない
+    （2026-11-10 まで塗り先の色と模様保持を「選択に無関係」と誤って分類していた。点検 B-7③）。
 
 実行: pytest scripts/golden/test_selection_key_audit.py -q
 """
@@ -34,8 +38,6 @@ import golden_lib as G  # noqa: E402
 SELECTION_IRRELEVANT = {
     "name",            # 表示名のみ
     "id",              # 同一性識別のみ
-    "targetColor",     # 再着色(出力色)のみ
-    "valueBlend",      # 再着色の明度ブレンドのみ
     "outputSaturation",  # 再着色の出力彩度のみ
     "shadowDesaturation",  # 再着色の暗部脱彩のみ
     "applyHighlightWash",  # 再着色のハイライト合成のみ
@@ -47,9 +49,18 @@ SELECTION_IRRELEVANT = {
     "detailFoldout",   # UI 折りたたみ状態(NonSerialized)
 }
 
+# そのものは鍵に入れないが、鍵に入れた派生の値を通して選択に効くフィールド → その派生の値の名前。
+# 派生の値はハーネスの --selkey-audit が `SELKEY-DERIVED <名前> <0|1>` で出す。
+SELECTION_VIA_DERIVED = {
+    # 白へ抜ける途中のほぼ白を 2 回目に戻すか(PixelProcessor.NearWhiteRecolorIsGentle)。
+    # 塗り先の明るさ・彩度と、模様保持で下がる明るさで決まる。
+    "targetColor": "nearWhiteGentle",
+    "valueBlend": "nearWhiteGentle",
+}
+
 
 @pytest.fixture(scope="module")
-def audit_lines() -> list[str]:
+def audit_output() -> list[str]:
     G.require_toolchain()
     G.build_harness_or_fail()
 
@@ -59,7 +70,12 @@ def audit_lines() -> list[str]:
         timeout=G.RUN_TIMEOUT_S)
     if res.returncode != 0:
         pytest.fail(f"--selkey-audit 実行失敗 (exit={res.returncode}):\n{res.stderr}")
-    return [ln for ln in res.stdout.splitlines() if ln.startswith("SELKEY ")]
+    return res.stdout.splitlines()
+
+
+@pytest.fixture(scope="module")
+def audit_lines(audit_output) -> list[str]:
+    return [ln for ln in audit_output if ln.startswith("SELKEY ")]
 
 
 def _parse(lines: list[str]) -> dict[str, str]:
@@ -82,19 +98,42 @@ def test_all_fields_covered_or_classified(audit_lines):
 
     unclassified = [
         f for f, flag in fields.items()
-        if flag == "0" and f not in SELECTION_IRRELEVANT
+        if flag == "0" and f not in SELECTION_IRRELEVANT and f not in SELECTION_VIA_DERIVED
     ]
     assert not unclassified, (
         f"BuildSelectionKey に含まれず、選択無関係の分類も無いフィールド: {unclassified}\n"
         "→ 選択に影響するなら PixelProcessor.BuildSelectionKey へ追加（キー漏れ＝"
         "キャッシュ誤ヒットで古い選択のプレビューになる）、\n"
-        "   影響しないなら本テストの SELECTION_IRRELEVANT へ理由コメント付きで追加。")
+        "   影響しないなら本テストの SELECTION_IRRELEVANT へ理由コメント付きで追加。\n"
+        "   派生の値(bool など)を通して効くなら、その値を鍵に入れて SELECTION_VIA_DERIVED に載せ、\n"
+        "   ハーネスの --selkey-audit に SELKEY-DERIVED の行を足す。")
 
 
 def test_classification_ledger_is_fresh(audit_lines):
     """分類台帳に実在しないフィールドが残っていたら陳腐化なので落とす。"""
     fields = _parse(audit_lines)
-    stale = SELECTION_IRRELEVANT - set(fields)
+    stale = (SELECTION_IRRELEVANT | set(SELECTION_VIA_DERIVED)) - set(fields)
     assert not stale, (
-        f"SELECTION_IRRELEVANT に実在しないフィールドが残っています: {sorted(stale)}\n"
+        f"SELECTION_IRRELEVANT / SELECTION_VIA_DERIVED に実在しないフィールドが残っています: {sorted(stale)}\n"
         "→ ColorZone から削除/改名されたなら台帳からも消してください。")
+    both = SELECTION_IRRELEVANT & set(SELECTION_VIA_DERIVED)
+    assert not both, f"選択に無関係と派生で効くの両方に載っています: {sorted(both)}"
+
+
+def test_derived_selection_inputs_change_the_key(audit_output):
+    """派生の値ごとに、その値が変わる 2 つのゾーンで鍵が違うこと(派生の値が鍵に入っていること)。"""
+    derived = {}
+    for ln in audit_output:
+        if ln.startswith("SELKEY-DERIVED "):
+            _, name, flag = ln.split()
+            derived[name] = flag
+    missing = sorted(set(SELECTION_VIA_DERIVED.values()) - set(derived))
+    assert not missing, (
+        f"--selkey-audit が SELKEY-DERIVED の行を出していません: {missing}\n"
+        "→ ハーネスの RunSelectionKeyAudit に、その派生の値が変わる 2 つのゾーンの鍵を比べる行を足す。")
+    not_in_key = sorted(n for n in set(SELECTION_VIA_DERIVED.values()) if derived[n] != "1")
+    assert not not_in_key, (
+        f"派生の値が変わっても鍵が変わりません: {not_in_key}\n"
+        "→ その値を BuildSelectionKey から消していないか（消すと塗り先の色・模様保持を変えたときに古い選択の\n"
+        "  プレビューになる）。消していないなら、ハーネスが選んだ 2 つのゾーンでその値が変わらなくなっている\n"
+        "  (派生の値の式を変えた)ので、ゾーンを選び直す。")
