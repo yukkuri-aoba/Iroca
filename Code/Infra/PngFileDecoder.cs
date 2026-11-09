@@ -3,6 +3,8 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using UnityEngine;
 
@@ -12,6 +14,7 @@ namespace Iroca {
     /// <para>
     /// Unity の LoadImage は管理配列しか受け取らないので、ファイルの大きさの配列(手元の素材で中央値 5MB・最大 16MB)を
     /// 開くたびに Mono のヒープに作る。Mono のヒープは一度広がると縮まない。ここではファイルを少しずつ読み、行ごとに展開する。
+    /// zlib の展開は別のスレッドで、フィルタ戻しと並べて進める(<see cref="InflatedRows"/>。1 枚に 1 本)。
     /// </para>
     /// <para>
     /// 結果は LoadImage と同じ画素(<see cref="WorkingResolution.NativePixelsOf"/> で読んだ値。行 0 = 画像下端)で、手元の
@@ -191,29 +194,35 @@ namespace Iroca {
             }
             int rowBytes = (int)rowBytesLong;
 
-            // 行の控えは画素数ではなく幅に比例する小さい配列(16384 幅で 65KB × 2)。
-            var cur = new byte[rowBytes + 1];
-            var prev = new byte[rowBytes + 1];
+            int stride = rowBytes + 1;
+            // 前の行の控えは画素数ではなく幅に比例する小さい配列(16384 幅で 65KB)。
+            var prev = new byte[stride];
             var pixels = NativePixels.Allocate(width, height);
             bool done = false;
             try {
-                using (var inflate = new DeflateStream(idat, CompressionMode.Decompress, leaveOpen: true)) {
-                    for (int y = 0; y < height; y++) {
-                        cancel.ThrowIfCancellationRequested();
-                        if (!ReadRow(inflate, cur)) {
+                using (var rows = new InflatedRows(idat, stride, height)) {
+                    for (int y = 0; y < height;) {
+                        if (!rows.Next(out byte[] block, out int count)) {
                             return null;
                         }
-                        fixed (byte* c = cur, p = prev) {
-                            if (!Unfilter(c[0], c + 1, p + 1, rowBytes, pixelBytes)) {
-                                return null;
+                        fixed (byte* b = block, pv = prev) {
+                            for (int r = 0; r < count; r++, y++) {
+                                cancel.ThrowIfCancellationRequested();
+                                byte* cur = b + (long)r * stride;
+                                byte* prior = r == 0 ? pv : cur - stride;
+                                if (!Unfilter(cur[0], cur + 1, prior + 1, rowBytes, pixelBytes)) {
+                                    return null;
+                                }
+                                // PNG は上から、テクスチャは下から。
+                                Color32* dst = pixels.Ptr + (long)(height - 1 - y) * width;
+                                if (!Convert(cur + 1, dst, width, bitDepth, colorType, palette)) {
+                                    return null;
+                                }
                             }
-                            // PNG は上から、テクスチャは下から。
-                            Color32* dst = pixels.Ptr + (long)(height - 1 - y) * width;
-                            if (!Convert(c + 1, dst, width, bitDepth, colorType, palette)) {
-                                return null;
-                            }
+                            // 束の最後の行は、次の束の最初の行が使う(束は展開のスレッドへ返すので写しておく)。
+                            Buffer.MemoryCopy(b + (long)(count - 1) * stride, pv, stride, stride);
                         }
-                        var swap = cur; cur = prev; prev = swap;
+                        rows.Return();
                     }
                 }
                 done = true;
@@ -225,63 +234,136 @@ namespace Iroca {
             }
         }
 
-        private static bool ReadRow(Stream inflate, byte[] row) {
-            int got = 0;
-            while (got < row.Length) {
-                int n = inflate.Read(row, got, row.Length - got);
-                if (n <= 0) {
-                    return false;
-                }
-                got += n;
-            }
-            return true;
-        }
-
         // PNG のフィルタを戻す(row をその場で)。知らない種類なら false。
+        // 速さのため、前の画素の値を変数で持ち回り、Paeth の選択を分岐なしで書く(分岐の予測外れが Mono の JIT では
+        // いちばん重かった。4K で 480ms → 240ms)。RGBA・RGB の 8bit(bpp 4・3)は 1 画素の各チャンネルを並べて
+        // 計算する。結果は素直な書き方(PngFileDecoderTests の Filtered の逆)と同じ。
         private static bool Unfilter(byte filter, byte* row, byte* prior, int length, int bpp) {
             switch (filter) {
                 case 0:
                     return true;
                 case 1:
-                    for (int i = bpp; i < length; i++) {
-                        row[i] = (byte)(row[i] + row[i - bpp]);
+                    for (int k = 0; k < bpp && k < length; k++) {
+                        int a = row[k];
+                        for (int i = k + bpp; i < length; i += bpp) {
+                            a = (byte)(row[i] + a);
+                            row[i] = (byte)a;
+                        }
                     }
                     return true;
                 case 2:
-                    for (int i = 0; i < length; i++) {
-                        row[i] = (byte)(row[i] + prior[i]);
-                    }
+                    UnfilterUp(row, prior, length);
                     return true;
                 case 3:
-                    for (int i = 0; i < bpp && i < length; i++) {
-                        row[i] = (byte)(row[i] + (prior[i] >> 1));
-                    }
-                    for (int i = bpp; i < length; i++) {
-                        row[i] = (byte)(row[i] + ((row[i - bpp] + prior[i]) >> 1));
+                    for (int k = 0; k < bpp && k < length; k++) {
+                        int a = (byte)(row[k] + (prior[k] >> 1));
+                        row[k] = (byte)a;
+                        for (int i = k + bpp; i < length; i += bpp) {
+                            a = (byte)(row[i] + ((a + prior[i]) >> 1));
+                            row[i] = (byte)a;
+                        }
                     }
                     return true;
                 case 4:
-                    for (int i = 0; i < bpp && i < length; i++) {
-                        row[i] = (byte)(row[i] + prior[i]);
-                    }
-                    for (int i = bpp; i < length; i++) {
-                        int a = row[i - bpp], b = prior[i], c = prior[i - bpp];
-                        int pa = b - c, pb = a - c;
-                        int pc = pa + pb;
-                        if (pa < 0) {
-                            pa = -pa;
-                        }
-                        if (pb < 0) {
-                            pb = -pb;
-                        }
-                        if (pc < 0) {
-                            pc = -pc;
-                        }
-                        row[i] = (byte)(row[i] + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c));
+                    if (bpp == 4) {
+                        UnfilterPaeth4(row, prior, length);
+                    } else if (bpp == 3) {
+                        UnfilterPaeth3(row, prior, length);
+                    } else {
+                        UnfilterPaethChannels(row, prior, length, bpp);
                     }
                     return true;
                 default:
                     return false;
+            }
+        }
+
+        // 8 バイトずつ、桁上がりを隣のバイトへ渡さずに足す。
+        private static void UnfilterUp(byte* row, byte* prior, int length) {
+            const ulong High = 0x8080808080808080UL, Low = 0x7F7F7F7F7F7F7F7FUL;
+            int i = 0;
+            for (; i + 8 <= length; i += 8) {
+                ulong x = *(ulong*)(row + i), y = *(ulong*)(prior + i);
+                *(ulong*)(row + i) = ((x & Low) + (y & Low)) ^ ((x ^ y) & High);
+            }
+            for (; i < length; i++) {
+                row[i] = (byte)(row[i] + prior[i]);
+            }
+        }
+
+        // Paeth の予測(a = 左、b = 上、c = 左上)。pa ≤ pb かつ pa ≤ pc なら a、そうでなく pb ≤ pc なら b、それ以外は c。
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int Paeth(int a, int b, int c) {
+            int pa = b - c, pb = a - c;
+            int pc = pa + pb;
+            int s = pa >> 31;
+            pa = (pa ^ s) - s;
+            s = pb >> 31;
+            pb = (pb ^ s) - s;
+            s = pc >> 31;
+            pc = (pc ^ s) - s;
+            int notA = ((pb - pa) | (pc - pa)) >> 31;   // -1: pa > pb か pa > pc
+            int cOverB = (pc - pb) >> 31;              // -1: pb > pc
+            int bc = b ^ ((b ^ c) & cOverB);
+            return a ^ ((a ^ bc) & notA);
+        }
+
+        private static void UnfilterPaeth4(byte* row, byte* prior, int length) {
+            int c0 = prior[0], c1 = prior[1], c2 = prior[2], c3 = prior[3];
+            int a0 = (byte)(row[0] + c0), a1 = (byte)(row[1] + c1), a2 = (byte)(row[2] + c2), a3 = (byte)(row[3] + c3);
+            row[0] = (byte)a0;
+            row[1] = (byte)a1;
+            row[2] = (byte)a2;
+            row[3] = (byte)a3;
+            for (int i = 4; i + 4 <= length; i += 4) {
+                int b0 = prior[i], b1 = prior[i + 1], b2 = prior[i + 2], b3 = prior[i + 3];
+                a0 = (byte)(row[i] + Paeth(a0, b0, c0));
+                a1 = (byte)(row[i + 1] + Paeth(a1, b1, c1));
+                a2 = (byte)(row[i + 2] + Paeth(a2, b2, c2));
+                a3 = (byte)(row[i + 3] + Paeth(a3, b3, c3));
+                row[i] = (byte)a0;
+                row[i + 1] = (byte)a1;
+                row[i + 2] = (byte)a2;
+                row[i + 3] = (byte)a3;
+                c0 = b0;
+                c1 = b1;
+                c2 = b2;
+                c3 = b3;
+            }
+        }
+
+        private static void UnfilterPaeth3(byte* row, byte* prior, int length) {
+            int c0 = prior[0], c1 = prior[1], c2 = prior[2];
+            int a0 = (byte)(row[0] + c0), a1 = (byte)(row[1] + c1), a2 = (byte)(row[2] + c2);
+            row[0] = (byte)a0;
+            row[1] = (byte)a1;
+            row[2] = (byte)a2;
+            for (int i = 3; i + 3 <= length; i += 3) {
+                int b0 = prior[i], b1 = prior[i + 1], b2 = prior[i + 2];
+                a0 = (byte)(row[i] + Paeth(a0, b0, c0));
+                a1 = (byte)(row[i + 1] + Paeth(a1, b1, c1));
+                a2 = (byte)(row[i + 2] + Paeth(a2, b2, c2));
+                row[i] = (byte)a0;
+                row[i + 1] = (byte)a1;
+                row[i + 2] = (byte)a2;
+                c0 = b0;
+                c1 = b1;
+                c2 = b2;
+            }
+        }
+
+        // そのほかの bpp(グレー・16bit・8bit 未満)。チャンネルごとに行をなめる。
+        private static void UnfilterPaethChannels(byte* row, byte* prior, int length, int bpp) {
+            for (int k = 0; k < bpp && k < length; k++) {
+                int c = prior[k];
+                int a = (byte)(row[k] + c);
+                row[k] = (byte)a;
+                for (int i = k + bpp; i < length; i += bpp) {
+                    int b = prior[i];
+                    a = (byte)(row[i] + Paeth(a, b, c));
+                    row[i] = (byte)a;
+                    c = b;
+                }
             }
         }
 
@@ -374,6 +456,112 @@ namespace Iroca {
         private static int FourCc(byte[] b, int at) => b[at] << 24 | b[at + 1] << 16 | b[at + 2] << 8 | b[at + 3];
 
         private static int FourCc(string s) => s[0] << 24 | s[1] << 16 | s[2] << 8 | s[3];
+
+        /// <summary>
+        /// IDAT の展開(zlib)を別のスレッドで進め、展開した行を束(約 64KB)にして順に渡す。展開とフィルタ戻しが重なるので、
+        /// 1 枚にかかる時間は両方の和からおおよそ重い方になる(4K で 500ms → 240ms)。束は 4 つを回して使い、
+        /// 管理配列は 1 枚あたり約 256KB(画素数ではなく束の大きさで決まる)。
+        /// <para>
+        /// 展開のスレッドで出た例外は、受け取る側の <see cref="Next"/> で同じ型のまま投げ直す(1 本のスレッドで読んでいた
+        /// ときと同じ扱いになる)。データが行の数に足りなければ Next が false。<see cref="Dispose"/> は展開のスレッドが
+        /// 抜けるのを待つ(呼び出し側がファイルを閉じる前に必ず抜ける)。
+        /// </para>
+        /// </summary>
+        private sealed class InflatedRows : IDisposable {
+            private const int BlockBytes = 64 * 1024;
+            private const int BlockCount = 4;
+
+            private readonly Stream _idat;
+            private readonly int _stride, _height, _rowsPerBlock;
+            private readonly byte[][] _blocks = new byte[BlockCount][];
+            private readonly int[] _rows = new int[BlockCount];
+            private readonly SemaphoreSlim _filled = new SemaphoreSlim(0);
+            private readonly SemaphoreSlim _empty = new SemaphoreSlim(BlockCount);
+            private readonly Thread _thread;
+            private volatile bool _stop;
+            private volatile int _produced;
+            private ExceptionDispatchInfo _error;
+            private int _consumed;
+
+            public InflatedRows(Stream idat, int stride, int height) {
+                _idat = idat;
+                _stride = stride;
+                _height = height;
+                _rowsPerBlock = Math.Max(1, Math.Min(height, BlockBytes / stride));
+                for (int i = 0; i < BlockCount; i++) {
+                    _blocks[i] = new byte[stride * _rowsPerBlock];
+                }
+                _thread = new Thread(Run) { IsBackground = true, Name = "Iroca PNG inflate" };
+                _thread.Start();
+            }
+
+            private void Run() {
+                try {
+                    using (var inflate = new DeflateStream(_idat, CompressionMode.Decompress, leaveOpen: true)) {
+                        for (int y = 0, i = 0; y < _height; i = (i + 1) % BlockCount) {
+                            _empty.Wait();
+                            if (_stop) {
+                                return;
+                            }
+                            int rows = Math.Min(_rowsPerBlock, _height - y);
+                            if (!ReadFully(inflate, _blocks[i], rows * _stride)) {
+                                return;
+                            }
+                            _rows[i] = rows;
+                            y += rows;
+                            _produced++;
+                            _filled.Release();
+                        }
+                    }
+                } catch (Exception e) {
+                    _error = ExceptionDispatchInfo.Capture(e);
+                } finally {
+                    // 途中で抜けたときも、待っている受け手を起こす(_produced が増えていないので終わりと分かる)。
+                    _filled.Release();
+                }
+            }
+
+            private static bool ReadFully(Stream s, byte[] buffer, int count) {
+                int got = 0;
+                while (got < count) {
+                    int n = s.Read(buffer, got, count - got);
+                    if (n <= 0) {
+                        return false;
+                    }
+                    got += n;
+                }
+                return true;
+            }
+
+            /// <summary>次の束(rows 行)。データが尽きたら false、展開で例外が出ていればそれを投げる。</summary>
+            public bool Next(out byte[] block, out int rows) {
+                _filled.Wait();
+                if (_consumed >= _produced) {
+                    block = null;
+                    rows = 0;
+                    _error?.Throw();
+                    return false;
+                }
+                int i = _consumed % BlockCount;
+                block = _blocks[i];
+                rows = _rows[i];
+                return true;
+            }
+
+            /// <summary>Next で受け取った束を使い終えた。</summary>
+            public void Return() {
+                _consumed++;
+                _empty.Release();
+            }
+
+            public void Dispose() {
+                _stop = true;
+                _empty.Release();
+                _thread.Join();
+                _filled.Dispose();
+                _empty.Dispose();
+            }
+        }
 
         // 続いた IDAT チャンクの中身だけを読むストリーム(間の CRC とチャンクの見出しを飛ばす)。
         private sealed class IdatStream : Stream {

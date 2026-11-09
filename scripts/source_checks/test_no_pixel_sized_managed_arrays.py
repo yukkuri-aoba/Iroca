@@ -79,6 +79,8 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "SAM の入力の固定の大きさ(InputSize は定数)",
     ("Code/UI/PreviewView.ContextMenu.cs", "new int[(x1 - x0 + 1) * (y1 - y0 + 1)]"):
         "クリック位置の周りの小さな窓(半径 PaintingProbeRadius)",
+    ("Code/Infra/PngFileDecoder.cs", "new byte[stride * _rowsPerBlock]"):
+        "展開した行の束。行数は BlockBytes(64KB) ÷ 1 行のバイト数(1 行より大きくはしない)なので、高さに依らず 64KB か 1 行分",
 }
 
 

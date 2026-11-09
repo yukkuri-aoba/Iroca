@@ -152,10 +152,10 @@ namespace Iroca.EditorTests {
             return path;
         }
 
-        private static byte[][] Rows(int rowBytes) {
-            var rows = new byte[H][];
+        private static byte[][] Rows(int rowBytes, int height = H) {
+            var rows = new byte[height][];
             var r = new System.Random(7);
-            for (int y = 0; y < H; y++) {
+            for (int y = 0; y < height; y++) {
                 rows[y] = new byte[rowBytes];
                 r.NextBytes(rows[y]);
             }
@@ -212,6 +212,23 @@ namespace Iroca.EditorTests {
         public void PaletteWithAlpha() =>
             AssertSameAsLoadImage(WritePng("p8a", 8, 3, Rows(W), 1, Palette(), new byte[] { 0, 64, 128, 200 }));
         [Test] public void SeveralDataChunks() => AssertSameAsLoadImage(WritePng("split", 8, 6, Rows(W * 4), 4, splitIdat: true));
+
+        // 展開した行は約 64KB の束で受け渡す。束の境目(前の束の最後の行を上の行に使う)と、束を何周も使い回すところを通す。
+        [Test] public void ManyRows_RgbaSpanSeveralBlocks() => AssertSameAsLoadImage(WritePng("tall-rgba", 8, 6, Rows(W * 4, 3001), 4));
+        [Test] public void ManyRows_RgbSpanSeveralBlocks() => AssertSameAsLoadImage(WritePng("tall-rgb", 8, 2, Rows(W * 3, 3001), 3));
+        [Test] public void ManyRows_Gray16SpanSeveralBlocks() => AssertSameAsLoadImage(WritePng("tall-g16", 16, 0, Rows(W * 2, 3001), 2));
+
+        // 取り消すと OperationCanceledException(展開のスレッドも止まり、画素は手放す)。
+        [Test]
+        public void Cancelled_Throws() {
+            string path = WritePng("cancel", 8, 6, Rows(W * 4, 3001), 4);
+            using (var cts = new System.Threading.CancellationTokenSource()) {
+                cts.Cancel();
+                Assert.Throws<OperationCanceledException>(() => PngFileDecoder.TryDecode(path, cts.Token));
+            }
+            // 止まった後もファイルを開いたままにしていない。
+            File.Delete(path);
+        }
 
         // 扱わないものは null(LoadImage へ回る)。
         [Test]
