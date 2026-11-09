@@ -55,6 +55,7 @@ _NATIVE_MODES = [
     pytest.param({}, id="default"),
     pytest.param({"IROCA_NATIVE_GUARD": "1"}, id="guard",
                  marks=pytest.mark.skipif(sys.platform != "win32", reason="ガードページは Windows だけ")),
+    pytest.param({"IROCA_POOL_POISON": "1"}, id="poison"),
 ]
 
 
@@ -76,6 +77,8 @@ def test_native_memory_selftest(harness, env):
 
     guard は IROCA_NATIVE_GUARD=1 で回す。返した塊をその場で解放しないと、処理の後に塊が残り(ファイナライザ任せ)、
     解放後の読み書きも捕まらない(2026-11-10 まで。点検 B-3)。
+    poison は IROCA_POOL_POISON=1 で回す。置き場を共有するプールが、プールの数 × 8 個まで返した塊を寝かせる
+    (2026-11-10 まで全部で 8 個に縮んでいた)。
     """
     r = _run(harness, "--nativememselftest", env=env)
     lines = r.stdout.splitlines()

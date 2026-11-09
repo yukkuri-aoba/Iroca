@@ -1221,6 +1221,39 @@ namespace Iroca {
                     try { pool.Return(a); } catch (InvalidOperationException) { threw = true; }
                     Check(threw && other != a, "pool (poison): returning a returned block again throws");
                     pool.Return(other);
+
+                    // 置き場を共有する 2 つのプールは、合わせて 8 × 2 個まで寝かせる(2026-11-10 まで全部で 8 個に縮んでいた)。
+                    // 2 つから 6 個ずつ(合わせて 12 個 > 8)返した後に借り直しても、返した塊は 1 つも貸し直されない。
+                    var shared = new NativeBlockStore();
+                    var pf = new NativeWorkPool<float>(maxPerClass: 4, shared);
+                    var pi = new NativeWorkPool<int>(maxPerClass: 4, shared);
+                    const int K = 6;
+                    var first = new IntPtr[2 * K];
+                    for (int k = 0; k < K; k++) {
+                        first[2 * k] = (IntPtr)pf.Rent(MB);
+                        first[2 * k + 1] = (IntPtr)pi.Rent(MB);   // int も 1MB(同じ区分の塊)
+                    }
+                    for (int k = 0; k < K; k++) {
+                        pf.Return((float*)first[2 * k]);
+                        pi.Return((int*)first[2 * k + 1]);
+                    }
+                    var returned = new HashSet<IntPtr>(first);
+                    var again = new IntPtr[2 * K];
+                    int relent = 0;
+                    for (int k = 0; k < K; k++) {
+                        again[2 * k] = (IntPtr)pf.Rent(MB);
+                        again[2 * k + 1] = (IntPtr)pi.Rent(MB);
+                        relent += (returned.Contains(again[2 * k]) ? 1 : 0) + (returned.Contains(again[2 * k + 1]) ? 1 : 0);
+                    }
+                    Check(relent == 0, $"pool (poison): two pools sharing a store keep 8 returned blocks each (lent again={relent})");
+                    for (int k = 0; k < K; k++) {
+                        pf.Return((float*)again[2 * k]);
+                        pi.Return((int*)again[2 * k + 1]);
+                    }
+                    pf.ReleaseFree();
+                    pi.ReleaseFree();
+                    Check(pf.RentedBytes == 0 && pi.RentedBytes == 0 && pf.FreeBytes == 0 && pi.FreeBytes == 0,
+                        "pool (poison): shared store emptied by ReleaseFree of both pools");
                 } else {
                     float* b = pool.Rent(2 * MB);
                     pool.Return(b);

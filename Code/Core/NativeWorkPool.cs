@@ -34,6 +34,8 @@ namespace Iroca {
         internal readonly Dictionary<long, List<Block>> Free = new Dictionary<long, List<Block>>();
         internal readonly Queue<Block> Quarantine = new Queue<Block>();
         internal long FreeBytes, RentedBytes, PeakRentedBytes;
+        // この置き場を使うプールの数(検証用の寝かせる数をプールの数に比例させる。Gate の中で読み書きする)。
+        internal int PoolCount;
     }
 
     /// <summary>型によらない部分(置き場の塊の持ち主として数えるため)。</summary>
@@ -63,7 +65,9 @@ namespace Iroca {
         /// <summary>手元に持つ量の上限: 直近の貸し出し中の最大量の何倍まで持つか。</summary>
         internal const double HoldFactor = 1.5;
 
-        // 検証用(IROCA_POOL_POISON=1)に、返された塊を埋めてから空きへ回すまで寝かせる数。
+        // 検証用(IROCA_POOL_POISON=1)に、返された塊を埋めてから空きへ回すまで寝かせる数(プール 1 つあたり)。
+        // 置き場を共有するプールは、合わせてこの数 × プールの数まで寝かせる(2026-11-08 に置き場を共有してから
+        // 2026-11-10 まで全部で 8 個に縮んでいて、型ごとに置き場があった頃より早く貸し直していた)。
         private const int QuarantineLength = 8;
 
         private readonly NativeBlockStore _store;
@@ -78,6 +82,9 @@ namespace Iroca {
             _maxPerClass = maxPerClass;
             _store = store;
             _gate = store.Gate;
+            lock (_gate) {
+                store.PoolCount++;
+            }
         }
 
         /// <summary>空きとして手元に残しているバイト数(置き場の空きのうち、このプールが返した塊)。</summary>
@@ -277,7 +284,7 @@ namespace Iroca {
                         new Span<byte>((void*)b.Ptr, checked((int)Math.Min(b.Bytes, int.MaxValue))).Fill(0xDD);
                         _store.Quarantine.Enqueue(b);
                         PutToFree(b);
-                        if (_store.Quarantine.Count <= QuarantineLength) {
+                        if (_store.Quarantine.Count <= QuarantineLength * _store.PoolCount) {
                             return;
                         }
                         b = _store.Quarantine.Dequeue();
