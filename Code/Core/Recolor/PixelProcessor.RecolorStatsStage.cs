@@ -71,12 +71,20 @@ namespace Iroca {
                 // まま＝再着色範囲は不変。フォールバック時(false)は従来挙動。
                 float zEffShadowDesat = zone.shadowDesaturation;
                 float zGateC = zSC;  // 明度の彩度ゲートの基準(倍率の基準を上げても動かさない。下の RecolorParams の okGateC)
+                bool zAnchored = false;
+                float zClickL = zSL;    // クリックした画素の明度(下の「塗り先に合わせる所」)
+                float zSC0Click = zSC;  // クリックした画素の彩度(下の zChromaSampleW と「塗り先に合わせる所」)
+                float zDeepC = 0f;      // 素材の濃い側の彩度(下の zChromaSampleW)
                 if (zone.autoRecolorAnchor && !zOkGray &&
                     TryComputeRecolorAnchor(originalPixels, strength, w,
                         ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC,
                         zSL, zSa, zSb, sampS > ColorZone.ChromaGateActivateSat,
                         includedPx, run.Buf.Claimed, cancellationToken, palette)) {
                     float zSC0 = zSC;
+                    zAnchored = true;
+                    zDeepC = ComputeCoreChromaPercentile(originalPixels, strength, w,
+                        ppMinX, ppMinY, ppMaxX, ppMaxY, includedPx, run.Buf.Claimed, cancellationToken, palette,
+                        AchromaDeepChromaPercentile);
                     zSL = anchorL;
                     zGateC = anchorC;
                     // 彩度の倍率の基準は、塗る範囲の彩度の中央値より下げない。白へ抜ける布で少数の淡い面が基準に選ばれると、
@@ -99,6 +107,29 @@ namespace Iroca {
                     }
                 }
                 _sub.Mark(SpAnchor);
+                // 彩度を塗り先へ一律にする重み。この重みは、彩度の倍率の分母が小さいと揺れが増幅される(oC/sC)のを止めるための
+                // もの。基準色の自動補正を採ったら、クリックした画素の彩度と素材の代表の彩度(分母 zSC)の大きい方で決め、さらに
+                // 素材の濃い側の彩度 zDeepC で上限を掛ける(AchromaDeepChromaPercentile のコメント)。白へ抜ける色の布は淡い所を
+                // クリックしても濃い側に色があるので重みが 0 になり、濃淡がクリックの場所に依らない(旧: クリックした画素の彩度
+                // だけで決め、淡い所をクリックすると濃淡が一律に寄った)。濃い側まで淡い白っぽい布と、濃い側が別の色の所
+                // (AchromaDeepSameMaterialRatio)の布は上限を掛けない。
+                // 無彩パスの明度の重みのサンプル側は、クリックした画素の彩度のまま(下げると 2 区間の明度リマップが効き、
+                // 白っぽい布の明部の布目が広がって元に無い線が増えた)。採らなければ従来どおり。
+                // クリックが代表の色より暗く、しかも彩度も低い(影の側)ときも従来どおり。白へ抜ける布では暗い所ほど彩度が
+                // 高いので、この側のクリックは起きない。灰色の部品をクリックして範囲に明るいクリーム色が入ると、灰色が
+                // クリーム色の影の線に乗り、代表の彩度で重みが下がって、クリックした灰色が塗り先に届かなくなった。
+                bool zShadowClick = zClickL < zSL && zSC0Click < zGateC;
+                float zChromaSampleW = ComputeAchromaSampleWeight(zone.sampleColor);
+                if (zAnchored && !zShadowClick) {
+                    float deepCap = Mathf.Clamp01((AchromaSampleC - zDeepC) / (AchromaSampleC * (1f - AchromaDeepChromaFloorFrac)));
+                    // 濃い側が代表の彩度の AchromaDeepSameMaterialRatio 倍を超えるなら、濃い側は同じ素材の濃い所でなく範囲に
+                    // 入った別の色の所(白い布の色の飾りなど)。上限を弱め、その倍の比で外す(外さないと白い布の重みが 0 になり、
+                    // 小さな揺れが増幅されて元に無い線が増えた)。
+                    float otherMaterial = Mathf.Clamp01(
+                        (zDeepC / Mathf.Max(zSC, 1e-4f) - AchromaDeepSameMaterialRatio) / AchromaDeepSameMaterialRatio);
+                    deepCap = deepCap + (1f - deepCap) * otherMaterial;
+                    zChromaSampleW = Mathf.Min(ComputeAchromaSampleWeight(Mathf.Max(zSC0Click, zSC)), deepCap);
+                }
                 float zOkMagScale = 0f, zOkGa = 0f, zOkGb = 0f;
                 if (zOkGray) {
                     zOkGa = zTa * zOsat;
@@ -117,6 +148,45 @@ namespace Iroca {
                     if (zTC > 1e-4f && zTC * zOsat > zSC) {
                         zOkSplitChroma = true;
                         zOkInvTC = 1f / zTC;
+                    }
+                }
+
+                // 残りの揺れの頭打ち(ResidualSoftLimitFrac)と、クリックした色を塗り先に合わせる倍率(AnchorIntentQLo、
+                // PixelProcessor.Recolor.cs のコメント参照)。どちらも基準色の自動補正を採ったときだけ(採らなければクリックした
+                // 色がそのまま倍率の基準なので要らない)。
+                float zResidRho = 0f;
+                float zClickGain = 1f;
+                if (zAnchored && !zOkGray) {
+                    if (zOkSplitChroma) {
+                        // 幅は無彩の境 AchromaSampleC より狭くしない(白に近い素材では素材の彩度の 2 倍が布目の揺れより
+                        // 小さく、揺れまで抑えて塗り先の色そのものの画素が増え、プレビューと確定の差も出た)。
+                        zResidRho = Mathf.Max(ResidualSoftLimitFrac * zSC, AchromaSampleC);
+                    }
+                    // クリックした色の彩度を、アンカーの素材をクリックの明るさまで黒(暗い側)・白(明るい側)と混ぜたときの
+                    // 彩度と比べる。
+                    float predC = zClickL <= zSL
+                        ? zGateC * zClickL / Mathf.Max(zSL, 1e-4f)
+                        : zGateC * (1f - zClickL) / Mathf.Max(1f - zSL, 1e-4f);
+                    float q = zSC0Click / Mathf.Max(predC, 1e-4f);
+                    float intent = Mathf.Clamp01((AnchorIntentQHi - q) / (AnchorIntentQHi - AnchorIntentQLo));
+                    if (intent > 0f) {
+                        // クリックした画素の写し先の彩度(RecolorPixel の mag と同じ式。倍率を掛ける前)
+                        float clickMag;
+                        if (zOkSplitChroma) {
+                            float cHatC = zClickL <= zSL
+                                ? zSC * zClickL / Mathf.Max(zSL, 1e-4f)
+                                : zSC * (1f - zClickL) / Mathf.Max(1f - zSL, 1e-4f);
+                            clickMag = Mathf.Max(0f, cHatC * zOkMagScale + SoftResidual(zSC0Click - cHatC, zResidRho) * zOkInvTC);
+                        } else {
+                            clickMag = zSC0Click * zOkMagScale;
+                        }
+                        if (zChromaSampleW > AchromaWeightActiveMin) {
+                            clickMag = clickMag * (1f - zChromaSampleW) + zOsat * zChromaSampleW;
+                        }
+                        float xClick = clickMag / Mathf.Max(zOsat, 1e-4f);
+                        if (xClick > 1e-4f && xClick < 1f) {
+                            zClickGain = Mathf.Pow(1f / xClick, intent);
+                        }
                     }
                 }
 
@@ -150,8 +220,9 @@ namespace Iroca {
                     zOkMagScale, zTa, zTb, zOkGray, zOkGa, zOkGb,
                     zSL, zTL, zSC, zGateC, zOkSplitChroma, zOkInvTC, zValueBlend, zEffShadowDesat,
                     sampS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
-                    zApplyWash, zAchromaWeight, ComputeAchromaSampleWeight(zone.sampleColor),
-                    ComputeAchromaLightWeight(zone.sampleColor, zone.targetColor), zOsat, zHasRegL);
+                    zApplyWash, zAchromaWeight, zChromaSampleW,
+                    ComputeAchromaLightWeight(ComputeAchromaSampleWeight(zone.sampleColor), zone.targetColor), zOsat, zHasRegL,
+                    zClickGain, zResidRho);
                 z.Params = rcParams;
                 z.RegLmid = zRegLmid;
                 z.RegMidMap = zRegMidMap;

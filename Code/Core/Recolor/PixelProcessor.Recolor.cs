@@ -37,6 +37,24 @@ namespace Iroca {
         // バンディング対策。実 C# にはそのバンディングは無かった)で増幅を止めていたため、元が地味な素材ほど指定した色に
         // 届かなかった(明るい面で目標の 0.78 倍、茶髪 → 青で 0.33 倍)。上限を外して増えた sRGB の範囲外の色は、
         // OklabToRgbInGamut が明度と色相を保って彩度だけ縮める。
+        // 残りの頭打ち(2026-11-09): 残りが素材の彩度 sC の ResidualSoftLimitFrac 倍を超える分は、布目・染めむらでなく範囲に
+        // 入った別の鮮やかな所なので、ρ·tanh((oC − Ĉ)/ρ)(ρ = max(ResidualSoftLimitFrac·sC, AchromaSampleC))で頭打ちに
+        // する。1 倍で写すと、暗い赤の布の中の鮮やかな赤を紺にしたときなどに、塗り先より鮮やかな青紫になった。ρ の下限は
+        // 「鮮やか」と言える最小の彩度(無彩の境)で、白に近い素材の布目の揺れは抑えない。
+        private const float ResidualSoftLimitFrac = 2f;
+
+        // 塗り先に合わせる所(2026-11-09): 基準色の自動補正はクリックした場所に依らず、素材の代表の色(アンカー)を塗り先の色に
+        // する。ところがクリックした色が、アンカーの素材を黒(暗い側)・白(明るい側)と混ぜた色で説明できないほど地味なときは、
+        // 範囲に入った別の色をクリックしている(生成りの部品をクリックしたのに、範囲の大半を占める鮮やかな黄色がアンカーに
+        // 選ばれる、など)。そのときは、クリックした画素が塗り先の彩度に届くように彩度の倍率を全体に掛け、上げた分は塗り先の
+        // 彩度で頭打ちにする(1.25 倍まで許すと、範囲の大半を占める素材が塗り先を超えた)。
+        //   q = クリックの彩度 / 同じ明るさでの混色の予想の彩度(アンカーの彩度 × クリックの明度 / アンカーの明度、明るい側は
+        //   × (1 − クリックの明度) / (1 − アンカーの明度))。q ≥ AnchorIntentQHi で従来どおり、q ≤ AnchorIntentQLo でクリックした
+        //   画素がちょうど塗り先の彩度。間は倍率を対数で補間する。白へ抜ける布の淡い所のクリックは q 0.85 以上(混色の線の上)、
+        //   別の地味な色のクリックは 0.4 前後だった。淡いクリックでも混色の線の上なら上げないので、白へ抜ける布の濃淡は
+        //   クリックの場所に依らない。
+        private const float AnchorIntentQLo = 0.5f;
+        private const float AnchorIntentQHi = 0.75f;
 
         // ハイライト白寄せ(wash)の軸残差フェード定数 (2026-08-15 OkLab 方向分解版)。
         // 旧実装は RGB ユークリッド残差(許容 HlBandAxisEps=0.10)で一律減衰しており、作画表現として
@@ -223,6 +241,15 @@ namespace Iroca {
             Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             bool* statsExclude, float* claimed, CancellationToken ct, ColorPalette palette) {
+            return ComputeCoreChromaPercentile(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
+                statsExclude, claimed, ct, palette, 0.5f);
+        }
+
+        // コア画素(ComputeCoreChromaMedian と同じ画素)の彩度の分位 q(0..1)。無ければ 0。
+        private static float ComputeCoreChromaPercentile(
+            Color32* px, float* strength, int w,
+            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
+            bool* statsExclude, float* claimed, CancellationToken ct, ColorPalette palette, float q) {
             if (palette != null) {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
             }
@@ -251,7 +278,7 @@ namespace Iroca {
                 }
                 return n;
             }, ct);
-            return count > 0 ? Histogram.ValueAtPercentile(cHist, count, 0.5f, AnchorChromaHistMax) : 0f;
+            return count > 0 ? Histogram.ValueAtPercentile(cHist, count, q, AnchorChromaHistMax) : 0f;
         }
 
         // L ヒストグラム(256 ビン、count 画素)の P95−P05 が AnchorMinLSpread 未満(フラット領域)か。
@@ -644,12 +671,15 @@ namespace Iroca {
             public readonly bool applyHighlightWash;
             public readonly float achromaWeight, achromaSampleWeight, achromaLightWeight, osat;
             public readonly bool hasRegL;
+            public readonly float okClickGain;   // クリックした色を塗り先に合わせる彩度の倍率(1 で無効。AnchorIntentQLo のコメント)
+            public readonly float okResidRho;    // 残りの揺れの頭打ちの幅 ρ(0 で無効。ResidualSoftLimitFrac のコメント)
             public RecolorParams(
                 float okMagScale, float okTa, float okTb, bool okGray, float okGa, float okGb,
                 float okSL, float okTL, float okSC, float okGateC, bool okSplitChroma, float okInvTC,
                 float valueBlend, float shadowDesaturation, float sS, float tR, float tG, float tB,
                 float washR, float washG, float washB, float washV, bool applyHighlightWash,
-                float achromaWeight, float achromaSampleWeight, float achromaLightWeight, float osat, bool hasRegL) {
+                float achromaWeight, float achromaSampleWeight, float achromaLightWeight, float osat, bool hasRegL,
+                float okClickGain, float okResidRho) {
                 this.okMagScale = okMagScale; this.okTa = okTa; this.okTb = okTb;
                 this.okGray = okGray; this.okGa = okGa; this.okGb = okGb;
                 this.okSL = okSL; this.okTL = okTL; this.okSC = okSC; this.okGateC = okGateC;
@@ -660,7 +690,16 @@ namespace Iroca {
                 this.applyHighlightWash = applyHighlightWash;
                 this.achromaWeight = achromaWeight; this.achromaSampleWeight = achromaSampleWeight; this.achromaLightWeight = achromaLightWeight; this.osat = osat;
                 this.hasRegL = hasRegL;
+                this.okClickGain = okClickGain; this.okResidRho = okResidRho;
             }
+        }
+
+        // 正の残りの揺れを ρ·tanh(r/ρ) で頭打ちにする(ResidualSoftLimitFrac のコメント)。ρ ≤ 0 と負の残りは素通し。
+        private static float SoftResidual(float r, float rho) {
+            if (rho <= 0f || r <= 0f) {
+                return r;
+            }
+            return rho * (float)Math.Tanh(r / rho);
         }
 
         private static Color32 RecolorPixel(
@@ -707,7 +746,7 @@ namespace Iroca {
                         ? okSC * oL / Mathf.Max(okSL, 1e-4f)
                         : okSC * (1f - oL) / Mathf.Max(1f - okSL, 1e-4f);
                     // osat·tC·Ĉ/sC + (oC − Ĉ) を tC で割った値。osat·tC > sC なので oC ≥ 0 なら負にならないが、丸めに備える。
-                    mag = Mathf.Max(0f, cHat * okMagScale + (oC - cHat) * okInvTC);
+                    mag = Mathf.Max(0f, cHat * okMagScale + SoftResidual(oC - cHat, p.okResidRho) * okInvTC);
                 }
                 // 無彩パス: 無彩サンプルでは oC/sC が微小彩度ノイズを増幅(脚色)。uniform target 彩度
                 // (osat, oC 非依存)へサンプルの無彩の重みでフェードし増幅を止める。weight=0 で従来式。
@@ -717,6 +756,11 @@ namespace Iroca {
                 float chromaW = p.achromaSampleWeight;
                 if (chromaW > AchromaWeightActiveMin) {
                     mag = mag * (1f - chromaW) + osat * chromaW;
+                }
+                // クリックした色を塗り先に合わせる(AnchorIntentQLo のコメント)。上げた分は塗り先の彩度(osat)で頭打ちにし、
+                // 元から塗り先より鮮やかな所は下げない。
+                if (p.okClickGain > 1f) {
+                    mag = Mathf.Max(mag, Mathf.Min(mag * p.okClickGain, osat));
                 }
                 na = mag * okTa;
                 nb = mag * okTb;

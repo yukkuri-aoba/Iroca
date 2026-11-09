@@ -21,6 +21,16 @@ namespace Iroca {
         // ブレンドする。有彩×有彩では weight=0 で従来式とバイト不変。不変条件: 成分内で単調・順序保存。
         // 偏差の増幅は AchromaFormGain(知覚補償、下の定数コメント参照)だけ。
         private const float AchromaSampleC = 0.06f;  // sample OkLab chroma がこれ未満で無彩扱い(→1)
+        // 彩度を塗り先へ一律にする重みの上限を決める「素材の濃い側の彩度」(コア画素の彩度の AchromaDeepChromaPercentile 分位)。
+        // 白へ抜ける色の布は、淡い所をクリックしても濃い側に色がある。濃い側が AchromaSampleC の AchromaDeepChromaFloorFrac 倍
+        // 以下なら上限を掛けない(白っぽい布の布目の色味。重みを下げると揺れが増幅されて元に無い線が出る)。AchromaSampleC 以上なら
+        // 重み 0。間は直線。
+        private const float AchromaDeepChromaPercentile = 0.9f;
+        private const float AchromaDeepChromaFloorFrac = 0.5f;
+        // 濃い側が同じ素材の濃い所とみなせる、代表の彩度(中央値)に対する比の上限。白へ抜ける色の布では、白から全色まで
+        // 一様に抜けても P90 ÷ 中央値 = 1.8 にしかならない。これを超える分は範囲に入った別の色の所なので上限を弱め、
+        // この 2 倍の比で外す。
+        private const float AchromaDeepSameMaterialRatio = 2f;
         private const float AchromaTargetC = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
         private const float AchromaNeutralTargetC = 0.01f;  // 明るい塗り先を「純白に近い」とみなす彩度(これ以上は色味が見える。OkLab の見分けの目安 0.02 の半分)
         private const float OkLabMidL = 0.5f;  // 明るい塗り先と暗い塗り先の境(塗り先の極端さ 1 − 4·L·(1 − L) が 0 になる明度)
@@ -108,7 +118,16 @@ namespace Iroca {
         /// <summary>サンプルが無彩な度合い(0..1)。彩度を塗り先へ一律にする重みに使う。</summary>
         private static float ComputeAchromaSampleWeight(Color sample) {
             OkLab.RgbToOklab(sample.r, sample.g, sample.b, out _, out float sa, out float sb);
-            return Mathf.Clamp01(1f - Mathf.Sqrt(sa * sa + sb * sb) / AchromaSampleC);
+            return ComputeAchromaSampleWeight(Mathf.Sqrt(sa * sa + sb * sb));
+        }
+
+        /// <summary>
+        /// 彩度 sC(OkLab)の素材が無彩な度合い(0..1)。再着色の統計の段では、sC に彩度の倍率の分母(基準色の自動補正を
+        /// 採ったら素材の代表の彩度)を渡す。この重みは、分母が小さいと彩度の揺れが増幅される(oC/sC)のを止めるためのものなので、
+        /// 実際に割る値で決める。クリックした画素の彩度で決めると、白へ抜ける布ではクリックの場所で仕上がりの濃淡が変わる。
+        /// </summary>
+        private static float ComputeAchromaSampleWeight(float sC) {
+            return Mathf.Clamp01(1f - sC / AchromaSampleC);
         }
 
         /// <summary>
@@ -116,16 +135,24 @@ namespace Iroca {
         /// 重みを使わない。無彩パスの基準 regLmid は成分ごとなので、淡い色へ塗ると元が同じ色の部品が部品ごとに違う明るさになる。
         /// 純白に近い塗り先は従来どおり(濃い布を白へ塗るときに、白に寄せる)。暗い塗り先は陰影を描く余白を作るために要る。
         /// 塗り先の極端さは tL = 0.5 で 0 なので、明暗の切り替えに段差は無い。
+        /// sampleWeight はサンプル(素材)が無彩な度合い(<see cref="ComputeAchromaSampleWeight(float)"/>)。
         /// </summary>
-        private static float ComputeAchromaLightWeight(Color sample, Color target) {
+        private static float ComputeAchromaLightWeight(float sampleWeight, Color target) {
             OkLab.RgbToOklab(target.r, target.g, target.b, out float tL, out float ta, out float tb);
-            float full = ComputeAchromaWeight(sample, target);
+            float tC = Mathf.Sqrt(ta * ta + tb * tb);
+            float full = Mathf.Max(sampleWeight, ComputeAchromaTargetWeight(tL, tC));
             if (tL <= OkLabMidL) {
                 return full;
             }
-            float tC = Mathf.Sqrt(ta * ta + tb * tb);
             float neutral = Mathf.Clamp01(1f - tC / AchromaNeutralTargetC);
-            return Mathf.Max(ComputeAchromaSampleWeight(sample), full * neutral);
+            return Mathf.Max(sampleWeight, full * neutral);
+        }
+
+        /// <summary>塗り先が極端な無彩(白・黒)な度合い(0..1)。</summary>
+        private static float ComputeAchromaTargetWeight(float tL, float tC) {
+            float targetExtremeness = 1f - 4f * tL * (1f - tL);
+            float targetAchroma = Mathf.Clamp01(1f - tC / AchromaTargetC);
+            return targetExtremeness * targetAchroma;
         }
 
         /// <summary>
@@ -137,10 +164,7 @@ namespace Iroca {
             OkLab.RgbToOklab(target.r, target.g, target.b, out float tL, out float ta, out float tb);
             float sC = Mathf.Sqrt(sa * sa + sb * sb);
             float tC = Mathf.Sqrt(ta * ta + tb * tb);
-            float achromaSample = Mathf.Clamp01(1f - sC / AchromaSampleC);
-            float targetExtremeness = 1f - 4f * tL * (1f - tL);
-            float targetAchroma = Mathf.Clamp01(1f - tC / AchromaTargetC);
-            return Mathf.Max(achromaSample, targetExtremeness * targetAchroma);
+            return Mathf.Max(ComputeAchromaSampleWeight(sC), ComputeAchromaTargetWeight(tL, tC));
         }
 
         /// <summary>
