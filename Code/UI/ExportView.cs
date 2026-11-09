@@ -366,7 +366,20 @@ namespace Iroca {
                     return;
                 }
             }
+            StartExport(sourceTexture, srcPath, outputPath, readInJobAllowed: true);
+        }
 
+        /// <summary>
+        /// 背景で PNG の画素を読めなかった(見出しは読めたが途中で壊れている)。メインスレッドで読み直して(LoadImage・取り込み済み
+        /// テクスチャ)書き出し直す印。窓・非破壊ビルドと同じ画素から書き出すため(読み直さないと書き出しだけが止まっていた)。
+        /// </summary>
+        private sealed class ReadSourceOnMainThread : System.Exception { }
+
+        /// <summary>
+        /// 原本を読んで、色替え・PNG 化(背景)と書き込み(メインスレッド)を始める。確認の画面は済んでいること。
+        /// <paramref name="readInJobAllowed"/> なら、別スレッドで読める PNG は背景で読む。
+        /// </summary>
+        private void StartExport(Texture2D sourceTexture, string srcPath, string outputPath, bool readInJobAllowed) {
             // Texture2D API はメインスレッド必須なのでここで全て済ませ、計算本体だけ Task.Run へ渡す。
             // 原本を直接デコードできるのは PNG/JPG だけ。PSD/TGA/EXR 等は Unity が取り込み時に
             // 変換しているので LoadImage が読めず、以前はここで停止していた＝プレビューでは
@@ -382,7 +395,7 @@ namespace Iroca {
             int texW = 0, texH = 0;
             bool readInJob;
             try {
-                readInJob = PngFileDecoder.CanDecode(srcPath);
+                readInJob = readInJobAllowed && PngFileDecoder.CanDecode(srcPath);
                 if (readInJob) {
                     shared = ShareFullResolutionSource(sourceTexture, srcPath);
                 }
@@ -453,9 +466,9 @@ namespace Iroca {
                         } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) {
                             throw new System.Exception(string.Format(Localization.ExportSourceReadFailedFormat, e.Message), e);
                         }
-                        // 見出しは読めたが画素の途中で壊れている。
+                        // 見出しは読めたが画素の途中で壊れている。メインスレッドで読み直す(onError)。
                         if (pixels == null) {
-                            throw new System.Exception(Localization.ExportSourceUnavailable);
+                            throw new ReadSourceOnMainThread();
                         }
                         texW = pixels.Width;
                         texH = pixels.Height;
@@ -521,6 +534,11 @@ namespace Iroca {
                     }
                 },
                 onError: ex => {
+                    if (ex is ReadSourceOnMainThread) {
+                        // 窓・非破壊ビルドと同じく、LoadImage・取り込み済みテクスチャで読み直して書き出し直す(1 回だけ)。
+                        StartExport(sourceTexture, srcPath, outputPath, readInJobAllowed: false);
+                        return;
+                    }
                     ReportExportFailure(ex);
                     if (ReleaseAfterExport()) {
                         PixelProcessor.ReleaseWorkBuffersInBackground();

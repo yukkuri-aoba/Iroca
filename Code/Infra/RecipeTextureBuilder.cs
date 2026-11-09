@@ -192,6 +192,7 @@ namespace Iroca {
             if (cached != null) { done(cached); return; }
 
             if (!TryLoadState(recipe, out var state, out _)) { done(null); return; }
+            var build = new AsyncBuild { like = like, key = key, state = state, ct = ct, done = done };
             PostOrFail(done, () => {
                 // 読む前に取り消された(待っていたプレビューがもう要らない)。
                 if (ct.IsCancellationRequested) { done(null); return; }
@@ -200,44 +201,61 @@ namespace Iroca {
                 // 映すレシピの数だけ画素を持ち続けることもなくなる)。それ以外と扱わない PNG は LoadImage・GPU の展開が
                 // 要るのでここで読む。
                 string srcPath = AssetDatabase.GetAssetPath(like);
-                int importW = like.width, importH = like.height;
                 NativePixels pixels = null;
                 if (!CanReadOffMainThread(srcPath) && !TryReadPixels(like, out pixels, out _)) { done(null); return; }
-                // 計算は 1 本ずつ、前に投げた計算の後ろにつなぐ。シーンのプレビューは映すレシピの数だけ
-                // 同時にここへ来るので、並べて走らせると作業配列のプールがその組数ぶん膨らむ。
-                // 計算そのものが全コアを使うので、順番にしても合計の時間はほぼ同じ。
-                // 前の計算の成否は見ない(1 つが失敗しても後ろは作る)。
-                BeginCompute();
-                var compute = s_lastCompute.ContinueWith(_ => {
-                    try {
-                        // 順番を待つ間に取り消されたら計算しない。計算中に取り消されたら、PixelProcessor が作業配列を
-                        // プールへ返して OperationCanceledException で抜ける(画素はここで手放す)。
-                        ct.ThrowIfCancellationRequested();
-                        if (pixels == null) {
-                            pixels = TextureIO.TryDecodePngOffMainThread(srcPath, importW, importH, ct);
-                            if (pixels == null) {
-                                throw new InvalidDataException($"The PNG could not be decoded: {srcPath}");
-                            }
-                        }
-                        Recolor(pixels, state, ct);
-                        return pixels;
-                    } catch {
-                        pixels?.Release();
-                        throw;
-                    }
-                }, CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default);
-                // compute そのものを持つと、結果の画素(4K で 64MB)まで static で持ち続けるので、結果を持たない
-                // 後続のタスクをつなぎ目にする(後続は走り終えると前のタスクへの参照を手放す)。
-                s_lastCompute = compute.ContinueWith(_ => { }, CancellationToken.None,
-                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-                compute.ContinueWith(t => PostOrFail(done, () => {
-                    try {
-                        FinishAsync(t, like, key, ct, done);
-                    } finally {
-                        EndCompute();
-                    }
-                }), TaskScheduler.Default);
+                QueueCompute(build, pixels, srcPath, like.width, like.height);
             });
+        }
+
+        // 非同期で作る 1 件の、計算の前後で使うもの(メインスレッドで作り、計算のスレッドは state を読むだけ)。
+        private sealed class AsyncBuild {
+            public Texture2D like;
+            public string key;
+            public IrocaSessionState state;
+            public CancellationToken ct;
+            public Action<Texture2D> done;
+        }
+
+        // 色替えの計算を、前に投げた計算の後ろにつなぐ(メインスレッド)。pixels が null なら、計算のスレッドで PNG(srcPath)を
+        // importW×importH の作業解像度で読む。
+        // 計算は 1 本ずつ。シーンのプレビューは映すレシピの数だけ同時にここへ来るので、並べて走らせると作業配列のプールが
+        // その組数ぶん膨らむ。計算そのものが全コアを使うので、順番にしても合計の時間はほぼ同じ。
+        // 前の計算の成否は見ない(1 つが失敗しても後ろは作る)。
+        private static void QueueCompute(AsyncBuild b, NativePixels pixels, string srcPath, int importW, int importH) {
+            var ct = b.ct;
+            var state = b.state;
+            BeginCompute();
+            var compute = s_lastCompute.ContinueWith(_ => {
+                try {
+                    // 順番を待つ間に取り消されたら計算しない。計算中に取り消されたら、PixelProcessor が作業配列を
+                    // プールへ返して OperationCanceledException で抜ける(画素はここで手放す)。
+                    ct.ThrowIfCancellationRequested();
+                    if (pixels == null) {
+                        pixels = TextureIO.TryDecodePngOffMainThread(srcPath, importW, importH, ct);
+                        if (pixels == null) {
+                            // 見出しは読めたが、画素の途中で壊れている。窓・同期のビルドと同じ画素にするため、メインスレッドで
+                            // 読み直す(FinishAsync。LoadImage と取り込み済みテクスチャ)。
+                            return null;
+                        }
+                    }
+                    Recolor(pixels, state, ct);
+                    return pixels;
+                } catch {
+                    pixels?.Release();
+                    throw;
+                }
+            }, CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default);
+            // compute そのものを持つと、結果の画素(4K で 64MB)まで static で持ち続けるので、結果を持たない
+            // 後続のタスクをつなぎ目にする(後続は走り終えると前のタスクへの参照を手放す)。
+            s_lastCompute = compute.ContinueWith(_ => { }, CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            compute.ContinueWith(t => PostOrFail(b.done, () => {
+                try {
+                    FinishAsync(t, b);
+                } finally {
+                    EndCompute();
+                }
+            }), TaskScheduler.Default);
         }
 
         // 最後に投げた計算(メインスレッドからしか触らない)。
@@ -264,8 +282,11 @@ namespace Iroca {
         }
 
         // 計算が終わったあとのメインスレッドの仕事(画素の確定、次の tick で圧縮とキャッシュ)。
-        private static void FinishAsync(Task<NativePixels> t, Texture2D like, string key, CancellationToken ct,
-            Action<Texture2D> done) {
+        private static void FinishAsync(Task<NativePixels> t, AsyncBuild b) {
+            var like = b.like;
+            var key = b.key;
+            var ct = b.ct;
+            var done = b.done;
             // 計算している間に元テクスチャが消えたら作らない(取り込み直しで寸法が変わったなら合わせて縮める)。
             // 計算した画素はテクスチャへ写したらすぐ手放す(失敗した計算は自分で手放している)。
             var pixels = t.Status == TaskStatus.RanToCompletion ? t.Result : null;
@@ -274,6 +295,16 @@ namespace Iroca {
             if (ct.IsCancellationRequested) {
                 pixels?.Release();
                 done(null);
+                return;
+            }
+            if (t.Status == TaskStatus.RanToCompletion && pixels == null) {
+                // 計算のスレッドで PNG の画素を読めなかった(見出しは読めたが途中で壊れている)。同期のビルドと同じく
+                // メインスレッドで読み直し(LoadImage・取り込み済みテクスチャ)、同じ計算の列へもう一度積む。読めなければ作らない。
+                if (like == null || !TryReadPixels(like, out var reread, out _)) {
+                    done(null);
+                    return;
+                }
+                QueueCompute(b, reread, null, 0, 0);
                 return;
             }
             Texture2D tex;

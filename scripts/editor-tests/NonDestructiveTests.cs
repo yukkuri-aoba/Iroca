@@ -175,6 +175,54 @@ namespace Iroca.EditorTests {
             } finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
         }
 
+        // 取り込んだ後に、ディスクの原本の画素(IDAT)だけが壊れた(見出しは読める)。同期のビルドもシーンのプレビュー(BuildAsync)も、
+        // 取り込み済みの画素(Read/Write)から同じものを作る(窓と同期のビルドだけ色替えされ、シーンでは元の色、という食い違いを作らない)。
+        [Test]
+        public void Build_SourcePixelsBrokenAfterImport_UsesTheImportedPixels() {
+            var src = ImportSource(readable: true);
+            var state = RedToGreenWithInclude();
+            var recipe = RecipeStore.Create(src, state, _assets.Folder);
+            string cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
+            var imported = WorkingResolution.NativePixelsOf(src, null);
+            Color32[] px;
+            try { px = imported.ToArray(); } finally { imported.Release(); }
+            Assert.IsTrue(SessionRecolor.Apply(px, src.width, src.height, state));
+            var expected = Track(RecipeTextureBuilder.CreateMatching(px, src.width, src.height, src)).GetRawTextureData();
+
+            TestAssets.BreakPngDeflate(TestAssets.Abs(AssetDatabase.GetAssetPath(src)));
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            try {
+                DeleteCache(cacheFile);
+                var built = Track(RecipeTextureBuilder.Build(recipe, out var failure));
+                Assert.IsNotNull(built, failure.ToString());
+                CollectionAssert.AreEqual(expected, built.GetRawTextureData(), "同期のビルド");
+
+                DeleteCache(cacheFile);
+                var later = Track(BuildAsyncAndWait(recipe));
+                Assert.IsNotNull(later, "シーンのプレビューが作れなかった");
+                CollectionAssert.AreEqual(expected, later.GetRawTextureData(), "シーンのプレビュー");
+            } finally {
+                UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false;
+                DeleteCache(cacheFile);
+            }
+        }
+
+        // シーンのプレビューの入口(BuildAsync)で作り、届くまでメインスレッドへの戻りを捌く。作れなければ null。
+        private static Texture2D BuildAsyncAndWait(IrocaRecipe recipe) {
+            bool called = false;
+            Texture2D built = null;
+            RecipeTextureBuilder.BuildAsync(recipe, t => { built = t; called = true; });
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (!called) {
+                if (sw.ElapsedMilliseconds > 30000) {
+                    Assert.Fail("出来上がりが届かない");
+                }
+                PreviewJobMainThread.Drain();
+                System.Threading.Thread.Sleep(2);
+            }
+            return built;
+        }
+
         [Test]
         public void Recipe_Save_WritesOnlyWhenChanged() {
             var src = ImportSource();

@@ -217,6 +217,29 @@ namespace Iroca.EditorTests {
             } finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
         }
 
+        // 取り込んだ後に、ディスクの原本の画素(IDAT)だけが壊れた(見出しは読める)。書き出しも、窓・非破壊ビルドと同じく取り込み済みの
+        // 画素(Read/Write)から作る(背景で読みに行って失敗したら、メインスレッドで読み直す)。
+        [Test]
+        public void ExportWithBrokenSourcePixels_UsesTheImportedTexture() {
+            var importer = (TextureImporter)AssetImporter.GetAtPath(_path);
+            importer.isReadable = true;
+            importer.npotScale = TextureImporterNPOTScale.None;
+            importer.SaveAndReimport();
+            var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(_path);
+            Assert.AreEqual((W, H), (imported.width, imported.height), "テストの前提: 取り込み済みが元と同じ寸法");
+            var importedPixels = WorkingResolution.NativePixelsOf(imported, null);
+            Color32[] expected;
+            try { expected = importedPixels.ToArray(); } finally { importedPixels.Release(); }
+            var state = JsonUtility.FromJson<IrocaSessionState>(JsonUtility.ToJson(_win.Editing.ToSaveState()));
+            Assert.IsTrue(SessionRecolor.Apply(expected, W, H, state), "有効なゾーンが無い");
+
+            TestAssets.BreakPngDeflate(TestAssets.Abs(_path));
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            try {
+                AssertSamePixels(expected, ExportFromWindow("scene_broken"), "壊れた原本からの書き出し");
+            } finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
+        }
+
         // 「適用して保存」(新しいファイルに保存)。確認の画面は出ない(出力先がまだ無い)。
         private Color32[] ExportFromWindow(string fileName) {
             var export = _win._exportView;
