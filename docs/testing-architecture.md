@@ -327,12 +327,13 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
   `--nativememselftest` もこのモードで回す）。返したあとに読む所は出力の違いで、返したものをもう一度返す所は「このプールが貸した塊では
   ありません」の例外で見つかる（寝かせないと、同じ番地が別の借り手へ貸された後の 2 回目の返却を見分けられない）。
 
-ハーネスの出力はキャッシュから返ることがあるので、回帰では `IROCA_HARNESS_CACHE=0`・`IROCA_RESULT_CACHE=0`・
-`IROCA_ROW_CACHE=0` も立てて実際に走らせる（golden はキャッシュを使わない）。Unity の中で試すときは、環境変数を立ててから Unity を起動する。
+この 2 つと `IROCA_NO_PALETTE=1`（ハーネスがパレットの近道を使わない）は、立てたときだけ実行キャッシュ・AI 提案の結果・
+`rows/` の鍵に `+guard`・`+poison`・`+nopalette` の印として入る（2026-11-10、点検 B-7④。`fixtures._mode_suffix`）。
+キャッシュを止めなくても、立てた組み合わせの初回は実際にハーネスが走る（それまでは鍵に入らず、キャッシュを止め忘れると
+ハーネスを 1 回も動かさずに「全パス」になった）。golden はキャッシュを使わない。Unity の中で試すときは、環境変数を立ててから Unity を起動する。
 
 ```powershell
 $env:IROCA_NATIVE_GUARD = "1"; $env:IROCA_POOL_POISON = "1"
-$env:IROCA_HARNESS_CACHE = "0"; $env:IROCA_RESULT_CACHE = "0"; $env:IROCA_ROW_CACHE = "0"
 .\.venv\Scripts\python.exe -m pytest scripts/golden -q
 ```
 
@@ -348,7 +349,7 @@ $env:IROCA_HARNESS_CACHE = "0"; $env:IROCA_RESULT_CACHE = "0"; $env:IROCA_ROW_CA
 | 指標の結果キャッシュ | 品質指標 `recolor_quality.compute_all_metrics`（4096² で 1 件約 5 秒）の結果を、`(入力, 出力, 評価マスク, 目標色)` の内容と `recolor_quality.py` / `colorspace.py`・numpy / scipy の版の SHA-256 をキーに `_harness_cache/metrics/` へ保存（2026-10-16）。出力が変われば計算し直す。値は型ごと戻すので計算直後と bit 一致（品質ゲート全 21 件で確認） | `IROCA_METRICS_CACHE=0` |
 | PNG のデコードキャッシュ | `fixtures._load_rgba`（テクスチャ・GT・評価領域の読み込み口）のデコード結果を、ファイルの中身と Pillow の版の SHA-256 をキーに `_harness_cache/decoded/` へ `.npy` で保存（2026-10-17）。4096² で 1 枚 0.1〜0.4 秒 → 0.02 秒。1 枚 64MB なので被写体の画像 1 組で数 GB 使う | `IROCA_DECODED_CACHE=0` |
 | SAM 提案の結果キャッシュ | `sam_proposal.proposal_for_click_full`（提案マスク + 診断）と `measure_sam_e2e.one_case`（e2e の 1 ケース）の結果を、AI 提案の純計算だけのダイジェスト（`fixtures.samops_digest`。下の段落）・ONNX・埋め込み / 凍結 logits・テクスチャ・GT・クリック・粒度と関与する Python ソースの SHA-256 をキーに `_harness_cache/results/` へ保存（2026-10-17）。どちらも 1 回に dotnet を 6〜10 回起動していた。共通部品は `fixtures.result_key / result_load / result_store`。ズーム再推論のクロップの埋め込みは、実 C# が作ったエンコーダ入力の中身・エンコーダ・onnxruntime の版をキーに `_harness_cache/cropemb/` へ置く（2026-10-20。以前は矩形だけをキーに作業ディレクトリへ置き、samops の入力画像 raw も「あれば使う」だったので、テクスチャ・C# の前処理・エンコーダを変えても古い物を使いえた。入力画像 raw はいま内容ハッシュ名） | `IROCA_RESULT_CACHE=0` |
-| バッチ実行 | 同じテクスチャの複数ケース（通常 5 色）を Harness `--batch` で 1 プロセスにまとめ、dotnet 起動と 64MB の入力書き出しを 1 回にする。`run_harness_many` は `shareSelection` を立て、選択の結果をケース間で使い回す（2026-11-09。製品のプレビューと同じ規則で、設定の中で同じ位置のゾーンを同じゾーンとみなす。使えるかは選択の鍵の一致で決まる。5 色は変更先とゾーン名だけが違うので選択は 1 回で済む）。単発実行とのビット一致は `test_harness_batch_parity` が見る。性能計測などケースごとに選択から測りたい呼び出しは立てない | （常時。単発呼び出しは従来どおり） |
+| バッチ実行 | 同じテクスチャの複数ケース（通常 5 色）を Harness `--batch` で 1 プロセスにまとめ、dotnet 起動と 64MB の入力書き出しを 1 回にする。`run_harness_many` は `shareSelection` を立て、選択の結果をケース間で使い回す（2026-11-09。製品のプレビューと同じ規則で、設定の中で同じ位置のゾーンを同じゾーンとみなす。使えるかは選択の鍵の一致で決まる。5 色は変更先とゾーン名だけが違うので選択は 1 回で済む）。単発実行とのビット一致は `test_harness_batch_parity` が見る。性能計測などケースごとに選択から測りたい呼び出しは立てない | 使い回しだけ止めるなら `IROCA_SHARE_SELECTION=0`（2026-11-10〜。キャッシュの鍵に `noshare` が付き、使い回した側の出力とは混ざらない） |
 | ワーカー分離 | `dev_safe/_iou_csharp_work/<worker>/` に分けて並列実行の書き込み衝突を防ぐ。ハーネスのビルドはプロセス跨ぎのロックで直列化 | — |
 
 **キャッシュキーには DLL のダイジェストが入っている**ので、`Code/` を変更して再ビルドした
