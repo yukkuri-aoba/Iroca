@@ -342,12 +342,17 @@ $env:IROCA_HARNESS_CACHE = "0"; $env:IROCA_RESULT_CACHE = "0"; $env:IROCA_ROW_CA
 | 実行キャッシュ | `(DLL の中身, 入力, 除外マスク, zones JSON, 外部マスクの内容, 追加引数)` の SHA-256 をキーに出力 raw を `dev_safe/_harness_cache/` へ保存。同じ入力の再実行を丸ごと省く。zones JSON 内の外部マスク（`includeMask` / `excludeMask` / `evidenceMask`）は**内容**で同定し、パス（ワーカー ID を含む）はキーに入れない | `IROCA_HARNESS_CACHE=0` |
 | 指標の結果キャッシュ | 品質指標 `recolor_quality.compute_all_metrics`（4096² で 1 件約 5 秒）の結果を、`(入力, 出力, 評価マスク, 目標色)` の内容と `recolor_quality.py` / `colorspace.py`・numpy / scipy の版の SHA-256 をキーに `_harness_cache/metrics/` へ保存（2026-10-16）。出力が変われば計算し直す。値は型ごと戻すので計算直後と bit 一致（品質ゲート全 21 件で確認） | `IROCA_METRICS_CACHE=0` |
 | PNG のデコードキャッシュ | `fixtures._load_rgba`（テクスチャ・GT・評価領域の読み込み口）のデコード結果を、ファイルの中身と Pillow の版の SHA-256 をキーに `_harness_cache/decoded/` へ `.npy` で保存（2026-10-17）。4096² で 1 枚 0.1〜0.4 秒 → 0.02 秒。1 枚 64MB なので被写体の画像 1 組で数 GB 使う | `IROCA_DECODED_CACHE=0` |
-| SAM 提案の結果キャッシュ | `sam_proposal.proposal_for_click_full`（提案マスク + 診断）と `measure_sam_e2e.one_case`（e2e の 1 ケース）の結果を、DLL・ONNX・埋め込み / 凍結 logits・テクスチャ・GT・クリック・粒度と関与する Python ソースの SHA-256 をキーに `_harness_cache/results/` へ保存（2026-10-17）。どちらも 1 回に dotnet を 6〜10 回起動していた。共通部品は `fixtures.result_key / result_load / result_store`。ズーム再推論のクロップの埋め込みは、実 C# が作ったエンコーダ入力の中身・エンコーダ・onnxruntime の版をキーに `_harness_cache/cropemb/` へ置く（2026-10-20。以前は矩形だけをキーに作業ディレクトリへ置き、samops の入力画像 raw も「あれば使う」だったので、テクスチャ・C# の前処理・エンコーダを変えても古い物を使いえた。入力画像 raw はいま内容ハッシュ名） | `IROCA_RESULT_CACHE=0` |
-| バッチ実行 | 同じテクスチャの複数ケース（通常 5 色）を Harness `--batch` で 1 プロセスにまとめ、dotnet 起動と 64MB の入力書き出しを 1 回にする | （常時。単発呼び出しは従来どおり） |
+| SAM 提案の結果キャッシュ | `sam_proposal.proposal_for_click_full`（提案マスク + 診断）と `measure_sam_e2e.one_case`（e2e の 1 ケース）の結果を、AI 提案の純計算だけのダイジェスト（`fixtures.samops_digest`。下の段落）・ONNX・埋め込み / 凍結 logits・テクスチャ・GT・クリック・粒度と関与する Python ソースの SHA-256 をキーに `_harness_cache/results/` へ保存（2026-10-17）。どちらも 1 回に dotnet を 6〜10 回起動していた。共通部品は `fixtures.result_key / result_load / result_store`。ズーム再推論のクロップの埋め込みは、実 C# が作ったエンコーダ入力の中身・エンコーダ・onnxruntime の版をキーに `_harness_cache/cropemb/` へ置く（2026-10-20。以前は矩形だけをキーに作業ディレクトリへ置き、samops の入力画像 raw も「あれば使う」だったので、テクスチャ・C# の前処理・エンコーダを変えても古い物を使いえた。入力画像 raw はいま内容ハッシュ名） | `IROCA_RESULT_CACHE=0` |
+| バッチ実行 | 同じテクスチャの複数ケース（通常 5 色）を Harness `--batch` で 1 プロセスにまとめ、dotnet 起動と 64MB の入力書き出しを 1 回にする。`run_harness_many` は `shareSelection` を立て、選択の結果をケース間で使い回す（2026-11-09。製品のプレビューと同じ規則で、設定の中で同じ位置のゾーンを同じゾーンとみなす。使えるかは選択の鍵の一致で決まる。5 色は変更先とゾーン名だけが違うので選択は 1 回で済む）。単発実行とのビット一致は `test_harness_batch_parity` が見る。性能計測などケースごとに選択から測りたい呼び出しは立てない | （常時。単発呼び出しは従来どおり） |
 | ワーカー分離 | `dev_safe/_iou_csharp_work/<worker>/` に分けて並列実行の書き込み衝突を防ぐ。ハーネスのビルドはプロセス跨ぎのロックで直列化 | — |
 
 **キャッシュキーには DLL のダイジェストが入っている**ので、`Code/` を変更して再ビルドした
-時点で全エントリが自動的に無効化される（古い出力で緑になることはない）。容量は既定 150GB 上限（2026-11-08 に 24GB から。無効になった DLL の分は下の掃除が早く消すので、
+時点で全エントリが自動的に無効化される（古い出力で緑になることはない）。
+例外は AI 提案の結果（`sam_proposal`・`measure_sam_e2e`）で、DLL 全体ではなく `fixtures.samops_digest` を鍵にする（2026-11-09）。
+`scripts/headless-run/SamOpsFingerprint/SamOpsFingerprint.csproj` が `Code/MaskSuggest/Ops` とそれが使う Core のファイルだけを
+コンパイルした DLL（鍵を作るためだけで実行しない）と `Harness.cs` のダイジェストで、選択や再着色だけを変えても提案（コールド 1 周で
+約 50 件、1 件 1.2〜2.5 秒）を作り直さない。一覧から依存が漏れるとこの DLL がコンパイルできず、警告を出して DLL 全体の
+ダイジェストに戻る（遅くなるだけで古い結果は使わない）。`IROCA_HARNESS_DLL` で別の DLL を渡したときも DLL 全体に戻る。容量は既定 150GB 上限（2026-11-08 に 24GB から。無効になった DLL の分は下の掃除が早く消すので、
 上限は有効な分を溜める大きさでよい）で古い順に捨てる（`IROCA_HARNESS_CACHE_GB` で変更、`IROCA_HARNESS_CACHE_DIR` で移動）。
 **上限は「スイート 1 周分が全部入る」大きさでないと意味が無い。** 2026-09-14 の計測では 1 周の
 作業集合が旧上限 8GB を超えており（4096² 出力 64MB × 300 件弱）、毎回古い順に捨てて次の周で
@@ -429,7 +434,8 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
 同時合計の最大はコミット 4.82GB・Working Set 4.51GB。重いファイルが同時に当たるかで 1GB 以上ぶれるので、
 比べるときはワーカーごとのピーク（最大 1.61GB）も見る。
 
-**pytest では `OPENBLAS_NUM_THREADS=1`**（`Tests/conftest.py`、numpy の読み込みより前に設定）。numpy と scipy は
+**pytest では `OPENBLAS_NUM_THREADS=1`**（`Tests/conftest.py`、numpy の読み込みより前に設定。`tools/visual_review.py` も
+2026-11-09 から同じ 4 つの設定を先頭で立てる）。numpy と scipy は
 それぞれ OpenBLAS を持ち、既定では読み込むだけでスレッド数ぶんの作業領域を確保する（16 コア機で 1 プロセス計 1GB の
 コミット。実際に触るのは 60MB 程度）。1 にすると 40MB。キャッシュが効く全回帰の時間は変わらない。
 **ハーネスは `DOTNET_gcConcurrent=0`**（同じ conftest、環境変数で子プロセスへ引き継ぐ）。5 色のバッチのピークが 0.91GB → 0.72GB。
