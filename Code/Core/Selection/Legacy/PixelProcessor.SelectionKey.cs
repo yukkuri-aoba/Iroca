@@ -11,8 +11,10 @@ namespace Iroca {
     // 確かめ、保存する「残す」のビット。
     internal static unsafe partial class PixelProcessor {
         // 「選択(マッチ→ブラー)に影響する入力だけ」から決定論的なキーを作る。
-        // ターゲット色・valueBlend・出力彩度・シャドウ脱彩・wash・autoRecolorAnchor は **含めない**
-        // (これらは再着色のみに効くので、変えてもキーは同じ=選択キャッシュがヒットする)。float は
+        // 出力彩度・シャドウ脱彩・wash・autoRecolorAnchor は **含めない**(再着色のみに効くので、変えてもキーは
+        // 同じ=選択キャッシュがヒットする)。ターゲット色・valueBlend もそのものは含めないが、白へ抜ける途中のほぼ白を
+        // 戻すか(NearWhiteRecolorIsGentle)を通して選択を変えるので、その bool を含める(色を動かすたびに外れないように。
+        // ハーネスの --selkey-audit が SELKEY-DERIVED で確かめる)。float は
         // ビット表現で完全一致判定(丸め衝突を避ける)。曖昧なものは安全側で含める(ミスが増えるだけ)。
         // マスクの中身も含めない: 含めるマスクは保存する選択に効かず、除外マスクは保存時の配列と比べて
         // 使えるかを判定する(SelectionCache・ExclusionChangeKeepsMatch)。
