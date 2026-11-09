@@ -244,7 +244,7 @@ namespace Iroca {
 #endif
             if (!string.IsNullOrEmpty(_lastError)) {
                 // エラー HelpBox +「閉じる」ボタン。エラーの文は長く(パスを含む)、狭い窓では何行にも折り返すので、文で測る
-                // (固定の 40 では足りず、「閉じる」が窓の下で切れた)。
+                // (固定の 40 では足りず、「閉じる」が窓の下で切れうる)。
                 h += HelpBoxHeight(_lastError) + lineH;
             }
             return h;
