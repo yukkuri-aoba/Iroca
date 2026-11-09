@@ -36,6 +36,44 @@ namespace Iroca {
             ("mobile_sam_decoder.onnx", "2196a2a4b153528d00383c7c6a363dd765725c10097bb06233917b171d8ceda4", 16353451L),
         };
 
+        // モデルのライセンス表示(Apache-2.0 の全文と、変換の内容を書いた NOTICE)。Apache-2.0 は、モデルを
+        // 受け取る人にこの 2 つも渡すことを求めるので、モデルと同じフォルダへ一緒に置く。
+        // モデルは main から取るが、こちらはコミットを固定した URL から取る。モデルリポジトリの NOTICE を
+        // 後で書き換えても、出回っている版のハッシュが合わなくなってダウンロード全体が止まることがない。
+        // 置き場はユーザー共通のフォルダなので、何のライセンスか分かる名前で置く。
+        // (Fetch-Models.ps1 は Files の .onnx だけを読むので、こちらは別の表にしておく。)
+        const string NoticeCommit = "8e30b7a569fe7f2d33d4260034f3b6ca13c1caea";
+        static readonly (string remote, string file, string sha256, long size)[] NoticeFiles = {
+            ("LICENSE", "MobileSAM-LICENSE.txt", "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30", 11358L),
+            ("NOTICE", "MobileSAM-NOTICE.txt", "15d6804f44d7e362c17ecdfc48875fffd1a98f64d255ad7537003c0d0b72c009", 1426L),
+        };
+
+        // 実際に取る順。小さいライセンス表示を先に取り、通信できないときは大きいモデルを落とす前に止める。
+        static readonly (string url, string file, string sha256, long size)[] Downloads = BuildDownloads();
+
+        static (string url, string file, string sha256, long size)[] BuildDownloads() {
+            string noticeBase = "https://raw.githubusercontent.com/" + ModelRepo + "/" + NoticeCommit + "/";
+            var list = new System.Collections.Generic.List<(string url, string file, string sha256, long size)>();
+            foreach (var (remote, file, sha256, size) in NoticeFiles) {
+                list.Add((noticeBase + remote, file, sha256, size));
+            }
+            foreach (var (file, sha256, size) in Files) {
+                list.Add((BaseUrl + file, file, sha256, size));
+            }
+            return list.ToArray();
+        }
+
+        static readonly long DownloadsTotalSize = SumSizes(Downloads.Length);
+
+        // 先頭から count 個のバイト数の合計。
+        static long SumSizes(int count) {
+            long sum = 0;
+            for (int i = 0; i < count; i++) {
+                sum += Downloads[i].size;
+            }
+            return sum;
+        }
+
         static UnityWebRequest _request;
         static int _fileIndex = -1;
 
@@ -48,14 +86,15 @@ namespace Iroca {
         public static bool InProgress => _fileIndex >= 0;
         public static string Error { get; private set; }
 
-        /// <summary>全体進捗 0..1(ファイル数で均等割り)。</summary>
+        /// <summary>全体進捗 0..1(バイト数で重み付け。数 KB のライセンス表示で進捗が飛ばないように)。</summary>
         public static float Progress {
             get {
-                if (!InProgress) {
+                if (!InProgress || _fileIndex >= Downloads.Length) {
                     return 0f;
                 }
-                float cur = _request != null ? _request.downloadProgress : 0f;
-                return (_fileIndex + UnityEngine.Mathf.Clamp01(cur)) / Files.Length;
+                float cur = _request != null ? UnityEngine.Mathf.Clamp01(_request.downloadProgress) : 0f;
+                double done = SumSizes(_fileIndex) + cur * (double)Downloads[_fileIndex].size;
+                return (float)(done / DownloadsTotalSize);
             }
         }
 
@@ -113,7 +152,7 @@ namespace Iroca {
             if (!InProgress) {
                 return;
             }
-            string tmp = _fileIndex < Files.Length ? TempPath(Files[_fileIndex].file) : null;
+            string tmp = _fileIndex < Downloads.Length ? TempPath(Downloads[_fileIndex].file) : null;
             AbortRequest();
             Error = null;
             try {
@@ -125,7 +164,7 @@ namespace Iroca {
         }
 
         static void BeginCurrentFile() {
-            var (file, sha, _) = Files[_fileIndex];
+            var (url, file, sha, _) = Downloads[_fileIndex];
 
             // 既に検証済みのファイルが置いてあるなら取り直さない。再試行は常に file 0 から
             // 始まるため、2 個目で失敗するたびに 1 個目(約 20MB)を落とし直していた
@@ -146,7 +185,7 @@ namespace Iroca {
                 if (File.Exists(tmp)) {
                     File.Delete(tmp);
                 }
-                _request = new UnityWebRequest(BaseUrl + file, UnityWebRequest.kHttpVerbGET) {
+                _request = new UnityWebRequest(url, UnityWebRequest.kHttpVerbGET) {
                     // 中止したときは Unity が途中までのファイルを消す(既定では残る)。
                     downloadHandler = new DownloadHandlerFile(tmp) { removeFileOnAbort = true },
                 };
@@ -168,7 +207,7 @@ namespace Iroca {
             } catch (System.Exception e) {
                 UnityEngine.Debug.LogException(e);
                 try {
-                    string tmp = _fileIndex >= 0 && _fileIndex < Files.Length ? TempPath(Files[_fileIndex].file) : null;
+                    string tmp = _fileIndex >= 0 && _fileIndex < Downloads.Length ? TempPath(Downloads[_fileIndex].file) : null;
                     AbortRequest();
                     Fail(e.Message, tmp);
                 } catch (System.Exception inner) { UnityEngine.Debug.LogException(inner); }
@@ -184,9 +223,9 @@ namespace Iroca {
                 ulong got = _request.downloadedBytes;
                 // サイズ超過検知。sha256 は全量取得後にしか効かないので、その前にここで止める。
                 // 放置すると異常な応答でディスクを埋め尽くされる。
-                long expected = Files[_fileIndex].size;
+                long expected = Downloads[_fileIndex].size;
                 if (expected > 0 && got > (ulong)expected) {
-                    var (oversized, _, _) = Files[_fileIndex];
+                    string oversized = Downloads[_fileIndex].file;
                     string oversizedTmp = TempPath(oversized);
                     AbortRequest();
                     Fail(string.Format(Localization.AiErrDownloadOversizedFormat, oversized, expected), oversizedTmp);
@@ -196,7 +235,7 @@ namespace Iroca {
                     _lastProgressBytes = got;
                     _lastProgressTime = EditorApplication.timeSinceStartup;
                 } else if (EditorApplication.timeSinceStartup - _lastProgressTime > StallTimeoutSeconds) {
-                    var (stalled, _, _) = Files[_fileIndex];
+                    string stalled = Downloads[_fileIndex].file;
                     string stalledTmp = TempPath(stalled);
                     AbortRequest();
                     Fail(string.Format(Localization.AiErrDownloadStalledFormat, stalled, StallTimeoutSeconds), stalledTmp);
@@ -204,7 +243,7 @@ namespace Iroca {
                 return;
             }
 
-            var (file, sha, _) = Files[_fileIndex];
+            var (_, file, sha, _) = Downloads[_fileIndex];
             string tmp = TempPath(file);
             bool ok = _request.result == UnityWebRequest.Result.Success;
             string netError = _request.error;
@@ -245,7 +284,7 @@ namespace Iroca {
         /// <summary>次のファイルへ進む。全部終わっていれば完了処理。</summary>
         static void AdvanceToNextFile() {
             _fileIndex++;
-            if (_fileIndex >= Files.Length) {
+            if (_fileIndex >= Downloads.Length) {
                 Finish();
                 // 読み込みは使うときに行う(ここで読み込むと、ダウンロードが終わった瞬間にエディタが止まる)。
                 // 失敗していた状態も解いて、次に使うときに置き直したモデルを読み込ませる。
@@ -284,9 +323,9 @@ namespace Iroca {
         // リロード前・終了時に呼ばれる入口。例外を漏らすと、同じタイミングの他ツールの後始末が飛ばされる。
         static void CleanupOnUnload() {
             try { AbortRequest(); } catch (System.Exception e) { UnityEngine.Debug.LogException(e); }
-            if (_fileIndex >= 0 && _fileIndex < Files.Length) {
+            if (_fileIndex >= 0 && _fileIndex < Downloads.Length) {
                 try {
-                    string tmp = TempPath(Files[_fileIndex].file);
+                    string tmp = TempPath(Downloads[_fileIndex].file);
                     if (File.Exists(tmp)) {
                         File.Delete(tmp);
                     }
@@ -318,7 +357,7 @@ namespace Iroca {
                 if (!Directory.Exists(dir)) {
                     return;
                 }
-                foreach (var (file, _, _) in Files) {
+                foreach (var (_, file, _, _) in Downloads) {
                     string prefix = file + TempMarker;
                     foreach (string path in Directory.GetFiles(dir, prefix + "*")) {
                         string name = Path.GetFileName(path);

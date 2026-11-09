@@ -784,8 +784,8 @@ namespace Iroca {
             : "Open the folder where the model files (.onnx) should be placed.";
         public static string AiSuggestDownload => IsJapanese ? "モデルをダウンロード" : "Download models";
         public static string AiSuggestDownloadTooltip => IsJapanese
-            ? "MobileSAM の AI モデル 2 ファイル（合計約 44 MB、Apache-2.0 ライセンス）を\n{0}\nからダウンロードし、モデルフォルダへ自動配置します（sha256 検証つき）"
-            : "Download the two MobileSAM model files (about 44 MB total, Apache-2.0 license) from\n{0}\nand place them into the model folder automatically (with sha256 verification).";
+            ? "MobileSAM の AI モデル 2 ファイル（合計約 44 MB、Apache-2.0 ライセンス）を\n{0}\nからダウンロードし、モデルフォルダへ自動配置します（sha256 検証つき。ライセンスの全文と NOTICE も一緒に置きます）"
+            : "Download the two MobileSAM model files (about 44 MB total, Apache-2.0 license) from\n{0}\nand place them into the model folder automatically (with sha256 verification, together with the license text and NOTICE).";
         public static string AiSuggestDownloading => IsJapanese ? "モデルをダウンロード中…" : "Downloading models...";
         public static string AiSuggestDownloadCancel => IsJapanese ? "中止" : "Cancel";
         public static string AiSuggestDownloadCancelTooltip => IsJapanese
