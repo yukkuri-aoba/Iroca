@@ -105,11 +105,9 @@ namespace Iroca {
                         }
                     });
             } finally {
-                // 中断中(ドメインのアンロード)は、並列で使っている途中のスレッドが残っていることがあるので返さない。
-                if (!IrocaNativeMemory.CurrentThreadAborting) {
-                    foreach (var p in rented) {
-                        WorkPools.Int.Return((int*)p);
-                    }
+                // 中断中(ドメインのアンロード)かはプールの Return が見て、そのときは貸し出し中のまま残す(借りた側は見ない)。
+                foreach (var p in rented) {
+                    WorkPools.Int.Return((int*)p);
                 }
             }
             return total;

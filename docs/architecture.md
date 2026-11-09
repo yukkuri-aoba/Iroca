@@ -202,6 +202,10 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
     `Release` する。返しすぎ・解放後の `AddRef` はいつも投げる。
   - 中断中（ドメインのアンロード）の最後の `Release` は解放せず、アンロードまで持つ（並列で使っている途中のスレッドが
     残っていることがある）。持ち主の側では中断を見ない。
+  - 作業配列のプールの `Return` も中断を見て、中断中は貸し出し中のまま残す（同じ理由。解放はアンロードの後の
+    ファイナライザ）。借りた側（`WorkScratch`・`finally` で返す所）は中断を見ずに返す。中断を見てよいのは
+    `IrocaNativeMemory`（定義）・`NativeBuffer`・`NativeWorkPool.Return` だけ
+    （`scripts/source_checks/test_current_thread_aborting_owners.py`）。
   - 返し忘れはファイナライザ（`SafeHandle`）が解放し、用途つきで数える（`IrocaNativeMemory.FinalizedCount`。
     `--nativememselftest` が 0 であることを確かめる）。
 - マスクとビット列は `NativeBitMask`（1 画素 1 ビット、参照の数で持ち、書くときだけ写す）。
@@ -251,6 +255,7 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
 | `scripts/source_checks/test_editor_prefs_keys.py` | 6 章の、EditorPrefs / SessionState のキー |
 | `scripts/source_checks/test_algorithm_constants.py` | 定数の台帳と、直書きの小数を増やさない |
 | `scripts/source_checks/test_harness_scope.py` | 視覚レビューのゲートの範囲が、ハーネスのコンパイルする製品ソースと一致する |
+| `scripts/source_checks/test_current_thread_aborting_owners.py` | 4 章の、中断中かを見るのはヒープの外のメモリの持ち主（`NativeBuffer`・プールの `Return`）だけ |
 | golden・abcheck・`RuntimeParityTests` | 作り替えで出力が変わらない（`docs/testing-architecture.md`） |
 
 `scripts/source_checks` は C# のソースを読むだけで、ハーネスも Unity も要らない。CI（`.github/workflows/ci.yml`）で

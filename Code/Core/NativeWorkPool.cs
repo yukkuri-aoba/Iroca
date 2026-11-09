@@ -425,10 +425,7 @@ namespace Iroca {
         }
 
         public void Dispose() {
-            // 中断中(ドメインのアンロード)は、並列で使っている途中のスレッドが残っていることがあるので返さない。
-            if (IrocaNativeMemory.CurrentThreadAborting) {
-                return;
-            }
+            // 中断中(ドメインのアンロード)かはプールの Return が見て、そのときは貸し出し中のまま残す(借りた側は見ない)。
             if (_bools != null) {
                 foreach (var p in _bools) {
                     WorkPools.Bool.Return((bool*)p);

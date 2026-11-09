@@ -307,11 +307,9 @@ namespace Iroca {
                     System.Buffer.MemoryCopy(cropMask + (long)cy * rw, mask + (long)(ry0 + cy) * w + rx0, rw, rw);
                 }
             } finally {
-                // 中断中は返さない(並列で読んでいる途中のスレッドが残っていることがある)。
-                if (!IrocaNativeMemory.CurrentThreadAborting) {
-                    WorkPools.Bool.Return(cropMask);
-                    WorkPools.Rgba32.Return(cropPx);
-                }
+                // 中断中はプールの Return が見て、貸し出し中のまま残す(借りた側は見ない)。
+                WorkPools.Bool.Return(cropMask);
+                WorkPools.Rgba32.Return(cropPx);
             }
         }
 
@@ -326,10 +324,8 @@ namespace Iroca {
             try {
                 return UpscaleChannel(logits, channel, texW, texH, newW, newH, up, token);
             } finally {
-                // 中断中は返さない(並列で読んでいる途中のスレッドが残っていることがある)。
-                if (!IrocaNativeMemory.CurrentThreadAborting) {
-                    WorkPools.Float.Return(up);
-                }
+                // 中断中はプールの Return が見て、貸し出し中のまま残す(借りた側は見ない)。
+                WorkPools.Float.Return(up);
             }
         }
 
