@@ -1,23 +1,26 @@
 # クレジット / Credits
 
+[日本語](#日本語) | [English](#english)
+
+---
+
+## 日本語
+
 いろか（Iroca）の開発で使わせていただいたデータ・ソフトウェアの一覧です。
-Credits for the data and software used to develop Iroca.
-
 最新版は https://github.com/yukkuri-aoba/Iroca/blob/main/CREDITS.md にあります。
-The latest version is at the URL above.
 
-## 制作 / Production
+### 制作
 
-| 役割 / Role | 名前 / Name |
+| 役割 | 名前 |
 |---|---|
-| 開発 / Developer | **yukkuri__aoba** |
-| AI 補助 / AI Assistance | **Claude** |
-| AI マスク提案のモデル / AI Mask Suggestion Model | **MobileSAM** |
+| 開発 | **yukkuri__aoba** |
+| AI 補助 | **Claude** |
+| AI マスク提案のモデル | **MobileSAM** |
 
-Copyright (c) 2026 yukkuri__aoba  
+Copyright (c) 2026 yukkuri__aoba
 Licensed under [PolyForm Shield License 1.0.0](LICENSE)
 
-## アルゴリズムの開発に使用したデータ（敬称略） / Data Used for Algorithm Development
+### アルゴリズムの開発に使用したデータ（敬称略）
 
 色抽出・マスク生成・領域判定の開発と検証に、次のモデル・衣装のテクスチャを使用させていただきました。
 
@@ -274,7 +277,7 @@ MetaCreatorsTYO Item
 Birdie Time  
 [【無料】しなの対応さきゅぎゃるセーラー服](https://booth.pm/ja/items/8655721)
 
-### データの扱い / How the data is handled
+### データの扱い
 
 - 配布パッケージ（zip・インストーラ）にはモデルやテクスチャのデータは含まれていません。
 - オンラインマニュアルの画面写真と実演画像、紹介動画（README とマニュアルの冒頭のサムネイルを含む）には、かなリぁ「ハオラン-HAOLAN」のテクスチャとモデル（一部は色替え後）を、ライセンスに基づき掲載しています。
@@ -282,18 +285,57 @@ Birdie Time
   また、AI マスク提案機能のモデルの学習にも一切使用していません。
 - 各アバター・衣装の作者様から提供されている VN3 ライセンス等には抵触していない認識ですが、
   万一問題があればお問い合わせください。
+- 画像生成系 AI モデルはどの工程にも一切使用していません。
 
-The distributed packages (zip and installer) contain no model or texture data from the above.
-The data was used only to develop and test the algorithms, never to train any AI model.
-The screenshots, demo images, and intro video of the online manual (including the thumbnails at the top of the README and the manual) show the textures and model of かなリぁ's "ハオラン-HAOLAN" (some recolored), under its license.
-If you find any problem, please contact us.
-
-## サードパーティ / Third-party
+### サードパーティ
 
 - **VPMPackageAutoInstaller**（`Iroca_Installer.unitypackage` に同梱）: Copyright (c) 2022 anatawa12 — MIT License（[全文](https://github.com/anatawa12/VPMPackageAutoInstaller/blob/master/LICENSE)）
 - **MobileSAM**（AI マスク提案のモデル。いろか本体には含まれず、初回にダウンロード）: Apache License 2.0 — 変換済みモデルと NOTICE は [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models)
 - **Noto Sans JP**（オンラインマニュアルの書体。マニュアルに出る字だけに絞って使用。いろか本体には含まれません）: Copyright 2014-2021 Adobe — SIL Open Font License 1.1（[全文](docs/manual/fonts/OFL.txt)）
 
-## 連絡先 / Contact
+### 連絡先
+
+- Misskey.io: [@yukkuri__aoba@misskey.io](https://misskey.io/@yukkuri__aoba)
+
+---
+
+## English
+
+Credits for the data and software used to develop Iroca.
+The latest version is at https://github.com/yukkuri-aoba/Iroca/blob/main/CREDITS.md.
+
+### Production
+
+| Role | Name |
+|---|---|
+| Developer | **yukkuri__aoba** |
+| AI Assistance | **Claude** |
+| AI Mask Suggestion Model | **MobileSAM** |
+
+Copyright (c) 2026 yukkuri__aoba
+Licensed under [PolyForm Shield License 1.0.0](LICENSE)
+
+### Data Used for Algorithm Development
+
+The following models and clothing textures were used for the development and verification of color extraction, mask generation, and region detection (honorifics omitted).
+
+The list of creators and products is kept in one place, in the [Japanese section above](#アルゴリズムの開発に使用したデータ敬称略). Creator and shop names and product titles are shown as published on BOOTH, each linked to its product page.
+
+### How the data is handled
+
+- The distributed packages (zip and installer) contain no model or texture data from the above.
+- The data was used only to develop and test the algorithms, never to train any AI model.
+- The screenshots, demo images, and intro video of the online manual (including the thumbnails at the top of the README and the manual) show the textures and model of かなリぁ's "ハオラン-HAOLAN" (some recolored), under its license.
+- AI is used for coding, with settings that opt out of model training. It was not used to train the AI mask suggestion model either.
+- We believe we have not violated the licenses (such as the VN3 license) provided by the creators of each avatar and outfit. If you find any problem, please contact us.
+- No image-generation AI model is used at any stage.
+
+### Third-party
+
+- **VPMPackageAutoInstaller** (bundled in `Iroca_Installer.unitypackage`): Copyright (c) 2022 anatawa12 — MIT License ([full text](https://github.com/anatawa12/VPMPackageAutoInstaller/blob/master/LICENSE))
+- **MobileSAM** (the AI mask suggestion model; not included in Iroca itself, downloaded on first use): Apache License 2.0 — the converted model and NOTICE are in [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models)
+- **Noto Sans JP** (the typeface of the online manual, limited to the characters used in the manual; not included in Iroca itself): Copyright 2014-2021 Adobe — SIL Open Font License 1.1 ([full text](docs/manual/fonts/OFL.txt))
+
+### Contact
 
 - Misskey.io: [@yukkuri__aoba@misskey.io](https://misskey.io/@yukkuri__aoba)
