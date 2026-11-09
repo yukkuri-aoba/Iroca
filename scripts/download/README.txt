@@ -7,6 +7,7 @@ English follows the Japanese text.
 ・Iroca_Installer.unitypackage … インストーラです。読み込むと、いろかの最新版をダウンロードして入れます
 ・README.txt … このファイル
 ・LICENSE.txt … 利用規約（PolyForm Shield License 1.0.0）
+・THIRD_PARTY_NOTICES.txt … インストーラに同梱しているソフトウェアのライセンス表示
 
 ■ 導入方法
 1. Unity でプロジェクトを開きます
@@ -54,7 +55,7 @@ https://polyformproject.org/licenses/shield/1.0.0
 ■ クレジット
 開発に使用させていただいたモデル・AI モデル・ソフトウェアの一覧は、いろかのウィンドウ右上の「クレジット」と
 https://github.com/yukkuri-aoba/Iroca/blob/main/CREDITS.md にあります。
-インストーラに同梱しているソフトウェア: VPMPackageAutoInstaller／anatawa12（MIT License）
+インストーラに同梱しているソフトウェア: VPMPackageAutoInstaller／anatawa12（MIT License。THIRD_PARTY_NOTICES.txt に全文）
 https://github.com/anatawa12/VPMPackageAutoInstaller
 
 ■ 配布元・連絡先
@@ -74,6 +75,7 @@ The Japanese text above is the official version.
 - Iroca_Installer.unitypackage: the installer. Importing it downloads and installs the latest Iroca
 - README.txt: this file
 - LICENSE.txt: the license (PolyForm Shield License 1.0.0)
+- THIRD_PARTY_NOTICES.txt: the license notice for the software bundled in the installer
 
 [Installation]
 1. Open your project in Unity
@@ -119,4 +121,4 @@ Modify and publish avatars and outfits according to their own terms of use, at y
 [Credits]
 See the "Credits" button in the Iroca window, or
 https://github.com/yukkuri-aoba/Iroca/blob/main/CREDITS.md
-Bundled in the installer: VPMPackageAutoInstaller by anatawa12 (MIT License)
+Bundled in the installer: VPMPackageAutoInstaller by anatawa12 (MIT License; full text in THIRD_PARTY_NOTICES.txt)

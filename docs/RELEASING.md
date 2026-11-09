@@ -10,7 +10,7 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
 ```
 
 - 配布資産は 2 つ。
-  - **配布 zip**（`Iroca_v<VERSION>.zip`）: 利用者がダウンロードするもの（リリースページ。BOOTH は名前だけ違う同じ中身の zip →「BOOTH の zip」）。中身は VPAI インストーラ・`README.txt`（導入方法・動作環境・利用規約の要約・連絡先。原稿は `scripts/download/README.txt`）・`LICENSE.txt`。`scripts/Build-DownloadZip.ps1` が作る。インストーラは読み込んだ時点の最新版を入れ、README にも版を書かないので、中身は版に依らない。
+  - **配布 zip**（`Iroca_v<VERSION>.zip`）: 利用者がダウンロードするもの（リリースページ。BOOTH は名前だけ違う同じ中身の zip →「BOOTH の zip」）。中身は VPAI インストーラ・`README.txt`（導入方法・動作環境・利用規約の要約・連絡先。原稿は `scripts/download/README.txt`）・`LICENSE.txt`・`THIRD_PARTY_NOTICES.txt`（インストーラに入れた VPAI の MIT 表示。原稿は `scripts/download/`）。`scripts/Build-DownloadZip.ps1` が作る。インストーラは読み込んだ時点の最新版を入れ、README にも版を書かないので、中身は版に依らない。
   - **VPM zip**（`com.yukkuri-aoba.iroca-<VERSION>.zip`）: git 追跡ファイルだけから作るパッケージ本体。VCC / ALCOM と VPAI インストーラがこれを取得する。VPM の決まりで `package.json` を頂点に置く形なので、利用者が開くものではなく、unitypackage も入れない。
   - VPAI インストーラ（`Iroca_Installer.unitypackage`、後述）は配布 zip に入れて配り、単体ではリリースに添付しない（資産の欄に並ぶものを減らして、利用者が取るものを迷わないように。2026-10-15 ユーザー決定）。
 - **CI が作るのは draft まで**。資産アップロードと publish は手動。

@@ -4,7 +4,8 @@
 
 .DESCRIPTION
     利用者がリリースページや BOOTH からダウンロードする zip を作る。中身は VPAI インストーラ
-    （Iroca_Installer.unitypackage）・README.txt・LICENSE.txt の 3 つ。
+    （Iroca_Installer.unitypackage）・README.txt・LICENSE.txt・THIRD_PARTY_NOTICES.txt の 4 つ
+    （最後はインストーラに同梱している VPAI の MIT ライセンス表示）。
     VPM zip（com.yukkuri-aoba.iroca-<VERSION>.zip）は VCC / ALCOM とインストーラが取得する
     パッケージ本体で、package.json を頂点に置く決まった形なので、こちらに混ぜない。
 
@@ -61,7 +62,7 @@ if ($SupporterMessage -eq "") {
 }
 
 # zip の中身の元になるファイル（インストーラは設定と Build-Installer.ps1 の creator の版で決まる）。
-$Sources = @("scripts/download/README.txt", "LICENSE",
+$Sources = @("scripts/download/README.txt", "scripts/download/THIRD_PARTY_NOTICES.txt", "LICENSE",
              "scripts/installer/vpai-config.json", "scripts/Build-Installer.ps1")
 
 # 中身の元になるファイルの、最後のコミット日時。コミットしていない変更があると、
@@ -88,6 +89,7 @@ $baseEntries = [ordered]@{
     "Iroca_Installer.unitypackage" = [System.IO.File]::ReadAllBytes($InstallerPath)
     "README.txt"                   = Get-WindowsTextBytes (Read-Utf8 (Join-Path $PSScriptRoot "download\README.txt"))
     "LICENSE.txt"                  = Get-WindowsTextBytes (Read-Utf8 (Join-Path $Root "LICENSE"))
+    "THIRD_PARTY_NOTICES.txt"      = Get-WindowsTextBytes (Read-Utf8 (Join-Path $PSScriptRoot "download\THIRD_PARTY_NOTICES.txt"))
 }
 $baseTime = Get-SourceTime $Root $Sources
 
