@@ -68,6 +68,49 @@ namespace Iroca.EditorTests {
             AssertOnlyRightHalfChanged(Run(preset, out _));
         }
 
+        [System.Serializable]
+        private class PresetListJson {
+            public System.Collections.Generic.List<PresetEntryJson> presets = new System.Collections.Generic.List<PresetEntryJson>();
+        }
+
+        [System.Serializable]
+        private class PresetEntryJson { public string name = ""; public string path = ""; public string scope = ""; }
+
+        [Test]
+        public void ListPresets_UserPresetPath_CanBePassedAsThePreset() {
+            // ListPresets が返すユーザー側(%APPDATA%)のプリセットの path は、プロジェクトの外でもそのまま使える(読むだけ)。
+            string name = "IrocaAutomationTest_" + System.Guid.NewGuid().ToString("N");
+            var preset = RedToBlue(out _);
+            preset.name = name;
+            Assert.IsTrue(PresetStore.SaveToUser(name, preset));
+            string saved = PresetStore.PresetFilePath(PresetStore.UserPresetFolder, name);
+            // 名前の前の部分だけが同じ隣のフォルダ(区切りまで見ていないと中に見える)。
+            string outsideDir = PresetStore.UserPresetFolder + "_" + name;
+            string outside = Path.Combine(outsideDir, name + ".json");
+            try {
+                var list = JsonUtility.FromJson<PresetListJson>(IrocaAutomation.ListPresets());
+                var entry = list.presets.Single(p => p.name == name);
+                Assert.AreEqual("user", entry.scope);
+
+                string src = _assets.WritePng("src", Enumerable.Repeat(Red, W * H).ToArray(), W, H);
+                string json = IrocaAutomation.RecolorByPreset(src, entry.path, _assets.Folder + "/out.png");
+                Assert.IsTrue(JsonUtility.FromJson<IrocaAutomation.RecolorResult>(json).ok, json);
+
+                // ユーザーのプリセットのフォルダの外は、これまでどおり読まない。
+                Directory.CreateDirectory(outsideDir);
+                File.Copy(saved, outside, overwrite: true);
+                json = IrocaAutomation.RecolorByPreset(src, outside, _assets.Folder + "/out2.png");
+                StringAssert.Contains("preset not found", JsonUtility.FromJson<IrocaAutomation.RecolorResult>(json).error);
+            } finally {
+                if (File.Exists(saved)) {
+                    File.Delete(saved);
+                }
+                if (Directory.Exists(outsideDir)) {
+                    Directory.Delete(outsideDir, recursive: true);
+                }
+            }
+        }
+
         // ─── 調べる(Inspect) ───
 
         [Test]

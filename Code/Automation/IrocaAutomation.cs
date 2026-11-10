@@ -571,7 +571,7 @@ namespace Iroca {
                 return null;
             }
 
-            string abs = ResolveExistingFile(spec);
+            string abs = ResolveExistingFile(spec) ?? UserPresetFileOrNull(spec);
             if (abs != null) {
                 return PresetStore.Load(abs);
             }
@@ -588,6 +588,35 @@ namespace Iroca {
                 }
             }
             return null;
+        }
+
+        /// <summary>
+        /// ユーザー側のプリセットのフォルダ(<see cref="PresetStore.UserPresetFolder"/>。%APPDATA% の下)の *.json なら、その
+        /// 絶対パス。違えば null。プロジェクトの外を読むのはここだけで、読むだけ(<see cref="ListPresets"/> が返す path を
+        /// そのまま preset に渡せるように。以前はプロジェクトの外として断っていた)。
+        /// </summary>
+        private static string UserPresetFileOrNull(string path) {
+            string folder;
+            string abs;
+            try {
+                if (!Path.IsPathRooted(path)) {
+                    return null;
+                }
+                folder = Path.GetFullPath(PresetStore.UserPresetFolder);
+                abs = Path.GetFullPath(path);
+            } catch (Exception) {
+                return null;
+            }
+            // フォルダの直下だけ(区切りまで比べる。名前の前の部分だけが同じ隣のフォルダは外)。
+            string dir = Path.GetDirectoryName(abs);
+            if (dir == null || !string.Equals(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)) {
+                return null;
+            }
+            if (!abs.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || !File.Exists(abs)) {
+                return null;
+            }
+            return abs;
         }
 
         private static void AddPresets(PresetList list, string folder, string scope) {
