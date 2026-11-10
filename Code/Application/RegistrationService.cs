@@ -90,6 +90,11 @@ namespace Iroca {
             public int sharedPlaces;
             /// <summary>使うレシピを、登録先のほかに使っている所(登録した後の編集がそちらの色にも効く)。</summary>
             public List<IrocaRecolor> otherUsers;
+            /// <summary>
+            /// 登録先の「Iroca Recolor」にある、消えたレシピ(Missing)の欄の数。ビルドはこの欄で止まる。窓の登録は確認を取って
+            /// 外し、自動化は外さずに警告する。
+            /// </summary>
+            public int lostSlots;
         }
 
         /// <summary><paramref name="target"/> に <paramref name="recipe"/>(null = 新しく作る)を登録するときの計画。</summary>
@@ -105,21 +110,24 @@ namespace Iroca {
             }
             plan.shared = RecipeRegistration.UsedOutside(target, plan.exportUsers, out plan.sharedPlaces);
             plan.otherUsers = RecipeRegistration.OtherUsers(recipe, target);
+            plan.lostSlots = RecipeRegistration.LostSlots(target);
             return plan;
         }
 
         /// <summary>
         /// 書き出した画像を差しているマテリアルを元のテクスチャへ戻し、<paramref name="recipe"/> を登録先のコンポーネントへ足す
         /// (呼ぶ側の Undo グループに入る)。<paramref name="keepShared"/> なら、登録先の外でも使われているマテリアルは戻さない。
+        /// <paramref name="replaceLost"/> なら、消えたレシピの欄を外す(<see cref="RecipeRegistration.Attach"/>)。
         /// 戻したマテリアルの数を返す。
         /// </summary>
-        internal static int SwitchAndAttach(Plan plan, IrocaRecipe recipe, bool keepShared, out IrocaRecolor component) {
+        internal static int SwitchAndAttach(Plan plan, IrocaRecipe recipe, bool keepShared, out IrocaRecolor component,
+            bool replaceLost = false) {
             var switchList = new List<Material>(plan.exportUsers);
             if (keepShared) {
                 switchList.RemoveAll(plan.shared.Contains);
             }
             int switched = RecipeRegistration.SwitchToSource(switchList, plan.source, plan.exports);
-            component = RecipeRegistration.Attach(plan.target, recipe);
+            component = RecipeRegistration.Attach(plan.target, recipe, replaceLost);
             return switched;
         }
     }

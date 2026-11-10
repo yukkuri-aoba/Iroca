@@ -1435,6 +1435,10 @@ namespace Iroca {
             ? "このうち {0} 個は、開いているシーンで登録先の外の {1} か所でも使われていて、そちらも元の色に戻ります。戻さないときは「{2}」を押してください（そのマテリアルには非破壊の色替えが効きません）。"
             : "{0} of them are also used in {1} place(s) outside the target in the open scenes, which also go back to the original colors. To leave them as they are, press \"{2}\" (the non-destructive recolor does not apply to those materials).";
         public static string RegisterKeepShared => IsJapanese ? "共有の分は戻さずに登録" : "Register, keep shared";
+        // {0} = 登録先の「Iroca Recolor」にある、消えたレシピ(Missing)の欄の数。
+        public static string RegisterLostSlotsFormat => IsJapanese
+            ? "このオブジェクトの「Iroca Recolor」に、消えたレシピ（Missing）の欄が {0} 個あります。登録すると外します（残すとアップロードが止まり続けます）。Git などでレシピを戻すときは、キャンセルしてください。"
+            : "The \"Iroca Recolor\" on this object has {0} entr(ies) whose recipe no longer exists (Missing). Registering removes them (left as they are, they keep stopping the upload). To restore the recipes instead (for example with Git), press Cancel.";
         // {0} = レシピを使っているほかのオブジェクトの名前の並び（NameQuoteFormat で囲み、多ければ NameListMoreFormat）。
         public static string RegisterRecipeSharedFormat => IsJapanese
             ? "このレシピは、開いているシーンの{0}でも使われています。内容は共通なので、登録したあとの編集はそちらの色にも効きます。"

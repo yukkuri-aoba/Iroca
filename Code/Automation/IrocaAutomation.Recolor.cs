@@ -670,6 +670,13 @@ namespace Iroca {
                     r.warnings.Add($"switched {switched} material(s) from the exported image back to the source texture. "
                         + "The material files themselves were changed, so other scenes or prefabs that use them also show the source texture.");
                 }
+                // 消えたレシピ(Missing)の欄は外さない(確認画面が無い。窓の登録は確認を取って外す)。ビルドはそこで止まる。
+                if (plan.lostSlots > 0) {
+                    r.warnings.Add($"'{r.avatar}' has {plan.lostSlots} recipe entr{(plan.lostSlots == 1 ? "y" : "ies")} whose recipe asset "
+                        + "no longer exists (Missing). They were left as they are, and uploading stops on them until the recipe "
+                        + "assets are restored (for example with Git) or the entries are removed from the Iroca Recolor component "
+                        + "(registering from the Iroca window removes them after asking).");
+                }
                 foreach (var m in plan.shared) {
                     string label = AssetDatabase.GetAssetPath(m);
                     if (string.IsNullOrEmpty(label)) {

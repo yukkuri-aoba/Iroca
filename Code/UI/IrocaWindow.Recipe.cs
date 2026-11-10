@@ -464,6 +464,10 @@ namespace Iroca {
             if (plan.replaced != null) {
                 message += "\n\n" + string.Format(Localization.RegisterReplaceFormat, texture, AssetDatabase.GetAssetPath(plan.replaced));
             }
+            // 消えたレシピ(Missing)の欄は、登録すると外す(残すとビルドが止まり続ける)。Git などで戻すならキャンセル。
+            if (plan.lostSlots > 0) {
+                message += "\n\n" + string.Format(Localization.RegisterLostSlotsFormat, plan.lostSlots);
+            }
             // 流用するレシピ(別のアバターに登録済みの同じテクスチャのレシピなど)をほかでも使っていれば、
             // 登録した後の編集がそちらの色にも効くことを知らせる。
             if (plan.otherUsers.Count > 0) {
@@ -508,7 +512,8 @@ namespace Iroca {
                 BindRecipe(recipe);
             }
             SessionPersistence.MarkRecipeSynced(recipe);
-            RegistrationService.SwitchAndAttach(plan, recipe, keepShared: choice == 2, out var component);
+            // 消えたレシピの欄は確認画面で知らせてあるので外す(RegisterMessage)。
+            RegistrationService.SwitchAndAttach(plan, recipe, keepShared: choice == 2, out var component, replaceLost: true);
             Undo.CollapseUndoOperations(undoGroup);
             return component;
         }

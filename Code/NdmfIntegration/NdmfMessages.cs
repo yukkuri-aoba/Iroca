@@ -18,7 +18,7 @@ namespace Iroca.NdmfIntegration {
 
             ["iroca.build_failed.lost_recipe"] = "いろか: レシピが見つかりません",
             ["iroca.build_failed.lost_recipe:description"] = "{0} が指しているレシピがもうありません。そのため色替えできませんでした。",
-            ["iroca.build_failed.lost_recipe:hint"] = "レシピを元に戻す（Git など）か、いろかのウィンドウから登録し直してください。この色替えなしでアップロードするときは、コンポーネントの欄を外してください。",
+            ["iroca.build_failed.lost_recipe:hint"] = "レシピを元に戻す（Git など）か、いろかのウィンドウでテクスチャを色替えし直し、同じオブジェクトへ「アバターに非破壊で登録」してください（確認画面のとおり、消えた欄は外れます）。この色替えなしでアップロードするときは、コンポーネントの消えた欄を外してください。",
 
             ["iroca.build_failed.no_source"] = "いろか: レシピに元テクスチャがありません",
             ["iroca.build_failed.no_source:description"] = "{0} のレシピ {1} に元テクスチャが設定されていないので、色替えできませんでした。",
@@ -44,7 +44,7 @@ namespace Iroca.NdmfIntegration {
 
             ["iroca.build_failed.lost_recipe"] = "Iroca: The recipe is missing",
             ["iroca.build_failed.lost_recipe:description"] = "{0} points to a recipe that no longer exists, so it could not be recolored.",
-            ["iroca.build_failed.lost_recipe:hint"] = "Restore the recipe (for example with Git), or register again from the Iroca window. To upload without this recolor, remove the entry from the component.",
+            ["iroca.build_failed.lost_recipe:hint"] = "Restore the recipe (for example with Git), or recolor the texture again in the Iroca window and use \"Register to avatar (non-destructive)\" on the same object (as the confirmation says, the missing entries are removed). To upload without this recolor, remove the missing entry from the component.",
 
             ["iroca.build_failed.no_source"] = "Iroca: The recipe has no source texture",
             ["iroca.build_failed.no_source:description"] = "Recipe {1} of {0} has no source texture, so it could not be recolored.",

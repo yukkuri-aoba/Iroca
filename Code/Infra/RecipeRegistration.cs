@@ -119,12 +119,45 @@ namespace Iroca {
         }
 
         /// <summary>
+        /// <paramref name="target"/> に付いている <see cref="IrocaRecolor"/> の、消えたレシピ(Missing)の欄の数。ビルドはこの欄で
+        /// 止まる(<see cref="NonDestructiveApplier.Problem.LostRecipe"/>)。登録し直すと外すので、確認画面・警告に出す。
+        /// </summary>
+        public static int LostSlots(GameObject target) {
+            int count = 0;
+            if (target == null) {
+                return count;
+            }
+            foreach (var c in target.GetComponents<IrocaRecolor>()) {
+                count += LostIndices(c).Count;
+            }
+            return count;
+        }
+
+        // 消えたレシピ(Missing)の欄の位置(並び順)。空の欄(利用者が外した)は入れない。
+        private static List<int> LostIndices(IrocaRecolor component) {
+            var found = new List<int>();
+            using (var so = new SerializedObject(component)) {
+                var list = so.FindProperty(nameof(IrocaRecolor.recipes));
+                for (int i = 0; list != null && i < list.arraySize; i++) {
+                    var element = list.GetArrayElementAtIndex(i);
+                    if (element.objectReferenceValue == null && element.objectReferenceInstanceIDValue != 0) {
+                        found.Add(i);
+                    }
+                }
+            }
+            return found;
+        }
+
+        /// <summary>
         /// <paramref name="target"/> の <see cref="IrocaRecolor"/> に <paramref name="recipe"/> を足す(Undo 可。
         /// 1 回の Undo で戻る)。コンポーネントは 1 つにまとめる: 無ければ付け、旧版で複数付いていれば
         /// 先頭へまとめる。同じ元テクスチャの別のレシピがあればその場所で置き換える(同じテクスチャを
         /// 1 つのコンポーネントで 2 回色替えしても、先のものしか効かないため)。
+        /// <paramref name="replaceLost"/> なら、消えたレシピ(Missing)の欄を外す(足すレシピは最初の消えた欄の位置へ入れる。
+        /// 置き換えも登録済みも無いとき)。消えた欄はビルドを止める守りなので、確認を取った窓の登録だけが外す
+        /// (エラーの案内どおり登録し直しても、欄が残ってビルドが止まり続けないように)。
         /// </summary>
-        public static IrocaRecolor Attach(GameObject target, IrocaRecipe recipe) {
+        public static IrocaRecolor Attach(GameObject target, IrocaRecipe recipe, bool replaceLost = false) {
             int group = Undo.GetCurrentGroup();
             Undo.SetCurrentGroupName("Iroca: Register Recolor");
             var c = MergeComponents(target);
@@ -133,14 +166,21 @@ namespace Iroca {
             }
             Undo.RecordObject(c, "Iroca: Register Recolor");
             c.recipes ??= new List<IrocaRecipe>();
+            var lost = replaceLost ? LostIndices(c) : new List<int>();
             if (!c.recipes.Contains(recipe)) {
                 var source = recipe != null ? recipe.sourceTexture : null;
                 int same = c.recipes.FindIndex(r => r != null && source != null && r.sourceTexture == source);
                 if (same >= 0) {
                     c.recipes[same] = recipe;
+                } else if (lost.Count > 0) {
+                    c.recipes[lost[0]] = recipe;
+                    lost.RemoveAt(0);
                 } else {
                     c.recipes.Add(recipe);
                 }
+            }
+            for (int i = lost.Count - 1; i >= 0; i--) {
+                c.recipes.RemoveAt(lost[i]);
             }
             Undo.CollapseUndoOperations(group);
             EditorUtility.SetDirty(c);

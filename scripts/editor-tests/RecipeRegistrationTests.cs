@@ -204,7 +204,7 @@ namespace Iroca.EditorTests {
             var assets = TestAssets.Create();
             GameObject loaded = null;
             try {
-                var (prefabPath, _) = LostRecipePrefab(assets, twoComponents: true);
+                var (prefabPath, _) = LostRecipePrefab(assets, new[] { "alive" }, new[] { "lost", "empty" });
                 loaded = PrefabUtility.LoadPrefabContents(prefabPath);
                 var c2 = loaded.GetComponents<IrocaRecolor>()[1];
                 Assert.IsTrue(NonDestructiveApplier.IsLostReference(c2, 0), "テストの前提(消えたレシピの欄)が崩れている");
@@ -231,36 +231,114 @@ namespace Iroca.EditorTests {
 
         /// <summary>
         /// 消えたレシピ(Missing)の欄を持つプレハブ(利用者がレシピの .asset を消した状態。保存してから読み直すので、
-        /// 欄は GUID で消えたアセットを指す)。1 つ目のコンポーネントは生きているレシピ、twoComponents なら 2 つ目に
-        /// [消えたレシピ, 空の欄]、そうでなければ 1 つ目の後ろに消えたレシピ。生きているレシピを返す。
+        /// 欄は GUID で消えたアセットを指す)。<paramref name="first"/>・<paramref name="second"/>(null なら付けない)は
+        /// コンポーネントごとの欄の並び: "alive" = 生きているレシピ、"lost" と "lost2" = 消えたレシピ、"empty" = 空の欄。
+        /// 生きているレシピとその元テクスチャを返す。
         /// </summary>
-        private static (string prefabPath, IrocaRecipe alive) LostRecipePrefab(TestAssets assets, bool twoComponents) {
+        private static (string prefabPath, IrocaRecipe alive) LostRecipePrefab(TestAssets assets, string[] first,
+            string[] second = null) {
             var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(
                 assets.WritePng("alive", TestAssets.Solid(4, 4, new Color32(200, 40, 40, 255)), 4, 4));
             var alive = ScriptableObject.CreateInstance<IrocaRecipe>();
             alive.sourceTexture = tex;
             AssetDatabase.CreateAsset(alive, assets.Folder + "/alive.asset");
-            var lost = ScriptableObject.CreateInstance<IrocaRecipe>();
-            string lostPath = assets.Folder + "/lost.asset";
-            AssetDatabase.CreateAsset(lost, lostPath);
+            var lost = new Dictionary<string, IrocaRecipe>();
+            foreach (var name in new[] { "lost", "lost2" }) {
+                lost[name] = ScriptableObject.CreateInstance<IrocaRecipe>();
+                AssetDatabase.CreateAsset(lost[name], assets.Folder + "/" + name + ".asset");
+            }
 
             var go = new GameObject("avatar");
             try {
-                var c1 = go.AddComponent<IrocaRecolor>();
-                c1.recipes.Add(alive);
-                if (twoComponents) {
-                    var c2 = go.AddComponent<IrocaRecolor>();
-                    c2.recipes.Add(lost);
-                    c2.recipes.Add(null);   // 空の欄
-                } else {
-                    c1.recipes.Add(lost);
+                foreach (var layout in new[] { first, second }) {
+                    if (layout == null) {
+                        continue;
+                    }
+                    var c = go.AddComponent<IrocaRecolor>();
+                    foreach (var slot in layout) {
+                        c.recipes.Add(slot == "alive" ? alive : slot == "empty" ? null : lost[slot]);
+                    }
                 }
                 string prefabPath = assets.Folder + "/avatar.prefab";
                 PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
-                AssetDatabase.DeleteAsset(lostPath);
+                foreach (var name in lost.Keys) {
+                    AssetDatabase.DeleteAsset(assets.Folder + "/" + name + ".asset");
+                }
                 return (prefabPath, alive);
             } finally {
                 Object.DestroyImmediate(go);
+            }
+        }
+
+        private IrocaRecipe OtherRecipe(TestAssets assets) {
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                assets.WritePng("other", TestAssets.Solid(4, 4, new Color32(40, 40, 200, 255)), 4, 4));
+            return Recipe("other", tex);
+        }
+
+        // 窓の登録(確認を取る)は、消えたレシピの欄を外す: 足すレシピは最初の消えた欄の位置へ入り、残りは外れる(同じ Undo)。
+        // ビルドのエラーの案内どおり登録し直しても、欄が残って止まり続けないように。
+        [Test]
+        public void Attach_ReplaceLost_PutsTheRecipeAtTheFirstLostSlot_AndRemovesTheRest_InOneUndoStep() {
+            var assets = TestAssets.Create();
+            try {
+                var (prefabPath, alive) = LostRecipePrefab(assets, new[] { "lost", "alive", "lost2" });
+                var instance = Track((GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath)));
+                var c = instance.GetComponent<IrocaRecolor>();
+                Assert.AreEqual(2, RecipeRegistration.LostSlots(instance), "テストの前提(消えたレシピの欄が 2 つ)が崩れている");
+                var other = OtherRecipe(assets);
+                var plan = RegistrationService.Describe(instance, other.sourceTexture, other);
+                Assert.AreEqual(2, plan.lostSlots, "確認画面に出す消えた欄の数");
+                StringAssert.Contains(string.Format(Localization.RegisterLostSlotsFormat, 2),
+                    IrocaWindow.RegisterMessage(plan, "recipe", overwritesRecipe: false), "確認画面で消えた欄を外すと知らせていない");
+
+                Undo.IncrementCurrentGroup();
+                RegistrationService.SwitchAndAttach(plan, other, keepShared: false, out var attached, replaceLost: true);
+                Assert.AreSame(c, attached);
+                Assert.AreEqual(2, c.recipes.Count);
+                Assert.AreSame(other, c.recipes[0], "足したレシピが最初の消えた欄の位置に入っていない");
+                Assert.AreEqual(alive.name, c.recipes[1].name);
+                Assert.AreEqual(0, RecipeRegistration.LostSlots(instance), "消えたレシピの欄が残った(ビルドが止まり続ける)");
+
+                Undo.PerformUndo();
+                Assert.AreEqual(2, RecipeRegistration.LostSlots(instance), "1 回の Undo で消えたレシピの欄が戻らない");
+                Assert.AreEqual(3, c.recipes.Count);
+                Assert.IsTrue(NonDestructiveApplier.IsLostReference(c, 0));
+                Assert.IsTrue(NonDestructiveApplier.IsLostReference(c, 2));
+            } finally {
+                assets.Dispose();
+            }
+        }
+
+        // 置き換えでも外す(同じテクスチャのレシピはその場所で置き換え、消えた欄はすべて外れる)。
+        [Test]
+        public void Attach_ReplaceLost_WithASameTextureRecipe_ReplacesInPlace_AndRemovesAllLostSlots() {
+            var assets = TestAssets.Create();
+            try {
+                var (prefabPath, alive) = LostRecipePrefab(assets, new[] { "lost", "alive" });
+                var instance = Track((GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath)));
+                var newer = Recipe("newer", alive.sourceTexture);
+                var c = RecipeRegistration.Attach(instance, newer, replaceLost: true);
+                CollectionAssert.AreEqual(new[] { newer }, c.recipes, "同じテクスチャはその場所で置き換え、消えた欄は外す");
+            } finally {
+                assets.Dispose();
+            }
+        }
+
+        // 確認を取らない登録(自動化)は、消えたレシピの欄を外さない(ビルドを止める守りを黙って消さない)。
+        [Test]
+        public void Attach_WithoutReplaceLost_KeepsLostSlots() {
+            var assets = TestAssets.Create();
+            try {
+                var (prefabPath, _) = LostRecipePrefab(assets, new[] { "lost", "alive" });
+                var instance = Track((GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath)));
+                var other = OtherRecipe(assets);
+                var c = RecipeRegistration.Attach(instance, other);
+                Assert.AreEqual(3, c.recipes.Count);
+                Assert.IsTrue(NonDestructiveApplier.IsLostReference(c, 0), "確認を取らずに消えたレシピの欄を外した");
+                Assert.AreSame(other, c.recipes[2], "足したレシピは後ろに入る");
+            } finally {
+                assets.Dispose();
             }
         }
 
