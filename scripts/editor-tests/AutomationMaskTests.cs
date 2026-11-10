@@ -288,6 +288,16 @@ namespace Iroca.EditorTests {
             StringAssert.Contains("no readable mesh", JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json).error);
         }
 
+        [Test]
+        public void Island_WithoutMesh_Fails_AndReturnsThePixelsTheAutoTuneHeld() {
+            // マスク操作で失敗した依頼でも、自動調整が足した原本の参照を返す(以前は 8K で 256MB がファイナライザまで残った)。
+            string src = AllRed();
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels);
+            string json = Run(_svc, Request(src, RedZone, "[{\"op\":\"dont_paint\",\"at\":[0.25,0.5],\"by\":\"island\"}]", autoTune: true));
+            StringAssert.Contains("no readable mesh", JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json).error);
+            Assert.AreEqual(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels), "原本の参照が残っている");
+        }
+
         // ─── 保存と、iroca_inspect の情報 ───
 
         private void WithAvatar(string src, System.Action body) {

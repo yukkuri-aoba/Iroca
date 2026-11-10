@@ -177,9 +177,9 @@ namespace Iroca {
                 job.Cancel();
                 return FinishRecolor(job.r, $"{ex.GetType().Name}: {ex.Message}");
             } finally {
-                // 待たずに終わった(結果・エラーを返した)依頼の原本はここで返す。待つ依頼は仕上げ・取り消しで返す。
+                // 待たずに終わった(結果・エラーを返した)依頼はここで終える。待つ依頼は仕上げ・取り消しで終える。
                 if (!ReferenceEquals(s_job, job)) {
-                    job.ReleasePixels();
+                    job.Finish();
                     ReleaseMemoryIfNoWindow();
                 }
             }
@@ -245,11 +245,21 @@ namespace Iroca {
             // 終わった結果。問い合わせが来なくても update で仕上げまで進めて、ここに置いておく。
             public string finalJson;
 
-            public void Cancel() {
+            /// <summary>
+            /// 依頼を終える(結果・エラーを返した・取り消した)ときに必ず呼ぶ。マスク操作と自動調整を止めて、それぞれが
+            /// 足した原本の参照を返し、窓が無ければ AI の推論のワーカー(GPU のメモリ)も手放させ、自分の原本も返す。
+            /// 何度呼んでもよい。以前はマスク操作のエラーで終わると自動調整の持つ参照が返らず、8K で 256MB が
+            /// ファイナライザまで残っていた(窓の無い自動化は依頼の終わりに全部返す。architecture.md 4 章)。
+            /// </summary>
+            public void Finish() {
                 maskEdits?.Cancel();
                 tune?.Cancel();
                 tune?.ReleaseAiIfNoWindow();
                 maskEdits?.ReleaseAiIfNoWindow();
+                ReleasePixels();
+            }
+
+            public void Cancel() {
                 cts.Cancel();
                 if (export != null) {
                     bool fullResolution = workIsFullResolution;
@@ -264,11 +274,11 @@ namespace Iroca {
                         }
                     }, TaskScheduler.Default);
                 }
-                ReleasePixels();
+                Finish();
             }
 
-            /// <summary>作業解像度の原本を返す(何度呼んでもよい)。</summary>
-            public void ReleasePixels() {
+            // 作業解像度の原本を返す(何度呼んでもよい)。
+            private void ReleasePixels() {
                 var px = work;
                 work = null;
                 px?.Release();
@@ -288,7 +298,7 @@ namespace Iroca {
                     return;
                 }
                 job.finalJson = done;
-                job.ReleasePixels();
+                job.Finish();
             } catch (Exception ex) {
                 job.Cancel();
                 job.finalJson = FinishRecolor(job.r, $"{ex.GetType().Name}: {ex.Message}");
@@ -329,7 +339,7 @@ namespace Iroca {
             if (job.maskEdits != null) {
                 job.maskEdits.Advance();
                 if (job.maskEdits.Error != null) {
-                    job.maskEdits.ReleaseAiIfNoWindow();
+                    // 原本の参照と AI の後始末は、呼んだ側の RecolorJob.Finish が行う。
                     return FinishRecolor(job.r, job.maskEdits.Error);
                 }
                 if (!job.maskEdits.Done) {
