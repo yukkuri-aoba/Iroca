@@ -545,9 +545,15 @@ namespace Iroca {
     internal sealed class RecipeImportWatcher : AssetPostprocessor {
         private static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets,
             string[] movedAssets, string[] movedFromAssetPaths) {
+            // レシピの .asset が取り込まれたときだけ、窓のレシピを確かめて数え直す(数え直しはプロジェクトのレシピ探し)。
+            // .asset はメッシュ・アニメーションの設定などほかにも多く、ビルドや git の pull のたびに探していた。
             bool anyAsset = false;
             foreach (var path in importedAssets) {
-                if (path.EndsWith(".asset", System.StringComparison.OrdinalIgnoreCase)) { anyAsset = true; break; }
+                if (path.EndsWith(".asset", System.StringComparison.OrdinalIgnoreCase)
+                    && AssetDatabase.GetMainAssetTypeAtPath(path) == typeof(IrocaRecipe)) {
+                    anyAsset = true;
+                    break;
+                }
             }
             // テクスチャが消えていたら、シーンのプレビューが持つ画素も手放す。
             if (deletedAssets.Length > 0) {
