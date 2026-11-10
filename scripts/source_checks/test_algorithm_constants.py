@@ -60,6 +60,7 @@ SCOPE_EXCLUDE = {
     "Code/Core/MaskRle.cs": "保存形式",
     "Code/Core/MaskSnapshot.cs": "マスクの詰め方（中身は変えない）",
     "Code/Core/RecolorSettings.cs": "設定の既定値",
+    "Code/Core/RecolorValueRanges.cs": "設定の範囲（UI のスライダーと同じ。範囲の中の値は丸めで変わらない）",
     "Code/Core/ZonesJsonDefaults.cs": "設定の既定値",
     # UI・座標・入口
     "Code/Core/IrocaConsts.cs": "プレビューの表示の上限",

@@ -221,6 +221,15 @@ namespace Iroca {
             if (sortedZones == null) {
                 throw new System.ArgumentNullException(nameof(sortedZones));
             }
+            // ゾーンの値を範囲へ丸める(点検 A-8。全体設定は RecolorSettings のコンストラクタで丸めてある)。選択の鍵を
+            // 作る前に、範囲の外のときだけ書き戻す。渡されるゾーンは製品では RecolorInput の写し、ハーネスでは自分で
+            // 組んだゾーンなので、利用者の状態は書き換えない。範囲の中の値は触らない(出力はビット単位で同じ)。
+            for (int zi = 0; zi < sortedZones.Count; zi++) {
+                ColorZone zone = sortedZones[zi];
+                if (zone != null && RecolorValueRanges.ClampZone(zone)) {
+                    zone.UpdateCacheIfNeeded();
+                }
+            }
             long lenLong = (long)w * h;
 
             // マスクスナップショットからローカル変数に展開(1bit/画素)

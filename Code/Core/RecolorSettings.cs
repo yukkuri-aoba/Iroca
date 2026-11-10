@@ -16,6 +16,9 @@ namespace Iroca {
     /// 既定値もここが唯一の正（<see cref="IrocaSessionState"/> / <see cref="IrocaPresetData"/> /
     /// <see cref="ZonesJsonDefaults"/> はここの定数を参照する）。セッション・プリセット・zones JSON の
     /// 各フィールドとの対応は scripts/source_checks/test_recolor_settings.py が機械検査する。
+    ///
+    /// 値の範囲（<see cref="RecolorValueRanges"/>）へはコンストラクタで丸める。セッション・プリセット・zones JSON・
+    /// ハーネスのどこから作っても同じ値になる（範囲外・NaN を手で書かれ得るため。点検 A-8）。範囲の中の値は変えない。
     /// </summary>
     internal readonly struct RecolorSettings {
         public const float DefaultEdgeFeather = 0f;
@@ -27,10 +30,10 @@ namespace Iroca {
         public const bool DefaultUseDecontamination = true;
         public const int DefaultDecontaminationRadius = 4;
 
-        // デコンタミ半径の UI 範囲（IrocaWindow.Layout のスライダー）。プリセット JSON は手で書かれ得るので、
-        // 読み込み時にこの範囲へ丸める（UI と MCP のどちらから読んでも同じ値になるよう From で行う）。
-        public const int MinDecontaminationRadius = 1;
-        public const int MaxDecontaminationRadius = 12;
+        // デコンタミ半径の UI 範囲（IrocaWindow.Layout のスライダー）。範囲の正は RecolorValueRanges で、ここは
+        // 以前からの名前を残した別名（丸めはコンストラクタで行う）。
+        public const int MinDecontaminationRadius = RecolorValueRanges.DecontaminationRadiusMin;
+        public const int MaxDecontaminationRadius = RecolorValueRanges.DecontaminationRadiusMax;
 
         public readonly float edgeFeather;
         public readonly int antiAliasCleanup;
@@ -45,14 +48,14 @@ namespace Iroca {
                                int holeFillPasses, int holeFillMinNeighbors,
                                float relaxedSatMin, float relaxedSatRamp,
                                bool useDecontamination, int decontaminationRadius) {
-            this.edgeFeather = edgeFeather;
-            this.antiAliasCleanup = antiAliasCleanup;
-            this.holeFillPasses = holeFillPasses;
-            this.holeFillMinNeighbors = holeFillMinNeighbors;
-            this.relaxedSatMin = relaxedSatMin;
-            this.relaxedSatRamp = relaxedSatRamp;
+            this.edgeFeather = RecolorValueRanges.ClampEdgeFeather(edgeFeather);
+            this.antiAliasCleanup = RecolorValueRanges.ClampAntiAliasCleanup(antiAliasCleanup);
+            this.holeFillPasses = RecolorValueRanges.ClampHoleFillPasses(holeFillPasses);
+            this.holeFillMinNeighbors = RecolorValueRanges.ClampHoleFillMinNeighbors(holeFillMinNeighbors);
+            this.relaxedSatMin = RecolorValueRanges.ClampRelaxedSatMin(relaxedSatMin);
+            this.relaxedSatRamp = RecolorValueRanges.ClampRelaxedSatRamp(relaxedSatRamp);
             this.useDecontamination = useDecontamination;
-            this.decontaminationRadius = decontaminationRadius;
+            this.decontaminationRadius = RecolorValueRanges.ClampDecontaminationRadius(decontaminationRadius);
         }
 
         public static RecolorSettings Default => new RecolorSettings(
@@ -71,8 +74,7 @@ namespace Iroca {
             p.edgeFeather, p.antiAliasCleanup,
             p.holeFillPasses, p.holeFillMinNeighbors,
             p.relaxedSatMin, p.relaxedSatRamp,
-            p.useDecontamination,
-            Mathf.Clamp(p.decontaminationRadius, MinDecontaminationRadius, MaxDecontaminationRadius));
+            p.useDecontamination, p.decontaminationRadius);
 
         public void CopyTo(IrocaSessionState s) {
             s.edgeFeather = edgeFeather;

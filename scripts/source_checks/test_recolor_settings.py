@@ -158,7 +158,8 @@ def _method_body(src: str, signature: str) -> str:
 
 
 @pytest.mark.parametrize("signature,pattern", [
-    (r"public\s+RecolorSettings\s*\(", r"this\.{f}\s*=\s*{f}\s*;"),
+    (r"public\s+RecolorSettings\s*\(",
+     r"this\.{f}\s*=\s*(?:RecolorValueRanges\.Clamp\w+\(\s*{f}\s*\)|{f})\s*;"),
     (r"static\s+RecolorSettings\s+From\s*\(\s*IrocaSessionState\s+s\s*\)", r"\bs\.{f}\b"),
     (r"static\s+RecolorSettings\s+From\s*\(\s*IrocaPresetData\s+p\s*\)", r"\bp\.{f}\b"),
     (r"void\s+CopyTo\s*\(\s*IrocaSessionState\s+s\s*\)", r"\bs\.{f}\s*=\s*{f}\s*;"),
@@ -211,12 +212,25 @@ def test_repro_dump_writes_every_setting():
     assert not missing, f"ReproDump.ToSettingsDto が書いていない設定: {missing}"
 
 
-def test_preset_radius_is_clamped_in_one_place():
-    """プリセットは手で書かれ得る。UI だけが範囲へ丸めていた頃は、同じプリセットでも
-    MCP（Automation）経由だと範囲外の半径で処理され、UI と出力が食い違った。"""
-    body = _method_body(_src(SETTINGS_CS), r"static\s+RecolorSettings\s+From\s*\(\s*IrocaPresetData\s+p\s*\)")
-    assert re.search(r"Clamp\s*\(\s*p\.decontaminationRadius\s*,\s*MinDecontaminationRadius\s*,"
-                     r"\s*MaxDecontaminationRadius\s*\)", body), "From(IrocaPresetData) が半径を丸めていません"
+# 範囲へ丸めない全体設定(真偽値)。ここに足すときは理由を書く。
+UNCLAMPED_SETTINGS = {"useDecontamination"}
+
+
+def test_settings_are_clamped_in_one_place():
+    """プリセット・セッション・zones JSON・ハーネスは範囲外や NaN を手で書かれ得る。UI だけが範囲へ丸めていた頃は、
+    同じプリセットでも MCP（Automation）経由だと範囲外の半径で処理され、UI と出力が食い違った。zones JSON の
+    settings はどこも丸めていなかった（点検 A-8）。丸めはコンストラクタ 1 か所（RecolorValueRanges.Clamp*）に寄せ、
+    From などで個別に丸めない。"""
+    src = _src(SETTINGS_CS)
+    ctor = _method_body(src, r"public\s+RecolorSettings\s*\(")
+    unclamped = [f for f in _settings_fields() if f not in UNCLAMPED_SETTINGS
+                 and not re.search(rf"this\.{f}\s*=\s*RecolorValueRanges\.Clamp\w+\(\s*{f}\s*\)\s*;", ctor)]
+    assert not unclamped, f"RecolorSettings のコンストラクタが範囲へ丸めていない設定: {unclamped}"
+    stale = sorted(UNCLAMPED_SETTINGS - set(_settings_fields()))
+    assert not stale, f"UNCLAMPED_SETTINGS に実在しない設定: {stale}"
+    for sig in (r"static\s+RecolorSettings\s+From\s*\(\s*IrocaSessionState\s+s\s*\)",
+                r"static\s+RecolorSettings\s+From\s*\(\s*IrocaPresetData\s+p\s*\)"):
+        assert "Clamp" not in _method_body(src, sig), f"{sig} が個別に丸めています（コンストラクタに寄せること）"
     presets_view = _src(REPO_ROOT / "Code" / "UI" / "PresetsView.cs")
     assert "decontaminationRadius" not in presets_view, (
         "PresetsView が設定を個別に触っています。丸めや変換は RecolorSettings.From に寄せること")
