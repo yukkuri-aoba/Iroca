@@ -340,6 +340,11 @@ namespace Iroca {
             ColorPalette palette) {
             anchorL = 0f;
             anchorC = 0f;
+            // 空矩形(選択 0 画素。後段の範囲は (0,0,-1,-1))は候補 0 件。下の長さが 0 になり、色の表が無い経路で
+            // 長さ 0 の作業配列を借りて例外で止まっていた(点検 A-1)。色の表の経路は元から false を返す。
+            if (bbMaxX < bbMinX || bbMaxY < bbMinY) {
+                return false;
+            }
             // 候補の (L, C) は外接矩形の画素の添字 y*w+x で置くので、矩形の最後の行の末尾までの長さがあれば足りる
             // (旧: 入力画素の配列の長さ。配列でなくポインタで受けるので長さは持たない)。
             int len = (bbMaxY + 1) * w;

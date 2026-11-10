@@ -416,6 +416,11 @@ def build_cases() -> list[tuple[str, np.ndarray, dict, dict]]:
     # 無彩だけのテクスチャに有彩スポイト（何も選ばれないのが正）
     cases.append(("edge_gray_texture_red_sample", S.vertical_gradient((235, 235, 235), (40, 40, 40)),
                   zone(**red_zone), settings()))
+    # 同じ空の選択で、基準色の自動補正(既定 ON)を通す。選択が 0 画素だと後段の範囲は空で、色の表が無い経路
+    # (IROCA_NO_PALETTE=1・色の種類が多いテクスチャ)では基準色の推定が長さ 0 の作業配列を借りて例外で止まっていた
+    # (点検 A-1)。test_palette_parity が表なしでも回すので、その経路もここで踏む。
+    cases.append(("edge_gray_texture_red_sample_anchor", S.vertical_gradient((235, 235, 235), (40, 40, 40)),
+                  zone(**red_zone, autoRecolorAnchor=True), settings()))
 
     return cases
 

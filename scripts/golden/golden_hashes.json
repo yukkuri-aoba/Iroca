@@ -77,6 +77,14 @@
         4
       ]
     },
+    "edge_gray_texture_red_sample_anchor": {
+      "sha256": "3217db4c5a88f5c3ab195be78ad77679ddc5d405b44b0871da677f709cdb0dd1",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
     "edge_odd_23x37_highlight": {
       "sha256": "62318257e218d70c25ca3a707a3bf8922ec42f13551bc5d9c611031f8435ad11",
       "shape": [
