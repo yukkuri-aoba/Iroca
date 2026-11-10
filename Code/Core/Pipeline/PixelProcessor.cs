@@ -83,6 +83,23 @@ namespace Iroca {
         private static void ClearWork<T>(T* p, int start, int count) where T : unmanaged
             => new Span<T>(p + start, count).Clear();
 
+        // 借りた作業配列の [0, len) を区間に分けて並列に 0 で埋める。占有率(複数ゾーンは float で 4K 64MB・8K 256MB)を
+        // 1 本で埋めると、色だけ変えた 1 手でも毎回その分メインの待ちに乗る。区間は 256K 要素(小さい画像は 1 本のまま)。
+        // 0 を書くだけなので、どう分けても中身は同じ。
+        private static void ClearWorkParallel<T>(T* p, int len, ParallelOptions po) where T : unmanaged {
+            const int Chunk = 1 << 18;
+            int chunks = (len + Chunk - 1) / Chunk;
+            if (chunks <= 1) {
+                ClearWork(p, 0, len);
+                return;
+            }
+            T* q = p;
+            Parallel.For(0, chunks, po, c => {
+                int c0 = c * Chunk;
+                ClearWork(q, c0, Math.Min(Chunk, len - c0));
+            });
+        }
+
         // 画素を帯に分けて並列に写す(書き出し・NDMF の入力スナップショット。4K で 64MB・8K で 256MB を 1 本で写していた)。
         // 帯は 1M 画素以上にする(小さい画像は 1 本のまま)。写すだけなので、どう分けても中身は同じ。
         private static void CopyPixelsParallel(Color32* src, Color32* dst, int len) {
@@ -294,21 +311,21 @@ namespace Iroca {
             // 種類が多い画像では null(画素ごとに計算する)。どちらでも出力はビット単位で同じ。
             ColorPalette palette = null;
             try {
-                if (sortedZones.Count > 1) {
-                    rb.Claimed = s_floatPool.Rent(len);
-                    ClearWork(rb.Claimed, 0, len);
-                } else {
-                    // ゾーンが 1 つ: 占有率は読むといつも 0 なので借りず、フチ消しが見る「占有したか」だけを持つ(RunBuffers)
-                    rb.ClaimedFlag = s_boolPool.Rent(len);
-                    new Span<bool>(rb.ClaimedFlag, len).Clear();
-                }
-
-                // po を HSV 計算 + foreach 内の全 Parallel.For で共用。
+                // po を占有率の 0 埋め・HSV 計算 + foreach 内の全 Parallel.For で共用。
                 // MaxDegreeOfParallelism で Unity Editor のスレッドプール圧迫を防ぐ。
                 var po = new ParallelOptions {
                     CancellationToken = cancellationToken,
                     MaxDegreeOfParallelism = GetMaxParallelism(),
                 };
+                if (sortedZones.Count > 1) {
+                    rb.Claimed = s_floatPool.Rent(len);
+                    ClearWorkParallel(rb.Claimed, len, po);
+                } else {
+                    // ゾーンが 1 つ: 占有率は読むといつも 0 なので借りず、フチ消しが見る「占有したか」だけを持つ(RunBuffers)
+                    rb.ClaimedFlag = s_boolPool.Rent(len);
+                    ClearWorkParallel(rb.ClaimedFlag, len, po);
+                }
+
                 _sub.Restart();
                 palette = GetOrBuildPalette(originalPixels, w, h, po, _sub, selectionCache);
                 // 行並列(per-index デリゲートは 4K で 1670 万回の呼び出しになるため行単位に集約)。
