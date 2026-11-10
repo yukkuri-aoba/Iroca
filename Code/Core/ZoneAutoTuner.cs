@@ -711,8 +711,15 @@ namespace Iroca {
             // ほぼ V だけで表現され、暗部でも彩度が 0.85 前後に留まる濃色の布地など)でも下限が 0.20 に
             // 張り付き、彩度 0.2〜0.85 の別パーツ暗部を巻き込んでいた(実測例: この種のパーツで下限を
             // 0.20→0.80 にすると precision 0.980→0.994、recall は不変)。
-            // 暗部が脱彩する素材は darkestNearSampleS が低く出るので下限も自動的に下がり、免除が効いて
-            // recall を保つ。暗部画素が無いパーツ(darkSeen=false)は既定 0.05 のまま。
+            // 暗部画素が無いパーツ(darkSeen=false)は既定 0.05 のまま。
+            // 事実(点検 自-4、2026-11-10): darkestNearSampleS を集めるのは近傍の窓(TryAnalyzePixels。色相 ±NearHueDist・
+            // 彩度 ±NearSatDist・明度 ±NearValDist)の中の V < 0.4 の画素だけなので、「暗部が脱彩する素材なら下限が下がる」
+            // は窓の幅までしか効かない。
+            //   - 下限は常に 0.95 × (sS − NearSatDist) 以上(窓の外の、もっと脱彩した暗部は数えない)。
+            //   - サンプルの明度が 0.4 + NearValDist(= 0.7)以上なら窓に V < 0.4 の画素が入らず、darkSeen=false で既定の
+            //     0.05 になる。明度 0.69 と 0.71 のサンプルで下限が大きく違う(崖)。
+            // 証拠つきの自動調整も同じ関数を通る(ZoneAutoTuner.Evidence.cs の TryAnalyzePixels)。直すのは測ってから
+            // (修正計画の自-4 段 2: 崖の両側のケースを数え、暗部を色相帯で集める案を改善サイクルで試す)。
             float shadowForgivenessSatMin = DefaultShadowForgivenessSatMin;
             if (s.darkSeen && s.darkestNearSampleS > 0.10f) {
                 shadowForgivenessSatMin = Mathf.Clamp(s.darkestNearSampleS * 0.95f, 0.05f, 0.90f);
