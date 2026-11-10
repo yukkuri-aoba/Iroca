@@ -114,8 +114,11 @@ namespace Iroca {
         /// 主サンプル 1 色だけで決めると、同じ素材でもクリックした濃淡で判定が割れる(自動調整は内部サンプルに
         /// 素材の濃淡を足すので、最も鮮やかな色はクリック位置に依らない)。無彩のサンプルは色度で被覆率を
         /// 測れないので従来の経路(緩和マッチ + α 再合成 + 無彩フチ消し)のまま。
+        /// 混色帯のゾーンでは穴埋め・境界回復を行わないので、穴埋めの余白(<see cref="ColorZone.holeFillMargin"/>)は
+        /// 効かない。UI がそのスライダーを無効にするかの判定にもこれを使う(引数は全体設定の境界クリーンアップと
+        /// 境界ぼかし。点検 選-4)。
         /// </summary>
-        private static bool IsMixtureBandZone(ColorZone zone, bool useDecontamination, float edgeFeather) {
+        internal static bool IsMixtureBandZone(ColorZone zone, bool useDecontamination, float edgeFeather) {
             if (!useDecontamination || zone.mode != SelectionMode.ColorPick || edgeFeather > EdgeFeatherBlurMin) {
                 return false;
             }
