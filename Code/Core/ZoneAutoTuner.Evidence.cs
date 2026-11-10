@@ -273,7 +273,7 @@ namespace Iroca {
                 && width >= MinTextureDim && height >= MinTextureDim
                 && evidence != null && evW > 0 && evH > 0;
             string fallbackDiag = null;
-            if (canAnalyze && TryAnalyzeWithEvidenceInner(pixels, width, height, zone, session,
+            if (canAnalyze && TryAnalyzeWithEvidenceInner(pixels, width, height, zone,
                     evidence, evW, evH, excluded, maskW, maskH, ct, report,
                     out var result, out fallbackDiag)) {
                 return result;
@@ -310,7 +310,7 @@ namespace Iroca {
         /// 従来の導出へ落ちた理由(診断。null なら書かない)を返す。HSV 格子と作業配列はこの関数の中で持ち、出るときに返す。
         /// </summary>
         private static bool TryAnalyzeWithEvidenceInner(Color32* pixels, int width, int height,
-            ColorZone zone, SessionInput session,
+            ColorZone zone,
             bool* evidence, int evW, int evH,
             bool* excluded, int maskW, int maskH, CancellationToken ct,
             System.Action<float> report, out TuneResult result, out string fallbackDiag) {
@@ -551,8 +551,7 @@ namespace Iroca {
                 + GrayModeDiag(chromatic, repApplied ? rep : zone.sampleColor, result.chromaThreshold) + retryDiag;
             Progress(0.98f);
 
-            DecideGlobals(width, height, session, ref result);
-            CollectOverwrittenSettings(zone, session, ref result);
+            CollectOverwrittenSettings(zone, ref result);
             return true;
         }
 

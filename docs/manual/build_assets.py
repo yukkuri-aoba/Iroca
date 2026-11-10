@@ -201,9 +201,8 @@ def main() -> None:
         if slug == "red":
             base, base_out = params, out
 
+    # 自動調整は全体設定を変えない（2026-11-10 の点検 自-2 案 A）ので、既定の設定で導出値を再現する。
     settings = F._settings_to_harness(F.default_settings())
-    if base.get("applyGlobals"):
-        settings["antiAliasCleanup"] = base["antiAliasCleanup"]
 
     # 導出値の再現が自動調整の出力と一致することを確かめてから、1 項目ずつ動かす
     ref = F.run_harness_many(rgba, [([explicit_zone(base, RED)], settings, "manual-ref")])[0]

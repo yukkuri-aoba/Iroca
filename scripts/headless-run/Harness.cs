@@ -515,7 +515,7 @@ namespace Iroca {
                     if (!string.IsNullOrEmpty(evPath)) {
                         (evW, evH, evidence) = ReadMaskRaw(evPath);
                     }
-                    // セッションから読むものは、前のゾーンの適用(全体設定の書き込み)の後の値(製品と同じ)。
+                    // セッションから読むものは製品と同じ入口で取る(今は何も読まない。2026-11-10 点検 自-2 案 A)。
                     var sessionInput = ZoneAutoTuner.SessionInput.From(session);
                     var tune = evidence != null
                         ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, w, h, z, sessionInput,
@@ -525,14 +525,11 @@ namespace Iroca {
                         : useMask
                             ? ZoneAutoTuner.Analyze(pixels, w, h, z, sessionInput, excluded, mw, mh)
                             : ZoneAutoTuner.Analyze(pixels, w, h, z, sessionInput, excluded: null, maskW: 0, maskH: 0);
-                    // 導出結果 → ゾーン/グローバルの写像は製品 UI と同じ TuneResult.ApplyTo
-                    // （正規化サンプル・内部マルチサンプル・globals を含む。ここに項目を並べ直さない）。
-                    // globals は製品と同じくセッションへ書かれるので、ハーネスの設定 DTO へ写し戻す。
+                    // 導出結果 → ゾーンの写像は製品 UI と同じ TuneResult.ApplyTo
+                    // （正規化サンプル・内部マルチサンプルを含む。ここに項目を並べ直さない）。
+                    // 自動調整は全体設定(st)を変えない。2026-11-10 まではここで境界の回収(antiAliasCleanup)を
+                    // 解像度で 4・5 に上げて写し戻していたが、製品では一度も当たらない経路だった(点検 B-8)。
                     tune.ApplyTo(z, session);
-                    if (tune.applyGlobals) {
-                        st.antiAliasCleanup = session.antiAliasCleanup;
-                        st.useDecontamination = session.useDecontamination;
-                    }
                     // 導出値を stderr に JSON で出す（stdout の "OK" を汚さない）。Python が拾って記録する。
                     Console.Error.WriteLine("AUTOTUNE " + JsonSerializer.Serialize(new {
                         name = z.name,
@@ -550,8 +547,6 @@ namespace Iroca {
                         partHueBand = z.partHueBand,
                         chromaCeiling = z.chromaCeiling,
                         holeFillMargin = z.holeFillMargin,
-                        applyGlobals = tune.applyGlobals,
-                        antiAliasCleanup = st.antiAliasCleanup,
                         autoSamples = z.extraSamples.Count,
                         // スポイト位置の正規化が効いたか（true のとき sample は代表地色へ差し替わっている）。
                         normalized = tune.hasNormalizedSample,

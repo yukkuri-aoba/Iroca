@@ -1118,14 +1118,11 @@ namespace Iroca {
                 case ZoneAutoTuner.TunedSetting.PartHueBand: return PartHueBand;
                 case ZoneAutoTuner.TunedSetting.ChromaCeiling: return ChromaCeiling;
                 case ZoneAutoTuner.TunedSetting.HoleFillMargin: return HoleFillMargin;
-                case ZoneAutoTuner.TunedSetting.AntiAliasCleanup: return AntiAliasCleanup;
-                case ZoneAutoTuner.TunedSetting.UseDecontamination: return UseDecontamination;
                 default: return setting.ToString();
             }
         }
 
-        internal static string AutoTuneOverwriteBody(System.Collections.Generic.IList<ZoneAutoTuner.TunedSetting> settings,
-            bool includesGlobals) {
+        internal static string AutoTuneOverwriteBody(System.Collections.Generic.IList<ZoneAutoTuner.TunedSetting> settings) {
             var sb = new System.Text.StringBuilder();
             sb.Append(IsJapanese
                 ? "以下のパラメータは既定値から変更されています。自動調整で上書きしますか？\n\n"
@@ -1134,11 +1131,6 @@ namespace Iroca {
                 sb.Append("・");
                 sb.Append(TunedSettingLabel(settings[i]));
                 sb.Append('\n');
-            }
-            if (includesGlobals) {
-                sb.Append(IsJapanese
-                    ? "\n「加工設定」も変わります。"
-                    : "\nThe Processing settings will also change.");
             }
             return sb.ToString();
         }

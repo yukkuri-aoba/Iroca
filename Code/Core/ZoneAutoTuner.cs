@@ -16,11 +16,10 @@ namespace Iroca {
     internal static unsafe partial class ZoneAutoTuner {
         // ── デフォルト値（単一ソース: ColorZone / IrocaSessionState のフィールド初期値） ──
         // 旧実装は const をここへ複製し「同期は手作業」だったが、片側だけ変えると
-        // IsZoneBasicsAtDefault / CollectOverwrittenSettings / Globals 適用可否の判定が静かに壊れる
-        // (2026-07/08 監査で指摘)。既定値インスタンスから読むことで構造的に同期する。
+        // CollectOverwrittenSettings の判定が静かに壊れる(2026-07/08 監査で指摘)。既定値インスタンスから
+        // 読むことで構造的に同期する。
         // 注意: 読み取り専用。変異させないこと(BG スレッドからも参照される)。
         private static readonly ColorZone s_zoneDefaults = new ColorZone();
-        private static readonly IrocaSessionState s_sessionDefaults = new IrocaSessionState();
         private static float DefaultTolerance => s_zoneDefaults.tolerance;
         private static float DefaultSaturationStrictness => s_zoneDefaults.saturationStrictness;
         private static float DefaultSaturationGuard => s_zoneDefaults.saturationGuard;
@@ -35,8 +34,6 @@ namespace Iroca {
         private static float DefaultPartHueBand => s_zoneDefaults.partHueBand;
         private static float DefaultChromaCeiling => s_zoneDefaults.chromaCeiling;
         private static float DefaultHoleFillMargin => s_zoneDefaults.holeFillMargin;
-        private static int DefaultAntiAliasCleanup => s_sessionDefaults.antiAliasCleanup;
-        private static bool DefaultUseDecontamination => s_sessionDefaults.useDecontamination;
 
         // 彩度ガード自動導出パラメータ
         //
@@ -80,40 +77,19 @@ namespace Iroca {
             PartHueBand,
             ChromaCeiling,
             HoleFillMargin,
-            // 全体設定(applyGlobals のときだけ)
-            AntiAliasCleanup,
-            UseDecontamination,
         }
 
         /// <summary>
-        /// 自動調整がセッションから読むもの(0.4.0 の計画の 3-1)。以前はセッション丸ごと(IrocaSessionState)を
-        /// 受け取り、背景の解析が列挙中のゾーンの一覧を壊さないよう、UI と自動化がそれぞれゾーンを写した
-        /// セッションを作っていた。読むのは全体設定の 2 つと「どのゾーンも基本の項目が既定のままか」だけなので、
-        /// 呼び出し側のスレッドで <see cref="From"/> が 1 回だけ取る。
+        /// 自動調整がセッションから読むもの(0.4.0 の計画の 3-1。呼び出し側のスレッドで <see cref="From"/> が 1 回だけ取る)。
+        /// 今は何も読まない: 以前は全体設定の 2 つと「どのゾーンも基本の項目が既定のままか」を読み、条件を満たすと
+        /// 境界の回収(antiAliasCleanup)を解像度で 4・5 に上げて全体設定へ書いていた(applyGlobals)。製品(UI・MCP)では
+        /// 新しいゾーンの許容範囲が既定と違うため一度も当たらず、ハーネスでだけ毎回当たって、測る自動調整と利用者の
+        /// 自動調整が食い違っていたので消した(2026-11-10 点検 自-2 案 A・B-8)。型と引数は、呼び出し側(AutoTuneService・
+        /// EditMode のテスト)を変えずに済むよう残してある。
         /// </summary>
         public readonly struct SessionInput {
-            public readonly int antiAliasCleanup;
-            public readonly bool useDecontamination;
-            // セッションのどのゾーンも基本の項目(IsZoneBasicsAtDefault)が既定のままか。全体設定を提案してよいかの条件。
-            public readonly bool allZonesAtDefault;
-
-            public SessionInput(int antiAliasCleanup, bool useDecontamination, bool allZonesAtDefault) {
-                this.antiAliasCleanup = antiAliasCleanup;
-                this.useDecontamination = useDecontamination;
-                this.allZonesAtDefault = allZonesAtDefault;
-            }
-
             public static SessionInput From(IrocaSessionState session) {
-                bool allZonesAtDefault = true;
-                if (session.zones != null) {
-                    foreach (var z in session.zones) {
-                        if (!IsZoneBasicsAtDefault(z)) {
-                            allZonesAtDefault = false;
-                            break;
-                        }
-                    }
-                }
-                return new SessionInput(session.antiAliasCleanup, session.useDecontamination, allZonesAtDefault);
+                return default;
             }
         }
 
@@ -139,11 +115,8 @@ namespace Iroca {
             // 穴埋めの余白(0=なし)。証拠つき導出だけが値を入れる(従来導出は既定 0 のまま)。
             public float holeFillMargin;
 
-            // Globals（applyGlobals が true のときのみ適用）
-            // edgeFeather は「ごまかし」なので自動調整では一切扱わない（既定の 0 を維持）。
-            public bool applyGlobals;
-            public int antiAliasCleanup;
-            public bool useDecontamination;
+            // 全体設定(RecolorSettings)は扱わない(ゾーンの項目だけを導く。2026-11-10 点検 自-2 案 A で
+            // 境界の回収の提案を消した。edgeFeather は「ごまかし」なので元から扱わない)。
 
             // 現在値がデフォルトと異なる(自動調整で上書きされる)項目。文言は UI が付ける。
             public List<TunedSetting> overwrittenSettings;
@@ -165,7 +138,7 @@ namespace Iroca {
             public string evidenceDiag;
 
             /// <summary>
-            /// 導出結果をゾーン（と、applyGlobals ならセッションのグローバル設定）へ適用する。
+            /// 導出結果をゾーンへ適用する(session は今は書かない。呼び出し側を変えずに済むよう引数を残してある)。
             /// 製品 UI（IrocaWindow.AutoTune の apply）と headless ハーネス（--autotune）は必ずここを通す。
             /// 以前は両者が同じ項目を手書きで並べる二重実装で、片方に項目を足し忘れても UI は
             /// ハーネスのコンパイル対象外なのでどのゲートにも掛からず、「テストが測る自動調整」と
@@ -201,10 +174,6 @@ namespace Iroca {
                 // 代わりにアルゴリズムがパーツの濃淡を自動取得した結果で、選択（マッチング）の和集合に
                 // 使われる。出力色は主サンプル基準のまま変わらない。
                 zone.extraSamples = autoSamples ?? new List<Color>();
-                if (applyGlobals && session != null) {
-                    session.antiAliasCleanup = antiAliasCleanup;
-                    session.useDecontamination = useDecontamination;
-                }
                 zone.UpdateCacheIfNeeded();
             }
         }
@@ -372,8 +341,7 @@ namespace Iroca {
                 result.hasNormalizedSample = hasNorm;
             }
 
-            DecideGlobals(width, height, session, ref result);
-            CollectOverwrittenSettings(zone, session, ref result);
+            CollectOverwrittenSettings(zone, ref result);
             return result;
         }
 
@@ -525,9 +493,6 @@ namespace Iroca {
                 partHueBand = DefaultPartHueBand,
                 chromaCeiling = DefaultChromaCeiling,
                 holeFillMargin = DefaultHoleFillMargin,
-                applyGlobals = false,
-                antiAliasCleanup = DefaultAntiAliasCleanup,
-                useDecontamination = DefaultUseDecontamination,
                 overwrittenSettings = new List<TunedSetting>(),
                 autoSamples = new List<Color>(),
             };
@@ -758,60 +723,16 @@ namespace Iroca {
                 partHueBand = DefaultPartHueBand,
                 chromaCeiling = DefaultChromaCeiling,
                 holeFillMargin = DefaultHoleFillMargin,
-                applyGlobals = false,
-                antiAliasCleanup = heuristic.antiAliasCleanup,
-                useDecontamination = heuristic.useDecontamination,
                 overwrittenSettings = new List<TunedSetting>(),
                 autoSamples = new List<Color>(),
             };
-        }
-
-        // ─────────────────── Globals 判定 ───────────────────
-
-        private static void DecideGlobals(int texWidth, int texHeight, SessionInput session, ref TuneResult result) {
-            // edgeFeather は自動調整では一切触らない（"ごまかし" を増やさない方針）。
-            // 自動調整が扱う Global は antiAliasCleanup と useDecontamination のみ。
-            // 1) これらが既定 かつ 2) 他ゾーンの基本パラメータも全て既定 のときだけ提案する。
-            // ユーザーが既に手で動かしている場合は触らない（"後勝ち事故" 防止）。
-            bool globalsAtDefault =
-                session.antiAliasCleanup == DefaultAntiAliasCleanup &&
-                session.useDecontamination == DefaultUseDecontamination;
-
-            bool allZonesAtDefault = session.allZonesAtDefault;
-
-            if (!globalsAtDefault || !allZonesAtDefault) {
-                result.applyGlobals = false;
-                return;
-            }
-
-            result.applyGlobals = true;
-            // AA 境界クリーンアップ: 高解像度ほど AA フリンジが太く、回収パスを増やす方が
-            // 境界品質が上がる。テクスチャ寸法のみから導出（キャラ・色に依存しない）。
-            result.antiAliasCleanup = AntiAliasCleanupForResolution(texWidth, texHeight);
-            result.useDecontamination = DefaultUseDecontamination;
-        }
-
-        private static int AntiAliasCleanupForResolution(int width, int height) {
-            if (width <= 0 || height <= 0) {
-                return DefaultAntiAliasCleanup;
-            }
-            int dim = Mathf.Max(width, height);
-            if (dim >= 2048) {
-                return 5;
-            }
-            if (dim >= 1024) {
-                return 4;
-            }
-            return DefaultAntiAliasCleanup; // 3 = 推奨下限
         }
 
         // ─────────────────── 上書きされる項目の収集 ───────────────────
 
         /// <summary>
         /// Analyze を呼ぶ前に、現在の zone 値が default と異なるか（＝自動調整で上書きされ
-        /// うるか）を判定して項目を返す。globals の項目は applyGlobals=true 時のみ
-        /// 追加されるが、その条件下では globals は default 値であるため実質追加されない
-        /// （CollectOverwrittenSettings と整合）。
+        /// うるか）を判定して項目を返す（CollectOverwrittenSettings と同じ項目・同じ順）。
         ///
         /// 非同期化のために事前確認をジョブ開始前へ移動する用途で使う。
         /// </summary>
@@ -825,19 +746,8 @@ namespace Iroca {
             return settings;
         }
 
-        private static void CollectOverwrittenSettings(ColorZone zone, SessionInput session, ref TuneResult result) {
-            var settings = result.overwrittenSettings;
-
-            AddZoneOverwrittenSettings(zone, settings);
-
-            if (result.applyGlobals) {
-                if (session.antiAliasCleanup != DefaultAntiAliasCleanup) {
-                    settings.Add(TunedSetting.AntiAliasCleanup);
-                }
-                if (session.useDecontamination != DefaultUseDecontamination) {
-                    settings.Add(TunedSetting.UseDecontamination);
-                }
-            }
+        private static void CollectOverwrittenSettings(ColorZone zone, ref TuneResult result) {
+            AddZoneOverwrittenSettings(zone, result.overwrittenSettings);
         }
 
         // ゾーン単位の項目のうち既定値と異なるものを、決まった順で settings へ足す。
@@ -889,26 +799,6 @@ namespace Iroca {
         }
 
         // ─────────────────── ユーティリティ ───────────────────
-
-        private static bool IsZoneBasicsAtDefault(ColorZone z) {
-            if (z == null) {
-                return true;
-            }
-            return Mathf.Approximately(z.tolerance, DefaultTolerance)
-                && Mathf.Approximately(z.saturationStrictness, DefaultSaturationStrictness)
-                && Mathf.Approximately(z.saturationGuard, DefaultSaturationGuard)
-                && Mathf.Approximately(z.chromaThreshold, DefaultChromaThreshold)
-                && z.highlightRecovery == DefaultHighlightRecovery
-                && Mathf.Approximately(z.valueBlend, DefaultValueBlend)
-                && Mathf.Approximately(z.edgeSoftness, DefaultEdgeSoftness)
-                && Mathf.Approximately(z.shadowDesaturation, DefaultShadowDesaturation)
-                && Mathf.Approximately(z.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin)
-                && Mathf.Approximately(z.shadowValueFloor, DefaultShadowValueFloor)
-                && Mathf.Approximately(z.partSatCeiling, DefaultPartSatCeiling)
-                && Mathf.Approximately(z.partHueBand, DefaultPartHueBand)
-                && Mathf.Approximately(z.chromaCeiling, DefaultChromaCeiling)
-                && Mathf.Approximately(z.holeFillMargin, DefaultHoleFillMargin);
-        }
 
         private static float HueDistance(float a, float b) {
             float d = Mathf.Abs(a - b);

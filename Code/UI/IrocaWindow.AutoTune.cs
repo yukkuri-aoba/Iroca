@@ -143,9 +143,7 @@ namespace Iroca {
                 return true;
             }
 
-            // applyGlobals は事後判定だが、true になる条件下では globals は既に default
-            // のため AutoTuneOverwriteBody の includesGlobals=true の差分は表示しない。
-            string body = Localization.AutoTuneOverwriteBody(overwritten, includesGlobals: false);
+            string body = Localization.AutoTuneOverwriteBody(overwritten);
             return EditorUtility.DisplayDialog(
                 Localization.AutoTuneConfirmTitle, body,
                 Localization.OK, Localization.Cancel);

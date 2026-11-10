@@ -13,8 +13,8 @@
      ゾーンへ直接代入していない
   2. ApplyTo 本体が TuneResult の「ゾーンへ写すべきフィールド」を全部代入している
      (TuneResult に per-zone フィールドを足して ApplyTo に書き忘れたら落ちる)
-  3. ApplyTo のほかにゾーン単位の項目(tolerance … chromaCeiling)を手書きで並べている 8 か所
-     (既定値・解析結果の初期化子、上書き確認のラベル、既定判定、閉ループ検証の模擬ゾーン、
+  3. ApplyTo のほかにゾーン単位の項目(tolerance … chromaCeiling)を手書きで並べている 7 か所
+     (既定値・解析結果の初期化子、上書き確認のラベル、閉ループ検証の模擬ゾーン、
      手調整の判定、ハーネスの AUTOTUNE 出力、詳細設定のリセット)が全項目を並べている
      (並べないのが意図の項目は理由つきの許可リストで明示し、許可リストの陳腐化も検出する)
 
@@ -38,15 +38,14 @@ HARNESS_CS = REPO_ROOT / "scripts" / "headless-run" / "Harness.cs"
 
 _COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\])*\"", re.DOTALL)
 
-# TuneResult のフィールドのうち、ゾーン/セッションへ写す先が名前どおりでないもの、または
+# TuneResult のフィールドのうち、ゾーンへ写す先が名前どおりでないもの、または
 # 写さないもの(診断・UI 表示用)。ここに無いフィールドは `zone.<名前> = <名前>;` で写す契約。
+# 全体設定(antiAliasCleanup・useDecontamination)は 2026-11-10 の点検 自-2 案 A で TuneResult から外した
+# (自動調整はゾーンの項目だけを導く)。
 FIELD_MAP = {
     "normalizedSample": "sampleColor",        # hasNormalizedSample が真のときだけ
     "hasNormalizedSample": None,              # 適用条件(値ではない)
     "autoSamples": "extraSamples",
-    "applyGlobals": None,                     # globals の適用条件
-    "antiAliasCleanup": "session.antiAliasCleanup",
-    "useDecontamination": "session.useDecontamination",
     "overwrittenSettings": None,              # UI の確認ダイアログ用(上書きされる項目)
     "evidenceDiag": None,                     # 診断文字列
 }
@@ -92,10 +91,7 @@ def test_apply_to_covers_every_tune_result_field(tuner_src):
         if target is None:
             continue
         # 右辺は「そのフィールドで始まる式」を許す(例: autoSamples ?? new List<Color>())。
-        if target.startswith("session."):
-            pat = rf"{re.escape(target)}\s*=\s*{re.escape(f)}\b"
-        else:
-            pat = rf"zone\.{re.escape(target)}\s*=\s*{re.escape(f)}\b"
+        pat = rf"zone\.{re.escape(target)}\s*=\s*{re.escape(f)}\b"
         if not re.search(pat, apply_body):
             missing.append(f"{f} → {target}")
     assert not missing, (
@@ -106,7 +102,7 @@ def test_apply_to_covers_every_tune_result_field(tuner_src):
 _DIRECT_ASSIGN = re.compile(
     r"\.(?:tolerance|saturationStrictness|saturationGuard|chromaThreshold|highlightRecovery"
     r"|valueBlend|edgeSoftness|shadowDesaturation|shadowForgivenessSatMin|shadowValueFloor|partSatCeiling|partHueBand|chromaCeiling|holeFillMargin|extraSamples"
-    r"|sampleColor|antiAliasCleanup|useDecontamination)\s*=\s*(?:result|tune|r)\.")
+    r"|sampleColor)\s*=\s*(?:result|tune|r)\.")
 
 
 @pytest.mark.parametrize("path", [SERVICE_CS, HARNESS_CS], ids=["service", "harness"])
@@ -128,8 +124,8 @@ def test_window_and_automation_do_not_map_results_themselves(path: Path):
 
 
 # ─────────────────── ゾーン単位の項目の列挙箇所 ───────────────────
-# ゾーン単位の項目は ApplyTo のほかにも 8 か所で 1 つずつ手書きされている。項目を足して
-# 1 か所でも書き忘れると、上書き確認に出ない・グローバル提案の判定が壊れる・ハーネスの
+# ゾーン単位の項目は ApplyTo のほかにも 7 か所で 1 つずつ手書きされている。項目を足して
+# 1 か所でも書き忘れると、上書き確認に出ない・手調整の判定が壊れる・ハーネスの
 # JSON に出ず回帰で測れない、といった漏れがどのゲートにも掛からずに入る。
 
 
@@ -163,9 +159,6 @@ _SITES = [
     ("overwritten-settings", "ZoneAutoTuner.AddZoneOverwrittenSettings",
      lambda: _nested_block(TUNER_CS, r"void\s+AddZoneOverwrittenSettings\s*\("),
      (r"\bzone\.{f}\b",), {}),
-    ("basics-at-default", "ZoneAutoTuner.IsZoneBasicsAtDefault",
-     lambda: _nested_block(TUNER_CS, r"bool\s+IsZoneBasicsAtDefault\s*\("),
-     (r"\bz\.{f}\b",), {}),
     ("sim-zone", "ZoneAutoTuner.Verify.cs の BuildSimZone",
      lambda: _nested_block(VERIFY_CS, r"ColorZone\s+BuildSimZone\s*\("),
      (r"\bsim\.{f}\s*=(?!=)",),
