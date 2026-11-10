@@ -41,6 +41,8 @@ namespace Iroca {
         [Serializable]
         internal class ObjectInfo {
             public string path = "";
+            // "#" を付けて target・avatar に渡せる(同じ名前のルートが 2 つ以上あると、path では選べない)
+            public int instanceId;
             public bool isAvatar;
             public int rendererCount;
             public int textureCount;
@@ -197,6 +199,7 @@ namespace Iroca {
                 }
                 r.objects.Add(new ObjectInfo {
                     path = root.name,
+                    instanceId = root.GetInstanceID(),
                     isAvatar = HasComponentNamed(root, "VRCAvatarDescriptor"),
                     rendererCount = renderers.Length,
                     textureCount = MainTexturesOf(renderers).Count,
@@ -384,18 +387,21 @@ namespace Iroca {
                 if (t.StartsWith("#", StringComparison.Ordinal)) { error = $"no scene object with instance id {id}"; return null; }
             }
 
+            // 階層のパス。各段で同じ名前の子を全部たどる(Transform.Find は同名の最初の子だけを返すので、同じ名前の
+            // ルート・子が 2 つあると、黙って先頭を選んでいた。Recolor の avatar と Open も同じ)。
             string[] parts = t.Trim('/').Split('/');
+            var matches = new List<GameObject>();
             foreach (var root in SceneRoots()) {
-                if (root.name != parts[0]) {
-                    continue;
+                if (root.name == parts[0]) {
+                    CollectPath(root.transform, parts, 1, matches);
                 }
-                var cur = root.transform;
-                for (int i = 1; i < parts.Length && cur != null; i++) {
-                    cur = cur.Find(parts[i]);
-                }
-                if (cur != null) {
-                    return cur.gameObject;
-                }
+            }
+            if (matches.Count == 1) {
+                return matches[0];
+            }
+            if (matches.Count > 1) {
+                error = Ambiguous(t, matches);
+                return null;
             }
 
             if (parts.Length == 1) {
@@ -411,14 +417,35 @@ namespace Iroca {
                     return hits[0];
                 }
                 if (hits.Count > 1) {
-                    error = $"'{t}' matches {hits.Count} objects; pass a hierarchy path: "
-                          + string.Join(", ", hits.Take(5).Select(g => HierarchyPath(g.transform)));
+                    error = Ambiguous(t, hits);
                     return null;
                 }
             }
             error = $"not found: '{t}' (pass a scene object path, a texture or material asset path, or nothing to list the scene)";
             return null;
         }
+
+        // parts[i..] の名前を順にたどって、行き着いたものを全部 matches へ足す。
+        private static void CollectPath(Transform cur, string[] parts, int i, List<GameObject> matches) {
+            if (i == parts.Length) {
+                matches.Add(cur.gameObject);
+                return;
+            }
+            for (int c = 0; c < cur.childCount; c++) {
+                var child = cur.GetChild(c);
+                if (child.name == parts[i]) {
+                    CollectPath(child, parts, i + 1, matches);
+                }
+            }
+        }
+
+        // 同じ名前・パスのものが 2 つ以上あるときの文言。"#インスタンス ID" なら 1 つに決まる。
+        private const int MaxAmbiguousListed = 8;
+
+        private static string Ambiguous(string target, List<GameObject> hits)
+            => $"'{target}' matches {hits.Count} objects; pass one of these as '#instanceID' (or a hierarchy path that only one of them has): "
+               + string.Join(", ", hits.Take(MaxAmbiguousListed).Select(g => $"#{g.GetInstanceID()} ({HierarchyPath(g.transform)})"))
+               + (hits.Count > MaxAmbiguousListed ? ", ..." : "");
 
         private static IEnumerable<GameObject> SceneRoots() {
             for (int i = 0; i < SceneManager.sceneCount; i++) {

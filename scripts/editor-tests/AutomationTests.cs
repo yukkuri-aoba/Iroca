@@ -135,6 +135,42 @@ namespace Iroca.EditorTests {
             StringAssert.StartsWith("not found:", r.error);
         }
 
+        [Test]
+        public void SceneObject_SameNamedRootsOrChildren_AreNotGuessed() {
+            // 同じ名前のルート・途中の段の子が 2 つ以上あれば、黙って先頭を選ばず、#インスタンス ID とパスを並べて断る。
+            // Recolor の avatar と Open も同じ探し方を使う。
+            var a = new GameObject("IrocaDupRoot");
+            var b = new GameObject("IrocaDupRoot");
+            var c = new GameObject("IrocaDupParent");
+            try {
+                foreach (var parent in new[] { a, b, c, c }) {
+                    var body = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                    body.name = "Body";
+                    body.transform.SetParent(parent.transform);
+                }
+                foreach (var target in new[] { "IrocaDupRoot", "IrocaDupRoot/Body", "IrocaDupParent/Body" }) {
+                    string json = IrocaAutomation.Inspect(target);
+                    var r = JsonUtility.FromJson<IrocaAutomation.InspectResult>(json);
+                    Assert.IsFalse(r.ok, target + ": " + json);
+                    StringAssert.Contains("matches 2 objects", r.error, target);
+                    StringAssert.Contains("#", r.error, target);
+                }
+                StringAssert.Contains("#" + a.GetInstanceID(), IrocaAutomation.Inspect("IrocaDupRoot"));
+                StringAssert.Contains("#" + b.GetInstanceID(), IrocaAutomation.Inspect("IrocaDupRoot"));
+                Assert.IsFalse(IrocaAutomation.ResolveOpenTarget("IrocaDupRoot", out _, out _, out string openError));
+                StringAssert.Contains("matches 2 objects", openError);
+
+                // #インスタンス ID なら選べる。シーンの一覧にも ID を出す。
+                Assert.AreEqual("IrocaDupRoot", Inspect("#" + b.GetInstanceID()).target);
+                var listed = Inspect("").objects.Where(o => o.path == "IrocaDupRoot").Select(o => o.instanceId).ToList();
+                CollectionAssert.AreEquivalent(new[] { a.GetInstanceID(), b.GetInstanceID() }, listed);
+            } finally {
+                Object.DestroyImmediate(a);
+                Object.DestroyImmediate(b);
+                Object.DestroyImmediate(c);
+            }
+        }
+
         private static IrocaAutomation.InspectResult Inspect(string target) {
             string json = IrocaAutomation.Inspect(target);
             var r = JsonUtility.FromJson<IrocaAutomation.InspectResult>(json);
