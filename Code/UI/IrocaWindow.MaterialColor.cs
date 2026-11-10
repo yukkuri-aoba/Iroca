@@ -53,10 +53,13 @@ namespace Iroca {
             double now = EditorApplication.timeSinceStartup;
             int scene = MeshPartController.SceneStamp();
             bool retarget = tex != _materialColorsFor || scene != _materialColorsScene;
+            // 時間で決まる探し直し・読み直しは、マウスを押していない(スライダーのドラッグ中でない)ときだけ。
+            // シーンの走査と素材の読み直しがドラッグ中の 1 フレームを止める。素材の値はドラッグでは変わらない。
+            bool idle = GUIUtility.hotControl == 0;
             List<MaterialColorSettings.Report> reports;
             // シーンで見つけていたら、Renderer が変わったかもしれないという通知(SceneRendererChanges)が来たときだけ
             // 探し直す(通知が続いても間隔はあける)。
-            if (retarget || (_materialColorsInScene && SceneRendererChanges.Version != _materialColorsSceneVersion
+            if (retarget || (idle && _materialColorsInScene && SceneRendererChanges.Version != _materialColorsSceneVersion
                              && now - _materialColorsScannedAt >= MaterialColorRescanSeconds)) {
                 _materialColorsSceneVersion = SceneRendererChanges.Version;
                 if (tex != _materialColorsFor) {
@@ -67,7 +70,7 @@ namespace Iroca {
                 _materialColorsFor = tex;
                 _materialColorsScene = scene;
                 _materialColorsScannedAt = now;
-            } else if (now - _materialColorsReadAt >= MaterialColorRereadSeconds && _materialColorGroups != null) {
+            } else if (idle && now - _materialColorsReadAt >= MaterialColorRereadSeconds && _materialColorGroups != null) {
                 reports = new List<MaterialColorSettings.Report>();
                 foreach (var g in _materialColorGroups) {
                     foreach (var r in g) {
@@ -169,7 +172,8 @@ namespace Iroca {
                 return;
             }
             double now = EditorApplication.timeSinceStartup;
-            if (now - _shadowMismatchReadAt < MaterialColorRereadSeconds) {
+            // シーンの全「Iroca Recolor」を探すので、マウスを押している間(スライダーのドラッグ中)は読み直さない。
+            if (now - _shadowMismatchReadAt < MaterialColorRereadSeconds || GUIUtility.hotControl != 0) {
                 return;
             }
             _shadowMismatchReadAt = now;

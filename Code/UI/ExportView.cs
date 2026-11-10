@@ -305,7 +305,10 @@ namespace Iroca {
             var e = Event.current;
             bool layout = e == null || e.type == EventType.Layout;
             double now = EditorApplication.timeSinceStartup;
-            if (layout && (source != _exportUsersFor || now - _exportUsersAt > 2.0)) {
+            // 時間で数え直すのは、マウスを押していない(スライダーのドラッグ中でない)ときだけ。数え直しはアセットの検索と
+            // シーンの全 Renderer の走査で、ドラッグ中の 1 フレームを止める。テクスチャが替わったときはすぐ数え直す。
+            bool due = now - _exportUsersAt > 2.0 && GUIUtility.hotControl == 0;
+            if (layout && (source != _exportUsersFor || due)) {
                 _exportUsersFor = source;
                 _exportUsersAt = now;
                 _exportUsersCount = source != null
