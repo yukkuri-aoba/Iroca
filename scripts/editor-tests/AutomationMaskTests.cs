@@ -314,6 +314,34 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels), "原本の参照が残っている");
         }
 
+        [Test]
+        public void ExceptionInTheMaskReceiver_FailsAtOnceWithTheReason() {
+            // 受け取り先が投げても、AI 待ちの時間切れ(180 秒)まで待たせず、その場で理由を返す。
+            AutomationMaskEdits.ThrowOnProposalForTests = true;
+            try {
+                string json = Run(_svc, Request(AllRed(), RedZone, "[{\"op\":\"dont_paint\",\"at\":[0.25,0.5]}]"), Half(left: true));
+                var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+                Assert.IsFalse(r.ok, json);
+                StringAssert.Contains("thrown for tests", r.error);
+            } finally {
+                AutomationMaskEdits.ThrowOnProposalForTests = false;
+            }
+        }
+
+        [Test]
+        public void ExceptionInTheAutoTuneReceiver_SkipsThatZoneAtOnce() {
+            // 自動調整の証拠の受け取り先が投げても、180 秒待たせず、そのゾーンの調整を飛ばして理由を知らせる。
+            AutoTuneService.ThrowOnEvidenceForTests = true;
+            try {
+                var r = RunOk(Request(AllRed(), "[{\"name\":\"red\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]", "[]", autoTune: true),
+                    Half(left: true));
+                StringAssert.StartsWith("skipped: analysis failed", r.zones.Single().autoTune);
+                Assert.IsTrue(r.warnings.Any(w => w.Contains("thrown for tests")), string.Join("\n", r.warnings));
+            } finally {
+                AutoTuneService.ThrowOnEvidenceForTests = false;
+            }
+        }
+
         // ─── 保存と、iroca_inspect の情報 ───
 
         private void WithAvatar(string src, System.Action body) {

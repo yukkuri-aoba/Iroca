@@ -296,6 +296,8 @@ namespace Iroca {
         }
 
         // 提案の範囲(ヒープの外)は受け取り先を呼んだ後に返す(受け取り先が持ち続けるなら写すか参照を足す)。
+        // 受け取り先は自分で例外を受け止め、自分の失敗として後始末する(AutomationMaskEdits・AutoTuneService.Run)。
+        // ここの catch は最後の守りで、ログに出すだけ(受け取り先の待ちの状態は戻せない)。
         private static void Deliver(Ticket t, MaskSuggestProposal proposal) {
             var cb = t.onResult;
             t.onResult = null;

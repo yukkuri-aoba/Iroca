@@ -126,12 +126,19 @@ namespace Iroca {
             _askedAi = true;
             bool finished = false;
             var r = AiSuggestBroker.RequestWhenIdle(this, _key, _pixels, edit.uv.x, edit.uv.y, proposal => {
-                OnProposal(edit, proposal);
-                finished = true;
-                _requested = false;
-                _deadline = 0d;
-                if (Error == null) {
-                    Next();
+                // 受け取りで投げても、待ちの状態は必ず戻して自分の失敗にする(broker はログに出すだけなので、以前は
+                // 待ったまま AI 待ちの時間切れ(180 秒)まで止まり、理由も分からなかった)。
+                try {
+                    OnProposal(edit, proposal);
+                    if (Error == null) {
+                        Next();
+                    }
+                } catch (System.Exception e) {
+                    Error = $"the AI region at [{edit.uv.x}, {edit.uv.y}] could not be applied ({e.GetType().Name}: {e.Message}).";
+                } finally {
+                    finished = true;
+                    _requested = false;
+                    _deadline = 0d;
                 }
             }, edit.size);
             switch (r) {
@@ -152,7 +159,14 @@ namespace Iroca {
             }
         }
 
+        // EditMode テストだけが立てる。提案の受け取り先で例外が出たときの後始末を確かめるため、受け取りで投げる。
+        // 製品のコードからは立てない。
+        internal static bool ThrowOnProposalForTests;
+
         private void OnProposal(Edit edit, MaskSuggestProposal proposal) {
+            if (ThrowOnProposalForTests) {
+                throw new System.InvalidOperationException("thrown for tests");
+            }
             if (proposal == null || proposal.mask == null) {
                 // AI のエラーで捨てられたのなら、その理由を出す(AutoTuneService の証拠の受け取りと同じ)。受理した直後に
                 // 同期でエラーになると(Sentis のデコーダが投げたなど)、ここへその場で null が届く。

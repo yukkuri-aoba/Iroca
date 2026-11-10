@@ -55,6 +55,10 @@ namespace Iroca {
             Cancelled,
         }
 
+        // EditMode テストだけが立てる。証拠の受け取り先で例外が出たときの後始末を確かめるため、受け取りで投げる。
+        // 製品のコードからは立てない。
+        internal static bool ThrowOnEvidenceForTests;
+
         // 解析は 1 本ずつ(取り消した前の解析が抜けてから次を始める。PreviewJob と同じく、作業配列を 2 組借りない)。
         // メインスレッドからしか触らない。
         private static Task s_lastAnalysis = Task.CompletedTask;
@@ -370,9 +374,22 @@ namespace Iroca {
             }
 
             // 提案の到着(null = 取消・破棄)。null なら中止(従来導出へは落とさない)。
+            // 受け取りで投げたら(写しの確保の失敗など)、解析の失敗として終える。broker はログに出すだけなので、
+            // 以前は証拠を待ったまま期限(180 秒)まで止まっていた。
             private void OnEvidence(MaskSuggestProposal proposal) {
                 if (Status != Status.WaitingForEvidence) {
                     return;
+                }
+                try {
+                    ReceiveEvidence(proposal);
+                } catch (Exception e) {
+                    Fail(Failure.AnalysisFailed, e.Message, e);
+                }
+            }
+
+            private void ReceiveEvidence(MaskSuggestProposal proposal) {
+                if (ThrowOnEvidenceForTests) {
+                    throw new InvalidOperationException("thrown for tests");
                 }
                 if (proposal == null || proposal.mask == null || proposal.width <= 0 || proposal.height <= 0) {
                     // AI のエラーで捨てられたのなら、その理由を出す。
