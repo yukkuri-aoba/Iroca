@@ -211,5 +211,31 @@ namespace Iroca.EditorTests {
             Undo.PerformUndo();
             Assert.AreEqual(0.3f, Zones[0].valueBlend);
         }
+
+        // 穴埋めの余白は、縁を混色の割合で塗るゾーン(既定の色のあるゾーン)では効かないので、窓はスライダーを押せなくして
+        // 理由をツールチップに出す(点検 2026-11-09 選-4)。判定は Core の PixelProcessor.IsMixtureBandZone と同じ。
+        [Test]
+        public void HoleFillMargin_IsDisabledWithTheReason_ForMixtureBandZones() {
+            var session = IrocaSessionState.CreateDefault();
+            Assume.That(session.useDecontamination, Is.True, "テストの前提: 既定は境界クリーンアップ ON");
+            Assume.That(session.edgeFeather, Is.EqualTo(0f), "テストの前提: 既定はエッジぼかし 0");
+            var colored = new ColorZone { sampleColor = new Color(0.8f, 0.2f, 0.2f), sampleColorSet = true };
+            var gray = new ColorZone { sampleColor = new Color(0.6f, 0.6f, 0.6f), sampleColorSet = true };
+
+            Assert.IsFalse(IrocaWindow.HoleFillMarginApplies(colored, session), "既定の色のあるゾーンでは効かない");
+            Assert.AreEqual(Localization.HoleFillMarginMixtureBandTooltip, IrocaWindow.HoleFillMarginTooltip(false));
+            Assert.AreNotEqual(Localization.HoleFillMarginTooltip, Localization.HoleFillMarginMixtureBandTooltip);
+            Assert.IsTrue(IrocaWindow.HoleFillMarginApplies(gray, session), "無彩のゾーンでは効く");
+            Assert.AreEqual(Localization.HoleFillMarginTooltip, IrocaWindow.HoleFillMarginTooltip(true));
+
+            session.useDecontamination = false;
+            Assert.IsTrue(IrocaWindow.HoleFillMarginApplies(colored, session), "境界クリーンアップ OFF では効く");
+            session.useDecontamination = true;
+            session.edgeFeather = 1f;
+            Assert.IsTrue(IrocaWindow.HoleFillMarginApplies(colored, session), "エッジぼかしがあると効く");
+            session.edgeFeather = 0f;
+            Assert.AreEqual(!PixelProcessor.IsMixtureBandZone(colored, session.useDecontamination, session.edgeFeather),
+                IrocaWindow.HoleFillMarginApplies(colored, session), "Core の判定と食い違う");
+        }
     }
 }

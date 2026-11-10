@@ -299,6 +299,9 @@ namespace Iroca {
         public static string HoleFillMarginTooltip => IsJapanese
             ? "選択に囲まれた小さな穴を埋めるとき、許容範囲をこの割合だけ広げて判定します。\n布の明るい面のように色が許容範囲の境目をまたぐ所で、元の色が点々と残るのを防ぎます。囲まれていない画素は広がりません。\n自動調整（AI 提案あり）が設定します。許容範囲を手で広く取ったときに上げると、別の部位が塊で塗られることがあります。0 = 余白なし\n既定: 0\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。"
             : "When filling small holes surrounded by the selection, the tolerance is widened by this fraction.\nStops dots of the original color from being left where the color straddles the tolerance edge, such as the lit side of cloth. Pixels that are not surrounded are not added.\nAuto-tune with an AI proposal sets it. Raising it with a wide manual tolerance can paint other parts in blocks. 0 = no margin\nDefault: 0\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts.";
+        public static string HoleFillMarginMixtureBandTooltip => IsJapanese
+            ? "このゾーンは、縁を混ざった色の割合で塗る方式（境界クリーンアップ ON・エッジぼかし 0・色のあるサンプル）なので、穴埋めをしません。そのため穴埋めの余白は効かず、変えられません。\n境界クリーンアップをオフにするか、エッジぼかしを入れると効きます。"
+            : "This zone paints its edges by the share of mixed color (Edge Decontamination ON, Edge Feather 0, a colored sample), so it does not fill holes. The hole fill margin has no effect here and cannot be changed.\nIt takes effect when Edge Decontamination is off or Edge Feather is set.";
 
         public static string ChromaThreshold => IsJapanese ? "無彩色とみなす彩度" : "Neutral Threshold";
         public static string ChromaThresholdTooltip => IsJapanese

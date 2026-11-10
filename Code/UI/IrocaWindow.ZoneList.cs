@@ -795,6 +795,18 @@ namespace Iroca {
             && Mathf.Approximately(z.satDistWeight, ZoneDefaults.satDistWeight)
             && Mathf.Approximately(z.satRampScale, ZoneDefaults.satRampScale);
 
+        /// <summary>
+        /// 穴埋めの余白(<see cref="ColorZone.holeFillMargin"/>)が効くか。穴埋めは、縁を混色の割合で塗るゾーン
+        /// (境界クリーンアップ ON・エッジぼかし 0・色のあるサンプル。<see cref="PixelProcessor.IsMixtureBandZone"/>)では走らない。
+        /// </summary>
+        internal static bool HoleFillMarginApplies(ColorZone zone, IrocaSessionState session)
+            => zone != null && session != null
+               && !PixelProcessor.IsMixtureBandZone(zone, session.useDecontamination, session.edgeFeather);
+
+        /// <summary>穴埋めの余白のスライダーのツールチップ(効かないときは、その理由)。</summary>
+        internal static string HoleFillMarginTooltip(bool applies)
+            => applies ? Localization.HoleFillMarginTooltip : Localization.HoleFillMarginMixtureBandTooltip;
+
         // 「詳細設定」を開いたときに出るパラメータ。
         //
         // 役割ごとに小見出しで束ねる。以前は「彩度制限」「彩度ガード」「シャドウ彩度低下」
@@ -815,9 +827,14 @@ namespace Iroca {
             zone.saturationGuard = UndoHelper.Slider(UndoTarget,
                 TempContent.Of(Localization.SaturationGuard, Localization.SaturationGuardTooltip),
                 zone.saturationGuard, 0f, 1f);
-            zone.holeFillMargin = UndoHelper.Slider(UndoTarget,
-                TempContent.Of(Localization.HoleFillMargin, Localization.HoleFillMarginTooltip),
-                zone.holeFillMargin, 0f, 1f);
+            // 縁を混色の割合で塗るゾーン(既定の色のあるゾーン)は穴埋めをしないので、余白は効かない(点検 選-4)。
+            // 押せなくして、ツールチップで理由を出す。
+            bool holeFillApplies = HoleFillMarginApplies(zone, Session);
+            using (new EditorGUI.DisabledScope(!holeFillApplies)) {
+                zone.holeFillMargin = UndoHelper.Slider(UndoTarget,
+                    TempContent.Of(Localization.HoleFillMargin, HoleFillMarginTooltip(holeFillApplies)),
+                    zone.holeFillMargin, 0f, 1f);
+            }
 
             // ── ハイライト（光沢・明部の拾い方と塗り方） ──
             EditorGUILayout.Space(2);
