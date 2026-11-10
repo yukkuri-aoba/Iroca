@@ -499,7 +499,9 @@ namespace Iroca {
                                 continue; // 除外マスクは不可侵
                             }
                             // 上位ゾーン占有は不可侵(ゾーンが 1 つのときは claimed の代わりに claimedFlag。RunBuffers.ClaimedFlag)
-                            if (claimed != null ? claimed[i] > ClaimedFlagThreshold : claimedFlag != null && claimedFlag[i]) {
+                            // 上のゾーンが縁として自分の被覆率だけ占有した画素(残りの room がある)は、下で重ねる。
+                            float claimedNow = claimed != null ? claimed[i] : 0f;
+                            if (claimed != null ? 1f - claimedNow <= ClaimedFlagThreshold : claimedFlag != null && claimedFlag[i]) {
                                 continue;
                             }
                             if (CountInWindow(satML, fw, fx0, fy0, fx1, fy1, x, y, AchromaFringeMatchRadius) < 1) {
@@ -548,12 +550,25 @@ namespace Iroca {
                                 continue; // 線から外れる=別色 → 触らない
                             }
                             float om = 1f - alpha;
-                            pixels[i] = new Color32(
-                                (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tR + om * bR), 0, 255),
-                                (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tG + om * bG), 0, 255),
-                                (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tB + om * bB), 0, 255),
-                                originalPixels[i].a);
-                            SetClaimed(claimed, claimedFlag, i, 1f);
+                            byte fR = (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tR + om * bR), 0, 255);
+                            byte fG = (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tG + om * bG), 0, 255);
+                            byte fB = (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tB + om * bB), 0, 255);
+                            if (claimedNow <= ClaimedFlagThreshold) {
+                                pixels[i] = new Color32(fR, fG, fB, originalPixels[i].a);
+                            } else {
+                                // 上のゾーンの縁が占有した残り(room)のぶんだけ、混色帯と同じ形で変化を足す。
+                                float ra = alpha < 1f - claimedNow ? alpha : 1f - claimedNow;
+                                float rk = ra / alpha;
+                                Color32 cur = pixels[i], fo = originalPixels[i];
+                                pixels[i] = new Color32(
+                                    (byte)Mathf.Clamp(Mathf.RoundToInt(cur.r + (fR - fo.r) * rk), 0, 255),
+                                    (byte)Mathf.Clamp(Mathf.RoundToInt(cur.g + (fG - fo.g) * rk), 0, 255),
+                                    (byte)Mathf.Clamp(Mathf.RoundToInt(cur.b + (fB - fo.b) * rk), 0, 255),
+                                    cur.a);
+                                alpha = Mathf.Min(1f, claimedNow + ra);
+                            }
+                            // 自分の被覆率 α だけ占有する(残りは下位ゾーンが塗る)。上のゾーンが占有した画素は上で飛ばしている。
+                            SetClaimed(claimed, claimedFlag, i, alpha);
                         }
                     }
                 });

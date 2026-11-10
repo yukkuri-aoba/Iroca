@@ -130,15 +130,31 @@ namespace Iroca {
                             bool topMost = claimedNow <= 0.0001f;
                             if (aaMaskLocal != null && aaMaskLocal[i]) {
                                 // AA pixel: use decontaminated value (overrides standard mix)。
-                                // 最上位(room=1)なら従来どおり完全置換。下位なら残り分だけ被せる。
-                                // デコンタミ値は合成済みエッジ色なので、このエッジ画素は上位として占有する。
-                                // a には被覆率が入っている(DecontamCoverageByte)ので、元の α に戻して書く。
+                                // a には被覆率 α が入っている(DecontamCoverageByte)ので、元の α に戻して書く。
+                                // 縁は自分の被覆率 α だけ占有し、残り(背景のぶん)は下位ゾーンが塗る(混色帯と同じ規則)。
+                                // 最上位(room=1)なら従来どおり完全置換。下位は混色帯と同じ形で、残りのぶんだけ変化を足す。
+                                // ゾーンが 1 つ(claimedLocal が null)のときは従来どおり占有率 1 を書く(出力不変)。
                                 Color32 decon = decontaminatedLocal[i];
+                                float ea = decon.a / 255f;
                                 decon.a = originalPixels[i].a;
-                                pixels[i] = room >= 0.999f
-                                    ? decon
-                                    : Color32.Lerp(pixels[i], decon, room);
-                                SetClaimed(claimedLocal, claimedFlag, i, 1f);
+                                if (room >= 0.999f) {
+                                    pixels[i] = decon;
+                                } else if (ea > 0f) {
+                                    float a = ea < room ? ea : room;
+                                    float k = a / ea;
+                                    Color32 cur = pixels[i], eo = originalPixels[i];
+                                    pixels[i] = new Color32(
+                                        (byte)Mathf.Clamp(Mathf.RoundToInt(cur.r + (decon.r - eo.r) * k), 0, 255),
+                                        (byte)Mathf.Clamp(Mathf.RoundToInt(cur.g + (decon.g - eo.g) * k), 0, 255),
+                                        (byte)Mathf.Clamp(Mathf.RoundToInt(cur.b + (decon.b - eo.b) * k), 0, 255),
+                                        cur.a);
+                                    SetClaimed(claimedLocal, claimedFlag, i, Mathf.Min(1f, claimedNow + a));
+                                    continue;
+                                } else {
+                                    continue;
+                                }
+                                SetClaimed(claimedLocal, claimedFlag, i,
+                                    claimedLocal != null ? Mathf.Min(1f, claimedNow + ea) : 1f);
                                 continue;
                             }
                             Color32 op = originalPixels[i];
