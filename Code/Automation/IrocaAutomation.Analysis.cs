@@ -31,7 +31,8 @@ namespace Iroca {
                 : svc.Phase == MaskSuggestPhase.NotLoaded ? "not_loaded"
                 : "ready";
 
-            r.recolorRunning = s_job != null;
+            // 終わって結果を待っているだけの依頼は、次の依頼を断らないので数えない。
+            r.recolorRunning = s_job != null && s_job.finalJson == null;
             foreach (var folder in new[] { PresetStore.ProjectPresetFolder, PresetStore.UserPresetFolder }) {
                 foreach (var path in PresetStore.ListJson(folder)) {
                     r.presets.Add(System.IO.Path.GetFileNameWithoutExtension(path));

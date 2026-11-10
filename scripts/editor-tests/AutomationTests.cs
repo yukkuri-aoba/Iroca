@@ -780,6 +780,32 @@ namespace Iroca.EditorTests {
             RecolorOk(Request(src, "preview", "[{\"name\":\"blue\",\"from\":\"#1E28C8\",\"to\":\"#FFAA00\"}]"));
         }
 
+        [UnityTest]
+        public IEnumerator Recolor_AfterAFinishedButUnreceivedCall_IsAcceptedAndTellsAboutIt() {
+            // MCP のサーバーが問い合わせをやめた後に前の依頼が終わると、結果は受け取られないまま残る。それで次の依頼を
+            // "still running" で断らない(以前は 60 秒断った)。前の依頼の結末は、次の結果の warnings で知らせる。
+            string src = Halves();
+            string json = IrocaAutomation.Recolor(Request(src, "preview",
+                "[{\"name\":\"red\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]", autoTune: true));
+            if (!json.Contains("\"pending\":true")) {
+                Assert.Inconclusive("解析が 1 回目の呼び出しの中で終わった(待ちが無い)");
+            }
+            // RecolorStatus は呼ばずに、エディタのコマ(update)だけで仕上げまで進める。
+            double deadline = UnityEditor.EditorApplication.timeSinceStartup + 30;
+            while (RecolorRunning() && UnityEditor.EditorApplication.timeSinceStartup < deadline) {
+                yield return null;
+            }
+            Assert.IsFalse(RecolorRunning(), "終わった依頼が recolorRunning のまま");
+
+            var r = RecolorOk(Request(src, "preview", "[{\"name\":\"blue\",\"from\":\"#1E28C8\",\"to\":\"#FFAA00\"}]"));
+            Assert.AreEqual("blue", r.zones.Single().name, "新しい依頼の結果を返すこと");
+            Assert.IsTrue(r.warnings.Any(w => w.Contains("previous iroca_recolor call") && w.Contains("succeeded")),
+                string.Join("\n", r.warnings));
+        }
+
+        private static bool RecolorRunning()
+            => JsonUtility.FromJson<IrocaAutomation.InspectResult>(IrocaAutomation.Inspect(null)).recolorRunning;
+
         [Test]
         public void RecolorStatus_WithoutJob_IsError() {
             var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(IrocaAutomation.RecolorStatus());

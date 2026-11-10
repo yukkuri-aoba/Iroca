@@ -138,16 +138,26 @@ namespace Iroca {
             // 待っている依頼があるうちは新しい依頼を断る。以前は前の依頼を黙って捨てていたので、AI が 2 件を並べて
             // 呼ぶと、先の依頼は反映されないまま、問い合わせのどちらかが後の依頼の結果を受け取って取り違えた
             // (RecolorStatus は依頼を見分けない)。問い合わせが途絶えた依頼(AI が待つのをやめた)だけは捨てて受ける。
+            // 終わっているのに結果が受け取られていない依頼(サーバーが問い合わせをやめた後に終わった)は、断らずに
+            // 捨てて受け、その結末を新しい結果の warnings で知らせる(以前は 60 秒 "still running" で断っていた)。
             var running = s_job;
+            string unreceived = null;
             if (running != null) {
-                if (EditorApplication.timeSinceStartup - running.lastPolled < AbandonedAfterSeconds) {
+                if (running.finalJson != null) {
+                    unreceived = DescribeUnreceived(running);
+                    s_job = null;
+                } else if (EditorApplication.timeSinceStartup - running.lastPolled < AbandonedAfterSeconds) {
                     return FinishRecolor(new RecolorTextureResult(),
                         $"another iroca_recolor call (texture {running.r.texture}) is still running, so this call did nothing. "
                         + "Wait until that call returns its result, then call again. Call iroca_recolor one at a time.");
+                } else {
+                    CancelRecolorJob();
                 }
-                CancelRecolorJob();
             }
             var job = new RecolorJob { lastPolled = EditorApplication.timeSinceStartup };
+            if (unreceived != null) {
+                job.r.warnings.Add(unreceived);
+            }
             try {
                 string error = PrepareRecolor(requestJson, job);
                 if (error != null) {
@@ -206,6 +216,23 @@ namespace Iroca {
                 CancelRecolorJob();
                 return FinishRecolor(job.r, $"{ex.GetType().Name}: {ex.Message}");
             }
+        }
+
+        // 終わっていたのに結果が受け取られなかった依頼の結末(次の依頼の warnings に出す)。
+        private static string DescribeUnreceived(RecolorJob job) {
+            RecolorTextureResult last = null;
+            try { last = JsonUtility.FromJson<RecolorTextureResult>(job.finalJson); } catch (Exception) { /* 下で不明として書く */ }
+            string what = $"the previous iroca_recolor call (texture {job.r.texture}, apply '{job.r.apply}') finished, "
+                + "but its result was never received";
+            if (last == null) {
+                return what + ".";
+            }
+            if (!last.ok) {
+                return what + $": it failed ({last.error}).";
+            }
+            return what + (last.apply == ApplyPreview
+                ? ": it succeeded (nothing was saved)."
+                : ": it succeeded, and what it registered or wrote is kept (check with iroca_inspect).");
         }
 
         // 途中経過を返した依頼(同時に 1 つ。待っている間の新しい依頼は断る)。
