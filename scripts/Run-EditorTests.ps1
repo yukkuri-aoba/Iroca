@@ -59,6 +59,30 @@
     batchmode でもドメインリロードで空になるので、これだけはランナーなし・画面あり（最小化）で Unity を起動する。
     結果は出力フォルダの undo-reload.txt。
 
+.PARAMETER SdkBuild
+    VRChat SDK のビルド経路の通し確認（Sdk\SdkBuildScenario、build モード）だけを回す。台本が合成アバター（いろかのレシピ付き）を
+    組み立て、IVRCSdkAvatarBuilderApi.Build でバンドルを作り、読み戻して、色替え結果が入っていること・いろかのコンポーネントが
+    残っていないこと・元のアセットが変わっていないことを確かめる。アップロードはしない。SDK のパネルが要るので UndoReload と同じく
+    ランナーなし・画面あり（最小化）で起動する。結果は出力フォルダの sdk-build.txt。終了コード: 0 通った / 1 以上 失敗の数 /
+    90 前提が足りず測っていない（skip。失敗ではない）。ホストに VRChat SDK 3.9 以上が要る。
+
+.PARAMETER SdkUpload
+    上の続きで、Private としてアップロードし、サーバー側で private・更新済みなのを確かめる（upload モード）。SDK にログイン済みで
+    あることが要る（ログインは人が Unity の SDK パネルで済ませておく。資格情報はこのスクリプトも台本も扱わない）。
+    SDK は権利の同意（content.copyright.owned）を Unity を起動するたびに人の OK で求める。同意は偽装しないので、
+    -SdkUploadWaitConsent が無ければ同意の段で skip（終了コード 90）になる。blueprint ID は -SdkUploadState の JSON に覚えて
+    使い回す（毎回新しいアバターを作ってアカウントに溜めない）。
+
+.PARAMETER SdkUploadWaitConsent
+    -SdkUpload で、SDK が出す権利の同意の確認を人が押すのを待つ（窓は最小化せずに出す）。押さなければ制限時間で失敗になる。
+
+.PARAMETER SdkUploadState
+    -SdkUpload の blueprint ID を覚える JSON。既定は <リポジトリ>\dev_safe\Tests\sdk_upload\state.json（公開リポの外）。無ければ新規作成する。
+
+.PARAMETER SdkTimeoutMinutes
+    -SdkBuild / -SdkUpload 全体の制限時間（分）。超えたら Unity を止めて失敗にする（モーダルのダイアログで固まると永久に待つため）。
+    台本の中にも、これより少し短い制限時間がある。既定 30。
+
 .PARAMETER AllowForeignCode
     ホストの Code が、このスクリプトのある作業ツリー以外を指していても止めない（交互 A/B で Code だけを
     基準の木へ向けるとき）。テストのリンクは常にこの作業ツリーを指している必要がある。
@@ -82,7 +106,12 @@ param(
     [switch]$DetailBench,
     [switch]$DebugCodeOptimization,
     [string]$TestFilter,
-    [switch]$UndoReload
+    [switch]$UndoReload,
+    [switch]$SdkBuild,
+    [switch]$SdkUpload,
+    [switch]$SdkUploadWaitConsent,
+    [string]$SdkUploadState = (Join-Path (Split-Path -Parent $PSScriptRoot) 'dev_safe\Tests\sdk_upload\state.json'),
+    [int]$SdkTimeoutMinutes = 30
 )
 
 $ErrorActionPreference = 'Stop'
@@ -167,6 +196,61 @@ if ($UndoReload) {
     $lines = Get-Content $report -Encoding UTF8
     $lines | ForEach-Object { Write-Host $_ }
     if (-not ($lines | Where-Object { $_ -match '^done ' })) { throw "途中で終わりました。ログ: $log" }
+    exit $p.ExitCode
+}
+
+# VRChat SDK のビルド（と Private でのアップロード）の通し確認。SDK のパネルが要るので batchmode では動かない。
+# UndoReload と同じく画面あり（最小化）で起動し、台本（Sdk\SdkBuildScenario）が自分で Unity を終わらせる。
+# モーダルのダイアログ・サーバー待ちで固まると永久に待つので、全体の制限時間を持ち、超えたら Unity を止める。
+if ($SdkBuild -or $SdkUpload) {
+    if ($SdkBuild -and $SdkUpload) { throw "-SdkBuild と -SdkUpload は同時に指定できません（upload は build の検証も含みません。別々に回す）" }
+    if (-not (Test-Path (Join-Path $HostProject 'Packages\com.vrchat.avatars'))) { throw "ホストに VRChat SDK（com.vrchat.avatars）がありません: $HostProject" }
+    if (-not (Test-Path (Join-Path $testsLink 'Sdk\SdkBuildScenario.cs'))) { throw "台本がホストから見えません: $testsLink\Sdk\SdkBuildScenario.cs" }
+    $mode = if ($SdkUpload) { 'upload' } else { 'build' }
+    $report = Join-Path $outDir 'sdk-build.txt'
+    $env:IROCA_SDK_BUILD_REPORT = $report
+    $env:IROCA_SDK_BUILD_MODE = $mode
+    # 台本の中の制限時間は、Unity の起動と取り込みの分を残して短くする。
+    $env:IROCA_SDK_BUILD_TIMEOUT_SEC = [string][Math]::Max(300, ($SdkTimeoutMinutes - 5) * 60)
+    if ($SdkUpload) {
+        $env:IROCA_SDK_UPLOAD_STATE = $SdkUploadState
+        if ($SdkUploadWaitConsent) { $env:IROCA_SDK_UPLOAD_WAIT_CONSENT = '1' }
+    }
+    $style = if ($SdkUploadWaitConsent) { 'Normal' } else { 'Minimized' }
+    Write-Host "Unity を画面ありで起動して VRChat SDK の $mode を通します（結果: $outDir、制限時間 $SdkTimeoutMinutes 分）…"
+    $timedOut = $false
+    try {
+        $p = Start-Process -FilePath $UnityExe -ArgumentList @('-projectPath', "`"$HostProject`"", '-logFile', "`"$log`"") -PassThru -WindowStyle $style
+        try { $p.PriorityClass = 'BelowNormal' } catch { }
+        if (-not $p.WaitForExit($SdkTimeoutMinutes * 60 * 1000)) {
+            $timedOut = $true
+            & taskkill.exe /PID $p.Id /T /F | Out-Null
+            $p.WaitForExit(30000) | Out-Null
+        }
+    } finally {
+        foreach ($n in 'IROCA_SDK_BUILD_REPORT', 'IROCA_SDK_BUILD_MODE', 'IROCA_SDK_BUILD_TIMEOUT_SEC', 'IROCA_SDK_UPLOAD_STATE', 'IROCA_SDK_UPLOAD_WAIT_CONSENT') {
+            Remove-Item "Env:$n" -ErrorAction SilentlyContinue
+        }
+        if ($null -eq $prevIrocaRepo) { Remove-Item Env:IROCA_REPO -ErrorAction SilentlyContinue }
+        else { $env:IROCA_REPO = $prevIrocaRepo }
+    }
+    $lines = @()
+    if (Test-Path $report) {
+        $lines = @(Get-Content $report -Encoding UTF8)
+        $lines | ForEach-Object { Write-Host $_ }
+    }
+    if ($timedOut) {
+        Write-Host "FAIL 全体の制限時間（$SdkTimeoutMinutes 分）を超えたので Unity を止めました。ログ: $log" -ForegroundColor Red
+        exit 1
+    }
+    if (-not ($lines | Where-Object { $_ -match '^done ' })) {
+        Write-Host (Get-Content $log -Tail 40 -ErrorAction SilentlyContinue | Out-String)
+        throw "途中で終わりました（Unity の終了コード $($p.ExitCode)）。ログ: $log"
+    }
+    if ($lines | Where-Object { $_ -match '^SKIP ' }) {
+        Write-Host "SKIP: 前提が足りず測っていません（失敗ではありません。終了コード 90）" -ForegroundColor Yellow
+        exit 90
+    }
     exit $p.ExitCode
 }
 

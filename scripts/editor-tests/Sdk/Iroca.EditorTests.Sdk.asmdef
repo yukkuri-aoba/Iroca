@@ -1,0 +1,31 @@
+{
+    "name": "Iroca.EditorTests.Sdk",
+    "rootNamespace": "Iroca.EditorTests.Sdk",
+    "references": [
+        "Iroca.EditorTests",
+        "VRC.SDK3A.Editor",
+        "VRC.SDK3A",
+        "VRC.SDKBase.Editor",
+        "VRC.SDKBase"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS",
+        "IROCA_VRCSDK_PRESENT"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.vrchat.avatars",
+            "expression": "[3.9.0,4.0.0-0)",
+            "define": "IROCA_VRCSDK_PRESENT"
+        }
+    ],
+    "noEngineReferences": false
+}
