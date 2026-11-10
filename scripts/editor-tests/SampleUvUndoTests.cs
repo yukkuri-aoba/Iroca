@@ -83,6 +83,35 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(Uv2, Zone.sampleUV);
         }
 
+        // 包絡ゲートの無い連続領域のゾーンでも、位置だけを変えたらプレビューを作り直す(位置は離れた半透明の島を
+        // 落とす段の「残す起点」にも使われる。点検 選-2。Core は 33f164bf)。連続領域でなければ作り直さない。
+        [Test]
+        public void PositionOnlyRepick_WithoutGates_AsksForAPreviewInFloodFillMode() {
+            Assume.That(Zone.shadowValueFloor == 0f && Zone.partSatCeiling == 0f && Zone.partHueBand == 0f,
+                "テストの前提: 包絡ゲートが無い");
+            Zone.mode = SelectionMode.ColorPick;
+            Zone.useFloodFill = true;
+            Pick(Red, Uv1);
+            int changed = 0;
+            _editing.Changed += c => {
+                if (c == EditChange.Content) {
+                    changed++;
+                }
+            };
+
+            Undo.IncrementCurrentGroup();
+            Assert.IsTrue(_editing.ApplySample(Zone, Red, Uv2), "連続領域なのに、位置だけの変更でプレビューを作り直さない");
+            Undo.IncrementCurrentGroup();
+            Assert.AreEqual(1, changed, "編集を知らせていない");
+
+            Zone.useFloodFill = false;
+            Undo.IncrementCurrentGroup();
+            Assert.IsFalse(_editing.ApplySample(Zone, Red, Uv1), "連続領域でないなら、位置は出力に効かない");
+            Undo.IncrementCurrentGroup();
+            Assert.AreEqual(1, changed);
+            Assert.AreEqual(Uv1, Zone.sampleUV, "位置そのものは書く");
+        }
+
         // サンプル色を取り直したら、前の部位の島から導いた値(内部サンプル・包絡ゲート・彩度天井・穴埋めの余白)を
         // 既定へ戻す(点検 自-3)。許容範囲は残す。Undo 1 回で色と一緒に戻る。同じ色を別の場所で拾い直しただけなら残す。
         [Test]
