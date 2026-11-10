@@ -62,7 +62,17 @@ namespace Iroca {
                 return;
             }
             WorkPools.ReleaseFree();
+            try {
+                IdleTrimmed?.Invoke();
+            } catch (System.Exception e) { UnityEngine.Debug.LogException(e); }
         }
+
+        /// <summary>
+        /// 手を止めて作業配列の空きを返した後に呼ぶ(タイマーのスレッドから。購読側は lock で守ること)。上の層が使い回しのために
+        /// 置いている大きいもの(プレビューの出力の控え)も、同じ時期に返すため。
+        /// 購読した側は、捨てるときに必ず解除する(発行側はドメインと同じだけ生きる)。
+        /// </summary>
+        internal static event System.Action IdleTrimmed;
 
         private static void DisposeIdleTimer() {
             lock (s_idleLock) {

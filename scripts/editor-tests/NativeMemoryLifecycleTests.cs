@@ -79,6 +79,27 @@ namespace Iroca.EditorTests {
             Assert.IsTrue(WaitUntil(() => WorkPools.Float.FreeBytes == 0, 5000), "多くの計算の後で空きが返らない");
         }
 
+        // 手を止めて空きを返す時期に、プレビューの出力の控え(PreviewOutputBuffers に置いた 1 本。4K で 64MB)も手放す
+        // (性能の候補 U19。以前は閉じるかテクスチャを替えるまで持ち続けた)。閉じた後は購読を外すので、もう呼ばれない。
+        [Test]
+        public void IdleTrim_ReleasesTheRetainedPreviewOutput() {
+            var buffers = new PreviewOutputBuffers();
+            NativePixels kept = null;
+            try {
+                kept = NativePixels.Allocate(8, 8);
+                buffers.Retire(kept);
+                Assert.AreEqual(1, kept.RefCount, "テストの前提: 控えが置いてある");
+                RunWorkThatLeavesAFreeBlock();
+                Assert.IsTrue(WaitUntil(() => kept.RefCount == 0, 5000), "手を止めても出力の控えを持ち続けた");
+                Assert.IsNull(buffers.Take(8, 8), "手放した控えを渡した");
+            } finally {
+                buffers.Close();
+            }
+            // 閉じた後の縮小では、閉じた控え場所は呼ばれない(呼ばれても空。購読が外れていることは source_checks が見る)。
+            RunWorkThatLeavesAFreeBlock();
+            Assert.IsTrue(WaitUntil(() => WorkPools.Float.FreeBytes == 0, 5000), "閉じた後の縮小が止まった");
+        }
+
         // 作業配列を 1 本借りて返す計算(終わるとプールに空きが 1 本残る)。
         private static unsafe void RunWorkThatLeavesAFreeBlock() {
             NativeMemoryLifecycle.WorkStarted();

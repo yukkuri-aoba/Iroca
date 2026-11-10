@@ -17,6 +17,8 @@ namespace Iroca {
     /// 参照がこちらの 1 つだけのものしか <see cref="Take"/> で渡さない。</item>
     /// </list>
     /// 置いておくのは 1 本だけ(それ以上は手放す)。出力の内容はどのバッファでも同じ。
+    /// 手を止めて作業配列を返す時期(<see cref="NativeMemoryLifecycle.IdleTrimmed"/>。計算が 10 秒無い)に、置いている
+    /// バッファも手放す(4K で 64MB・8K で 256MB。次の確定 1 回で確保し直す)。使い回すのは編集が続いている間だけで足りる。
     /// </summary>
     internal sealed class PreviewOutputBuffers {
         private const int MaxRetired = 1;
@@ -25,6 +27,13 @@ namespace Iroca {
         private readonly List<NativePixels> _retired = new List<NativePixels>();
         // 閉じた後(Close)に戻ってきたバッファは置かずにすぐ手放す(閉じる前に走り出したジョブが後から返す)。
         private bool _closed;
+
+        public PreviewOutputBuffers() {
+            NativeMemoryLifecycle.IdleTrimmed += OnIdleTrimmed;
+        }
+
+        // タイマーのスレッドから来る。置いているものを手放すだけ(Take・Retire と同じ lock の中で外す)。
+        private void OnIdleTrimmed() => Drain(close: false);
 
         /// <summary>
         /// 寸法が同じで、ほかに持ち主のいないバッファを取り出す(参照を 1 つ持たせて返す)。無ければ null(呼び出し側が確保する)。
@@ -72,7 +81,10 @@ namespace Iroca {
         public void Clear() => Drain(close: false);
 
         /// <summary>置いてあるバッファを手放し、以後に戻ってきたものもすぐ手放す(ウィンドウを閉じるとき)。</summary>
-        public void Close() => Drain(close: true);
+        public void Close() {
+            NativeMemoryLifecycle.IdleTrimmed -= OnIdleTrimmed;
+            Drain(close: true);
+        }
 
         private void Drain(bool close) {
             NativePixels[] drop;

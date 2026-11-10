@@ -45,6 +45,7 @@ LONG_LIVED_EVENTS = {
     "OnCaptureComplete",       # DebugCaptureHooks.OnCaptureComplete
     "OnReport",                # PreviewLatency.OnReport
     "changesPublished",        # ObjectChangeEvents.changesPublished(2026-11-08 に追加)
+    "IdleTrimmed",             # NativeMemoryLifecycle.IdleTrimmed(2026-11-10 に追加)
 }
 
 # 解除が不要と判断した購読。**理由を必ず書くこと**(黙って足すと本テストの意味が消える)。
