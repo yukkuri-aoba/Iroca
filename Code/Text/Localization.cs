@@ -1613,6 +1613,9 @@ namespace Iroca {
         public static string RecolorEmptyEntry => IsJapanese
             ? "空の欄があります。レシピを設定するか、欄を消してください。"
             : "There is an empty entry. Set a recipe or remove the entry.";
+        public static string RecolorLostEntry => IsJapanese
+            ? "レシピが見つからない欄（Missing）があります。この欄があると、再生とアップロードのときの色替えがエラーで止まります。レシピを元に戻す（Git など）か、いろかのウィンドウで色替えし直して、同じオブジェクトへ「アバターに非破壊で登録」してください（消えた欄は外れます）。この色替えなしでアップロードするときは、欄を消してください。"
+            : "An entry points to a recipe that no longer exists (Missing). With it, recoloring on play and upload stops with an error. Restore the recipe (for example with Git), or recolor the texture again in the Iroca window and use \"Register to avatar (non-destructive)\" on the same object (the missing entries are removed). To upload without this recolor, remove the entry.";
         public static string RecolorDuplicateSourceFormat => IsJapanese
             ? "「{0}」のレシピが複数あります。使われるのは上のものだけです。"
             : "There are several recipes for \"{0}\". Only the upper one is used.";

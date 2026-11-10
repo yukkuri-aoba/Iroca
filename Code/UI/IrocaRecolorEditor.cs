@@ -44,14 +44,47 @@ namespace Iroca {
                 return;
             }
             var seen = new HashSet<Texture2D>();
-            bool empty = false;
+            bool anyNull = false;
             foreach (var recipe in recipes) {
-                if (recipe == null) { empty = true; continue; }
+                if (recipe == null) { anyNull = true; continue; }
                 DrawRecipe(component, recipe, seen);
             }
-            if (empty) {
-                EditorGUILayout.HelpBox(Localization.RecolorEmptyEntry, MessageType.Warning);
+            if (anyNull) {
+                // 消えたレシピ(Missing)の欄はビルドを止める(LostRecipe)ので、利用者が外した空の欄とは別の文で知らせる。
+                var (empty, lost) = NullSlots(component);
+                if (lost) {
+                    EditorGUILayout.HelpBox(Localization.RecolorLostEntry, MessageType.Error);
+                }
+                if (empty) {
+                    EditorGUILayout.HelpBox(Localization.RecolorEmptyEntry, MessageType.Warning);
+                }
             }
+        }
+
+        /// <summary>
+        /// レシピの欄のうち、空の欄(参照が無い。利用者が外した)と、消えたレシピ(Missing。参照はあるのにアセットが無い)の欄が
+        /// あるか。C# からはどちらも null に見えるので、保存された参照で分ける(NonDestructiveApplier.IsLostReference と同じ判定)。
+        /// </summary>
+        internal static (bool empty, bool lost) NullSlots(IrocaRecolor component) {
+            bool empty = false, lost = false;
+            if (component == null) {
+                return (empty, lost);
+            }
+            using (var so = new SerializedObject(component)) {
+                var list = so.FindProperty(nameof(IrocaRecolor.recipes));
+                for (int i = 0; list != null && i < list.arraySize; i++) {
+                    var element = list.GetArrayElementAtIndex(i);
+                    if (element.objectReferenceValue != null) {
+                        continue;
+                    }
+                    if (element.objectReferenceInstanceIDValue != 0) {
+                        lost = true;
+                    } else {
+                        empty = true;
+                    }
+                }
+            }
+            return (empty, lost);
         }
 
         private void DrawRecipe(IrocaRecolor component, IrocaRecipe recipe, HashSet<Texture2D> seen) {

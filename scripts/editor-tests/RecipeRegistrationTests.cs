@@ -325,6 +325,29 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // インスペクタは、消えたレシピ(Missing)の欄を、利用者が外した空の欄とは別の文で知らせる(消えた欄はビルドを止める)。
+        [Test]
+        public void Inspector_TellsLostSlotsApartFromEmptySlots() {
+            var assets = TestAssets.Create();
+            var lostOnlyAssets = TestAssets.Create();
+            try {
+                var (prefabPath, _) = LostRecipePrefab(assets, new[] { "lost", "alive", "empty" }, new[] { "alive", "empty" });
+                var instance = Track((GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath)));
+                var components = instance.GetComponents<IrocaRecolor>();
+                Assert.AreEqual((true, true), IrocaRecolorEditor.NullSlots(components[0]), "消えた欄と空の欄");
+                Assert.AreEqual((true, false), IrocaRecolorEditor.NullSlots(components[1]), "空の欄だけ(消えた欄と取り違えた)");
+                Assert.AreNotEqual(Localization.RecolorEmptyEntry, Localization.RecolorLostEntry, "同じ文で知らせている");
+
+                var (lostOnlyPath, _) = LostRecipePrefab(lostOnlyAssets, new[] { "lost", "alive" });
+                var lostOnly = Track((GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(lostOnlyPath)));
+                Assert.AreEqual((false, true), IrocaRecolorEditor.NullSlots(lostOnly.GetComponent<IrocaRecolor>()),
+                    "消えた欄だけ(空の欄と取り違えた)");
+            } finally {
+                lostOnlyAssets.Dispose();
+                assets.Dispose();
+            }
+        }
+
         // 確認を取らない登録(自動化)は、消えたレシピの欄を外さない(ビルドを止める守りを黙って消さない)。
         [Test]
         public void Attach_WithoutReplaceLost_KeepsLostSlots() {
