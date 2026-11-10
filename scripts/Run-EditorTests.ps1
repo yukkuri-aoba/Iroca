@@ -129,7 +129,9 @@ if (Test-Path $lock) {
     catch { throw "ホストプロジェクトを Unity Editor で開いているようです。閉じてから実行してください: $HostProject" }
 }
 
-$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+# 秒までの名前だと、同じ秒に別のホストで始めた実行と同じフォルダになり、結果の XML とログを取り合う。
+# ミリ秒とこのシェルのプロセス ID を足して、別の実行とは必ず別のフォルダにする（並びは今までどおり時刻順）。
+$stamp = '{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-fff'), $PID
 $outDir = Join-Path $env:TEMP "iroca-editor-tests\$stamp"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $results = Join-Path $outDir 'results.xml'
