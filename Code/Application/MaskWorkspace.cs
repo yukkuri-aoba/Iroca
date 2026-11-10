@@ -498,9 +498,26 @@ namespace Iroca {
             bool* combined = result.Ptr;
             ulong* c = _common != null ? _common.Bits : null;
             ulong* z = zone != null ? zone.Bits : null;
-            for (int i = 0; i < len; i++) {
-                ulong bit = 1UL << (i & 63);
-                combined[i] = (c != null && (c[i >> 6] & bit) != 0UL) || (z != null && (z[i >> 6] & bit) != 0UL);
+            // 自動調整を押すたびにメインスレッドで全画素(4K 1,677 万・8K 6,700 万)を回すので、語(64 画素)の区間に
+            // 分けて並列に展開する。画素ごとに独立なので、どう分けても中身は同じ。
+            int words = (len + 63) >> 6;
+            const int WordsPerChunk = 1 << 12;
+            int chunks = (words + WordsPerChunk - 1) / WordsPerChunk;
+            System.Action<int> expand = k => {
+                int w0 = k * WordsPerChunk, w1 = System.Math.Min(words, w0 + WordsPerChunk);
+                for (int w = w0; w < w1; w++) {
+                    ulong v = (c != null ? c[w] : 0UL) | (z != null ? z[w] : 0UL);
+                    int i0 = w << 6, n = System.Math.Min(64, len - i0);
+                    for (int b = 0; b < n; b++) {
+                        combined[i0 + b] = ((v >> b) & 1UL) != 0UL;
+                    }
+                }
+            };
+            if (chunks <= 1) {
+                expand(0);
+            } else {
+                System.Threading.Tasks.Parallel.For(0, chunks,
+                    new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, expand);
             }
             return result;
         }
