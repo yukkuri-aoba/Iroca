@@ -126,6 +126,58 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // 入れ子の内側のレシピのゾーンをすべて無効にしたら、その範囲は元の色のまま上がる(外側の色で塗らない)。
+        // シーンのプレビューとインスペクタと同じ意味。
+        [Test]
+        public void ProcessAvatar_InnerRecipeWithNoEnabledZones_KeepsItsScopeOriginal() {
+            string texPath = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(texPath);
+            importer.streamingMipmaps = true;   // 上のテストと同じ理由(VRChat 向けの取り込み設定にそろえる)
+            importer.SaveAndReimport();
+            var src = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = src };
+            AssetDatabase.CreateAsset(mat, _assets.Folder + "/m.mat");
+
+            IrocaSessionState RedToGreen(bool enabled) {
+                var zone = new ColorZone {
+                    sampleColor = new Color(200 / 255f, 40 / 255f, 40 / 255f),
+                    sampleColorSet = true,
+                    targetColor = new Color(0.1f, 0.6f, 0.2f),
+                    tolerance = 0.2f,
+                    enabled = enabled,
+                };
+                zone.EnsureId();
+                var state = new IrocaSessionState();
+                state.zones.Add(zone);
+                return state;
+            }
+            var outerRecipe = RecipeStore.Create(src, RedToGreen(true), _assets.Folder);
+            var innerRecipe = RecipeStore.Create(src, RedToGreen(false), _assets.Folder);
+            _cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(outerRecipe, src));
+
+            var root = new GameObject("avatar");
+            _created.Add(root);
+            var hair = new GameObject("hair");
+            hair.transform.SetParent(root.transform, false);
+            hair.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            var accessory = new GameObject("accessory");
+            accessory.transform.SetParent(root.transform, false);
+            var accessoryMesh = new GameObject("accessoryMesh");
+            accessoryMesh.transform.SetParent(accessory.transform, false);
+            accessoryMesh.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            root.AddComponent<IrocaRecolor>().recipes.Add(outerRecipe);
+            accessory.AddComponent<IrocaRecolor>().recipes.Add(innerRecipe);
+
+            nadena.dev.ndmf.AvatarProcessor.ProcessAvatar(root);
+
+            var hairTex = hair.GetComponent<Renderer>().sharedMaterial.mainTexture;
+            Assert.IsTrue(hairTex.name.EndsWith("(Iroca)"), $"外側の範囲が色替えされていない: {hairTex.name}");
+            // 元のアセットかどうかはパスで見る(上のテストと同じ理由)。
+            Assert.AreEqual(texPath, AssetDatabase.GetAssetPath(accessoryMesh.GetComponent<Renderer>().sharedMaterial.mainTexture),
+                "内側(ゾーンがすべて無効)の範囲を外側の色で塗った");
+            Assert.IsEmpty(root.GetComponentsInChildren<IrocaRecolor>(true));
+        }
+
         [Test]
         public void ProcessAvatar_RecolorsMaterialsSwitchedByAnimation() {
             string texPath = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);

@@ -140,10 +140,22 @@ namespace Iroca {
         private static void DrawScope(IrocaRecolor component, Texture2D source) {
             var materials = new HashSet<Material>();
             int renderers = 0;
+            // 内側(深い)の「Iroca Recolor」が同じテクスチャのレシピを持つ所は、そちらが受け持つ(ビルドでもシーンの
+            // プレビューでも深い方が勝ち、内側のゾーンがすべて無効ならそこは元の色のまま)。このコンポーネントの数から除く。
+            var inner = new Dictionary<IrocaRecolor, HashSet<Material>>();
             foreach (var r in component.GetComponentsInChildren<Renderer>(true)) {
+                var owner = InnerOwner(component, r.transform, source);
                 bool any = false;
                 foreach (var m in r.sharedMaterials) {
-                    if (m != null && NonDestructiveApplier.References(m, source)) {
+                    if (m == null || !NonDestructiveApplier.References(m, source)) {
+                        continue;
+                    }
+                    if (owner != null) {
+                        if (!inner.TryGetValue(owner, out var handled)) {
+                            inner[owner] = handled = new HashSet<Material>();
+                        }
+                        handled.Add(m);
+                    } else {
                         materials.Add(m);
                         any = true;
                     }
@@ -152,12 +164,33 @@ namespace Iroca {
                     renderers++;
                 }
             }
-            if (materials.Count == 0) {
+            if (materials.Count == 0 && inner.Count == 0) {
                 EditorGUILayout.HelpBox(string.Format(Localization.RecolorNotUsedFormat, source.name), MessageType.Warning);
             } else {
                 EditorGUILayout.LabelField(string.Format(Localization.RecolorScopeFormat, materials.Count, renderers),
                     EditorStyles.miniLabel);
             }
+            foreach (var kv in inner) {
+                EditorGUILayout.HelpBox(string.Format(Localization.RecolorInnerScopeFormat, kv.Key.name, kv.Value.Count),
+                    MessageType.Info);
+            }
+        }
+
+        // t から component の手前までの間で、source のレシピを持つ最も近い「Iroca Recolor」(無ければ null)。
+        private static IrocaRecolor InnerOwner(IrocaRecolor component, Transform t, Texture2D source) {
+            for (; t != null && t != component.transform; t = t.parent) {
+                foreach (var c in t.GetComponents<IrocaRecolor>()) {
+                    if (c == component || c.recipes == null) {
+                        continue;
+                    }
+                    foreach (var recipe in c.recipes) {
+                        if (recipe != null && recipe.sourceTexture == source) {
+                            return c;
+                        }
+                    }
+                }
+            }
+            return null;
         }
     }
 

@@ -556,9 +556,15 @@ namespace Iroca.EditorTests {
             public readonly Dictionary<IrocaRecipe, Texture2D> Textures = new Dictionary<IrocaRecipe, Texture2D>();
             public int Builds;
             public bool Fail;
+            // ゾーンがすべて無効のレシピ(作ると NoEnabledZones で null)。
+            public readonly HashSet<IrocaRecipe> NoZones = new HashSet<IrocaRecipe>();
 
             public Texture2D BuildTexture(IrocaRecipe recipe, out RecipeTextureBuilder.Failure failure) {
                 Builds++;
+                if (NoZones.Contains(recipe)) {
+                    failure = RecipeTextureBuilder.Failure.NoEnabledZones;
+                    return null;
+                }
                 failure = Fail ? RecipeTextureBuilder.Failure.SourceUnreadable : RecipeTextureBuilder.Failure.None;
                 if (Fail) {
                     return null;
@@ -707,6 +713,115 @@ namespace Iroca.EditorTests {
             Assert.AreSame(host.Textures[rInner], innerR.GetComponent<Renderer>().sharedMaterial.mainTexture,
                 "入れ子の内側(近い方)のレシピが使われていない");
             Assert.AreSame(host.Textures[rOuter], outerOnly.GetComponent<Renderer>().sharedMaterial.mainTexture);
+            Assert.IsEmpty(host.Reports);
+        }
+
+        // 内側のレシピのゾーンがすべて無効なら、その範囲は元の色のまま(外側の色で塗らない)。シーンのプレビュー
+        // (いちばん深い持ち主を引いて、作れないので元の色)とインスペクタ(何も色替えしない)と同じ意味。
+        [Test]
+        public void Applier_InnerRecipeWithNoEnabledZones_KeepsItsScopeOriginal() {
+            var src = Tex("src");
+            var shared = Mat("shared", src);
+            var root = Node("avatar", null);
+            var hair = Node("hair", root.transform, shared);
+            var accessory = Node("accessory", root.transform);
+            var accessoryMesh = Node("accessoryMesh", accessory.transform, shared);
+            var rOuter = Recipe("outer", src);
+            var rInner = Recipe("inner", src);
+            AddRecolor(root, rOuter);
+            AddRecolor(accessory, rInner);
+
+            var host = new FakeHost();
+            host.NoZones.Add(rInner);
+            NonDestructiveApplier.Apply(root, host);
+
+            Assert.AreSame(host.Textures[rOuter], hair.GetComponent<Renderer>().sharedMaterial.mainTexture, "外側の範囲が色替えされていない");
+            Assert.AreSame(shared, accessoryMesh.GetComponent<Renderer>().sharedMaterial, "内側(ゾーンがすべて無効)の範囲を外側の色で塗った");
+            Assert.IsEmpty(host.Reports, "色替えを外しているだけなのに報告した");
+            Assert.IsEmpty(root.GetComponentsInChildren<IrocaRecolor>(true));
+        }
+
+        // 1 つのコンポーネントに同じテクスチャのレシピが 2 つあり、先頭のゾーンがすべて無効なら、後ろのレシピも効かない
+        // (インスペクタは「上のものしか使われない」、プレビューは先頭を引く)。
+        [Test]
+        public void Applier_SameTextureTwice_FirstHasNoEnabledZones_SecondDoesNotApply() {
+            var src = Tex("src");
+            var m = Mat("m", src);
+            var root = Node("avatar", null);
+            var r = Node("r", root.transform, m);
+            var first = Recipe("first", src);
+            var second = Recipe("second", src);
+            var c = root.AddComponent<IrocaRecolor>();
+            c.recipes.Add(first);
+            c.recipes.Add(second);
+
+            var host = new FakeHost();
+            host.NoZones.Add(first);
+            NonDestructiveApplier.Apply(root, host);
+
+            Assert.AreSame(m, r.GetComponent<Renderer>().sharedMaterial, "先頭がすべて無効なのに後ろのレシピで塗った");
+            CollectionAssert.AreEquivalent(new[] { (NonDestructiveApplier.Problem.TextureNotUsedInScope, second) },
+                host.Reports.ConvertAll(x => (x.Item1, x.Item3)), "後ろのレシピは使われない(重複と同じ扱い)");
+        }
+
+        // 1 段目と 2 段目の間に、内側の範囲へ元テクスチャのマテリアルが足されても元の色のまま。全部無効のレシピは作り直さない。
+        [Test]
+        public void Applier_TwoStages_MaterialAddedInsideAnOptedOutScope_StaysOriginal() {
+            var src = Tex("src");
+            var shared = Mat("shared", src);
+            var root = Node("avatar", null);
+            var hair = Node("hair", root.transform, shared);
+            var accessory = Node("accessory", root.transform);
+            Node("accessoryMesh", accessory.transform, shared);
+            var later = Node("later", accessory.transform, Mat("plain", Tex("plain")));
+            var rOuter = Recipe("outer", src);
+            var rInner = Recipe("inner", src);
+            AddRecolor(root, rOuter);
+            AddRecolor(accessory, rInner);
+
+            var host = new FakeHost();
+            host.NoZones.Add(rInner);
+            var state = new NonDestructiveApplier.BuildState();
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.First);
+            int builds = host.Builds;
+
+            // 間に動くツールが、内側の範囲へ元のマテリアルを入れる。
+            later.GetComponent<Renderer>().sharedMaterial = shared;
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.Late);
+
+            Assert.AreSame(shared, later.GetComponent<Renderer>().sharedMaterial, "2 段目で内側の範囲を外側の色で塗った");
+            Assert.AreSame(host.Textures[rOuter], hair.GetComponent<Renderer>().sharedMaterial.mainTexture);
+            Assert.AreEqual(builds, host.Builds, "ゾーンがすべて無効と分かっているレシピを 2 段目で作り直した");
+            Assert.IsEmpty(host.Reports);
+        }
+
+        // アニメーションで内側の Renderer に切り替わるマテリアルも元の色のまま(外側の範囲のアニメーションは色替えする)。
+        [Test]
+        public void Applier_MaterialSwitchedByAnimationInsideAnOptedOutScope_StaysOriginal() {
+            var src = Tex("src");
+            var shared = Mat("shared", src);
+            var alt = Mat("alt", src);
+            var plain = Mat("plain", Tex("plain"));
+            var root = Node("avatar", null);
+            var hair = Node("hair", root.transform, shared);
+            var accessory = Node("accessory", root.transform);
+            var accessoryMesh = Node("accessoryMesh", accessory.transform, plain);
+            var rOuter = Recipe("outer", src);
+            var rInner = Recipe("inner", src);
+            AddRecolor(root, rOuter);
+            AddRecolor(accessory, rInner);
+
+            var host = new FakeHost();
+            host.NoZones.Add(rInner);
+            var innerKeys = new[] { alt };
+            var outerKeys = new[] { alt };
+            host.Animated.Add((accessoryMesh, innerKeys));
+            host.Animated.Add((hair, outerKeys));
+            NonDestructiveApplier.Apply(root, host);
+
+            Assert.AreSame(alt, innerKeys[0], "内側(ゾーンがすべて無効)の範囲のアニメーションを外側の色で塗った");
+            Assert.AreNotSame(alt, outerKeys[0], "外側の範囲のアニメーションが色替えされていない");
+            Assert.AreSame(host.Textures[rOuter], outerKeys[0].mainTexture);
             Assert.IsEmpty(host.Reports);
         }
 

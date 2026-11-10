@@ -21,6 +21,9 @@ namespace Iroca {
     /// <item>入れ子で範囲が重なったら、深い(近い)コンポーネントが勝つ。先に深い方を処理すると、
     ///   差し替え済みのマテリアルは元テクスチャを参照しなくなるので、浅い方は自然に手を出さない。
     ///   同じコンポーネントに同じテクスチャのレシピが複数あれば、同じ理由で先のものが勝つ。</item>
+    /// <item>ゾーンがすべて無効のレシピ(利用者が色替えを外している)は、その範囲を元の色のまま残す。同じ段で後から
+    ///   処理する浅いコンポーネントと、同じコンポーネントの後ろのレシピも、同じ元テクスチャならその範囲を塗らない
+    ///   (シーンのプレビューとインスペクタと同じ意味。外側の色で塗ると、ビルドでだけ色が変わる)。</item>
     /// <item>最後にコンポーネントをすべて取り除く(エラーがあっても)。</item>
     /// <item>ビルドでは 2 段で当てる(<see cref="Stage"/>)。1 段目(NDMF の Transforming 段)の後に動くツール
     ///   (VRCFury は NDMF の前半と最適化段の間に動く)がトグルなどで元のマテリアルを入れ直すので、2 段目
@@ -81,6 +84,10 @@ namespace Iroca {
             internal readonly Dictionary<IrocaRecipe, Texture2D> built = new Dictionary<IrocaRecipe, Texture2D>();
             /// <summary>作れなかったレシピ(2 段目は試さず、報告もしない)。</summary>
             internal readonly HashSet<IrocaRecipe> failed = new HashSet<IrocaRecipe>();
+            /// <summary>
+            /// ゾーンがすべて無効のレシピ(利用者が色替えを外している)。その範囲は元の色のまま残し、2 段目も作り直さない。
+            /// </summary>
+            internal readonly HashSet<IrocaRecipe> optedOut = new HashSet<IrocaRecipe>();
             /// <summary>
             /// レシピごとの 元マテリアル → 複製(null = 元テクスチャを使わないので触らない)。複製の中身は
             /// 元マテリアルとレシピだけで決まるので、同じレシピを別々のオブジェクトに登録していても 1 つを共有する
@@ -144,6 +151,10 @@ namespace Iroca {
                 }
                 order.Sort((a, b) => a.depth != b.depth ? b.depth.CompareTo(a.depth) : a.index.CompareTo(b.index));
 
+                // この段で、ゾーンがすべて無効のレシピが元の色のまま残した (コンポーネント, 元テクスチャ)。先に処理した
+                // (自分か深い)ものだけが入るので、後から処理するものはその範囲を塗らない(深い方が勝つのと同じ順)。
+                // 段ごとに作り直す(段の間に親子関係が変わると処理の順も変わるため)。
+                var keptOriginal = new List<(IrocaRecolor component, Texture source)>();
                 foreach (var (_, _, component) in order) {
                     var recipes = component.recipes;
                     if (recipes == null || recipes.Count == 0) {
@@ -157,7 +168,7 @@ namespace Iroca {
                         if (recipes[i] == null && stage != Stage.Late && IsLostReference(component, i)) {
                             host.Report(Problem.LostRecipe, component, null, RecipeTextureBuilder.Failure.None);
                         } else {
-                            replaced += ApplyOne(component, recipes[i], host, state, stage);
+                            replaced += ApplyOne(component, recipes[i], host, state, stage, keptOriginal);
                         }
                     }
                 }
@@ -189,7 +200,7 @@ namespace Iroca {
         }
 
         private static int ApplyOne(IrocaRecolor component, IrocaRecipe recipe, IHost host, BuildState state,
-            Stage stage) {
+            Stage stage, List<(IrocaRecolor component, Texture source)> keptOriginal) {
             // 設定の問題は 1 回だけ報告する(2 段目では黙って飛ばす)。
             bool reportSetup = stage != Stage.Late;
             if (recipe == null) {
@@ -208,10 +219,16 @@ namespace Iroca {
             if (state.failed.Contains(recipe)) {
                 return 0;
             }
+            var key = (component, recipe);
+            if (state.optedOut.Contains(recipe)) {
+                // 前の段(か、同じレシピのほかのコンポーネント)で、ゾーンがすべて無効と分かっている。作り直さない。
+                keptOriginal.Add((component, source));
+                state.used.Add(key);
+                return 0;
+            }
 
             // 元マテリアル → 複製(null = 元テクスチャを参照していないので触らない)。2 段目も、同じレシピの
             // ほかのコンポーネントも同じ表を使う。
-            var key = (component, recipe);
             if (!state.clones.TryGetValue(recipe, out var clones)) {
                 state.clones[recipe] = clones = new Dictionary<Material, Material>();
             }
@@ -220,7 +237,34 @@ namespace Iroca {
             }
             state.built.TryGetValue(recipe, out var recolored);
             bool failed = false;
+            // ゾーンがすべて無効と分かった(この範囲は元の色のまま)。
+            bool keepOriginal = false;
             int replaced = 0;
+
+            // 先に処理した(自分か深い)コンポーネントが、ゾーンがすべて無効のレシピでこの元テクスチャを元の色のまま
+            // 残した範囲(その子か、親子関係が変わる前にその範囲にあったもの)か。
+            bool anyKept = keptOriginal.Exists(k => k.source == source);
+            bool KeptOriginal(Transform t) {
+                if (!anyKept) {
+                    return false;
+                }
+                foreach (var (keeper, kept) in keptOriginal) {
+                    if (kept != source || keeper == null) {
+                        continue;
+                    }
+                    if (t.IsChildOf(keeper.transform)) {
+                        return true;
+                    }
+                    if (state.recordedScopes.TryGetValue(keeper, out var before)) {
+                        foreach (var was in before) {
+                            if (was != null && was.transform == t) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
 
             // このコンポーネントで影の色を合わせると選ばれた、このレシピのメインテクスチャのマテリアルか。
             bool MatchesShadow(Material material, out Material root) {
@@ -232,7 +276,7 @@ namespace Iroca {
             // 元テクスチャを参照していれば複製して差し替えたものを返す(参照していなければ null)。
             // Renderer の欄とアニメーションのキーフレームの両方から呼ぶ(同じマテリアルは同じ複製になる)。
             Material Swap(Material original) {
-                if (original == null || failed) {
+                if (original == null || failed || keepOriginal) {
                     return null;
                 }
                 bool matchShadow = MatchesShadow(original, out var root);
@@ -248,6 +292,12 @@ namespace Iroca {
                     state.used.Add(key);
                     if (recolored == null) {
                         recolored = host.BuildTexture(recipe, out var failure);
+                        if (recolored == null && failure == RecipeTextureBuilder.Failure.NoEnabledZones) {
+                            // 利用者が色替えを外している: 失敗ではない(報告しない)。この範囲は元の色のまま残す。
+                            keepOriginal = true;
+                            state.optedOut.Add(recipe);
+                            return null;
+                        }
                         if (recolored == null) {
                             failed = true;
                             state.failed.Add(recipe);
@@ -296,6 +346,9 @@ namespace Iroca {
             }
 
             foreach (var renderer in renderers) {
+                if (KeptOriginal(renderer.transform)) {
+                    continue;
+                }
                 var mats = renderer.sharedMaterials;
                 bool changed = false;
                 for (int i = 0; i < mats.Length; i++) {
@@ -309,16 +362,23 @@ namespace Iroca {
                 if (failed) {
                     return replaced;
                 }
+                if (keepOriginal) {
+                    return KeepOriginal();
+                }
                 if (changed) {
                     renderer.sharedMaterials = mats;
                 }
             }
 
             // 衣装・表情のトグルなど、アニメーションで後から切り替わるマテリアルも同じ規則で差し替える。
-            host.RewriteAnimatedMaterials(t => t.IsChildOf(scope) || (moved != null && moved.Contains(t)),
+            host.RewriteAnimatedMaterials(
+                t => (t.IsChildOf(scope) || (moved != null && moved.Contains(t))) && !KeptOriginal(t),
                 m => Swap(m) ?? m);
             if (failed) {
                 return replaced;
+            }
+            if (keepOriginal) {
+                return KeepOriginal();
             }
 
             // 「使っていない」は最後の段で判断する(2 段目で入ったマテリアルで使われることがある)。
@@ -326,6 +386,14 @@ namespace Iroca {
                 host.Report(Problem.TextureNotUsedInScope, component, recipe, RecipeTextureBuilder.Failure.None);
             }
             return replaced;
+
+            // ゾーンがすべて無効と分かった(最初に元テクスチャを使う所で分かるので、まだ何も差し替えていない)。
+            // この範囲を、この段で後から処理するものに知らせる。
+            int KeepOriginal() {
+                keptOriginal.Add((component, source));
+                state.used.Add(key);
+                return replaced;
+            }
         }
 
         /// <summary>マテリアルがいずれかのテクスチャ枠で <paramref name="texture"/> を参照しているか。</summary>

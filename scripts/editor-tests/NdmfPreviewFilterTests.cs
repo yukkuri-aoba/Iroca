@@ -246,6 +246,50 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // 入れ子の内側のレシピのゾーンがすべて無効なら、その範囲は元の色のまま映す(ビルドと同じ。外側の色で塗らない)。
+        [Test]
+        public void InnerRecipeWithNoEnabledZones_ShowsItsScopeInTheOriginalColor() {
+            var (src, mat) = SourceAndMaterial();
+            var avatar = Track(new GameObject("avatar"));
+            var hair = Mesh("hair", mat, avatar);
+            var accessory = Track(new GameObject("accessory"));
+            accessory.transform.SetParent(avatar.transform, false);
+            var inside = Mesh("accessoryMesh", mat, accessory);
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(RedToGreen(src));
+            var off = RedToGreen(src);
+            var state = RecipeStore.Load(off);
+            state.zones[0].enabled = false;
+            RecipeStore.Save(off, state);
+            accessory.AddComponent<IrocaRecolor>().recipes.Add(off);
+
+            var filter = new IrocaPreviewFilter();
+            var groups = filter.FindTargets(new ComputeContext("test"));
+            var hairGroup = GroupOf(groups, hair);
+            Assert.IsNotNull(hairGroup);
+            var hairProxy = ProxyOf(hair);
+            var hairNode = TestAssets.Wait(filter.Instantiate(hairGroup, new List<(Renderer, Renderer)> { (hair, hairProxy) },
+                new ComputeContext("node")));
+            try {
+                var tex = hairProxy.sharedMaterial.mainTexture;
+                Assert.IsTrue(tex != null && tex.name.EndsWith("(Iroca)"), $"外側の範囲に外側のレシピが映っていない: {tex}");
+            } finally {
+                hairNode.Dispose();
+            }
+
+            var insideGroup = GroupOf(groups, inside);
+            if (insideGroup == null) {
+                return;   // 映すものが無い(元の色のまま)
+            }
+            var insideProxy = ProxyOf(inside);
+            var insideNode = TestAssets.Wait(filter.Instantiate(insideGroup,
+                new List<(Renderer, Renderer)> { (inside, insideProxy) }, new ComputeContext("node")));
+            try {
+                Assert.AreSame(mat, insideProxy.sharedMaterial, "内側(ゾーンがすべて無効)の範囲に外側の色を映した");
+            } finally {
+                insideNode.Dispose();
+            }
+        }
+
         [Test]
         public void MaterialGoneWhileWaitingForTheRecipe_TheNodeStillFinishes() {
             // NDMF は全部のノードがそろってから次の表示へ切り替えるので、ノードが終わらないと

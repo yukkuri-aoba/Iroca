@@ -1546,14 +1546,18 @@ namespace Iroca {
             ? "レシピの中身を読めません（空か、壊れているか、新しい版のいろかで作られています）。"
             : "Cannot read the recipe (empty, broken, or made with a newer version of Iroca).";
         public static string RecolorNoEnabledZones => IsJapanese
-            ? "このレシピには有効なゾーンが無いので、何も色替えしません。色替えするときは、いろかウィンドウでゾーンを有効にしてください。"
-            : "This recipe has no enabled zone, so nothing is recolored. To recolor, enable a zone in the Iroca window.";
+            ? "このレシピには有効なゾーンが無いので、何も色替えしません。外側の「Iroca Recolor」に同じテクスチャのレシピがあっても、この範囲は元の色のままです。色替えするときは、いろかウィンドウでゾーンを有効にしてください。"
+            : "This recipe has no enabled zone, so nothing is recolored. This scope stays in the original colors even if an outer \"Iroca Recolor\" has a recipe for the same texture. To recolor, enable a zone in the Iroca window.";
         public static string RecolorNotUsedFormat => IsJapanese
             ? "この範囲の Renderer に「{0}」を使っているマテリアルがありません。衣装のトグルなどアニメーションで切り替えた先でだけ使うならこのままで構いません。そうでなければ、コンポーネントを衣装やアバターの親に置いてください。"
             : "No renderer in this scope uses \"{0}\". That is fine if it is only used by a material that an animation (such as an outfit toggle) switches to. Otherwise, place the component on the outfit or avatar root.";
         public static string RecolorScopeFormat => IsJapanese
             ? "対象のマテリアル: {0} 個（Renderer {1} 個）"
             : "Target materials: {0} ({1} renderer(s))";
+        // {0} = 内側の「Iroca Recolor」の付いたオブジェクトの名前、{1} = それが受け持つマテリアルの数。
+        public static string RecolorInnerScopeFormat => IsJapanese
+            ? "内側の「Iroca Recolor」（{0}）が、このテクスチャを使うマテリアル {1} 個を受け持っています。そこは内側のレシピに従います（内側のゾーンがすべて無効なら元の色のままです）。"
+            : "The inner \"Iroca Recolor\" ({0}) handles {1} material(s) that use this texture. They follow the inner recipe (and stay in the original colors if all of its zones are disabled).";
         public static string RecipeInspectorZonesFormat => IsJapanese ? "ゾーン: {0} 個（有効 {1} 個）" : "Zones: {0} ({1} enabled)";
         public static string RecipeField => IsJapanese ? "レシピ" : "Recipes";
         public static string RecipeFieldTooltip => IsJapanese
