@@ -1599,6 +1599,10 @@ namespace Iroca {
         public static string ShadowColorNoticeFormat => IsJapanese
             ? "マテリアル「{0}」の影の色は元の色に合わせた色のままです。アバターの影の部分に、元の色味が残って見えることがあります。"
             : "The shadow color of material \"{0}\" still matches the original color. The original tint can show in the shaded parts of the avatar.";
+        // {0} = マテリアル、{1} = 影色テクスチャ(lilToon の _ShadowColorTex など。色替えする元テクスチャと別のもの)。
+        public static string ShadowColorTextureNoticeFormat => IsJapanese
+            ? "マテリアル「{0}」の影色テクスチャ「{1}」は色替えされないので、影の部分はその色のまま残ります。そのテクスチャも、いろかで同じ色へ塗ってください。"
+            : "The shadow color texture \"{1}\" of material \"{0}\" is not recolored, so the shaded parts keep its colors. Recolor that texture to the same color in Iroca too.";
         public static string ShadowColorMatchButton => IsJapanese ? "影の色も合わせる" : "Match shadow color";
         public static string ShadowColorMatchButtonTooltip => IsJapanese
             ? "影の色を変更先カラーに合わせる設定を「Iroca Recolor」に足します。シーンのプレビューと再生・アップロードにだけ効き、マテリアルそのものは変わりません。まだ登録していなければ、先に「アバターに非破壊で登録」します。"

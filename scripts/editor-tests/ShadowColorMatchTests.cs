@@ -51,6 +51,37 @@ namespace Iroca.EditorTests {
             return m;
         }
 
+        // 影色テクスチャ(lilToon の _Shadow*ColorTex)が元テクスチャと別に描かれていると、そのテクスチャは色替えされないので
+        // 影はその色のまま残る。インスペクタと窓で知らせるため、そういう影色テクスチャを返す。同じテクスチャ(一緒に色替え
+        // される)・空・使っていない影(色の α が 0)の欄・lilToon 以外は入れない。
+        [Test]
+        public void SeparateShadowTextures_AreTheSetOnesThatDifferFromTheSource() {
+            var src = Tex("src");
+            var shadowTex = Tex("shadow");
+            var m = LilToon(src);
+            CollectionAssert.IsEmpty(MaterialShadowColors.SeparateShadowTextures(m, src), "影色テクスチャが無いのに返した");
+
+            m.SetTexture("_ShadowColorTex", src);
+            CollectionAssert.IsEmpty(MaterialShadowColors.SeparateShadowTextures(m, src), "同じテクスチャ(一緒に色替えされる)を返した");
+
+            m.SetTexture("_ShadowColorTex", shadowTex);
+            CollectionAssert.AreEqual(new[] { shadowTex }, MaterialShadowColors.SeparateShadowTextures(m, src));
+
+            // 2 影の欄: 使っていない(色の α が 0)なら入れず、使っていれば入れる(同じテクスチャは 1 回)。
+            m.SetTexture("_Shadow2ndColorTex", Tex("shadow2"));
+            m.SetColor("_Shadow2ndColor", new Color(0.5f, 0.5f, 0.5f, 0f));
+            CollectionAssert.AreEqual(new[] { shadowTex }, MaterialShadowColors.SeparateShadowTextures(m, src), "使っていない影の欄を返した");
+            m.SetTexture("_Shadow2ndColorTex", shadowTex);
+            m.SetColor("_Shadow2ndColor", new Color(0.5f, 0.5f, 0.5f, 1f));
+            CollectionAssert.AreEqual(new[] { shadowTex }, MaterialShadowColors.SeparateShadowTextures(m, src), "同じテクスチャを 2 回返した");
+
+            // 影を使っていない・lilToon 以外は対象外(影の色を合わせられるのは lilToon だけ)。
+            m.SetFloat("_UseShadow", 0f);
+            CollectionAssert.IsEmpty(MaterialShadowColors.SeparateShadowTextures(m, src), "影を使っていないのに返した");
+            var standard = Track(new Material(Shader.Find("Standard")) { mainTexture = src });
+            CollectionAssert.IsEmpty(MaterialShadowColors.SeparateShadowTextures(standard, src));
+        }
+
         private IrocaRecipe Recipe(Texture2D src) {
             var zone = new ColorZone { sampleColor = Sample, sampleColorSet = true, targetColor = Target, tolerance = 0.2f };
             zone.EnsureId();

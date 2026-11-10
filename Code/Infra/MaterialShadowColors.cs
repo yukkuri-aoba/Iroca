@@ -52,6 +52,34 @@ namespace Iroca {
             return state != null && TryGetColors(state.zones, out sample, out target);
         }
 
+        // 1〜3 影の影色テクスチャ(Properties と同じ並び)。lilToon の影の色は lerp(メインの色, 影色テクスチャ, その α) × 影の色。
+        private static readonly string[] TextureProperties = { "_ShadowColorTex", "_Shadow2ndColorTex", "_Shadow3rdColorTex" };
+
+        /// <summary>
+        /// 影の色が掛かる先として、<paramref name="source"/>(色替えする元テクスチャ)と別の影色テクスチャが設定されているもの
+        /// (重複なし)。そのテクスチャは色替えされないので、影はその色のまま残る(影の色を合わせても、掛かる先が古い色のまま)。
+        /// 同じテクスチャなら一緒に色替えされるので入れない。使っていない影(影の色の α が 0)の欄も入れない。
+        /// </summary>
+        public static List<Texture> SeparateShadowTextures(Material material, Texture source) {
+            var found = new List<Texture>();
+            if (!IsEligible(material)) {
+                return found;
+            }
+            for (int i = 0; i < TextureProperties.Length; i++) {
+                if (!material.HasProperty(TextureProperties[i])) {
+                    continue;
+                }
+                if (material.HasProperty(Properties[i]) && material.GetColor(Properties[i]).a <= 0f) {
+                    continue;
+                }
+                var texture = material.GetTexture(TextureProperties[i]);
+                if (texture != null && texture != source && !found.Contains(texture)) {
+                    found.Add(texture);
+                }
+            }
+            return found;
+        }
+
         /// <summary><paramref name="texture"/> がメインテクスチャか(影の色が掛かるのはメインの色なので、ほかの欄の色替えでは合わせない)。</summary>
         public static bool MainTextureIs(Material material, Texture texture) {
             if (material == null || texture == null) {

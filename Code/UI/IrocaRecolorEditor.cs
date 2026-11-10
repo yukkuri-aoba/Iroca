@@ -110,6 +110,11 @@ namespace Iroca {
                     EditorGUI.DrawRect(new Rect(rect.x + rect.width / 2f, rect.y + 2f, rect.width / 2f, rect.height - 4f), new Color(after.r, after.g, after.b, 1f));
                 }
                 EditorGUILayout.EndHorizontal();
+                // 影色テクスチャが別に描かれていると、影の色を合わせても影の部分はそのテクスチャの色のまま。
+                foreach (var shadowTexture in MaterialShadowColors.SeparateShadowTextures(m, source)) {
+                    EditorGUILayout.HelpBox(string.Format(Localization.ShadowColorTextureNoticeFormat, m.name, shadowTexture.name),
+                        MessageType.Info);
+                }
                 if (next == on) {
                     continue;
                 }

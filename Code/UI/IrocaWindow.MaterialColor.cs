@@ -159,6 +159,8 @@ namespace Iroca {
 
         // 影の色が塗り先とずれていて、まだ合わせる設定になっていないマテリアル(案内に出す)。読み直しの間隔は上と同じ。
         [System.NonSerialized] private List<Material> _shadowMismatch;
+        // 影色テクスチャが元テクスチャと別に描かれているマテリアルとそのテクスチャ(影はその色のまま残るので案内に出す)。
+        [System.NonSerialized] private List<(Material material, Texture texture)> _shadowTextures;
         [System.NonSerialized] private double _shadowMismatchReadAt;
 
         // Layout のときだけ読み直す(同じフレームの Repaint と並ぶ要素をそろえる)。シーンの部品を探すので毎フレームは読まない。
@@ -172,6 +174,7 @@ namespace Iroca {
             }
             _shadowMismatchReadAt = now;
             _shadowMismatch = null;
+            _shadowTextures = null;
             var groups = _materialColorGroups;
             var source = SourceTexture;
             if (source == null || groups == null) {
@@ -184,8 +187,13 @@ namespace Iroca {
             foreach (var g in groups) {
                 foreach (var r in g) {
                     var m = r.material;
-                    if (r.slot != MaterialColorSettings.Slot.Main || !MaterialShadowColors.MainTextureIs(m, source)
-                        || !MaterialShadowColors.NeedsMatch(m, sample, target) || IsShadowMatched(components, m, source)) {
+                    if (r.slot != MaterialColorSettings.Slot.Main || !MaterialShadowColors.MainTextureIs(m, source)) {
+                        continue;
+                    }
+                    foreach (var t in MaterialShadowColors.SeparateShadowTextures(m, source)) {
+                        (_shadowTextures ??= new List<(Material, Texture)>()).Add((m, t));
+                    }
+                    if (!MaterialShadowColors.NeedsMatch(m, sample, target) || IsShadowMatched(components, m, source)) {
                         continue;
                     }
                     (_shadowMismatch ??= new List<Material>()).Add(m);
@@ -215,7 +223,10 @@ namespace Iroca {
         private void DrawShadowColorNotice() {
             RefreshShadowMismatch();
             var materials = _shadowMismatch;
-            if (materials == null || materials.Count == 0 || SourceTexture == null) {
+            var textures = _shadowTextures;
+            bool mismatch = materials != null && materials.Count > 0;
+            bool separate = textures != null && textures.Count > 0;
+            if ((!mismatch && !separate) || SourceTexture == null) {
                 return;
             }
             string key = IrocaPrefs.ShadowColorDismissedPrefix + CurrentTexturePath(SourceTexture);
@@ -223,11 +234,19 @@ namespace Iroca {
                 return;
             }
 
-            EditorGUILayout.HelpBox(string.Format(Localization.ShadowColorNoticeFormat, materials[0].name), MessageType.Info);
+            if (mismatch) {
+                EditorGUILayout.HelpBox(string.Format(Localization.ShadowColorNoticeFormat, materials[0].name), MessageType.Info);
+            }
+            // 影色テクスチャが別に描かれていると、影の色を合わせても影の部分はそのテクスチャの色のまま。
+            if (separate) {
+                EditorGUILayout.HelpBox(string.Format(Localization.ShadowColorTextureNoticeFormat, textures[0].material.name,
+                    textures[0].texture.name), MessageType.Info);
+            }
             bool changed = GUI.changed;
             EditorGUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
-            bool match = GUILayout.Button(TempContent.Of(Localization.ShadowColorMatchButton, Localization.ShadowColorMatchButtonTooltip),
+            bool match = mismatch && GUILayout.Button(
+                TempContent.Of(Localization.ShadowColorMatchButton, Localization.ShadowColorMatchButtonTooltip),
                 GUILayout.ExpandWidth(false));
             if (GUILayout.Button(TempContent.Of(Localization.LargeSourceDismiss, Localization.ShadowColorDismissTooltip),
                     GUILayout.ExpandWidth(false))) {
