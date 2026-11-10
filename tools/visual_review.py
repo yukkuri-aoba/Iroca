@@ -238,7 +238,10 @@ def _classify_change(orig: np.ndarray, before: np.ndarray, after: np.ndarray) ->
     **新規/強化された着色**。総変化画素数だけでは、この 2 つが打ち消し合って
     「大きく変わった」以上のことが分からない。変化は RGBA の 4 チャンネルで数え、α が変わった画素は
     alpha_changed にも数える(2026-11-10 まで RGB だけを見ていて、α だけの変化は「ビット一致」になった)。
+    変更前とビット一致なら(ほとんどのケース)、int16 の写しを作らずに 0 を返す(結果は同じ。性能の候補 T1)。
     """
+    if before.shape == after.shape and np.array_equal(before, after):
+        return {"changed": 0, "alpha_changed": 0, "toward_original": 0, "away_from_original": 0, "max_delta": 0}
     o = orig.astype(np.int16)
     b = before.astype(np.int16)
     a = after.astype(np.int16)
@@ -591,6 +594,8 @@ def cmd_compare(engine: str = "csharp", source: str = "worktree", allow_external
     share_checked: list[str] = []          # 回帰が選択を使い回して測った出力と突き合わせたケース
     share_leaks: dict[str, int] = {}       # そのうち出力が違ったケース -> 違う画素数(選択キャッシュの鍵の漏れ)
     alpha_contract: dict[str, int] = {}    # α が入力と違う画素があったケース -> 画素数(B-7⑤)
+    orig_thumb_src: np.ndarray | None = None   # 元テクスチャの縮小を作った入力(同じ被写体のケースで使い回す)
+    orig_thumb_raw: np.ndarray | None = None
     for case_id, input_rgba, after_rgba, exclude, shared_diff in _iter_engine(engine):
         if shared_diff is not None:
             share_checked.append(case_id)
@@ -611,20 +616,27 @@ def cmd_compare(engine: str = "csharp", source: str = "worktree", allow_external
             after_label = (f"固定設定 + 模擬除外 (守った画素 {int(exclude.sum()):,} / "
                            f"違反 {violated:,})")
 
+        # 縮小(4K から LANCZOS で 1 枚約 0.13 秒)は使い回す(性能の候補 T1。パネルの画素は同じ):
+        # 元テクスチャは同じ被写体のケースで同じ配列なので被写体ごとに 1 回、変更前が変更後とビット一致なら
+        # 変更後の縮小をそのまま使う。ラベルは写しに描く(使い回す縮小を書き換えない)。
+        if input_rgba is not orig_thumb_src:
+            orig_thumb_src, orig_thumb_raw = input_rgba, _make_thumb(input_rgba)
         orig_thumb = _add_label(
-            _make_thumb(input_rgba),
+            orig_thumb_raw.copy(),
             "元テクスチャ (Original)",
             (30, 80, 160),
         )
+        after_thumb_raw = _make_thumb(after_rgba)
         after_thumb = _add_label(
-            _make_thumb(after_rgba),
+            after_thumb_raw.copy(),
             after_label,
             (30, 140, 60) if exclude is None or not contract[case_id] else (190, 30, 30),
         )
 
         if before_rgba is not None:
+            same_as_before = before_rgba.shape == after_rgba.shape and np.array_equal(before_rgba, after_rgba)
             before_thumb = _add_label(
-                _make_thumb(before_rgba),
+                (after_thumb_raw if same_as_before else _make_thumb(before_rgba)).copy(),
                 "変更前 (Before / Old)",
                 (160, 80, 30),
             )

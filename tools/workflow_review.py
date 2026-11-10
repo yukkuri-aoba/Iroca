@@ -174,6 +174,7 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
         if region is not None:
             inside &= region
         tolerated, tol_info = gtt.tolerance_for_subject(subject, rgba, inside, region, overrides)
+        orig_thumb = None   # 元の縮小は 2 つのモードで同じ(性能の候補 T5。1 枚約 0.13 秒)
         for mode, output, metric_key, workflow_key in (
             ("oneshot", r["_out_b"], "evidence", "workflow"),
             ("assisted_include", r["_out_b2"], "evidence_include", "assisted_workflow"),
@@ -191,12 +192,22 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
                 regressions.append("alpha")
             previous = REVIEW / "snapshot" / name
             before = np.array(Image.open(previous).convert("RGBA")) if previous.exists() else None
-            def tile(arr, label):
-                return vr._add_label(vr._make_thumb(arr), label, (40, 65, 95))
-            before_tile = tile(before, "変更前") if before is not None else tile(np.full_like(output, 64), "変更前なし(新規条件)")
+            def tile(arr, label, thumb=None):
+                # thumb: 使い回す縮小(ラベルは写しに描く)。無ければ arr を縮小する。
+                return vr._add_label((thumb if thumb is not None else vr._make_thumb(arr)).copy(), label, (40, 65, 95))
+            # 変更前との違い(変化の密な窓・線の物差し・changed_from_snapshot が使う)は 1 回だけ求める。
+            # ビット一致なら変更前の縮小は出力の縮小と同じなので作り直さない(パネルの画素は同じ。性能の候補 T5)。
+            diff_px = (before != output).any(axis=-1) if before is not None else None
+            out_thumb = vr._make_thumb(output)
+            if orig_thumb is None:
+                orig_thumb = vr._make_thumb(rgba)
+            if before is not None:
+                before_tile = tile(before, "変更前", out_thumb if not diff_px.any() else None)
+            else:
+                before_tile = tile(np.full_like(output, 64), "変更前なし(新規条件)")
             label = WORKFLOWS[mode]["label"]
-            top = vr._hstack_with_sep([tile(rgba, f"元 / {sid} p50 {r['xy']}"),
-                                       before_tile, tile(output, label)])
+            top = vr._hstack_with_sep([tile(rgba, f"元 / {sid} p50 {r['xy']}", orig_thumb),
+                                       before_tile, tile(output, label, out_thumb)])
             # AIマスクの役割とGT採点を別々の画像にする。GTを処理入力へ渡さない。
             evidence = rgba.copy()
             evidence[r["_seg"], :3] = (0, 200, 255)
@@ -208,7 +219,7 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
             overlay[changed & ~inside & ~tolerated, :3] = (255, 40, 40)
             overlay[changed & ~inside & tolerated, :3] = (150, 150, 150)   # 許容(同色の別部位): 設計上の巻き込み
             overlay[~changed & inside, :3] = (40, 100, 255)
-            focus = (before != output).any(axis=-1) if before is not None else (changed | inside)
+            focus = diff_px if before is not None else (changed | inside)
             cy, cx = vr._densest_change_window(focus, vr.CROP_SIZE)
             crop = vr._add_label(vr._crop(output, cy, cx, vr.CROP_SIZE),
                                  f"等倍出力 @({cx},{cy})", (40, 65, 95))
@@ -228,7 +239,7 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
                           "satisfied": mea.satisfied(metrics), "satisfied_strict": mea.satisfied_strict(metrics),
                           "tolerance_gt": r["tolerance_gt"], "regressions": regressions,
                           "panel": name, "panel_sha256": sha256(folder / name),
-                          "changed_from_snapshot": int((before != output).any(axis=-1).sum()) if before is not None else None,
+                          "changed_from_snapshot": int(diff_px.sum()) if before is not None else None,
                           "phantom": phantom}
             print(f"[workflow] {cid}: regression={regressions} satisfied={mea.satisfied(metrics)} "
                   f"(strict {mea.satisfied_strict(metrics)}; 適合 {metrics['precision']:.3f}→設計 "
