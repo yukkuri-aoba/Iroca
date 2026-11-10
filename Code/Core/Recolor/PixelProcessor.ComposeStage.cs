@@ -143,7 +143,7 @@ namespace Iroca {
                             }
                             Color32 op = originalPixels[i];
                             float alpha = op.a / 255f;
-                            bool hasMapMid = zRegMidMap != null && zRegMidMap[i] > 0f;
+                            bool hasMapMid = zRegMidMap != null && zRegMidMap[i] >= 0f;
                             float regMid = hasMapMid ? zRegMidMap[i] : zRegLmid;
                             float regUp = hasMapMid && zRegUpMap != null ? zRegUpMap[i] : AchromaFormOffset;
                             Color32 recolored;

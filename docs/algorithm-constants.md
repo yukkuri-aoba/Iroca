@@ -256,6 +256,7 @@
 | `AchromaFormOffset` | `0.16f` | 実測 | — | 黒側の余白・白側の余白の上限。基準を P80 にした際、明部の明るさを測って 0.13→0.16 |
 | `AchromaRefPercentile` | `0.80f` | 実測 | — | 成分の地色基準の L 分位。中央値では暗い縁が混ざり模様ごとにばらつき、P80 で std 0.074→0.024 |
 | `AchromaHeadroomPercentile` | `0.90f` | 実測 | — | 白側の余白を測る明部の分位。P95 では細い文字の縁が入り余白が残ったと実測 |
+| `ComponentMapNone` | `-1f` | 定義 | — | 成分の地図で「成分の外(地図なし)」を表す印。成分の代表 L は 0（純黒）以上なので負の値で区別する。NaN は毒入れの 0xFF と見分けられない |
 | `AchromaRegionCoreThr` | `0.5f` | 不明 | — | 領域の L 中央値に使う strength の下限。選んだ記録なし |
 | `matchThr` | `ColorZone.MatchStrengthFloor` | 設計 | SA | 同上（内部固め側の別名） |
 | `ClearChunk` | `1 << 18` | 計算 | — | 地図のゼロ埋めを並列に分ける塊。出力に効かない |

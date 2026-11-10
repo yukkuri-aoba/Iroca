@@ -20,6 +20,9 @@ namespace Iroca {
         // 倍する形維持リマップ / 彩度=uniform target chroma へ achromaWeight(ComputeAchromaWeight)で連続
         // ブレンドする。有彩×有彩では weight=0 で従来式とバイト不変。不変条件: 成分内で単調・順序保存。
         // 偏差の増幅は AchromaFormGain(知覚補償、下の定数コメント参照)だけ。
+        // 成分の地図(BuildComponentMedianLMap)で「この画素は成分の外」を表す印。読む側は >= 0f を「地図あり」とする。
+        // 純黒の成分の代表 L は 0 なので、0 を印にすると純黒が「地図なし」になる。NaN は毒入れの 0xFF と見分けられない。
+        private const float ComponentMapNone = -1f;
         private const float AchromaSampleC = 0.06f;  // sample OkLab chroma がこれ未満で無彩扱い(→1)
         // 彩度を塗り先へ一律にする重みの上限を決める「素材の濃い側の彩度」(コア画素の彩度の AchromaDeepChromaPercentile 分位)。
         // 白へ抜ける色の布は、淡い所をクリックしても濃い側に色がある。濃い側が AchromaSampleC の AchromaDeepChromaFloorFrac 倍
@@ -386,7 +389,7 @@ namespace Iroca {
                 }, _ => { });
 
                 // 成分 → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
-                // run の外は 0(読む側は 0 を「地図なし」として全体の中央値へ戻す)。借りた配列は 0 で埋めてから。
+                // run の外は ComponentMapNone(読む側は < 0 を「地図なし」として全体の中央値へ戻す)。借りた配列は印で埋めてから。upMap は地図ありの画素だけ読まれるので 0 のまま。
                 float* map = s_floatPool.Rent(len);
                 float* umap = s_floatPool.Rent(len);
                 // 呼び出し側へ渡す前に抜けたら(キャンセル)、借りた地図はここで返す。
@@ -395,7 +398,8 @@ namespace Iroca {
                     const int ClearChunk = 1 << 18;
                     Parallel.For(0, (len + ClearChunk - 1) / ClearChunk, bboxPo, c => {
                         int c0 = c * ClearChunk;
-                        ClearWork(clearMap, c0, Math.Min(ClearChunk, len - c0));
+                        int n = Math.Min(ClearChunk, len - c0);
+                        for (int k = 0; k < n; k++) { clearMap[c0 + k] = ComponentMapNone; }
                         ClearWork(clearUp, c0, Math.Min(ClearChunk, len - c0));
                     });
                     var umapL = umap;

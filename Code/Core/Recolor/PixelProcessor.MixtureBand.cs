@@ -667,7 +667,7 @@ namespace Iroca {
                                 fBb = (byte)Mathf.Clamp(Mathf.RoundToInt(lfB), 0, 255);
                                 float fV = Mathf.Max(fRb, Mathf.Max(fGb, fBb)) / 255f;
                                 int fAt = setIdx[0];
-                                bool hasMapL = regMidMap != null && regMidMap[fAt] > 0f;
+                                bool hasMapL = regMidMap != null && regMidMap[fAt] >= 0f;
                                 float regL = hasMapL ? regMidMap[fAt] : regLmid;
                                 float regU = hasMapL && regUpMap != null ? regUpMap[fAt] : AchromaFormOffset;
                                 fTo = RecolorPixel(fRb, fGb, fBb, fV, 1f, in rcL, regL, regU);
