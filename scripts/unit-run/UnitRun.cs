@@ -828,6 +828,104 @@ namespace Iroca.UnitRun {
             Check.Equal(0, r.changed, "層が無い");
         }
 
+        // 大きい範囲(語の区間ごとに並列に当てる)でも、画素ごとに素直に当てた結果と同じになる。
+        // 画素数は 64 の倍数にしない(最後の語の途中で終わる)。
+        private static unsafe MaskRegionEditResult ApplyN(MaskRegionOp op, bool[] region, int n, ulong[] ex, ulong[] inc,
+                                                          ulong[] common, out MaskRegionEditResult counted) {
+            counted = default;
+            fixed (bool* rp = region)
+            fixed (ulong* e = ex, ic = inc, c = common) {
+                if (op == MaskRegionOp.ClearHere) {
+                    counted = MaskRegionEdit.CountClear(rp, n, e, ic, c);
+                }
+                return MaskRegionEdit.Apply(op, rp, n, e, ic, c);
+            }
+        }
+
+        public static void MaskEdit_LargeRegion_MatchesPerPixelReference() {
+            const int n = (1 << 19) + 37;
+            var rng = new Random(20261111);
+            bool[] RandomBools(int percent) {
+                var b = new bool[n];
+                for (int i = 0; i < n; i++) {
+                    b[i] = rng.Next(100) < percent;
+                }
+                return b;
+            }
+            ulong[] Pack(bool[] b) {
+                var w = new ulong[(n + 63) >> 6];
+                for (int i = 0; i < n; i++) {
+                    if (b[i]) {
+                        w[i >> 6] |= 1UL << (i & 63);
+                    }
+                }
+                return w;
+            }
+            var region = RandomBools(40);
+            var ex0 = RandomBools(30);
+            var inc0 = RandomBools(20);
+            var com0 = RandomBools(10);
+            foreach (MaskRegionOp op in Enum.GetValues(typeof(MaskRegionOp))) {
+                // 期待値: 画素ごとに規則どおり当てる。
+                var ex = (bool[])ex0.Clone();
+                var inc = (bool[])inc0.Clone();
+                int changed = 0, overlap = 0;
+                for (int i = 0; i < n; i++) {
+                    bool inR = region[i];
+                    switch (op) {
+                        case MaskRegionOp.PaintHere:
+                            if (inR) {
+                                if (!inc[i]) { inc[i] = true; changed++; }
+                                if (ex[i]) { ex[i] = false; changed++; }
+                                if (com0[i]) {
+                                    overlap++;
+                                }
+                            }
+                            break;
+                        case MaskRegionOp.DontPaintHere:
+                            if (inR) {
+                                if (!ex[i]) { ex[i] = true; changed++; }
+                                if (inc[i]) { inc[i] = false; changed++; }
+                            }
+                            break;
+                        case MaskRegionOp.OnlyThisPart:
+                            if (inR) {
+                                if (ex[i]) { ex[i] = false; changed++; }
+                                if (com0[i]) {
+                                    overlap++;
+                                }
+                            } else {
+                                if (!ex[i]) { ex[i] = true; changed++; }
+                                if (inc[i]) { inc[i] = false; changed++; }
+                            }
+                            break;
+                        case MaskRegionOp.ClearHere:
+                            if (inR) {
+                                if (ex[i]) { ex[i] = false; changed++; }
+                                if (inc[i]) { inc[i] = false; changed++; }
+                                if (com0[i]) {
+                                    overlap++;
+                                }
+                            }
+                            break;
+                    }
+                }
+                var exBits = Pack(ex0);
+                var incBits = Pack(inc0);
+                var comBits = Pack(com0);
+                var got = ApplyN(op, region, n, exBits, incBits, comBits, out var counted);
+                Check.True(exBits.SequenceEqual(Pack(ex)), op + ": 除外が画素ごとの規則と同じ");
+                Check.True(incBits.SequenceEqual(Pack(inc)), op + ": 含めるが画素ごとの規則と同じ");
+                Check.True(comBits.SequenceEqual(Pack(com0)), op + ": 共通の除外は触らない");
+                Check.Equal(changed, got.changed, op + ": changed");
+                Check.Equal(overlap, got.commonOverlap, op + ": commonOverlap");
+                if (op == MaskRegionOp.ClearHere) {
+                    Check.Equal(changed, counted.changed, "CountClear の changed");
+                    Check.Equal(overlap, counted.commonOverlap, "CountClear の commonOverlap");
+                }
+            }
+        }
+
         public static void MaskEdit_PickClearTarget_PrefersPaintingThenActiveThenOrder() {
             Check.Equal(1, MaskRegionEdit.PickClearTarget(new[] { true, true, true }, 1, 2), "塗っているゾーンにマスクがあればそれ");
             Check.Equal(2, MaskRegionEdit.PickClearTarget(new[] { true, false, true }, 1, 2), "無ければいま直しているゾーン");

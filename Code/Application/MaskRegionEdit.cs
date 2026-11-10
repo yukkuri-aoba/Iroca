@@ -65,13 +65,22 @@ namespace Iroca {
         /// </summary>
         public static MaskRegionEditResult Apply(MaskRegionOp op, bool* region, int n,
                                                  ulong* exclude, ulong* include, ulong* common) {
-            var r = new MaskRegionEditResult();
             if (region == null) {
-                return r;
+                return new MaskRegionEditResult();
             }
+            if (op == MaskRegionOp.ClearHere) {
+                return ForWordRanges(n, (i0, i1) => ClearRegion(region, i0, i1, exclude, include, common, write: true));
+            }
+            return ForWordRanges(n, (i0, i1) => ApplyRange(op, region, i0, i1, exclude, include, common));
+        }
+
+        // 画素 [i0, i1) に op を当てる(ClearHere 以外)。
+        private static MaskRegionEditResult ApplyRange(MaskRegionOp op, bool* region, int i0, int i1,
+                                                       ulong* exclude, ulong* include, ulong* common) {
+            var r = new MaskRegionEditResult();
             switch (op) {
                 case MaskRegionOp.PaintHere:
-                    for (int i = 0; i < n; i++) {
+                    for (int i = i0; i < i1; i++) {
                         if (!region[i]) {
                             continue;
                         }
@@ -86,7 +95,7 @@ namespace Iroca {
                     break;
 
                 case MaskRegionOp.DontPaintHere:
-                    for (int i = 0; i < n; i++) {
+                    for (int i = i0; i < i1; i++) {
                         if (!region[i]) {
                             continue;
                         }
@@ -97,11 +106,8 @@ namespace Iroca {
                     }
                     break;
 
-                case MaskRegionOp.ClearHere:
-                    return ClearRegion(region, n, exclude, include, common, write: true);
-
                 case MaskRegionOp.OnlyThisPart:
-                    for (int i = 0; i < n; i++) {
+                    for (int i = i0; i < i1; i++) {
                         int w = i >> 6;
                         ulong bit = 1UL << (i & 63);
                         if (region[i]) {
@@ -119,16 +125,54 @@ namespace Iroca {
             return r;
         }
 
+        // 範囲の画素数がこれ未満なら 1 本で回す(スレッドを起こす方が高い)。
+        private const int ParallelMinPixels = 1 << 18;
+        // 並列にするときの 1 区間の画素数。64 の倍数(区間の境目が語の境目にそろい、2 本のスレッドが同じ語を書かない)。
+        private const int RangePixels = 1 << 16;
+
+        /// <summary>
+        /// 画素 [0, n) を語の境目でそろえた区間に分けて body(i0, i1) を並列に呼び、結果の画素数を足す。
+        /// 右クリックの範囲の適用はメインスレッドで全画素(4K 1,677 万・8K 6,700 万)を回すので、1 本では
+        /// その分だけ操作が止まる。区間ごとに書く語が別で、数えるのは整数の和なので、結果は 1 本と同じ。
+        /// </summary>
+        private static MaskRegionEditResult ForWordRanges(int n, System.Func<int, int, MaskRegionEditResult> body) {
+            if (n <= 0) {
+                return new MaskRegionEditResult();
+            }
+            if (n < ParallelMinPixels) {
+                return body(0, n);
+            }
+            int chunks = (n + RangePixels - 1) / RangePixels;
+            int changed = 0, overlap = 0;
+            var po = new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
+            System.Threading.Tasks.Parallel.For(0, chunks, po,
+                () => new MaskRegionEditResult(),
+                (c, _, acc) => {
+                    int i0 = c * RangePixels;
+                    var r = body(i0, System.Math.Min(n, i0 + RangePixels));
+                    acc.changed += r.changed;
+                    acc.commonOverlap += r.commonOverlap;
+                    return acc;
+                },
+                acc => {
+                    System.Threading.Interlocked.Add(ref changed, acc.changed);
+                    System.Threading.Interlocked.Add(ref overlap, acc.commonOverlap);
+                });
+            return new MaskRegionEditResult { changed = changed, commonOverlap = overlap };
+        }
+
         /// <summary>
         /// <see cref="MaskRegionOp.ClearHere"/> を当てたときの結果を、マスクを書き換えずに求める。消す物が無いときに、
         /// 層を写さず Undo に空の手も積まないよう、当てる前に数える。
         /// </summary>
         public static MaskRegionEditResult CountClear(bool* region, int n, ulong* exclude, ulong* include, ulong* common)
-            => region == null ? new MaskRegionEditResult() : ClearRegion(region, n, exclude, include, common, write: false);
+            => region == null
+                ? new MaskRegionEditResult()
+                : ForWordRanges(n, (i0, i1) => ClearRegion(region, i0, i1, exclude, include, common, write: false));
 
-        private static MaskRegionEditResult ClearRegion(bool* region, int n, ulong* exclude, ulong* include, ulong* common, bool write) {
+        private static MaskRegionEditResult ClearRegion(bool* region, int i0, int i1, ulong* exclude, ulong* include, ulong* common, bool write) {
             var r = new MaskRegionEditResult();
-            for (int i = 0; i < n; i++) {
+            for (int i = i0; i < i1; i++) {
                 if (!region[i]) {
                     continue;
                 }
