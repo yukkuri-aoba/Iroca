@@ -83,6 +83,22 @@ namespace Iroca {
         private static void ClearWork<T>(T* p, int start, int count) where T : unmanaged
             => new Span<T>(p + start, count).Clear();
 
+        // 画素を帯に分けて並列に写す(書き出し・NDMF の入力スナップショット。4K で 64MB・8K で 256MB を 1 本で写していた)。
+        // 帯は 1M 画素以上にする(小さい画像は 1 本のまま)。写すだけなので、どう分けても中身は同じ。
+        private static void CopyPixelsParallel(Color32* src, Color32* dst, int len) {
+            const int MinBand = 1 << 20;
+            int bands = Math.Min(GetMaxParallelism(), Math.Max(1, len / MinBand));
+            if (bands <= 1) {
+                Buffer.MemoryCopy(src, dst, (long)len * sizeof(Color32), (long)len * sizeof(Color32));
+                return;
+            }
+            Parallel.For(0, bands, new ParallelOptions { MaxDegreeOfParallelism = bands }, b => {
+                long s = (long)len * b / bands, e = (long)len * (b + 1) / bands;
+                long bytes = (e - s) * sizeof(Color32);
+                Buffer.MemoryCopy(src + s, dst + s, bytes, bytes);
+            });
+        }
+
         // 作業配列の中身を管理配列へ写した複製(デバッグの記録用。debug があるときだけ呼ぶ)。
         private static T[] ToManaged<T>(T* p, int count) where T : unmanaged {
             if (p == null) {
@@ -251,7 +267,7 @@ namespace Iroca {
             Color32* originalPixels;
             if (ownsOriginal) {
                 originalPixels = s_color32Pool.Rent(len);
-                Buffer.MemoryCopy(pixels, originalPixels, (long)len * sizeof(Color32), (long)len * sizeof(Color32));
+                CopyPixelsParallel(pixels, originalPixels, len);
             } else {
                 originalPixels = sourcePixels;
             }
@@ -294,7 +310,7 @@ namespace Iroca {
                     MaxDegreeOfParallelism = GetMaxParallelism(),
                 };
                 _sub.Restart();
-                palette = GetOrBuildPalette(originalPixels, w, h, po, _sub);
+                palette = GetOrBuildPalette(originalPixels, w, h, po, _sub, selectionCache);
                 // 行並列(per-index デリゲートは 4K で 1670 万回の呼び出しになるため行単位に集約)。
                 // 各画素は独立・書き込みは自 index のみなので出力は逐次版とビット不変。
                 if (palette != null) {

@@ -1192,6 +1192,31 @@ namespace Iroca {
                     "selection: nothing left after Dispose");
             }
 
+            // 6b) 選択キャッシュが覚える原本のハッシュ(色の表の鍵)。原本が替わる Clear・取り消した計算・読んでいる間の Clear の
+            //     どれでも、前の原本のハッシュを次の原本に使わない。寸法が違えば使わない。
+            {
+                var cache = new SelectionCache();
+                Check(!cache.TryGetSourceHash(8, 4, out _, out int e0), "source hash: none at first");
+                cache.StoreSourceHash(8, 4, 0x1234UL, e0);
+                Check(cache.TryGetSourceHash(8, 4, out ulong got, out _) && got == 0x1234UL, "source hash: remembered");
+                Check(!cache.TryGetSourceHash(8, 5, out _, out _), "source hash: another size does not hit");
+                cache.Clear();
+                Check(!cache.TryGetSourceHash(8, 4, out _, out int e1), "source hash: forgotten on Clear");
+                cache.Clear();   // 読んでいる間に原本が替わった
+                cache.StoreSourceHash(8, 4, 0x5678UL, e1);
+                Check(!cache.TryGetSourceHash(8, 4, out _, out int e2), "source hash: not stored after a Clear in between");
+                using (var cts = new System.Threading.CancellationTokenSource()) {
+                    cts.Cancel();
+                    cache.StoreSourceHash(8, 4, 0x5678UL, e2, cts.Token);
+                }
+                Check(!cache.TryGetSourceHash(8, 4, out _, out int e3), "source hash: not stored by a cancelled run");
+                cache.StoreSourceHash(8, 4, 0x9ABCUL, e3);
+                cache.Dispose();
+                Check(!cache.TryGetSourceHash(8, 4, out _, out int e4), "source hash: forgotten on Dispose");
+                cache.StoreSourceHash(8, 4, 0x9ABCUL, e4);
+                Check(!cache.TryGetSourceHash(8, 4, out _, out _), "source hash: not stored after Dispose");
+            }
+
             // 7) 作業配列のプールの決まり(テスト用の別のプールで)。手元の量は直近の貸し出し中の最大量の HoldFactor 倍まで
             //    (新しく作るときに空きを大きい順に手放す)。ReleaseFree で直近の最大量を今の貸し出し中の量へ戻す。
             //    検証用(IROCA_POOL_POISON=1)では、返した塊は寝かせるので、返したものをもう一度返すと投げる。

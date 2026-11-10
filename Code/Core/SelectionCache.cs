@@ -64,6 +64,12 @@ namespace Iroca {
         private int _epoch;            // Clear・Dispose のたびに進める
         private bool _disposed;
         private int _maskReuseCount;
+        // 原本(入力スナップショット)の画素のハッシュ(色の表のキャッシュの鍵。PixelProcessor.Palette.cs)。選択と同じく
+        // 原本が替われば呼び出し側が Clear するので、覚えたハッシュも同じ決まりで捨てる。毎回全画素を読み直さないため
+        // (4K で 21〜29ms・8K で 59〜79ms)。寸法ごとに 1 つ(プレビューは縮小段と確定段で別の選択キャッシュを持つ)。
+        private bool _hasSourceHash;
+        private int _sourceW, _sourceH;
+        private ulong _sourceHash;
 
         /// <summary>除外マスクが保存時と違っていたが、判定を通って使い回した回数(検証用)。</summary>
         internal int MaskReuseCount => Volatile.Read(ref _maskReuseCount);
@@ -258,9 +264,43 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// 覚えている原本のハッシュ(寸法が w×h のときだけ)。無ければ false で、<paramref name="epoch"/> に今の世代を返す
+        /// (ハッシュを取ってから <see cref="StoreSourceHash"/> へ渡す)。世代を読むのは画素を読む前なので、読んでいる間に
+        /// Clear されたら保存しない。
+        /// </summary>
+        internal bool TryGetSourceHash(int w, int h, out ulong hash, out int epoch) {
+            lock (_gate) {
+                epoch = _epoch;
+                if (!_disposed && _hasSourceHash && _sourceW == w && _sourceH == h) {
+                    hash = _sourceHash;
+                    return true;
+                }
+                hash = 0;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 原本のハッシュを覚える。<paramref name="epoch"/> は <see cref="TryGetSourceHash"/> が返した世代で、その後に Clear・Dispose
+        /// されていたら覚えない。ct が取り消されていても覚えない(<see cref="StoreFrom"/> と同じ。呼び出し側は「取り消し → Clear」の順)。
+        /// </summary>
+        internal void StoreSourceHash(int w, int h, ulong hash, int epoch, CancellationToken ct = default) {
+            lock (_gate) {
+                if (_disposed || epoch != _epoch || ct.IsCancellationRequested) {
+                    return;
+                }
+                _hasSourceHash = true;
+                _sourceW = w;
+                _sourceH = h;
+                _sourceHash = hash;
+            }
+        }
+
         public void Clear() {
             lock (_gate) {
                 _epoch++;
+                _hasSourceHash = false;
                 foreach (var e in _byZone.Values) {
                     Detach(e);
                 }
@@ -300,6 +340,7 @@ namespace Iroca {
             lock (_gate) {
                 _disposed = true;
                 _epoch++;
+                _hasSourceHash = false;
                 foreach (var e in _byZone.Values) {
                     Detach(e);
                 }

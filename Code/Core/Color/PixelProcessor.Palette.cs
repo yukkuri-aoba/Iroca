@@ -129,14 +129,21 @@ namespace Iroca {
         /// <summary>
         /// 色の表をキャッシュから取り出す。無ければ作って入れる(TryBuildPalette と同じく null もありうる)。
         /// 返した表は呼び出し側の参照を 1 つ持つので、使い終わったら Release すること。
+        /// <paramref name="selectionCache"/> があれば、そこに覚えた原本のハッシュを使い、全画素を読み直さない
+        /// (選択キャッシュは原本が替われば呼び出し側が Clear するので、覚えたハッシュは今の原本のもの)。
         /// </summary>
         private static ColorPalette GetOrBuildPalette(Color32* pixels, int w, int h, ParallelOptions po,
-            SubPhaseClock sub = null) {
+            SubPhaseClock sub = null, SelectionCache selectionCache = null) {
             // 色の表あり・なしの両経路が同じ出力になることを比べるテスト用(ハーネスの --no-palette)。
             if (DebugCaptureHooks.DisablePalette) {
                 return null;
             }
-            ulong hash = HashPixels(pixels, w * h, po);
+            ulong hash;
+            int epoch = 0;
+            if (selectionCache == null || !selectionCache.TryGetSourceHash(w, h, out hash, out epoch)) {
+                hash = HashPixels(pixels, w * h, po);
+                selectionCache?.StoreSourceHash(w, h, hash, epoch, po.CancellationToken);
+            }
             lock (s_paletteCacheLock) {
                 for (int k = 0; k < PaletteCacheSize; k++) {
                     var e = s_paletteCache[k];

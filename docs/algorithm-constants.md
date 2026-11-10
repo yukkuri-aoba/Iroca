@@ -399,6 +399,7 @@
 | `EdgeFeatherBlurMin` | `0.01f` | 量子化 | — | これ以下の σ では核がほぼ単位元になるので、ぼかし 0 とみなす境目 |
 | `RecolorMinStrength` | `0.001f` | 量子化 | — | 8bit で 1 階調未満の変化しか生まない強度を読み飛ばす境目 |
 | `AchromaWeightActiveMin` | `1e-4f` | 量子化 | — | 無彩パスの重みを 0 とみなす ε |
+| `MinBand` | `1 << 20` | 計算 | — | 入力の控えを並列に写すときの帯の最小の画素数。小さい画像は 1 本で写す。写すだけなので出力に効かない |
 
 ## `Code/Core/Recolor/PixelProcessor.ComposeStage.cs`
 
