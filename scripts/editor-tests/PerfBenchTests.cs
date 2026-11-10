@@ -28,7 +28,10 @@ namespace Iroca.EditorTests {
     [Category("Perf")]
     public class PerfBenchTests {
         [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; }
-        [Serializable] private class CasesDto { public int repeats = 5; public int[] threads = { 0 }; public List<CaseDto> cases = new List<CaseDto>(); }
+        // session = true: 製品経路(自動化)の代わりに、プレビューの確定段と同じ呼び方(原本の控え + 選択キャッシュを
+        // 持ち越す)で、色だけを変えた 1 手を repeats 回測る。1 回目は選択キャッシュが空(外れ)、2 回目以降は当たり。
+        // 名前に "+session" を付けて書く。
+        [Serializable] private class CasesDto { public int repeats = 5; public int[] threads = { 0 }; public bool session = false; public List<CaseDto> cases = new List<CaseDto>(); }
 
         private TestAssets _assets;
 
@@ -57,6 +60,12 @@ namespace Iroca.EditorTests {
             DebugCaptureHooks.OnPerfReport += OnReport;
             var sb = new StringBuilder();
             try {
+                if (cfg.session) {
+                    foreach (var c in cfg.cases) {
+                        RunSessionCase(c, cfg, () => last, () => last = null, sb);
+                    }
+                    return;
+                }
                 foreach (var c in cfg.cases) {
                     string src = _assets.WriteBytes(c.name + ".png", File.ReadAllBytes(c.png));
                     string zones = File.ReadAllText(c.zones);
@@ -78,6 +87,48 @@ namespace Iroca.EditorTests {
             } finally {
                 DebugCaptureHooks.OnPerfReport -= OnReport;
                 File.WriteAllText(reportPath, sb.ToString());
+            }
+        }
+
+        // プレビューの確定段(PreviewPipeline.ScheduleFullPreview)と同じ呼び方: 原本は読むだけの控え(sourcePixels)、
+        // 出力は毎回原本の写しから、選択キャッシュは持ち越す。1 手ごとに全ゾーンの目標色の色相を少しずらす
+        // (目標色は選択の鍵に入らないので、2 回目以降は選択キャッシュに当たる)。
+        private static unsafe void RunSessionCase(CaseDto c, CasesDto cfg, Func<PerfReport> last, Action reset, StringBuilder sb) {
+            var warnings = new List<string>();
+            var state = IrocaAutomation.StateFromZonesJson(File.ReadAllText(c.zones), warnings, out string error);
+            Assert.IsNotNull(state, $"{c.name}: {error}");
+            var input = RecolorInput.FromSaved(state);
+            Assert.IsNotNull(input, $"{c.name}: 有効なゾーンがありません");
+            Assert.IsTrue(ExportPipeline.HasPixels(ExportService.ReadSource(c.png, null, out NativePixels src)),
+                $"{c.name}: PNG を読めません: {c.png}");
+            NativePixels work = null;
+            try {
+                work = NativePixels.Allocate(src.Width, src.Height);
+                var baseTargets = input.Zones.Select(z => z.targetColor).ToList();
+                foreach (int threads in cfg.threads) {
+                    DebugCaptureHooks.ParallelismOverride = threads;
+                    using (var selection = new SelectionCache()) {
+                        for (int k = 0; k < Math.Max(2, cfg.repeats); k++) {
+                            for (int zi = 0; zi < input.Zones.Count; zi++) {
+                                Color.RGBToHSV(baseTargets[zi], out float hh, out float ss, out float vv);
+                                var t = Color.HSVToRGB(Mathf.Repeat(hh + 0.05f * k, 1f), ss, vv);
+                                t.a = baseTargets[zi].a;
+                                input.Zones[zi].targetColor = t;
+                                input.Zones[zi].UpdateCacheIfNeeded();
+                            }
+                            work.CopyFrom(src);
+                            reset();
+                            PixelProcessor.ProcessPixelsNative(work.Ptr, src.Width, src.Height, input.Masks, input.Zones,
+                                input.Settings, default, debug: null, selectionCache: selection, sourcePixels: src.Ptr);
+                            Assert.IsNotNull(last(), $"{c.name}: PerfReport が届きませんでした");
+                            sb.Append(ToJsonLine(c.name + "+session", threads, k, last())).Append('\n');
+                        }
+                    }
+                }
+            } finally {
+                work?.Release();
+                src.Release();
+                input.ReleaseMasks();
             }
         }
 

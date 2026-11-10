@@ -275,23 +275,40 @@ namespace Iroca {
             bool overwrite) {
             var warnings = new List<string>();
             try {
-                ZonesRequest req;
-                try { req = JsonUtility.FromJson<ZonesRequest>(zonesRequestJson); } catch (Exception ex) { return Fail($"zones JSON parse failed: {ex.Message}"); }
-                if (req == null || req.zones == null || req.zones.Count == 0) {
-                    return Fail("zones JSON has no zones.");
+                var state = StateFromZonesJson(zonesRequestJson, warnings, out string error);
+                if (state == null) {
+                    return Fail(error);
                 }
-
-                var settings = req.settings ?? new SettingsDto();
-                var state = new IrocaSessionState { zones = req.zones.Select(BuildZone).ToList() };
-                SettingsFromDto(settings).CopyTo(state);
-                ClampAndReportOutOfRange(RecolorValueRanges.ClampedSettingNames(
-                        settings.edgeFeather, settings.antiAliasCleanup, settings.holeFillPasses, settings.holeFillMinNeighbors,
-                        settings.relaxedSatMin, settings.relaxedSatRamp, settings.decontaminationRadius),
-                    state.zones, warnings);
                 return Json(RunRecolorCore(sourceAssetPath, state, outputAssetPath, overwrite, warnings));
             } catch (Exception ex) {
                 return Fail($"{ex.GetType().Name}: {ex.Message}", warnings);
             }
+        }
+
+        /// <summary>
+        /// フラットなゾーン設定 JSON(<see cref="RecolorWithZones(string, string, string)"/> と同じ形)を状態に組み立てる。
+        /// 範囲の外の値は丸めて <paramref name="warnings"/> に書く。JSON が読めない・ゾーンが無ければ null と <paramref name="error"/>。
+        /// 性能計測(PerfBenchTests のプレビューと同じ呼び方の計測)も使う。
+        /// </summary>
+        internal static IrocaSessionState StateFromZonesJson(string zonesRequestJson, List<string> warnings, out string error) {
+            ZonesRequest req;
+            try { req = JsonUtility.FromJson<ZonesRequest>(zonesRequestJson); } catch (Exception ex) {
+                error = $"zones JSON parse failed: {ex.Message}";
+                return null;
+            }
+            if (req == null || req.zones == null || req.zones.Count == 0) {
+                error = "zones JSON has no zones.";
+                return null;
+            }
+            error = null;
+            var settings = req.settings ?? new SettingsDto();
+            var state = new IrocaSessionState { zones = req.zones.Select(BuildZone).ToList() };
+            SettingsFromDto(settings).CopyTo(state);
+            ClampAndReportOutOfRange(RecolorValueRanges.ClampedSettingNames(
+                    settings.edgeFeather, settings.antiAliasCleanup, settings.holeFillPasses, settings.holeFillMinNeighbors,
+                    settings.relaxedSatMin, settings.relaxedSatRamp, settings.decontaminationRadius),
+                state.zones, warnings);
+            return state;
         }
 
         // メニュー経路（execute_menu_item）は廃止。MCP からの駆動は MCPForUnity カスタムツール
