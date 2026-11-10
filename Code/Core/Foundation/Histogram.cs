@@ -96,14 +96,11 @@ namespace Iroca {
                         }
                         return local;
                     },
-                    local => {
-                        int* p = (int*)local;
-                        lock (gate) {
-                            for (int b = 0; b < bins; b++) {
-                                hist[b] += p[b];
-                            }
-                        }
-                    });
+                    _ => { });
+                // ワーカーごとの集計を足し込む。以前は各ワーカーの終わりにロックの中で「ワーカーの数 × 色の数」を
+                // 直列に足していた。ここではビンの区間に分けて並列に、区間ごとに全ワーカーの分を足す。
+                // 整数の加算なので、足す順に依らず結果は同じ。借りた集計(rented)がちょうどワーカーごとの集計。
+                MergeLocals(hist, bins, rented, po);
             } finally {
                 // 中断中(ドメインのアンロード)かはプールの Return が見て、そのときは貸し出し中のまま残す(借りた側は見ない)。
                 foreach (var p in rented) {
@@ -111,6 +108,34 @@ namespace Iroca {
                 }
             }
             return total;
+        }
+
+        // hist[b] += Σ locals[k][b](b ∈ [0, bins))。ビンを区間に分けて並列に足す(区間が 1 つなら 1 本)。
+        private static void MergeLocals(int* hist, int bins, List<IntPtr> locals, ParallelOptions po) {
+            int n = locals.Count;
+            if (n == 0) {
+                return;
+            }
+            var ptrs = locals.ToArray();
+            const int Chunk = 1 << 14;
+            int chunks = (bins + Chunk - 1) / Chunk;
+            if (chunks <= 1) {
+                AddRange(hist, ptrs, 0, bins);
+                return;
+            }
+            Parallel.For(0, chunks, po, c => {
+                int b0 = c * Chunk;
+                AddRange(hist, ptrs, b0, Math.Min(bins, b0 + Chunk));
+            });
+        }
+
+        private static void AddRange(int* hist, IntPtr[] locals, int b0, int b1) {
+            for (int k = 0; k < locals.Length; k++) {
+                int* p = (int*)locals[k];
+                for (int b = b0; b < b1; b++) {
+                    hist[b] += p[b];
+                }
+            }
         }
 
         /// <summary>256bin ヒストグラムの percentile(0..1) を実値で返す(値域 [0, scale])。
