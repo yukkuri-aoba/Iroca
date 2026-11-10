@@ -21,7 +21,7 @@ Python 再実装はもう存在せず、**C# が唯一の正**である（当時
 |---------|------|
 | `synth_textures.py` | 決定論的な合成入力（ベタ/グラデ/AA/ハイライト/無彩背景）。画像バイナリは置かず再現生成 |
 | `golden_lib.py` | C# Harness 実行・raw I/O・正準パラメータ・ケース定義・ハッシュ化・ゴールデン再生成 |
-| `golden_hashes.json` | コミット済みゴールデン（各ケースの出力 SHA-256 と shape） |
+| `golden_hashes.json` | コミット済みゴールデン（各ケースの出力 SHA-256 と shape）と、そのハッシュの仕上がりの版 `outputVersion`（`Code/Infra/RecipeOutputVersion.cs` の `Current` と同じ数。`scripts/source_checks/test_recipe_output_version.py` が見る） |
 | `expected/*.png` | 各ケースの期待出力そのもの。別 toolchain（CI の Linux）での画素比較に使う |
 | `cases/*.png` / `*.zones.json` | 各ケースの入力と zones JSON。Unity 実機のテスト（`scripts/editor-tests/RuntimeParityTests`）が製品経路へ通して `expected/` と比べる |
 | `test_golden_csharp.py` | pytest ゲート（C# を走らせ golden と照合） |
@@ -63,7 +63,7 @@ pytest scripts/golden/test_golden_csharp.py -q
 python scripts/golden/golden_lib.py --force
 ```
 
-`golden_hashes.json` が上書きされる。**再生成前に、その出力変化が意図通りかを必ず確認すること**
+`golden_hashes.json` が上書きされる（`outputVersion` は前の値を保つ。上げるのはリリースの手順で、`Current` と一緒に上げる。`docs/RELEASING.md` の手順 1）。**再生成前に、その出力変化が意図通りかを必ず確認すること**
 （このテストの存在意義は「意図しない変化を止める」ことなので、安易な再生成は無意味化させる）。
 
 ## 注意

@@ -54,6 +54,14 @@ EXPECTED_DIR = HERE / "expected"
 # 同じ入力を製品経路へ通し、expected/ と突き合わせるために使う。
 CASES_DIR = HERE / "cases"
 
+# 仕上がりの版（Code/Infra/RecipeOutputVersion.cs の Current）。golden のハッシュがどの版の仕上がりかを
+# golden_hashes.json の outputVersion に持たせ、scripts/source_checks/test_recipe_output_version.py が Current と
+# 一致することを見る（点検 D-1 の上げ忘れの防止）。作り直し（--force）は前の値を保ち、ハッシュが変わっても
+# 勝手に上げない。上げるのはリリースの手順（docs/RELEASING.md の手順 1。Current と一緒に上げる）。
+OUTPUT_VERSION_KEY = "outputVersion"
+OUTPUT_VERSION_CS = REPO / "Code" / "Infra" / "RecipeOutputVersion.cs"
+_OUTPUT_VERSION_DECL = re.compile(r"\bconst\s+int\s+Current\s*=\s*(\d+)\s*;")
+
 # 別 toolchain での許容差。libm の ulp 差が uint8 への丸めを跨いだ画素だけが ±1 で動く想定。
 # 段の欠落や定数ずれは多数の画素を大きく動かすので、この範囲には収まらない。
 TOLERANT_MAX_ABS_DIFF = 2
@@ -443,6 +451,39 @@ def load_golden() -> dict:
     return json.loads(GOLDEN_FILE.read_text(encoding="utf-8")).get("cases", {})
 
 
+def csharp_output_version() -> int:
+    """C# の仕上がりの版（RecipeOutputVersion.Current）。"""
+    m = _OUTPUT_VERSION_DECL.search(OUTPUT_VERSION_CS.read_text(encoding="utf-8"))
+    if not m:
+        raise ValueError(f"{OUTPUT_VERSION_CS} に `const int Current = <数>;` が見つからない")
+    return int(m.group(1))
+
+
+def load_output_version(path: Path | None = None) -> int | None:
+    """golden_hashes.json の outputVersion（ファイルか欄が無ければ None）。"""
+    path = path or GOLDEN_FILE
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8")).get(OUTPUT_VERSION_KEY)
+
+
+def golden_doc(out_cases: dict, path: Path | None = None) -> dict:
+    """golden_hashes.json に書く中身。outputVersion は今のファイルの値を保つ（無ければ C# の Current）。"""
+    kept = load_output_version(path)
+    return {
+        "_meta": {
+            "note": "C# 自己ゴールデン（製品 C# の出力ハッシュ）。Python 非依存の回帰検出。"
+                    "意図的変更・toolchain 更新時は `python scripts/golden/golden_lib.py --force` で再生成。"
+                    "outputVersion はこのハッシュの仕上がりの版（Code/Infra/RecipeOutputVersion.cs の Current と同じ数。"
+                    "再生成では保ち、上げるのはリリースの手順。docs/RELEASING.md）。",
+            "unity": "2022.3.22f1",
+            "assembly": "IrocaHeadless",
+        },
+        OUTPUT_VERSION_KEY: kept if kept is not None else csharp_output_version(),
+        "cases": dict(sorted(out_cases.items())),
+    }
+
+
 def regenerate(force: bool = False) -> int:
     """全ケースを C# で走らせ golden_hashes.json を書き出す。toolchain 変更/意図的変更時に実行。
 
@@ -493,15 +534,11 @@ def regenerate(force: bool = False) -> int:
     if added:
         print(f"\n新規ケース {len(added)} 件: {', '.join(added)}")
 
-    doc = {
-        "_meta": {
-            "note": "C# 自己ゴールデン（製品 C# の出力ハッシュ）。Python 非依存の回帰検出。"
-                    "意図的変更・toolchain 更新時は `python scripts/golden/golden_lib.py --force` で再生成。",
-            "unity": "2022.3.22f1",
-            "assembly": "IrocaHeadless",
-        },
-        "cases": dict(sorted(out_cases.items())),
-    }
+    doc = golden_doc(out_cases)
+    if changed:
+        print(f"\n仕上がりの版 {OUTPUT_VERSION_KEY} は {doc[OUTPUT_VERSION_KEY]} のまま保ちます。前のリリースのタグから"
+              "この版を上げていなければ、リリースの前に Code/Infra/RecipeOutputVersion.cs の Current と、ここの "
+              f"{OUTPUT_VERSION_KEY} を一緒に 1 つ上げること（docs/RELEASING.md の手順 1）。")
     GOLDEN_FILE.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for d in (EXPECTED_DIR, CASES_DIR):
         for old in d.glob("*") if d.exists() else []:

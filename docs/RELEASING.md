@@ -19,7 +19,7 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
 ## 手順
 
 1. **CHANGELOG**: `CHANGELOG.md` に `## [<VERSION>]` 節を書く（空だと CI が fail する）。
-   仕上がりの版も確かめる: 前のタグから仕上がりが変わる（`scripts/golden/golden_hashes.json` のハッシュが変わった・Services 側だけで出力が変わった）のに `Code/Infra/RecipeOutputVersion.cs` の `Current` が前のタグと同じなら、リリースを止めて 1 つ上げ、`FirstRelease` にこの版を足す（上げないと、前の版で確かめたレシピに「仕上がりが変わることがある」と知らせられない）。
+   仕上がりの版も確かめる: 前のタグから仕上がりが変わる（`scripts/golden/golden_hashes.json` のハッシュが変わった・Services 側だけで出力が変わった）のに `Code/Infra/RecipeOutputVersion.cs` の `Current` が前のタグと同じなら、リリースを止めて 1 つ上げ、`FirstRelease` にこの版を足し、`golden_hashes.json` の `outputVersion` も同じ数にする（上げないと、前の版で確かめたレシピに「仕上がりが変わることがある」と知らせられない）。golden の作り直し（`golden_lib.py --force`）は `outputVersion` を保つので、`git diff v<前の版> -- scripts/golden/golden_hashes.json` で `cases` が変わったのに `outputVersion` が同じなら上げ忘れ。`Current` と `outputVersion` の一致と `FirstRelease` の長さは `scripts/source_checks/test_recipe_output_version.py` が見る。
 2. **zip + インストーラ生成**:
    ```powershell
    .\scripts\Build-VpmPackage.ps1 -Version <VERSION>

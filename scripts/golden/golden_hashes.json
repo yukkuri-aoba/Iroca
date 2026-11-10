@@ -1,9 +1,10 @@
 {
   "_meta": {
-    "note": "C# 自己ゴールデン（製品 C# の出力ハッシュ）。Python 非依存の回帰検出。意図的変更・toolchain 更新時は `python scripts/golden/golden_lib.py --force` で再生成。",
+    "note": "C# 自己ゴールデン（製品 C# の出力ハッシュ）。Python 非依存の回帰検出。意図的変更・toolchain 更新時は `python scripts/golden/golden_lib.py --force` で再生成。outputVersion はこのハッシュの仕上がりの版（Code/Infra/RecipeOutputVersion.cs の Current と同じ数。再生成では保ち、上げるのはリリースの手順。docs/RELEASING.md）。",
     "unity": "2022.3.22f1",
     "assembly": "IrocaHeadless"
   },
+  "outputVersion": 1,
   "cases": {
     "aa_red_green_to_blue": {
       "sha256": "627baf3efb93fe435ef3ff356b5c6679d7ac3d6f3f4c84eaaffbcb61ee0c7f06",
