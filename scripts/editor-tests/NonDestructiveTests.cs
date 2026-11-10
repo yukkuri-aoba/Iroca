@@ -331,6 +331,38 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // キャッシュの鍵の「コードの同一性」は、色替えの計算(Core)と読み込み・縮小・詰め替え(Services)の両方のアセンブリと、
+        // Unity の版を含む(Services だけを直した版や Unity を上げたときに、Library の古い出来上がりを使い続けない)。
+        [Test]
+        public void CodeIdentity_CoversBothAssembliesAndTheUnityVersion() {
+            string id = RecipeTextureBuilder.CodeIdentity;
+            StringAssert.Contains(typeof(SessionRecolor).Assembly.ManifestModule.ModuleVersionId.ToString(), id, "Core");
+            StringAssert.Contains(typeof(RecipeTextureBuilder).Assembly.ManifestModule.ModuleVersionId.ToString(), id, "Services");
+            StringAssert.Contains(Application.unityVersion, id, "Unity の版");
+            Assert.AreNotSame(typeof(SessionRecolor).Assembly, typeof(RecipeTextureBuilder).Assembly, "テストの前提: 別のアセンブリ");
+        }
+
+        // コードの同一性が違えば鍵も違う。入力の鍵はコードに依らない。
+        [Test]
+        public void CacheKey_ChangesWithTheCodeIdentity_InputsKeyDoesNot() {
+            var src = ImportSource();
+            var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
+            string current = RecipeTextureBuilder.CacheKey(recipe, src);
+            Assert.AreEqual(current, RecipeTextureBuilder.CacheKey(recipe, src, RecipeTextureBuilder.CodeIdentity));
+            string other = RecipeTextureBuilder.CacheKey(recipe, src, RecipeTextureBuilder.CodeIdentity + "-patched");
+            Assert.AreNotEqual(current, other, "コードが違うのに同じ鍵");
+            Assert.AreEqual(current, RecipeTextureBuilder.CacheKey(recipe, src), "覚えた鍵が別のコードのものに替わった");
+            string inputs = RecipeTextureBuilder.InputsKey(recipe, src);
+            Assert.AreEqual(inputs, RecipeTextureBuilder.InputsKey(recipe, src));
+
+            // 入力が変われば、入力の鍵も鍵も変わる。
+            var changed = RedToGreenWithInclude();
+            changed.zones[0].targetColor = Color.yellow;
+            RecipeStore.Save(recipe, changed);
+            Assert.AreNotEqual(inputs, RecipeTextureBuilder.InputsKey(recipe, src));
+            Assert.AreNotEqual(current, RecipeTextureBuilder.CacheKey(recipe, src));
+        }
+
         // ───────────── 作業配列(ネイティブメモリ)の後始末 ─────────────
 
         // いろかのウィンドウを閉じた後に非破壊ビルド・シーンのプレビューが色替えを計算したら、終わった後に

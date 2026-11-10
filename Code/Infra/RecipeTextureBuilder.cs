@@ -632,10 +632,47 @@ namespace Iroca {
         }
 
         // ───────────── キャッシュ(Library/Iroca/RecipeTextureCache) ─────────────
-        // 鍵 = 元テクスチャの取り込み結果(ファイル内容と取り込み設定) + レシピの中身 + いろかのコード
-        //      + 出来上がりの形式。どれかが変われば別の鍵になる。
+        // 鍵 = 入力の鍵(元テクスチャの取り込み結果(ファイル内容と取り込み設定) + レシピの中身 + 出来上がりの形式)
+        //      + いろかのコードの同一性(Core と Services の MVID・Unity の版)。どれかが変われば別の鍵になる。
 
-        internal static string CacheKey(IrocaRecipe recipe, Texture2D like) {
+        /// <summary>
+        /// いろかのコードの同一性(キャッシュの鍵のうち、入力でない部分)。出来上がりは色替えの計算(Core)だけでなく、原本の
+        /// 読み込み・縮小・Alpha Source・形式の詰め替え(Services の RecipeTextureBuilder・ExportPipeline・TextureIO・
+        /// PngFileDecoder・WorkingResolution)でも変わりうるので、両方のアセンブリの MVID を入れる(再コンパイルのたびに変わる)。
+        /// 圧縮(CompressTexture)の結果は Unity の版で変わりうるのに Library/Iroca は版を上げても消えないので、Unity の版も入れる。
+        /// </summary>
+        internal static readonly string CodeIdentity =
+            typeof(SessionRecolor).Assembly.ManifestModule.ModuleVersionId + "|"
+            + typeof(RecipeTextureBuilder).Assembly.ManifestModule.ModuleVersionId + "|"
+            + Application.unityVersion;
+
+        /// <summary>キャッシュの鍵(<see cref="InputsKey"/> と今のコードの同一性 <see cref="CodeIdentity"/>)。</summary>
+        internal static string CacheKey(IrocaRecipe recipe, Texture2D like) => CacheKey(recipe, like, CodeIdentity);
+
+        /// <summary>
+        /// コードの同一性を渡す版(テストが「コードが違えば鍵も変わる」を確かめる)。鍵 = 「キャッシュの形式 + コードの同一性 +
+        /// 入力の鍵」の SHA256。
+        /// </summary>
+        internal static string CacheKey(IrocaRecipe recipe, Texture2D like, string codeIdentity) {
+            var memo = InputsMemo(recipe, like);
+            // 同じコードで前に求めた鍵があれば使う(シーンのプレビューは差し替え枠ごとに呼ぶ)。
+            if (ReferenceEquals(memo.code, codeIdentity) && memo.key != null) {
+                return memo.key;
+            }
+            string key = Sha256Hex(CacheFormatVersion + "|" + codeIdentity + "|" + memo.inputsKey, null);
+            memo.code = codeIdentity;
+            memo.key = key;
+            return key;
+        }
+
+        /// <summary>
+        /// 入力の鍵: 元テクスチャの取り込み結果(ファイル内容と取り込み設定のハッシュ)・寸法・形式・ミップ・レシピの formatVersion・
+        /// 作業解像度の規則・レシピの中身(sessionJson)の SHA256。いろかのコードは入れない(コードが変わっても入力は同じと
+        /// 分かるように。D-1 の「古くなった」の判定に使う)。
+        /// </summary>
+        internal static string InputsKey(IrocaRecipe recipe, Texture2D like) => InputsMemo(recipe, like).inputsKey;
+
+        private static KeyMemo InputsMemo(IrocaRecipe recipe, Texture2D like) {
             string srcPath = AssetDatabase.GetAssetPath(like);
             var depHash = AssetDatabase.GetAssetDependencyHash(srcPath);
             string json = recipe.sessionJson;
@@ -648,19 +685,16 @@ namespace Iroca {
             // 4K で数 MB あるので、同じ入力なら前に求めた鍵を返す。sessionJson は文字列の参照で見分ける(同じ参照なら
             // 中身も同じ。弱い参照の表なので、レシピが文字列を手放せば覚えた分も消える)。ほかの入力(取り込み結果の
             // ハッシュ・寸法・形式・ミップ・formatVersion)は毎回読んで比べ、1 つでも違えば計算し直す。
-            // MVID と作業解像度の上限はドメインの中で変わらない(リロードで static ごと作り直す)。
+            // 作業解像度の上限はドメインの中で変わらない(リロードで static ごと作り直す)。
             if (json != null && s_keyMemo.TryGetValue(json, out var memo)
                 && memo.depHash == depHash && memo.formatVersion == formatVersion
                 && memo.width == w && memo.height == h && memo.mipmapCount == mips
                 && memo.format == format && memo.graphicsFormat == graphicsFormat) {
-                return memo.key;
+                return memo;
             }
 
             var sb = new StringBuilder();
-            sb.Append(CacheFormatVersion).Append('|');
             sb.Append(depHash.ToString()).Append('|');
-            // いろかのコードが変われば出力も変わり得る。Editor アセンブリは再コンパイルのたびに MVID が変わる。
-            sb.Append(typeof(SessionRecolor).Assembly.ManifestModule.ModuleVersionId).Append('|');
             sb.Append(w).Append('x').Append(h).Append('|');
             // 作業解像度の規則(WorkingResolution)。2026-10-25 に、元ファイルの辺が上限以下なら元の解像度で処理する
             // ように変えた(それまでの "src" / "work" と別の鍵にして、前の規則で作った出来上がりを使わない)。
@@ -668,33 +702,34 @@ namespace Iroca {
             sb.Append((int)format).Append('|').Append((int)graphicsFormat).Append('|');
             sb.Append(mips).Append('|');
             sb.Append(formatVersion).Append('|');
-            // 鍵は「前置き + sessionJson」をつないだ文字列の UTF-8 の SHA256(値は前と同じ)。sessionJson を
-            // つないだ写し・UTF-8 のバイト列を丸ごと作らず、小さい作業配列で少しずつハッシュにかける(Sha256Hex)。
-            string key = Sha256Hex(sb.ToString(), json);
+            // 「前置き + sessionJson」をつないだ文字列の UTF-8 の SHA256。sessionJson をつないだ写し・UTF-8 のバイト列を
+            // 丸ごと作らず、小さい作業配列で少しずつハッシュにかける(Sha256Hex)。
+            var fresh = new KeyMemo {
+                depHash = depHash,
+                formatVersion = formatVersion,
+                width = w,
+                height = h,
+                mipmapCount = mips,
+                format = format,
+                graphicsFormat = graphicsFormat,
+                inputsKey = Sha256Hex(sb.ToString(), json),
+            };
             if (json != null) {
                 s_keyMemo.Remove(json);
-                s_keyMemo.Add(json, new KeyMemo {
-                    depHash = depHash,
-                    formatVersion = formatVersion,
-                    width = w,
-                    height = h,
-                    mipmapCount = mips,
-                    format = format,
-                    graphicsFormat = graphicsFormat,
-                    key = key,
-                });
+                s_keyMemo.Add(json, fresh);
             }
-            return key;
+            return fresh;
         }
 
-        // CacheKey の覚え(sessionJson の文字列の参照 → そのとき使ったほかの入力と鍵)。メインスレッドからしか触らないが、
-        // ConditionalWeakTable はスレッド安全なのでどこから触っても壊れない。
+        // InputsMemo の覚え(sessionJson の文字列の参照 → そのとき使ったほかの入力と入力の鍵、最後に求めた鍵とそのコードの同一性)。
+        // メインスレッドからしか触らないが、ConditionalWeakTable はスレッド安全なのでどこから触っても壊れない。
         private sealed class KeyMemo {
             public Hash128 depHash;
             public int formatVersion, width, height, mipmapCount;
             public TextureFormat format;
             public GraphicsFormat graphicsFormat;
-            public string key;
+            public string inputsKey;
+            public string code, key;
         }
 
         private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<string, KeyMemo> s_keyMemo =
