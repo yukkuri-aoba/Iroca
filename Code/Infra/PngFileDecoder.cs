@@ -164,7 +164,7 @@ namespace Iroca {
                         return null;
                     }
                     haveHeader = true;
-                    Skip(file, 4);
+                    VerifyChunkCrc(file, chunkHead, ihdr, 13);
                 } else if (type == FourCc("PLTE")) {
                     // 色の無いパレットは LoadImage と同じ画素にできるか確かめていないので任せる。
                     if (length == 0 || length % 3 != 0 || length > 768) {
@@ -180,12 +180,12 @@ namespace Iroca {
                             ? new Color32(entries[i * 3], entries[i * 3 + 1], entries[i * 3 + 2], 255)
                             : new Color32(0, 0, 0, 255);
                     }
-                    Skip(file, 4);
+                    VerifyChunkCrc(file, chunkHead, entries, (int)length);
                 } else if (type == FourCc("tRNS")) {
                     if (colorType != ColorPalette || palette == null) {
                         // グレー・RGB の透明色は LoadImage に任せる。
                         colorKey = true;
-                        Skip(file, length + 4);
+                        Skip(file, length + 4);   // 使わないチャンクは飛ばす(CRC も見ない。LoadImage に任せる経路)
                     } else if (length > paletteSize) {
                         // PLTE より長い tRNS は、LoadImage と同じく丸ごと使わない(どの番号も不透明。PngFileDecoderTests で確かめた)。
                         Skip(file, length + 4);
@@ -195,7 +195,7 @@ namespace Iroca {
                         for (int i = 0; i < length; i++) {
                             palette[i].a = alphas[i];
                         }
-                        Skip(file, 4);
+                        VerifyChunkCrc(file, chunkHead, alphas, (int)length);
                     }
                 } else if ((chunkHead[4] & 0x20) == 0) {
                     return null;   // 知らない必須のチャンク(IEND も、IDAT の前に来れば壊れている)
@@ -262,6 +262,7 @@ namespace Iroca {
                         }
                         rows.Return();
                     }
+                    rows.Complete();
                 }
                 done = true;
                 return pixels;
@@ -481,6 +482,56 @@ namespace Iroca {
             }
         }
 
+        // 読んだチャンク(種類 + 中身)の CRC を、ファイルの CRC と照合する。合わなければ壊れたデータ(TryDecode が null にする)。
+        private static void VerifyChunkCrc(Stream file, byte[] chunkHead, byte[] data, int length) {
+            uint crc = Crc32.Update(Crc32.Update(Crc32.Seed, chunkHead, 4, 4), data, 0, length);
+            var tail = new byte[4];
+            ReadExactly(file, tail, 4);
+            if ((crc ^ 0xFFFFFFFFu) != BigEndian(tail, 0)) {
+                throw new InvalidDataException("PNG chunk CRC mismatch");
+            }
+        }
+
+        // PNG の CRC-32(多項式 0xEDB88320)。8 バイトずつ表を引く(slicing-by-8。8K の IDAT 全体で約 11ms)。
+        private static class Crc32 {
+            public const uint Seed = 0xFFFFFFFFu;
+            // "IDAT" までを畳んだ値(IDAT チャンクの CRC はここから始まる)。
+            public static readonly uint IdatSeed;
+            private static readonly uint[] T = new uint[8 * 256];
+
+            static Crc32() {
+                for (uint i = 0; i < 256; i++) {
+                    uint c = i;
+                    for (int k = 0; k < 8; k++) {
+                        c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                    }
+                    T[i] = c;
+                }
+                for (int i = 0; i < 256; i++) {
+                    uint c = T[i];
+                    for (int t = 1; t < 8; t++) {
+                        c = T[c & 0xFF] ^ (c >> 8);
+                        T[t * 256 + i] = c;
+                    }
+                }
+                IdatSeed = Update(Seed, new[] { (byte)'I', (byte)'D', (byte)'A', (byte)'T' }, 0, 4);
+            }
+
+            public static uint Update(uint crc, byte[] b, int off, int n) {
+                uint[] t = T;
+                int i = off, end = off + n;
+                for (; i + 8 <= end; i += 8) {
+                    uint a = crc ^ (uint)(b[i] | b[i + 1] << 8 | b[i + 2] << 16 | b[i + 3] << 24);
+                    crc = t[7 * 256 + (a & 0xFF)] ^ t[6 * 256 + ((a >> 8) & 0xFF)] ^ t[5 * 256 + ((a >> 16) & 0xFF)] ^ t[4 * 256 + (a >> 24)]
+                        ^ t[3 * 256 + b[i + 4]] ^ t[2 * 256 + b[i + 5]] ^ t[256 + b[i + 6]] ^ t[b[i + 7]];
+                }
+                for (; i < end; i++) {
+                    crc = t[(crc ^ b[i]) & 0xFF] ^ (crc >> 8);
+                }
+                return crc;
+            }
+        }
+
         private static void Skip(Stream s, long count) {
             if (s.Position + count > s.Length) {
                 throw new EndOfStreamException();
@@ -552,6 +603,11 @@ namespace Iroca {
                             _filled.Release();
                         }
                     }
+                    // 行を作り終えたあとの IDAT の残り(zlib の末尾など)を読み切る。最後の IDAT の CRC は、チャンクの
+                    // 終わりを越えて読まないと照合されないため(合わなければ InvalidDataException。Complete が投げる)。
+                    var rest = new byte[256];
+                    while (_idat.Read(rest, 0, rest.Length) > 0) {
+                    }
                 } catch (IOException e) when (!(e is EndOfStreamException) && !(e is SourceReadFailed)) {
                     // ファイルからでない IOException は展開の失敗(壊れたデータ)。Unity の Mono の DeflateStream は
                     // IOException("Corrupted data ReadInternal") を投げるので、壊れたファイルとして扱えるように替える
@@ -592,6 +648,14 @@ namespace Iroca {
                 return true;
             }
 
+            /// <summary>
+            /// 全部の行を受け取ったあとに呼ぶ。展開のスレッドが IDAT の残りと最後の CRC を片づけるのを待ち、出た例外を投げる。
+            /// </summary>
+            public void Complete() {
+                _thread.Join();
+                _error?.Throw();
+            }
+
             /// <summary>Next で受け取った束を使い終えた。</summary>
             public void Return() {
                 _consumed++;
@@ -613,6 +677,7 @@ namespace Iroca {
             private int _left;
             private bool _ended;
             private readonly byte[] _head = new byte[8];
+            private uint _crc = Crc32.IdatSeed;   // 今のチャンクの種類 + ここまでに読んだ中身の CRC(照合は次のチャンクへ進むとき)
 
             public IdatStream(Stream file, int firstChunkLength) {
                 _file = file;
@@ -625,7 +690,11 @@ namespace Iroca {
                         if (_ended) {
                             return 0;
                         }
-                        Skip(_file, 4);   // CRC
+                        ReadExactly(_file, _head, 4);   // CRC。展開のスレッドで流しながら計算した値と照合する
+                        if ((_crc ^ 0xFFFFFFFFu) != BigEndian(_head, 0)) {
+                            throw new InvalidDataException("PNG IDAT CRC mismatch");
+                        }
+                        _crc = Crc32.IdatSeed;
                         ReadExactly(_file, _head, 8);
                         if (FourCc(_head, 4) != FourCc("IDAT")) { _ended = true; return 0; }
                         uint length = BigEndian(_head, 0);
@@ -638,6 +707,7 @@ namespace Iroca {
                     if (n <= 0) {
                         throw new EndOfStreamException();
                     }
+                    _crc = Crc32.Update(_crc, buffer, offset, n);
                     _left -= n;
                     return n;
                 } catch (IOException e) when (!(e is EndOfStreamException)) {

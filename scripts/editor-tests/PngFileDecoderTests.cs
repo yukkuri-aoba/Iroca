@@ -292,6 +292,68 @@ namespace Iroca.EditorTests {
             } finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
         }
 
+        // 指定した種類のチャンクのうち、先頭から数えて which 番目(-1 は最後)の CRC の 1 バイトだけを変える(中身は正しいまま)。
+        private static void BreakChunkCrc(string path, string type, int which = 0) {
+            byte[] bytes = File.ReadAllBytes(path);
+            var name = Encoding.ASCII.GetBytes(type);
+            int found = -1, count = 0;
+            for (int at = 8; at + 12 <= bytes.Length;) {
+                int length = bytes[at] << 24 | bytes[at + 1] << 16 | bytes[at + 2] << 8 | bytes[at + 3];
+                if (bytes[at + 4] == name[0] && bytes[at + 5] == name[1] && bytes[at + 6] == name[2] && bytes[at + 7] == name[3]) {
+                    if (count == which) {
+                        found = at + 8 + length;
+                        break;
+                    }
+                    found = at + 8 + length;   // which = -1 のときは最後に見つけた所が残る
+                    count++;
+                }
+                at += 12 + length;
+            }
+            Assert.GreaterOrEqual(found, 0, "テストの前提: " + type + " がある");
+            bytes[found + 3] ^= 0x01;
+            File.WriteAllBytes(path, bytes);
+        }
+
+        // チャンクの CRC が合わない PNG は、中身が読めても壊れたものとして null(LoadImage と取り込み済みに任せる)。
+        [Test]
+        public void BrokenCrc_IdatChunk_IsNotDecoded() {
+            string path = WritePng("crc-idat", 8, 6, Rows(W * 4), 4);
+            Assert.IsNotNull(PngFileDecoder.TryDecode(path), "テストの前提: 壊す前は読める");
+            BreakChunkCrc(path, "IDAT");
+            Assert.IsNull(PngFileDecoder.TryDecode(path));
+        }
+
+        // 最後の IDAT の CRC は、展開が終わったあとにチャンクの終わりまで読まないと見えない。
+        [Test]
+        public void BrokenCrc_LastIdatChunk_IsNotDecoded() {
+            string path = WritePng("crc-last", 8, 6, Rows(W * 4), 4, splitIdat: true);
+            Assert.IsNotNull(PngFileDecoder.TryDecode(path), "テストの前提: 壊す前は読める");
+            BreakChunkCrc(path, "IDAT", -1);
+            Assert.IsNull(PngFileDecoder.TryDecode(path));
+        }
+
+        [Test]
+        public void BrokenCrc_FirstOfSeveralIdatChunks_IsNotDecoded() {
+            string path = WritePng("crc-first", 8, 6, Rows(W * 4), 4, splitIdat: true);
+            BreakChunkCrc(path, "IDAT", 0);
+            Assert.IsNull(PngFileDecoder.TryDecode(path));
+        }
+
+        [Test]
+        public void BrokenCrc_HeaderPaletteAndTransparency_AreNotDecoded() {
+            string ihdr = WritePng("crc-ihdr", 8, 6, Rows(W * 4), 4);
+            BreakChunkCrc(ihdr, "IHDR");
+            Assert.IsNull(PngFileDecoder.TryDecode(ihdr), "IHDR");
+
+            string plte = WritePng("crc-plte", 8, 3, Rows(W), 1, Palette());
+            BreakChunkCrc(plte, "PLTE");
+            Assert.IsNull(PngFileDecoder.TryDecode(plte), "PLTE");
+
+            string trns = WritePng("crc-trns", 8, 3, Rows(W), 1, Palette(), new byte[] { 0, 64, 128, 200 });
+            BreakChunkCrc(trns, "tRNS");
+            Assert.IsNull(PngFileDecoder.TryDecode(trns), "tRNS");
+        }
+
         // 見出しの寸法が、データの量からあり得ないほど大きい(deflate は約 1032 倍より縮まない)。画素を確保する前に null を返す
         // (16384×16384 の RGBA を名乗ると 1GB を確保していた)。
         [Test]
