@@ -138,7 +138,7 @@ namespace Iroca {
                 return true;
             }
 
-            var overwritten = ZoneAutoTuner.PreviewOverwrittenSettings(zone);
+            var overwritten = AutoTuneService.UserOverwrittenSettings(zone);
             if (overwritten.Count == 0) {
                 return true;
             }

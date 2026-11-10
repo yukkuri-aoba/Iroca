@@ -242,6 +242,29 @@ namespace Iroca.EditorTests {
             Assert.IsFalse(AutoTuneService.UntouchedByUser(zone, input));
         }
 
+        // 自動調整 → Undo で適用前の値へ戻したゾーンは、入力(Undo では消えない)があっても手調整ではない。前回の適用値の
+        // ままでなければ、初期値の判定へ落ちる(以前は前回の適用値と比べるだけで、Undo の後の自動調整で上書きの確認が出た。
+        // 点検 2026-11-09 自-1)。確認に並べる項目も、新しいゾーンの初期の許容範囲を既定へ均してから作る。
+        [Test]
+        public void UntouchedByUser_AfterUndoingTheAutoTune() {
+            var zone = RedZone(clicked: false);
+            var before = zone.Clone();
+            var session = Session(zone);
+            var run = AutoTuneService.Start(zone, session, _pixels, "k", null, 0, 0);
+            WaitForAnalysis(run);
+            run.ApplyTo(zone, session);
+            var input = run.ToInput();
+            Assume.That(AutoTuneService.ValuesIntact(before, input.applied), Is.False, "テストの前提: 自動調整で値が変わる");
+
+            Assert.IsTrue(AutoTuneService.UntouchedByUser(before, input), "適用前の値へ戻したのに手調整と見た");
+            CollectionAssert.IsEmpty(AutoTuneService.UserOverwrittenSettings(before), "初期の許容範囲を手調整として並べた");
+
+            before.saturationGuard += 0.2f;
+            Assert.IsFalse(AutoTuneService.UntouchedByUser(before, input));
+            CollectionAssert.AreEqual(new[] { ZoneAutoTuner.TunedSetting.SaturationGuard },
+                AutoTuneService.UserOverwrittenSettings(before), "手で変えた項目だけを並べる");
+        }
+
         // サンプル色を取り直して、前の島から導いた値だけが既定へ戻ったゾーン(EditingSession.ClearIslandDerived)は、
         // 手で触っていないので上書きの確認を出さない。そのうえで手で変えたら確認を出す。
         [Test]

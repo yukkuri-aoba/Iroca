@@ -173,32 +173,44 @@ namespace Iroca {
             return r;
         }
 
+        // 既定値の見本(読むだけ。メインスレッドからだけ作る)。
+        private static ColorZone s_zoneDefaults;
+
         /// <summary>
         /// 導出パラメータが「ユーザーの手調整を含まない」状態か(上書きの確認を出さなくてよいか)。
         /// ・自動調整済みのゾーン(<paramref name="lastInput"/> がある): その適用値のまま(サンプル色を取り直して、前の島から
         ///   導いた値だけが既定へ戻ったものを含む)なら手調整なし
-        /// ・未調整のゾーン: 新しいゾーンへ入れる初期値（<see cref="EditingSession.NewZoneInitialTolerance"/>）
-        ///   だけが ZoneAutoTuner の既定と違うなら、それは置いた値であって手調整ではない
+        /// ・それ以外(未調整のゾーン、自動調整の後に Undo で適用前の値へ戻ったゾーン): 新しいゾーンへ入れる初期値
+        ///   （<see cref="EditingSession.NewZoneInitialTolerance"/>）だけが ZoneAutoTuner の既定と違うなら、それは置いた値で
+        ///   あって手調整ではない(<see cref="UserOverwrittenSettings"/> が空)。入力は Undo では消えないので、適用値と違う
+        ///   からといって手調整とは決めない(以前は決めていて、自動調整 → Undo → 自動調整で確認が出た。点検 自-1)。
         /// 自動調整の入力はドメインリロードで失われるため、リロード直後の 1 回だけは
         /// 調整済みゾーンでも「手調整あり」と見えるが、安全側（確認を出す側）に倒れる。
         /// </summary>
-        private static ColorZone s_zoneDefaults;
-
         internal static bool UntouchedByUser(ColorZone zone, Input lastInput) {
             if (zone == null) {
                 return false;
             }
-            if (lastInput != null) {
-                return ValuesIntact(zone, lastInput.applied) || ValuesIntact(zone, IslandCleared(lastInput.applied));
+            if (lastInput != null
+                && (ValuesIntact(zone, lastInput.applied) || ValuesIntact(zone, IslandCleared(lastInput.applied)))) {
+                return true;
             }
+            return UserOverwrittenSettings(zone).Count == 0;
+        }
 
-            // 未調整ゾーン: 初期 tolerance を既定値に均してから、他に既定と違う項目が
-            // 残らないかを既存の判定（PreviewOverwrittenSettings）で見る。
+        /// <summary>
+        /// 自動調整が上書きする、既定と違う導出パラメータ(上書きの確認に並べる項目)。新しいゾーンへ入れる初期の許容範囲
+        /// (<see cref="EditingSession.NewZoneInitialTolerance"/>)は置いた値なので、既定へ均してから見る。
+        /// </summary>
+        internal static System.Collections.Generic.List<ZoneAutoTuner.TunedSetting> UserOverwrittenSettings(ColorZone zone) {
+            if (zone == null) {
+                return new System.Collections.Generic.List<ZoneAutoTuner.TunedSetting>();
+            }
             var probe = zone.Clone();
             if (Mathf.Approximately(probe.tolerance, EditingSession.NewZoneInitialTolerance)) {
                 probe.tolerance = (s_zoneDefaults ??= new ColorZone()).tolerance;
             }
-            return ZoneAutoTuner.PreviewOverwrittenSettings(probe).Count == 0;
+            return ZoneAutoTuner.PreviewOverwrittenSettings(probe);
         }
 
         /// <summary>
