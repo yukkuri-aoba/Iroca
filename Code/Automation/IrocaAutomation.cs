@@ -34,10 +34,6 @@ namespace Iroca {
         // 意図的に共有しない(あちらはパッケージ名が変わっても変えてはいけない)。
         private const string PackageName = "com.yukkuri-aoba.iroca";
 
-        // ジョブ/結果ファイルの置き場。git 非追跡の UserSettings 配下に置き、Assets の import 揺れを避ける。
-        private static string McpDir =>
-            Path.GetFullPath(Path.Combine(Application.dataPath, "..", "UserSettings/Iroca/mcp"));
-
         /// <summary>再着色 1 回分の結果。JSON 文字列としてエージェントへ返す。</summary>
         [Serializable]
         public class RecolorResult {
@@ -306,7 +302,7 @@ namespace Iroca {
                 resultJson = Fail($"{ex.GetType().Name}: {ex.Message}");
             }
 
-            WriteMcpFile(Path.Combine(McpDir, "result.json"), resultJson);
+            WriteMcpFile(Path.Combine(AutomationOutputRules.McpDir, "result.json"), resultJson);
             Debug.Log($"[Iroca][MCP] CLI result: {resultJson}");
             Console.WriteLine($"[Iroca][MCP] {resultJson}");
 
@@ -430,7 +426,7 @@ namespace Iroca {
         /// </summary>
         private static string WriteRecoloredPng(NativePixels pixels, string srcAbs, string outputAssetPath,
             out string outAbs) {
-            outAbs = ResolveOutputPath(outputAssetPath);
+            outAbs = AutomationOutputRules.ResolveOutputPath(outputAssetPath);
             if (outAbs == null) {
                 return $"output must be a .png inside the project: {outputAssetPath}";
             }
@@ -637,51 +633,11 @@ namespace Iroca {
             if (string.IsNullOrEmpty(path)) {
                 return null;
             }
-            string abs = ToProjectAbsolute(path);
-            if (abs == null || !IsWithinProjectRoot(abs)) {
+            string abs = AutomationOutputRules.ToProjectAbsolute(path);
+            if (abs == null || !AutomationOutputRules.IsWithinProjectRoot(abs)) {
                 return null;
             }
             return File.Exists(abs) ? abs : null;
-        }
-
-        // 出力パスを絶対パスへ解決する（存在不要）。プロジェクトルート配下かつ .png のみ許可する。
-        // 自動化/MCP 経由での範囲外書き込み（任意ファイルの上書き）と非画像ファイル生成を防ぐ。
-        // 条件を満たさなければ null。
-        private static string ResolveOutputPath(string path) {
-            if (string.IsNullOrEmpty(path)) {
-                return null;
-            }
-            string abs = ToProjectAbsolute(path);
-            if (abs == null || !IsWithinProjectRoot(abs)) {
-                return null;
-            }
-            if (!abs.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) {
-                return null;
-            }
-            return abs;
-        }
-
-        // 絶対パスはそのまま、相対パスはプロジェクトルート基準で絶対化する。失敗時は null。
-        private static string ToProjectAbsolute(string path) {
-            try {
-                string projRoot = Path.GetDirectoryName(Application.dataPath);
-                return Path.IsPathRooted(path)
-                    ? Path.GetFullPath(path)
-                    : Path.GetFullPath(Path.Combine(projRoot, path));
-            } catch { return null; }
-        }
-
-        // 解決済み絶対パスがプロジェクトルート配下かを判定する（パストラバーサル/範囲外 I/O 防止）。
-        private static bool IsWithinProjectRoot(string absPath) {
-            if (string.IsNullOrEmpty(absPath)) {
-                return false;
-            }
-            string projRoot;
-            try { projRoot = Path.GetFullPath(Path.GetDirectoryName(Application.dataPath)); } catch { return false; }
-            // 末尾セパレータを付けて "Proj" と "ProjectX" の前方一致誤判定を防ぐ。
-            string rootWithSep = projRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                + Path.DirectorySeparatorChar;
-            return absPath.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase);
         }
 
         private static string GetArg(string[] args, string name) {

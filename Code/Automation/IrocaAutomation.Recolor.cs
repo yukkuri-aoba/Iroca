@@ -658,7 +658,7 @@ namespace Iroca {
                 case "clear": op = MaskRegionOp.ClearHere; break;
                 default: return $"unknown mask op '{m.op}' (use 'paint', 'dont_paint', 'only' or 'clear').";
             }
-            if (!TryReadUv(m.at, out Vector2 at)) {
+            if (!AutomationOutputRules.TryReadUv(m.at, out Vector2 at)) {
                 return $"mask op '{opName}': 'at' must be [u, v] within 0..1 (bottom-left origin).";
             }
 
@@ -721,23 +721,6 @@ namespace Iroca {
             };
             return null;
         }
-
-        /// <summary>
-        /// 依頼の [u, v](左下原点、0..1)を読む。無い・短い・範囲の外・NaN なら false。マスク操作・changes の at・
-        /// iroca_inspect の points で共有する。JsonUtility は JSON の素の NaN を NaN のまま読むので、比べ方は「範囲の中か」
-        /// にして NaN も落とす(以前の「&lt; 0 か &gt; 1」は NaN を通し、(int)NaN が端へ丸められて別の場所の色を拾った)。
-        /// </summary>
-        internal static bool TryReadUv(float[] at, out Vector2 uv) {
-            uv = new Vector2(-1f, -1f);
-            if (at == null || at.Length < 2 || !IsUnitInterval(at[0]) || !IsUnitInterval(at[1])) {
-                return false;
-            }
-            uv = new Vector2(at[0], at[1]);
-            return true;
-        }
-
-        /// <summary>0..1 の中か(NaN は false)。</summary>
-        internal static bool IsUnitInterval(float x) => x >= 0f && x <= 1f;
 
         private static string ZoneNames(IrocaSessionState state)
             => string.Join(", ", state.zones.Where(z => z != null).Select(z => "'" + z.name + "'"));
@@ -1152,34 +1135,12 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// apply='png' の出力先を決めて確かめる。エラーなら文言、よければ null と出力先の絶対パス。
-        /// 書くのは Assets/ の下の .png だけ(Packages/・Library/・ProjectSettings/ などへは書かない)。
-        /// 既にファイルがあれば、依頼に overwrite が無い限り断る。既定の出力先は「適用して保存」の既定と同じ名前なので、
-        /// 前に書き出してマテリアルに差している画像を黙って置き換えると、それを使うアバターの見た目まで変わる
-        /// (UI の書き出しは同じ場面で確認を出す)。元テクスチャ自身は overwrite があっても断る。
+        /// apply='png' の出力先を決めて確かめる(決まりは <see cref="AutomationOutputRules.ResolvePngOutput"/>。静的 API と共有)。
+        /// 既定の出力先は「適用して保存」の既定と同じ名前。エラーなら文言、よければ null と出力先の絶対パス。
         /// </summary>
-        private static string ResolvePngOutput(RecolorRequest req, string texturePath, out string outAbs) {
-            bool given = !string.IsNullOrWhiteSpace(req.output);
-            string path = given ? req.output.Trim() : ExportPipeline.BatchOutputPath(texturePath);
-            outAbs = ResolveOutputPath(path);
-            string rel = outAbs != null ? PathUtils.ToAssetsRelativeOrNull(outAbs) : null;
-            if (rel == null) {
-                outAbs = null;
-                return given
-                    ? $"'output' must be a .png path under Assets/: {req.output}"
-                    : $"the default output ({path}) is outside Assets/; pass 'output' (a .png path under Assets/).";
-            }
-            string srcAbs = PhysicalPath(texturePath);
-            if (srcAbs != null && string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase)) {
-                return "output must differ from the source texture "
-                     + $"(recoloring in place would destroy the original irreversibly): {rel}";
-            }
-            if (!req.overwrite && File.Exists(outAbs)) {
-                return $"{rel} already exists (materials or avatars may use it). Ask the user before replacing it, "
-                     + "then call again with overwrite:true; or pass another 'output'.";
-            }
-            return null;
-        }
+        private static string ResolvePngOutput(RecolorRequest req, string texturePath, out string outAbs)
+            => AutomationOutputRules.ResolvePngOutput(req.output, ExportPipeline.BatchOutputPath(texturePath), req.overwrite,
+                PhysicalPath(texturePath), "overwrite:true", out outAbs);
 
         // 1 件の変更をゾーンにする。エラーなら文言、成功なら null。
         private static unsafe string ApplyChange(IrocaSessionState state, ChangeRequest c, NativePixels work, out ColorZone zone) {
@@ -1195,7 +1156,7 @@ namespace Iroca {
             Color from;
             Vector2 uv = new Vector2(-1f, -1f);
             if (c.at != null && c.at.Length >= 2) {
-                if (!TryReadUv(c.at, out uv)) {
+                if (!AutomationOutputRules.TryReadUv(c.at, out uv)) {
                     return $"change '{c.name}': 'at' must be [u, v] within 0..1 (bottom-left origin).";
                 }
                 int x = Mathf.Clamp((int)(uv.x * w), 0, w - 1);
@@ -1247,10 +1208,7 @@ namespace Iroca {
                 return "";
             }
             try {
-                string stem = Path.GetFileNameWithoutExtension(texturePath);
-                string guid = AssetDatabase.AssetPathToGUID(texturePath);
-                string file = Path.Combine(McpDir, "preview",
-                    $"{stem}_{(string.IsNullOrEmpty(guid) ? "x" : guid.Substring(0, 8))}.png");
+                string file = AutomationOutputRules.PreviewPanelPath(texturePath);
                 Directory.CreateDirectory(Path.GetDirectoryName(file));
                 AtomicFile.WriteAllBytes(file, c.panelPng);
                 return file;

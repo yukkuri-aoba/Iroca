@@ -133,7 +133,7 @@ namespace Iroca {
                         return Finish(r, $"'points' must be up to {MaxInspectPoints} [u, v] pairs.");
                     }
                     foreach (float c in pointsUv) {
-                        if (!IsUnitInterval(c)) {
+                        if (!AutomationOutputRules.IsUnitInterval(c)) {
                             return Finish(r, "'points' must be within 0..1 (bottom-left origin).");
                         }
                     }
@@ -330,7 +330,7 @@ namespace Iroca {
                 }
                 string stem = Path.GetFileNameWithoutExtension(texturePath);
                 string guid = AssetDatabase.AssetPathToGUID(texturePath);
-                string file = Path.Combine(McpDir, "inspect",
+                string file = Path.Combine(AutomationOutputRules.McpDir, "inspect",
                     $"{stem}_{(string.IsNullOrEmpty(guid) ? "x" : guid.Substring(0, 8))}.png");
                 Directory.CreateDirectory(Path.GetDirectoryName(file));
                 AtomicFile.WriteAllBytes(file, ExportPipeline.EncodePng(img, tw, th));
@@ -516,7 +516,7 @@ namespace Iroca {
             }
             string abs = assetPath.StartsWith("Packages/", StringComparison.Ordinal)
                 ? Path.GetFullPath(FileUtil.GetPhysicalPath(assetPath))
-                : ToProjectAbsolute(assetPath);
+                : AutomationOutputRules.ToProjectAbsolute(assetPath);
             return abs != null && File.Exists(abs) ? abs : null;
         }
     }
