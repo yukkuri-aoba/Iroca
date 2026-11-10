@@ -45,10 +45,13 @@ namespace Iroca {
         private static Timer s_idleTimer;
         private static readonly object s_idleLock = new object();
 
+        // 番号を進めて予約に書くまでを、ロックの中で 1 つにする。分けていると、2 つの計算がほぼ同時に終わったとき、
+        // 先に番号を取った方が後から古い番号を予約に書き、番号と予約が食い違ったままになる(次の計算が終わるまで
+        // 空きを返さない)。計算の始まり(WorkStarted)はロックを取らずに番号を進めるだけで、予約を取り消す側なので
+        // 間に入ってもよい(その計算が終わったときに予約し直す)。
         private static void ArmIdleTrim() {
-            int gen = Interlocked.Increment(ref s_idleGen);
-            Volatile.Write(ref s_armedGen, gen);
             lock (s_idleLock) {
+                Volatile.Write(ref s_armedGen, Interlocked.Increment(ref s_idleGen));
                 s_idleTimer ??= new Timer(_ => TrimIfIdle());
                 s_idleTimer.Change(IdleTrimMilliseconds, Timeout.Infinite);
             }
@@ -107,6 +110,9 @@ namespace Iroca {
 
         /// <summary>走っている計算の数(テスト用)。</summary>
         internal static int RunningWork => Volatile.Read(ref s_running);
+
+        /// <summary>縮小の予約が今の番号のままか(テスト用。計算が無いときは true のはず)。</summary>
+        internal static bool IdleTrimArmed => Volatile.Read(ref s_idleGen) == Volatile.Read(ref s_armedGen);
 
         /// <summary>
         /// 作業配列を借りうる計算を始める(どのスレッドからでも)。終えたら必ず <see cref="WorkEnded"/> を呼ぶ。
