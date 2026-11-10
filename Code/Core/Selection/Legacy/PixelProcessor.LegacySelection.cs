@@ -172,7 +172,7 @@ namespace Iroca {
                     // 中性ツヤ復帰(グレーモード以外では内部で no-op): 彩度整合ゲートが純白
                     // パディングと一緒に落とした「素材自身の純白ツヤ」を、選択領域に囲まれた
                     // 閉領域という空間条件だけで戻す。連結性は大域演算なので画像全体で解く。
-                    RecoverEnclosedNeutral(strength, matchConf, hsv, originalPixels,
+                    RecoverEnclosedNeutral(strength, hsv, originalPixels,
                         zone.sampleColor, zone.tolerance, sampS, sampV,
                         zone.chromaThreshold, w, h, cancellationToken);
                 }

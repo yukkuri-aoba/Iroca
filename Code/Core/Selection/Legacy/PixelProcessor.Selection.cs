@@ -403,7 +403,7 @@ namespace Iroca {
         /// 閉領域が開領域と誤判定される。
         /// </summary>
         private static void RecoverEnclosedNeutral(
-            float* strength, bool* matchConf, PixelHsv hsv, Color32* pixels,
+            float* strength, PixelHsv hsv, Color32* pixels,
             Color sampleColor, float tolerance, float sS, float sV, float chromaThreshold,
             int w, int h, CancellationToken ct = default) {
             float* pixS = hsv.S; int* pixIdx = hsv.Index;
@@ -474,10 +474,7 @@ namespace Iroca {
                         if (rgbDist > tolerance) {
                             continue;   // ゲート以外の理由で外れていた画素
                         }
-                        strength[i] = 1f;
-                        if (matchConf != null) {
-                            matchConf[i] = true;
-                        }
+                        strength[i] = 1f;   // matchConf(連結成分のコア)は触らない: 戻した画素が流れ込んだ成分を錨止めしないため
                     }
                 });
             } finally {
