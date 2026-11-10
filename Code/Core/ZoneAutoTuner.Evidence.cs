@@ -279,9 +279,27 @@ namespace Iroca {
             // 返してある(従来はこの解析が自分の格子を作る間も持ち続け、8K で約 400MB を二重に持っていた。点検 自-6)。
             var fallback = AnalyzeCore(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
             if (fallbackDiag != null) {
-                fallback.evidenceDiag = fallbackDiag;
+                // 従来の導出は正規化した色(normalizedSample。正規化しなければクリックの色)の彩度で有彩・無彩を分け、
+                // 照合は適用後のサンプル(同じ色)で分ける。
+                Color tuned = fallback.hasNormalizedSample ? fallback.normalizedSample : zone.sampleColor;
+                Color.RGBToHSV(tuned, out _, out float tunedS, out _);
+                fallback.evidenceDiag = fallbackDiag
+                    + GrayModeDiag(tunedS >= AchromaSampleSatMax, tuned, fallback.chromaThreshold);
             }
             return fallback;
+        }
+
+        /// <summary>
+        /// 診断(点検 D-17 段 1): 自動調整が有彩として導いたか(<c>tuneChroma</c>。地色の彩度 ≥ AchromaSampleSatMax)と、
+        /// 照合が適用後のサンプルをグレーモードで扱うか(<c>matchGray</c>。<see cref="ColorZone.GrayModeEffectiveChromaThreshold"/>)。
+        /// 両方 1 のゾーンは、有彩として許容範囲・トーンの代表色・partHueBand を入れたのに照合はグレーモードで
+        /// partHueBand も捨てる(両方 0 は逆向きの食い違い)。食い違うのは明度 0.2 未満の暗い色味だけの見込みで、
+        /// 2026-11-10 の計測(回帰の 33 被写体 × クリック 6 か所 = 198 件、従来の導出へ落ちた 29 件を含む)では 0 件。
+        /// </summary>
+        private static string GrayModeDiag(bool tuneChromatic, Color matcherSample, float chromaThreshold) {
+            Color.RGBToHSV(matcherSample, out _, out float s, out float v);
+            bool matchGray = s <= ColorZone.GrayModeEffectiveChromaThreshold(v, chromaThreshold);
+            return $" tuneChroma={(tuneChromatic ? 1 : 0)} matchGray={(matchGray ? 1 : 0)}";
         }
 
         /// <summary>
@@ -449,6 +467,13 @@ namespace Iroca {
             // 無彩地色では行わない(従来のトーン抽出と同じ理由: 背景の白/黒と色で分離できない。
             // 実測: クリームの上衣で純白が足され、白パディングを塗って IoU 0.83→0.34)。
             int added = 0;
+            // 診断(点検 自-5): 補完で足した内部サンプルを採ったとき、導き直した許容範囲が前より上がった回数と、
+            // 上がった幅の最大。上の「tolerance は上げない」は今のコードでは守られていない: 導き直した値
+            // (TryDeriveChromaticToleranceMulti の母集団は近傍窓の和集合なので、色を足すと P95 が上がりうる)を
+            // 無条件に採る。2026-11-10 の計測(回帰の 33 被写体 × クリック 6 か所 = 198 件)では 3 件(1 被写体)。
+            // 上げないようにすると出力が変わるので、直すのは改善サイクルで(修正計画の自-5)。
+            int tolRaise = 0;
+            float tolRaiseMax = 0f;
             float cov = chromatic
                 ? DomainCoverage(aZone, result, hsv, pixels, width, height, domain) : 1f;
             int selGlobal = cov < EvCoverTarget
@@ -487,6 +512,10 @@ namespace Iroca {
                     foreignCapped = fCapPrev;
                     break;
                 }
+                if (result.tolerance > tolPrev) {
+                    tolRaise++;
+                    tolRaiseMax = Mathf.Max(tolRaiseMax, result.tolerance - tolPrev);
+                }
                 cov = covN;
                 selGlobal = selGlobalN;
                 added++;
@@ -515,7 +544,8 @@ namespace Iroca {
                 + $" added={added} cov={cov:F4} tol={result.tolerance:F4}"
                 + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}"
                 + $" tolDerived={tolDerived:F4} partSat={result.partSatCeiling:F3} partHue={result.partHueBand:F3}"
-                + $" holeMargin={result.holeFillMargin:F2}" + retryDiag;
+                + $" holeMargin={result.holeFillMargin:F2}" + $" tolRaise={tolRaise} tolRaiseMax={tolRaiseMax:F4}"
+                + GrayModeDiag(chromatic, repApplied ? rep : zone.sampleColor, result.chromaThreshold) + retryDiag;
             Progress(0.98f);
 
             DecideGlobals(width, height, session, ref result);
