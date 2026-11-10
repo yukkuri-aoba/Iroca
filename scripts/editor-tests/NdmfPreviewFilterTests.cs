@@ -82,6 +82,16 @@ namespace Iroca.EditorTests {
         private static RenderGroup GroupOf(IEnumerable<RenderGroup> groups, Renderer r)
             => groups.FirstOrDefault(g => IrocaPreviewFilter.IsGroupOf(g, r));
 
+        // アバターのルート(VRChat SDK があれば Avatar Descriptor を付ける。アバターの外の部品は映さないため)。
+        private GameObject AvatarRoot() {
+            var go = Track(new GameObject("avatar"));
+            var descriptor = DescriptorType();
+            if (descriptor != null) {
+                go.AddComponent(descriptor);
+            }
+            return go;
+        }
+
         private IrocaRecipe RedToGreen(Texture2D src) {
             var zone = new ColorZone {
                 sampleColor = new Color(200 / 255f, 40 / 255f, 40 / 255f),
@@ -150,7 +160,7 @@ namespace Iroca.EditorTests {
             mat.SetFloat("_UseShadow", 1f);
             var blue = new Color(0.606f, 0.693f, 0.784f, 1f);
             mat.SetColor("_ShadowColor", blue);
-            var avatar = Track(new GameObject("avatar"));
+            var avatar = AvatarRoot();
             var mesh = Mesh("mesh", mat, avatar);
             var recipe = RedToGreen(src);
             var component = avatar.AddComponent<IrocaRecolor>();
@@ -203,7 +213,7 @@ namespace Iroca.EditorTests {
         [Test]
         public void Registered_ShowsTheRecipeOnlyInsideTheComponent() {
             var (src, mat) = SourceAndMaterial();
-            var avatar = Track(new GameObject("avatar"));
+            var avatar = AvatarRoot();
             var inside = Mesh("inside", mat, avatar);
             var outside = Mesh("outside", mat);
             var recipe = RedToGreen(src);
@@ -246,11 +256,44 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // VRChat SDK のアバターの印(VRCAvatarDescriptor)。テストは SDK を参照しないので名前で探す(無いホストでは null)。
+        private static System.Type DescriptorType() {
+            foreach (var a in System.AppDomain.CurrentDomain.GetAssemblies()) {
+                var t = a.GetType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor", false);
+                if (t != null) {
+                    return t;
+                }
+            }
+            return null;
+        }
+
+        // アバターの外の Iroca Recolor はビルドで効かないので、シーンにも映さない(アバターの中に入れば映す)。
+        [Test]
+        public void ComponentOutsideAnAvatar_IsNotShown_UntilItIsInside() {
+            var descriptor = DescriptorType();
+            if (descriptor == null) {
+                Assert.Ignore("VRChat SDK の無いホストでは、アバターの内側かを見分けない");
+            }
+            var (src, mat) = SourceAndMaterial();
+            var root = Track(new GameObject("avatar"));
+            var outfit = Track(new GameObject("outfit"));
+            outfit.transform.SetParent(root.transform, false);
+            var mesh = Mesh("mesh", mat, outfit);
+            outfit.AddComponent<IrocaRecolor>().recipes.Add(RedToGreen(src));
+
+            var filter = new IrocaPreviewFilter();
+            Assert.IsNull(GroupOf(filter.FindTargets(new ComputeContext("test")), mesh),
+                "アバターの外の部品(アップロードでは効かない)を映した");
+
+            root.AddComponent(descriptor);
+            Assert.IsNotNull(GroupOf(filter.FindTargets(new ComputeContext("test")), mesh), "アバターの中に入ったのに映さない");
+        }
+
         // 入れ子の内側のレシピのゾーンがすべて無効なら、その範囲は元の色のまま映す(ビルドと同じ。外側の色で塗らない)。
         [Test]
         public void InnerRecipeWithNoEnabledZones_ShowsItsScopeInTheOriginalColor() {
             var (src, mat) = SourceAndMaterial();
-            var avatar = Track(new GameObject("avatar"));
+            var avatar = AvatarRoot();
             var hair = Mesh("hair", mat, avatar);
             var accessory = Track(new GameObject("accessory"));
             accessory.transform.SetParent(avatar.transform, false);
@@ -295,7 +338,7 @@ namespace Iroca.EditorTests {
             // NDMF は全部のノードがそろってから次の表示へ切り替えるので、ノードが終わらないと
             // ほかのツールの分も含めてシーンのプレビューが止まる。
             var (src, mat) = SourceAndMaterial();
-            var avatar = Track(new GameObject("avatar"));
+            var avatar = AvatarRoot();
             var inside = Mesh("inside", mat, avatar);
             avatar.AddComponent<IrocaRecolor>().recipes.Add(RedToGreen(src));
 
@@ -316,7 +359,7 @@ namespace Iroca.EditorTests {
             string pathB = _assets.WritePng("b", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
             var texA = AssetDatabase.LoadAssetAtPath<Texture2D>(pathA);
             var texB = AssetDatabase.LoadAssetAtPath<Texture2D>(pathB);
-            var avatar = Track(new GameObject("avatar"));
+            var avatar = AvatarRoot();
             var a = Mesh("a", Track(new Material(Shader.Find("Standard")) { mainTexture = texA }), avatar);
             var b = Mesh("b", Track(new Material(Shader.Find("Standard")) { mainTexture = texB }), avatar);
             var c = avatar.AddComponent<IrocaRecolor>();
@@ -359,7 +402,7 @@ namespace Iroca.EditorTests {
             // ウィンドウで関係ないテクスチャを開いても、この Renderer の差し替え先は変わらない。グループが等しければ
             // NDMF はノードを使い回し、ノード自身もウィンドウの編集対象を見張らない(後段のツールまで作り直させない)。
             var (src, mat) = SourceAndMaterial();
-            var avatar = Track(new GameObject("avatar"));
+            var avatar = AvatarRoot();
             var inside = Mesh("inside", mat, avatar);
             avatar.AddComponent<IrocaRecolor>().recipes.Add(RedToGreen(src));
 
@@ -386,7 +429,7 @@ namespace Iroca.EditorTests {
             // TexTransTool の MaterialModifier などは、指定されたマテリアル・テクスチャと「置き換え前が同じもの」を
             // NDMF の登録簿で探す。複製したマテリアルとレシピの出来上がりを、ノードを作るときの登録簿に知らせる。
             var (src, mat) = SourceAndMaterial();
-            var avatar = Track(new GameObject("avatar"));
+            var avatar = AvatarRoot();
             var inside = Mesh("inside", mat, avatar);
             avatar.AddComponent<IrocaRecolor>().recipes.Add(RedToGreen(src));
             var filter = new IrocaPreviewFilter();
@@ -421,7 +464,7 @@ namespace Iroca.EditorTests {
         private (Task<IRenderFilterNode> instantiating, ComputeContext context, Renderer proxy, Material mat,
             Texture2D src, IrocaRecipe recipe) WaitingNode() {
             var (src, mat) = SourceAndMaterial();
-            var avatar = Track(new GameObject("avatar"));
+            var avatar = AvatarRoot();
             var inside = Mesh("inside", mat, avatar);
             var recipe = RedToGreen(src);
             avatar.AddComponent<IrocaRecolor>().recipes.Add(recipe);

@@ -27,7 +27,8 @@ namespace Iroca.NdmfIntegration {
     /// 使っていない物や後段のツールのプレビューに負担を掛けないため):
     /// <list type="bullet">
     /// <item>対象を探すのは Iroca Recolor の範囲(付けた GameObject とその子)だけ。持ち主のいない Renderer には
-    ///   何も映さない規則なので、シーン全体を見るのは、ウィンドウが登録の無いテクスチャを編集している間だけ。</item>
+    ///   何も映さない規則なので、シーン全体を見るのは、ウィンドウが登録の無いテクスチャを編集している間だけ。
+    ///   アバターの外の Iroca Recolor はビルドで効かないので、無いものとして扱う。</item>
     /// <item>Renderer は素材の並びが変わったか、マテリアルは「候補のテクスチャを含むか」だけを見る(配列を作らない)。</item>
     /// <item>どの元テクスチャを何に差し替えるか(<see cref="PreviewTargeting.Routes"/>)は対象を選ぶときに決めて
     ///   グループに持たせる。変われば NDMF が別のグループとしてノードを作り直す。ノード自身が監視するのは、
@@ -325,6 +326,12 @@ namespace Iroca.NdmfIntegration {
                 context.Observe(component, c => SameRecipes(c, recipes) && SameShadowMatch(c, shadowMatch), (a, b) => a == b);
                 // 付け替えると範囲が変わる(ObservePath は呼んだ時点で監視を始める)。
                 context.ObservePath(component.transform);
+                // アバターの外の部品は、ビルド(アバターの中だけを処理する)で効かないので映さない(登録が無いのと同じ扱い)。
+                // 親にアバターの印(Avatar Descriptor)が付く・外れるのは部品の監視では届かないので、値を取り出す監視で拾う
+                // (NDMF はエディタにフォーカスがある間、毎フレーム読み直す)。
+                if (!context.Observe(component, c => RecipeRegistration.IsInsideAvatar(c.transform), (a, b) => a == b)) {
+                    continue;
+                }
                 // 並び順のまま渡す(同じテクスチャのレシピが重なったら先が勝つ。ビルドと同じ)。
                 foreach (var recipe in recipes) {
                     if (recipe == null) {

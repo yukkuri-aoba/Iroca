@@ -1539,6 +1539,9 @@ namespace Iroca {
         public static string RecolorNoRecipe => IsJapanese
             ? "レシピが設定されていません。いろかウィンドウの「アバターに非破壊で登録」で作れます。"
             : "No recipe is set. Create one with \"Register to avatar (non-destructive)\" in the Iroca window.";
+        public static string RecolorOutsideAvatar => IsJapanese
+            ? "このオブジェクトはアバターの中にないので、アップロードでもシーンのプレビューでも色替えされません。アバター（VRChat の Avatar Descriptor が付いたオブジェクト）か、その下の衣装へ付け直してください。"
+            : "This object is not inside an avatar, so it is recolored neither in the upload nor in the scene preview. Put the component on the avatar (the object with the VRChat Avatar Descriptor) or an outfit under it.";
         public static string RecolorNoSource => IsJapanese
             ? "レシピに元テクスチャが設定されていません。"
             : "The recipe has no source texture.";

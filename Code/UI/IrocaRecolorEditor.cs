@@ -24,6 +24,13 @@ namespace Iroca {
 #if !IROCA_NDMF_PRESENT
             EditorGUILayout.HelpBox(Localization.NdmfUnavailable(NdmfSupport.State), MessageType.Warning);
 #endif
+            // ビルドはアバターの中の部品だけを処理し、シーンのプレビューもそれに合わせて映さない。プレハブの編集画面
+            // (衣装のプレハブなど。あとでアバターの下に置く)とプロジェクトのアセットでは言わない。
+            if (RecipeRegistration.IsSceneObject(component.gameObject)
+                && UnityEditor.SceneManagement.PrefabStageUtility.GetPrefabStage(component.gameObject) == null
+                && !RecipeRegistration.IsInsideAvatar(component.transform)) {
+                EditorGUILayout.HelpBox(Localization.RecolorOutsideAvatar, MessageType.Warning);
+            }
             DrawMerge(component);
 
             serializedObject.Update();
