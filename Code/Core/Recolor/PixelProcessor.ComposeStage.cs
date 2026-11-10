@@ -132,9 +132,12 @@ namespace Iroca {
                                 // AA pixel: use decontaminated value (overrides standard mix)。
                                 // 最上位(room=1)なら従来どおり完全置換。下位なら残り分だけ被せる。
                                 // デコンタミ値は合成済みエッジ色なので、このエッジ画素は上位として占有する。
+                                // a には被覆率が入っている(DecontamCoverageByte)ので、元の α に戻して書く。
+                                Color32 decon = decontaminatedLocal[i];
+                                decon.a = originalPixels[i].a;
                                 pixels[i] = room >= 0.999f
-                                    ? decontaminatedLocal[i]
-                                    : Color32.Lerp(pixels[i], decontaminatedLocal[i], room);
+                                    ? decon
+                                    : Color32.Lerp(pixels[i], decon, room);
                                 SetClaimed(claimedLocal, claimedFlag, i, 1f);
                                 continue;
                             }

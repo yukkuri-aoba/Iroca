@@ -113,6 +113,13 @@ namespace Iroca {
         // 縁取り、淡い部品の鮮やかな輪郭)。分解しないだけ(部分強度のまま)だと元の色の輪やまだらが残ったので、
         // 内部と同じく強度 1 に固めて通常の再着色に任せる。線分から外れる色(距離の判定)は従来どおり触らない。
 
+        // デコンタミの縁の色(decontaminatedPixels)の a には、元の α ではなく α 分解の被覆率(0..1)を 0..255 で詰める。
+        // 合成(ComposeStage)は a を元の画素の α に戻して書くので出力は変わらない。縁の画素がどれだけこのゾーンの
+        // 素材かを合成の段まで運ぶため(点検 再着色-2 の準備。画素数の大きさのバッファを増やさない)。
+        // 混色帯(MixtureBand)が同じバッファに書く色の a は従来どおり元の α。
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static byte DecontamCoverageByte(float alpha) => (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * 255f), 0, 255);
+
         // BG–sample 線分からの距離² の上限(各 ch 約 31 階調)。これを超える色は α 分解の前提
         // (2 色の混色)が成り立たない。AA デコンタミの両経路と無彩フチ消しで共通。
         private const float DecontamLineDistSqMax = 3000f;
@@ -241,7 +248,7 @@ namespace Iroca {
                         (byte)Mathf.Clamp(Mathf.RoundToInt(resR), 0, 255),
                         (byte)Mathf.Clamp(Mathf.RoundToInt(resG), 0, 255),
                         (byte)Mathf.Clamp(Mathf.RoundToInt(resB), 0, 255),
-                        originalPixels[i].a);
+                        DecontamCoverageByte(alpha));
                 }
             });
         }
@@ -411,7 +418,7 @@ namespace Iroca {
                                 (byte)Mathf.Clamp(Mathf.RoundToInt(resR), 0, 255),
                                 (byte)Mathf.Clamp(Mathf.RoundToInt(resG), 0, 255),
                                 (byte)Mathf.Clamp(Mathf.RoundToInt(resB), 0, 255),
-                                originalPixels[i].a);
+                                DecontamCoverageByte(alpha));
                         }
                     }
                     return colsPtr;
