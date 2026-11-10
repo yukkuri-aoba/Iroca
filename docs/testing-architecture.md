@@ -309,6 +309,44 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
   `-n 4 --dist loadfile`（4 並列。`loadfile` はモジュール単位の割り当てで、これを外すと
   module スコープ fixture が各ワーカーで再実行されて逆に遅くなる）。直列に戻すなら `-n 0`。
 
+### テスト用の別 PC で回す（2026-11-11〜）
+
+LAN にテスト用の PC があるときは、テストをそちらで回して開発機の CPU・メモリを空ける。
+**つながらないときは何もせず手元で回る**ので、普段から次の入口を使ってよい:
+
+```powershell
+# `--` の後ろは python に渡す引数そのまま（相手でも手元でも .venv の python が受け取る）
+.\.venv\Scripts\python.exe tools/remote_test.py -- -m pytest dev_safe/Tests/regression/ -q
+.\.venv\Scripts\python.exe tools/remote_test.py status     # つながるか・準備が済んでいるか
+```
+
+- 相手は ssh の Host 名 `iroca-remote`（`IROCA_REMOTE_HOST` で変更）。アドレス・ユーザー名・鍵は開発機の
+  `~/.ssh/config` に書き、公開リポには書かない。
+- 既定は auto: ssh のポートに 1.5 秒でつながり、鍵で入れて、相手に git・.NET SDK・Unity の DLL があればリモート。
+  欠ければ理由を `[remote-test]` の 1 行で出して手元で回す。`--remote` はリモート必須、`--local` は常に手元。
+- 測る中身は**作業ツリーの今の中身**（未コミットの変更と、追跡していない新しいファイルを含む。無視されたものは除く）。
+  索引の写しでスナップショットのコミットを作り、本体と dev_safe を git のバンドルで前回からの差分だけ送る。
+  手元の索引・ブランチは触らない（`refs/remote-test/snap`・`refs/remote-test/sent` だけ書く）。
+- git に入らない入力（dev_safe の `texture_sample`・`Tests/Baselines` の無視されたファイル）は、大きさと更新時刻が
+  違うものだけ tar で送る。初回は約 14GB。
+- `IROCA_*`・`VACC_*` の環境変数は相手へ渡す（手元の絶対パスを値に持つものは渡さない）。足すなら `--env K=V`。
+- 相手の作業ツリーは 1 つで、実行は相手側の排他で 1 つずつ。別のセッションが回していれば終わるまで待つ。
+- 実行後のファイルが要るときは `--fetch <本体からの相対パス>`（複数可）で手元の同じ場所へ持ち帰る。
+- 相手の置き場は `<相手のホーム>\iroca-remote\`（`Iroca\`・`Iroca\dev_safe\`・`UnityManaged\`・`inbox\`）。
+  ハーネスの実行キャッシュは相手の dev_safe の中に溜まり、相手の `cache_gc` が掃除する。
+
+**リモートで回さないもの**: 視覚レビュー（`visual_review.py` の snapshot・compare・approve）は承認を手元の
+作業ツリーと索引の中身に結び付けるので手元で回す。Unity 実機の EditMode テスト・abcheck も手元。
+
+準備（1 回だけ）:
+1. 開発機で鍵を作る（`ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_iroca_remote`）。
+2. 相手の PC で `scripts/remote-test/Enable-RemoteTestHost.ps1 -PublicKey "<公開鍵>"` を管理者で実行する。
+   Git・Python 3.14・.NET SDK 8・OpenSSH サーバーを入れ、ファイアウォールは同じ LAN からだけ通し、鍵を登録して、
+   ユーザー名とアドレスを表示する。
+3. 開発機の `~/.ssh/config` に `Host iroca-remote`（HostName・User・IdentityFile）を書く。
+4. `python tools/remote_test.py setup`: Unity の DLL（`UnityManaged` の `UnityEngine\`）と SAM のモデルを送り、
+   本体・dev_safe・データを送って相手の `.venv` を作る。
+
 ### ネイティブメモリのはみ出しを捕まえる（検証用の環境変数）
 
 0.3.0 から作業配列などは Mono のヒープの外（`IrocaNativeMemory`）に置いてポインタで扱うので、寸法の計算違いは
