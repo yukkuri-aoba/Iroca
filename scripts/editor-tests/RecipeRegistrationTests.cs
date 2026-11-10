@@ -152,6 +152,118 @@ namespace Iroca.EditorTests {
             CollectionAssert.AreEqual(new[] { rA }, restored[0].recipes);
         }
 
+        private Material ShadowMat(string name, Texture2D main) =>
+            Track(new Material(Shader.Find("Standard")) { name = name, mainTexture = main });
+
+        // 2 つ目以降の「影の色を合わせる」設定は、そのコンポーネントから残ったレシピの分を引き継ぐ。1 回の Undo で戻る。
+        [Test]
+        public void MergeComponents_KeepsShadowMatchOfTheMergedRecipes_InOneUndoStep() {
+            var go = Avatar();
+            var texA = Tex("a");
+            var texB = Tex("b");
+            var mA = ShadowMat("mA", texA);
+            var mB = ShadowMat("mB", texB);
+            var c1 = go.AddComponent<IrocaRecolor>();
+            c1.recipes.Add(Recipe("a", texA));
+            c1.shadowMatchMaterials.Add(mA);
+            var c2 = go.AddComponent<IrocaRecolor>();
+            c2.recipes.Add(Recipe("b", texB));
+            c2.shadowMatchMaterials.Add(mB);
+
+            Undo.IncrementCurrentGroup();
+            var keep = RecipeRegistration.MergeComponents(go);
+            Assert.AreEqual(1, go.GetComponents<IrocaRecolor>().Length);
+            CollectionAssert.AreEqual(new[] { mA, mB }, keep.shadowMatchMaterials, "2 つ目の影の色の設定が消えた");
+
+            Undo.PerformUndo();
+            var restored = go.GetComponents<IrocaRecolor>();
+            Assert.AreEqual(2, restored.Length, "1 回の Undo で元に戻らない");
+            CollectionAssert.AreEqual(new[] { mA }, restored[0].shadowMatchMaterials);
+            CollectionAssert.AreEqual(new[] { mB }, restored[1].shadowMatchMaterials);
+        }
+
+        // 先のレシピに負けて落ちたレシピ(同じテクスチャ)の影の設定は、ビルドで効いていなかったので引き継がない。
+        [Test]
+        public void MergeComponents_DoesNotTakeShadowMatchOfADroppedRecipe() {
+            var go = Avatar();
+            var texA = Tex("a");
+            var mA = ShadowMat("mA", texA);
+            go.AddComponent<IrocaRecolor>().recipes.Add(Recipe("a", texA));
+            var c2 = go.AddComponent<IrocaRecolor>();
+            c2.recipes.Add(Recipe("a2", texA));
+            c2.shadowMatchMaterials.Add(mA);
+
+            var keep = RecipeRegistration.MergeComponents(go);
+            Assert.AreEqual(1, keep.recipes.Count);
+            CollectionAssert.IsEmpty(keep.shadowMatchMaterials, "負けて効いていなかった設定を新たに効かせた");
+        }
+
+        // 消えたレシピ(Missing)の欄はまとめても残す(ビルドを止める守り。空の欄だけ落とす)。
+        [Test]
+        public void MergeComponents_KeepsLostRecipeSlots() {
+            var assets = TestAssets.Create();
+            GameObject loaded = null;
+            try {
+                var (prefabPath, _) = LostRecipePrefab(assets, twoComponents: true);
+                loaded = PrefabUtility.LoadPrefabContents(prefabPath);
+                var c2 = loaded.GetComponents<IrocaRecolor>()[1];
+                Assert.IsTrue(NonDestructiveApplier.IsLostReference(c2, 0), "テストの前提(消えたレシピの欄)が崩れている");
+
+                var keep = RecipeRegistration.MergeComponents(loaded);
+                Assert.AreEqual(2, keep.recipes.Count, "空の欄を残した／消えたレシピの欄を落とした");
+                Assert.IsNotNull(keep.recipes[0]);
+                Assert.IsTrue(NonDestructiveApplier.IsLostReference(keep, 1), "消えたレシピの欄が残っていない(LostRecipe の守りが消える)");
+
+                // 保存して読み直しても残る。
+                PrefabUtility.SaveAsPrefabAsset(loaded, prefabPath);
+                PrefabUtility.UnloadPrefabContents(loaded);
+                loaded = PrefabUtility.LoadPrefabContents(prefabPath);
+                var saved = loaded.GetComponents<IrocaRecolor>();
+                Assert.AreEqual(1, saved.Length);
+                Assert.IsTrue(NonDestructiveApplier.IsLostReference(saved[0], 1), "保存すると消えたレシピの欄が消えた");
+            } finally {
+                if (loaded != null) {
+                    PrefabUtility.UnloadPrefabContents(loaded);
+                }
+                assets.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// 消えたレシピ(Missing)の欄を持つプレハブ(利用者がレシピの .asset を消した状態。保存してから読み直すので、
+        /// 欄は GUID で消えたアセットを指す)。1 つ目のコンポーネントは生きているレシピ、twoComponents なら 2 つ目に
+        /// [消えたレシピ, 空の欄]、そうでなければ 1 つ目の後ろに消えたレシピ。生きているレシピを返す。
+        /// </summary>
+        private static (string prefabPath, IrocaRecipe alive) LostRecipePrefab(TestAssets assets, bool twoComponents) {
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                assets.WritePng("alive", TestAssets.Solid(4, 4, new Color32(200, 40, 40, 255)), 4, 4));
+            var alive = ScriptableObject.CreateInstance<IrocaRecipe>();
+            alive.sourceTexture = tex;
+            AssetDatabase.CreateAsset(alive, assets.Folder + "/alive.asset");
+            var lost = ScriptableObject.CreateInstance<IrocaRecipe>();
+            string lostPath = assets.Folder + "/lost.asset";
+            AssetDatabase.CreateAsset(lost, lostPath);
+
+            var go = new GameObject("avatar");
+            try {
+                var c1 = go.AddComponent<IrocaRecolor>();
+                c1.recipes.Add(alive);
+                if (twoComponents) {
+                    var c2 = go.AddComponent<IrocaRecolor>();
+                    c2.recipes.Add(lost);
+                    c2.recipes.Add(null);   // 空の欄
+                } else {
+                    c1.recipes.Add(lost);
+                }
+                string prefabPath = assets.Folder + "/avatar.prefab";
+                PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
+                AssetDatabase.DeleteAsset(lostPath);
+                return (prefabPath, alive);
+            } finally {
+                Object.DestroyImmediate(go);
+            }
+        }
+
         [Test]
         public void MergeComponents_LeavesASingleComponentAlone() {
             var go = Avatar();

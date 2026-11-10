@@ -150,7 +150,10 @@ namespace Iroca {
         /// <summary>
         /// <paramref name="target"/> に付いている <see cref="IrocaRecolor"/> を先頭の 1 つへまとめる(Undo 可)。
         /// レシピは付いていた順に並べ、同じ元テクスチャのレシピは先のものだけ残す(ビルドでも先のものしか
-        /// 効かないので、結果は変わらない)。空の欄は落とす。1 つも無ければ null。
+        /// 効かないので、結果は変わらない)。空の欄は落とすが、消えたレシピ(Missing)の欄は残す(色替えしたかった印で、
+        /// ビルドを止める守りになっているため)。2 つ目以降の「影の色を合わせる」設定は、そのコンポーネントから残った
+        /// レシピの元テクスチャをメインに使うマテリアルの分だけ引き継ぐ(先のレシピに負けて効いていなかった設定は、
+        /// 新たに効かせない)。1 つも無ければ null。
         /// </summary>
         public static IrocaRecolor MergeComponents(GameObject target) {
             var components = target.GetComponents<IrocaRecolor>();
@@ -162,20 +165,53 @@ namespace Iroca {
                 return keep;
             }
 
-            Undo.RecordObject(keep, "Iroca: Merge Recolor");
-            var merged = new List<IrocaRecipe>();
+            // 消えたレシピ(Missing)の欄は、C# からは破棄済みのオブジェクト(== null だが参照としては null でない)に見える。
+            // その参照ごと写すと、保存したときも消えたアセットを指したままになる(SerializedObject で instance ID を
+            // 書いても残らない。2026-11-10 にプレハブで確かめた)。本当の null は空の欄。
+            var slots = new List<(IrocaRecipe recipe, IrocaRecolor from)>();
+            var seen = new HashSet<int>();
             var sources = new HashSet<Texture2D>();
-            foreach (var r in Recipes(components)) {
-                if (r == null || merged.Contains(r)) {
+            foreach (var c in components) {
+                if (c.recipes == null) {
                     continue;
                 }
-                var source = r.sourceTexture;
-                if (source != null && !sources.Add(source)) {
-                    continue;
+                foreach (var r in c.recipes) {
+                    if (ReferenceEquals(r, null) || r.GetInstanceID() == 0 || !seen.Add(r.GetInstanceID())) {
+                        continue;
+                    }
+                    if (r != null) {
+                        var source = r.sourceTexture;
+                        if (source != null && !sources.Add(source)) {
+                            continue;
+                        }
+                    }
+                    slots.Add((r, c));
                 }
-                merged.Add(r);
             }
-            keep.recipes = merged;
+
+            var shadow = new List<Material>();
+            if (keep.shadowMatchMaterials != null) {
+                shadow.AddRange(keep.shadowMatchMaterials);
+            }
+            for (int k = 1; k < components.Length; k++) {
+                var c = components[k];
+                if (c.shadowMatchMaterials == null) {
+                    continue;
+                }
+                foreach (var m in c.shadowMatchMaterials) {
+                    if (m == null || shadow.Contains(m)) {
+                        continue;
+                    }
+                    if (slots.Exists(s => s.from == c && s.recipe != null
+                                          && MaterialShadowColors.MainTextureIs(m, s.recipe.sourceTexture))) {
+                        shadow.Add(m);
+                    }
+                }
+            }
+
+            Undo.RecordObject(keep, "Iroca: Merge Recolor");
+            keep.recipes = slots.ConvertAll(s => s.recipe);
+            keep.shadowMatchMaterials = shadow;
             for (int i = 1; i < components.Length; i++) {
                 Undo.DestroyObjectImmediate(components[i]);
             }
