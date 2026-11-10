@@ -389,28 +389,32 @@ namespace Iroca {
                 }, _ => { });
 
                 // 成分 → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
-                // run の外は ComponentMapNone(読む側は < 0 を「地図なし」として全体の中央値へ戻す)。借りた配列は印で埋めてから。upMap は地図ありの画素だけ読まれるので 0 のまま。
+                // run の外は ComponentMapNone(読む側は < 0 を「地図なし」として全体の中央値へ戻す)。upMap は地図ありの
+                // 画素だけ読まれるが、run の外も 0 にしておく(借りた配列は前の中身が残る)。
+                // 各画素を 1 回だけ書く: 行ごとに「run の間は印・run は値」を左から順に埋める(run は行の中で左から
+                // 重ならずに並ぶ)。bbox の外の行は印だけ。以前は全域を印で埋めてから run をもう 1 回書いていた
+                // (4K で 128MB の全域書き + run の分。書く値は同じなので出力は変わらない)。
                 float* map = s_floatPool.Rent(len);
                 float* umap = s_floatPool.Rent(len);
                 // 呼び出し側へ渡す前に抜けたら(キャンセル)、借りた地図はここで返す。
                 try {
-                    var clearMap = map; var clearUp = umap;
-                    const int ClearChunk = 1 << 18;
-                    Parallel.For(0, (len + ClearChunk - 1) / ClearChunk, bboxPo, c => {
-                        int c0 = c * ClearChunk;
-                        int n = Math.Min(ClearChunk, len - c0);
-                        for (int k = 0; k < n; k++) { clearMap[c0 + k] = ComponentMapNone; }
-                        ClearWork(clearUp, c0, Math.Min(ClearChunk, len - c0));
-                    });
-                    var umapL = umap;
-                    Parallel.For(0, bh, bboxPo, ly => {
-                        int rb = (ly + minY) * w + minX;
-                        for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++) {
-                            float v = medL[comp[k]];
-                            float u = upL[comp[k]];
-                            int x1 = runX1[k];
-                            for (int lx = runX0[k]; lx <= x1; lx++) { map[rb + lx] = v; umapL[rb + lx] = u; }
+                    var mapL = map; var umapL = umap;
+                    Parallel.For(0, h, bboxPo, y => {
+                        float* mrow = mapL + (long)y * w;
+                        float* urow = umapL + (long)y * w;
+                        int x = 0;
+                        int ly = y - minY;
+                        if (ly >= 0 && ly < bh) {
+                            for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++) {
+                                int x0 = minX + runX0[k];
+                                int x1 = minX + runX1[k];
+                                for (; x < x0; x++) { mrow[x] = ComponentMapNone; urow[x] = 0f; }
+                                float v = medL[comp[k]];
+                                float u = upL[comp[k]];
+                                for (; x <= x1; x++) { mrow[x] = v; urow[x] = u; }
+                            }
                         }
+                        for (; x < w; x++) { mrow[x] = ComponentMapNone; urow[x] = 0f; }
                     });
                 } catch {
                     s_floatPool.Return(map);

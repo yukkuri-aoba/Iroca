@@ -259,7 +259,6 @@
 | `ComponentMapNone` | `-1f` | 定義 | — | 成分の地図で「成分の外(地図なし)」を表す印。成分の代表 L は 0（純黒）以上なので負の値で区別する。NaN は毒入れの 0xFF と見分けられない |
 | `AchromaRegionCoreThr` | `0.5f` | 不明 | — | 領域の L 中央値に使う strength の下限。選んだ記録なし |
 | `matchThr` | `ColorZone.MatchStrengthFloor` | 設計 | SA | 同上（内部固め側の別名） |
-| `ClearChunk` | `1 << 18` | 計算 | — | 地図のゼロ埋めを並列に分ける塊。出力に効かない |
 
 ## `Code/Core/Recolor/PixelProcessor.Decontam.cs`
 
