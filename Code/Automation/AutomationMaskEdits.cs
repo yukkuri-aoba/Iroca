@@ -118,7 +118,7 @@ namespace Iroca {
                 return true;
             }
             if (_deadline <= 0d) {
-                _deadline = EditorApplication.timeSinceStartup + AutoTuneService.EvidenceWaitSeconds;
+                _deadline = EditorApplication.timeSinceStartup + AutoTuneService.EvidenceWait;
             }
             if (!_askedAi) {
                 AiSuggestBroker.RetryAfterError();

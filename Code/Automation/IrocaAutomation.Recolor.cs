@@ -154,7 +154,8 @@ namespace Iroca {
                     CancelRecolorJob();
                 }
             }
-            var job = new RecolorJob { lastPolled = EditorApplication.timeSinceStartup, requestKey = RequestKey(requestJson) };
+            double now = EditorApplication.timeSinceStartup;
+            var job = new RecolorJob { lastPolled = now, startedAt = now, requestKey = RequestKey(requestJson) };
             if (unreceived != null) {
                 job.r.warnings.Add(unreceived);
             }
@@ -272,12 +273,28 @@ namespace Iroca {
         // MCP のサーバーは 0.1〜5 秒ごとに問い合わせ直すので、待っている依頼がこれを超えることは無い。
         private const double AbandonedAfterSeconds = 60.0;
 
+        /// <summary>
+        /// 1 回の依頼にかける時間の上限(秒)。MCP のサーバーは IrocaRecolorTool の MaxPollSeconds(600 秒)で問い合わせを
+        /// やめるので、その前に終えて結果を返す。AI の待ちはマスク操作・ゾーンごとに最大 180 秒
+        /// (<see cref="AutoTuneService.EvidenceWaitSeconds"/>)なので、数が多いと積み上がって超え、結果が受け取られないまま
+        /// 終わっていた。過ぎたら、マスク操作中ならエラー、自動調整中なら残りのゾーンを飛ばして仕上げる。
+        /// </summary>
+        internal const double RequestBudgetSeconds = 540.0;
+
+        // EditMode テストだけが立てる(0 = 使わない)。期限で終える経路を短い時間で確かめるため。
+        internal static double RequestBudgetSecondsForTests;
+
+        private static double RequestBudget => RequestBudgetSecondsForTests > 0 ? RequestBudgetSecondsForTests : RequestBudgetSeconds;
+
         private sealed class RecolorJob {
             public RecolorRequest req;
             // 依頼か問い合わせを最後に受けた時刻(EditorApplication.timeSinceStartup)
             public double lastPolled;
             // 依頼を見分ける形(RecolorStatus(string) が問い合わせの依頼と比べる)
             public string requestKey;
+            // 依頼を受けた時刻(依頼全体の期限 RequestBudgetSeconds を数える)
+            public double startedAt;
+            public bool OverBudget => EditorApplication.timeSinceStartup - startedAt > RequestBudget;
             public readonly RecolorTextureResult r = new RecolorTextureResult();
             public Texture2D tex;
             // 作業解像度の原本(ヒープの外。参照を 1 つ持ち、仕上げ・取り消しで返す。背景の仕上げは自分の参照を足す)。
@@ -402,11 +419,19 @@ namespace Iroca {
                     return FinishRecolor(job.r, job.maskEdits.Error);
                 }
                 if (!job.maskEdits.Done) {
+                    if (job.OverBudget) {
+                        return FinishRecolor(job.r, $"the mask operations did not finish within the time budget of this call "
+                            + $"({RequestBudget:0} s; {job.maskEdits.Finished} of {job.maskEdits.Total} done, the AI may be slow on this "
+                            + "computer), so nothing was applied. Call again with fewer mask operations, or use by:'island'.");
+                    }
                     return null;
                 }
             }
             if (job.tune != null && !job.tune.Done) {
                 job.tune.Advance();
+                if (!job.tune.Done && job.OverBudget) {
+                    job.tune.SkipRemaining(RequestBudget);
+                }
                 if (!job.tune.Done) {
                     return null;
                 }

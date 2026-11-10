@@ -30,6 +30,8 @@ namespace Iroca {
         private int _index;
         private AutoTuneService.Run _run;
         private bool _askedAi;
+        // AI の証拠待ちが 1 度時間切れになった(残りのゾーンでは AI に聞かない。聞くとゾーンの数だけ時間切れを待つ)。
+        private bool _aiTimedOut;
 
         /// <summary>ゾーン名 → どう調整したか("evidence" / "conventional" / "skipped: …")。</summary>
         public readonly Dictionary<string, string> How = new Dictionary<string, string>();
@@ -69,6 +71,13 @@ namespace Iroca {
                     continue;
                 }
 
+                if (_run == null && _aiTimedOut && zone.HasSampleUV) {
+                    How[zone.name] = "skipped: the AI timed out on an earlier zone";
+                    _warnings.Add($"auto-tune of '{zone.name}' was skipped because the AI timed out on an earlier zone; "
+                        + "it keeps its current settings. Call iroca_recolor again with the same name to tune it.");
+                    Next();
+                    continue;
+                }
                 if (_run == null) {
                     NativeBools excluded = CombinedExclusion(zone.id, out int mw, out int mh);
                     _run = AutoTuneService.Start(zone, _state, _pixels, _key, excluded, mw, mh, retryAiError: !_askedAi);
@@ -100,6 +109,30 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// 調整中のゾーンと残りのゾーンを飛ばして終える(依頼全体の期限。<see cref="IrocaAutomation.RequestBudgetSeconds"/>)。
+        /// 飛ばしたゾーンは今の設定のまま(新しいゾーンなら初期値)。
+        /// </summary>
+        public void SkipRemaining(double budgetSeconds) {
+            _run?.Cancel();
+            _run = null;
+            var skipped = new List<string>();
+            for (; _index < _zoneIds.Count; _index++) {
+                var zone = FindZone(_zoneIds[_index]);
+                if (zone == null) {
+                    continue;
+                }
+                How[zone.name] = "skipped: time budget";
+                skipped.Add("'" + zone.name + "'");
+            }
+            if (skipped.Count > 0) {
+                _warnings.Add($"auto-tune of {string.Join(", ", skipped)} was skipped because this call ran out of its time budget "
+                    + $"({budgetSeconds:0} s; the AI may be slow on this computer). They keep their current settings; "
+                    + "call iroca_recolor again with the same names to tune them.");
+            }
+            Release();
+        }
+
         private static string HowOf(AutoTuneService.Run run) {
             if (run.HadEvidence) {
                 return "evidence";
@@ -129,6 +162,9 @@ namespace Iroca {
                 AutoTuneService.Failure.Cancelled => "cancelled",
                 _ => "the AI returned no region",
             };
+            if (run.Failure == AutoTuneService.Failure.Timeout) {
+                _aiTimedOut = true;
+            }
             How[zone.name] = "skipped: " + failure;
             _warnings.Add($"auto-tune of '{zone.name}' was skipped ({failure}); it keeps its current settings.");
         }

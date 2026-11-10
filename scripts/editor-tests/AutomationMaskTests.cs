@@ -343,6 +343,66 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // ─── 依頼全体の期限・AI の時間切れ ───
+
+        // 依頼を出し、AI には何も返させずに、終わるまで問い合わせ直す(期限は短くしてある)。
+        private static IrocaAutomation.RecolorTextureResult RunWithoutAnswers(string request) {
+            string json = IrocaAutomation.Recolor(request);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (json.Contains("\"pending\":true")) {
+                Assert.Less(watch.Elapsed.TotalSeconds, 30, "期限で終わらない: " + json);
+                System.Threading.Thread.Sleep(20);
+                json = IrocaAutomation.RecolorStatus();
+            }
+            return JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+        }
+
+        [Test]
+        public void MaskOperations_PastTheRequestBudget_Fail() {
+            // マスク操作の AI 待ちが依頼全体の期限(MCP のサーバーが問い合わせをやめる 600 秒より前)を過ぎたら、エラーで終える。
+            IrocaAutomation.RequestBudgetSecondsForTests = 0.3;
+            try {
+                var r = RunWithoutAnswers(Request(AllRed(), RedZone, "[{\"op\":\"dont_paint\",\"at\":[0.25,0.5]}]"));
+                Assert.IsFalse(r.ok, r.error);
+                StringAssert.Contains("time budget", r.error);
+            } finally {
+                IrocaAutomation.RequestBudgetSecondsForTests = 0;
+            }
+        }
+
+        [Test]
+        public void AutoTune_PastTheRequestBudget_SkipsTheRestAndFinishes() {
+            // 自動調整が期限を過ぎたら、残りのゾーンを "skipped: time budget" にして仕上げる(ゾーンごとに 180 秒積み上げない)。
+            IrocaAutomation.RequestBudgetSecondsForTests = 0.3;
+            try {
+                string changes = "[{\"name\":\"a\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"},{\"name\":\"b\",\"at\":[0.75,0.5],\"to\":\"#FFAA00\"}]";
+                var r = RunWithoutAnswers(Request(AllRed(), changes, "[]", autoTune: true));
+                Assert.IsTrue(r.ok, r.error);
+                foreach (var z in r.zones) {
+                    StringAssert.StartsWith("skipped: time budget", z.autoTune, z.name);
+                }
+                Assert.IsTrue(r.warnings.Any(w => w.Contains("time budget")), string.Join("\n", r.warnings));
+            } finally {
+                IrocaAutomation.RequestBudgetSecondsForTests = 0;
+            }
+        }
+
+        [Test]
+        public void AutoTune_AfterTheAiTimedOut_DoesNotAskItAgainForTheOtherZones() {
+            // AI が 1 度時間切れになったら、残りのゾーンでは聞かない(聞くとゾーンの数だけ時間切れを待つ)。
+            AutoTuneService.EvidenceWaitSecondsForTests = 0.3;
+            try {
+                string changes = "[{\"name\":\"a\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"},{\"name\":\"b\",\"at\":[0.75,0.5],\"to\":\"#FFAA00\"}]";
+                var r = RunWithoutAnswers(Request(AllRed(), changes, "[]", autoTune: true));
+                Assert.IsTrue(r.ok, r.error);
+                StringAssert.StartsWith("skipped: timed out", r.zones.Single(z => z.name == "a").autoTune);
+                StringAssert.Contains("earlier zone", r.zones.Single(z => z.name == "b").autoTune);
+                Assert.AreEqual(1, _svc.requests, "時間切れの後のゾーンで AI に聞いた");
+            } finally {
+                AutoTuneService.EvidenceWaitSecondsForTests = 0;
+            }
+        }
+
         // ─── 保存と、iroca_inspect の情報 ───
 
         private void WithAvatar(string src, System.Action body) {

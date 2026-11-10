@@ -219,6 +219,16 @@ namespace Iroca.EditorTests {
             Assert.AreEqual("red", Token(json, "data.zones[0].name"), json);
         }
 
+        [Test]
+        public void Recolor_TimeBudget_EndsBeforeTheServerStopsPolling() {
+            // 依頼全体の期限は、サーバーが問い合わせをやめる時間(MaxPollSeconds)より短い(期限で終えた結果を受け取れる)。
+            var tool = _mcp.GetType("Iroca.McpIntegration.IrocaRecolorTool", throwOnError: true);
+            var attr = tool.GetCustomAttributes(false)
+                .First(a => a.GetType().FullName == "MCPForUnity.Editor.Tools.McpForUnityToolAttribute");
+            var maxPoll = Convert.ToDouble(attr.GetType().GetProperty("MaxPollSeconds").GetValue(attr));
+            Assert.Greater(maxPoll, IrocaAutomation.RequestBudgetSeconds + 30, "期限の後の仕上げ(書き出し)の分の余裕");
+        }
+
         private string AddAction(string argsJson)
             => argsJson.Substring(0, argsJson.Length - 1) + ",\"action\":\"status\"}";
 

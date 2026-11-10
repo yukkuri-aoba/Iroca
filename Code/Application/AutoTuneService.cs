@@ -30,6 +30,12 @@ namespace Iroca {
         /// </summary>
         internal const double EvidenceWaitSeconds = 180.0;
 
+        // EditMode テストだけが立てる(0 = 使わない)。証拠待ちの期限切れを短い時間で確かめるため。
+        internal static double EvidenceWaitSecondsForTests;
+
+        /// <summary>証拠待ちの上限(秒)。ふつうは <see cref="EvidenceWaitSeconds"/>。</summary>
+        internal static double EvidenceWait => EvidenceWaitSecondsForTests > 0 ? EvidenceWaitSecondsForTests : EvidenceWaitSeconds;
+
         /// <summary>証拠なしで解析した理由: スポイト位置が無い(色で指定したゾーン)。</summary>
         internal const string ReasonNoSamplePosition = "no-sample-position";
         /// <summary>証拠なしで解析した理由: 提案が背景まで広がった。</summary>
@@ -280,7 +286,7 @@ namespace Iroca {
                 }
                 Status = Status.WaitingForEvidence;
                 AskedAi = true;
-                _deadline = EditorApplication.timeSinceStartup + EvidenceWaitSeconds;
+                _deadline = EditorApplication.timeSinceStartup + EvidenceWait;
                 _progress.Report(0.02f);
                 // 前の推論のエラーが残っていても、押し直したら再試行する(残したままだと、右クリックで AI を選び直すか
                 // テクスチャを切り替えるまで、自動調整が毎回すぐ中止される)。

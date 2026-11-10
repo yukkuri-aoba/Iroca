@@ -15,7 +15,7 @@ namespace Iroca.EditorTests {
         public string sourceKey;
         public readonly Queue<Vector2Like> queue = new Queue<Vector2Like>();
         public MaskSuggestProposal ready;
-        public int flushes, cancelAlls, gpuReleases;
+        public int flushes, cancelAlls, gpuReleases, requests;
 
         public struct Vector2Like { public float u, v; }
 
@@ -44,6 +44,7 @@ namespace Iroca.EditorTests {
             if (!modelsOk || phase == MaskSuggestPhase.Error) {
                 return false;
             }
+            requests++;
             queue.Enqueue(new Vector2Like { u = u, v = v });
             if (errorOnRequest) {
                 // 本物と同じく、エラーでは処理待ちを捨てる。
