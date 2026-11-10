@@ -6,19 +6,31 @@ namespace Iroca {
     /// <summary>
     /// テクスチャ削除に追従して、対応する MaskCache / SessionCache のファイルを退避する(<c>.orphan</c>。30 日残す)。
     /// 消してしまうと、Project での誤削除を Git やごみ箱で戻しても編集内容が戻らない。同じ GUID で戻れば読み込みのときに復元する。
+    /// フォルダごと消したときは、中のアセットの分も退避する(Unity はフォルダの分しか知らせない)。
     /// rename / move は GUID ベースで自動追従するため、ここでは扱わない。
     /// </summary>
     internal class IrocaAssetWatcher : AssetModificationProcessor {
         // 削除確定前に GUID を解決する（OnPostprocessAllAssets まで待つと
         // GUIDToAssetPath が空を返す場合があり、特定が難しくなるため）。
         private static AssetDeleteResult OnWillDeleteAsset(string assetPath, RemoveAssetOptions options) {
-            string guid = AssetDatabase.AssetPathToGUID(assetPath);
-            if (!string.IsNullOrEmpty(guid)) {
-                MaskFileStore.RetireMaskByGuid(guid);
-                SessionFileStore.RetireSessionByGuid(guid);
+            Retire(AssetDatabase.AssetPathToGUID(assetPath));
+            // フォルダなら中のアセット(下のフォルダも含む)の分も。窓を開くたびの掃除(CleanupOrphans)も GUID の引けない
+            // ファイルを退避するが、窓を開かない間は残り続けていた。
+            if (AssetDatabase.IsValidFolder(assetPath)) {
+                foreach (var guid in AssetDatabase.FindAssets("", new[] { assetPath })) {
+                    Retire(guid);
+                }
             }
             // アセット本体の削除は Unity に続行させる。
             return AssetDeleteResult.DidNotDelete;
+        }
+
+        private static void Retire(string guid) {
+            if (string.IsNullOrEmpty(guid)) {
+                return;
+            }
+            MaskFileStore.RetireMaskByGuid(guid);
+            SessionFileStore.RetireSessionByGuid(guid);
         }
     }
 }

@@ -269,6 +269,37 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // テクスチャの入ったフォルダごと消しても、中のテクスチャの編集内容(セッション・マスク)を退避する(窓を開かない間、
+        // GUID の引けないファイルとして残り続けない。同じ GUID で戻せば読み込みのときに復元する)。
+        [Test]
+        public void DeletingTheFolder_RetiresTheEditsOfTexturesInside() {
+            AssetDatabase.CreateFolder(_assets.Folder, "outfit");
+            AssetDatabase.CreateFolder(_assets.Folder + "/outfit", "tex");
+            string tex = _assets.WritePng("outfit/tex/inner", TestAssets.Solid(4, 4, new Color32(1, 2, 3, 255)), 4, 4);
+            string guid = AssetDatabase.AssetPathToGUID(tex);
+            var state = IrocaSessionState.CreateDefault();
+            state.zones.Add(new ColorZone { name = "フォルダの中" });
+            Assert.IsTrue(SessionFileStore.SaveSession(tex, state));
+            var masks = new MaskState { width = 4, height = 4, commonMaskBase64 = MaskRle.Encode(new bool[16], 4, 4) };
+            Assert.IsTrue(MaskFileStore.SaveMask(tex, masks));
+            string session = Path.Combine(SessionFileStore.CacheDir, guid + ".iroca-session.json");
+            string mask = Path.Combine(MaskFileStore.CacheDir, guid + ".iroca-mask.json");
+            try {
+                Assert.IsTrue(File.Exists(session) && File.Exists(mask), "テストの前提: 編集内容のファイルがある");
+                Assert.IsTrue(AssetDatabase.DeleteAsset(_assets.Folder + "/outfit"));
+                Assert.IsFalse(File.Exists(session), "セッションが残った");
+                Assert.IsFalse(File.Exists(mask), "マスクが残った");
+                Assert.IsTrue(File.Exists(session + ".orphan"), "セッションを退避していない");
+                Assert.IsTrue(File.Exists(mask + ".orphan"), "マスクを退避していない");
+            } finally {
+                foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                    foreach (var f in Directory.GetFiles(dir, guid + "*")) {
+                        File.Delete(f);
+                    }
+                }
+            }
+        }
+
         // ─── プリセット ───
 
         [Test]
