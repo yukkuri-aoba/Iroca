@@ -75,16 +75,22 @@ namespace Iroca {
                 float zClickL = zSL;    // クリックした画素の明度(下の「塗り先に合わせる所」)
                 float zSC0Click = zSC;  // クリックした画素の彩度(下の zChromaSampleW と「塗り先に合わせる所」)
                 float zDeepC = 0f;      // 素材の濃い側の彩度(下の zChromaSampleW)
+                // 基準色の推定(1 段目・推定し直し)と彩度の分位は同じコア画素を数えるので、色の表があれば 1 回だけ数える
+                // (AnchorCoreCounts。出力は変わらない。個数の配列はこの段の終わりで返す)。
+                using var anchorCounts = zone.autoRecolorAnchor && !zOkGray
+                    ? AnchorCoreCounts.Count(originalPixels, strength, w, ppMinX, ppMinY, ppMaxX, ppMaxY,
+                        includedPx, run.Buf.Claimed, cancellationToken, palette)
+                    : null;
                 if (zone.autoRecolorAnchor && !zOkGray &&
                     TryComputeRecolorAnchor(originalPixels, strength, w,
                         ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC,
                         zSL, zSa, zSb, sampS > ColorZone.ChromaGateActivateSat,
-                        includedPx, run.Buf.Claimed, cancellationToken, palette)) {
+                        includedPx, run.Buf.Claimed, cancellationToken, palette, anchorCounts)) {
                     float zSC0 = zSC;
                     zAnchored = true;
                     ComputeCoreChromaMedianAndPercentile(originalPixels, strength, w,
                         ppMinX, ppMinY, ppMaxX, ppMaxY, includedPx, run.Buf.Claimed, cancellationToken, palette,
-                        AchromaDeepChromaPercentile, out float coreMedianC, out zDeepC);
+                        AchromaDeepChromaPercentile, out float coreMedianC, out zDeepC, anchorCounts);
                     zSL = anchorL;
                     zGateC = anchorC;
                     // 彩度の倍率の基準は、塗る範囲の彩度の中央値より下げない。白へ抜ける布で少数の淡い面が基準に選ばれると、

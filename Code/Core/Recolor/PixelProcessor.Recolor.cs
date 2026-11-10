@@ -209,9 +209,10 @@ namespace Iroca {
             bool* statsExclude = null,
             float* claimed = null,
             CancellationToken ct = default,
-            ColorPalette palette = null) {
+            ColorPalette palette = null,
+            AnchorCoreCounts pre = null) {
             bool ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
-                out anchorL, out anchorC, default, statsExclude, claimed, ct, palette);
+                out anchorL, out anchorC, default, statsExclude, claimed, ct, palette, pre);
             // 白・灰のサンプルは色で素材を見分けられないので、推定し直さない(従来どおり)。
             if (!sampleHasHue) {
                 return ok;
@@ -222,7 +223,7 @@ namespace Iroca {
                 return true;
             }
             ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
-                out anchorL, out anchorC, new AnchorMaterial(sampleA, sampleB, sampleSatr), statsExclude, claimed, ct, palette);
+                out anchorL, out anchorC, new AnchorMaterial(sampleA, sampleB, sampleSatr), statsExclude, claimed, ct, palette, pre);
             return ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr;
         }
 
@@ -242,13 +243,28 @@ namespace Iroca {
             Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             bool* statsExclude, float* claimed, CancellationToken ct, ColorPalette palette, float q,
-            out float median, out float percentile) {
+            out float median, out float percentile, AnchorCoreCounts pre = null) {
             if (palette != null) {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
             }
             var palIdx = palette != null ? palette.Index : null;
             var palC = palette != null ? palette.OkC : null;
             var cHist = new int[256];
+            if (palette != null && pre != null && pre.ColorCount == palette.Count) {
+                // 数えてあるコア画素の色ごとの個数から作る(画素ごとに 1 ずつ足すのと同じ整数の和。ビンの式も同じ)。
+                int total = 0;
+                for (int k = 0; k < pre.ColorCount; k++) {
+                    int n = pre.Counts[k];
+                    if (n == 0) {
+                        continue;
+                    }
+                    cHist[Mathf.Clamp((int)(palC[k] / AnchorChromaHistMax * 255f), 0, 255)] += n;
+                    total += n;
+                }
+                median = total > 0 ? Histogram.ValueAtPercentile(cHist, total, 0.5f, AnchorChromaHistMax) : 0f;
+                percentile = total > 0 ? Histogram.ValueAtPercentile(cHist, total, q, AnchorChromaHistMax) : 0f;
+                return;
+            }
             int count = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, cHist, (y0, y1, hist) => {
                 int n = 0;
                 for (int y = y0; y < y1; y++) {
@@ -337,7 +353,8 @@ namespace Iroca {
             bool* statsExclude,
             float* claimed,
             CancellationToken ct,
-            ColorPalette palette) {
+            ColorPalette palette,
+            AnchorCoreCounts pre = null) {
             anchorL = 0f;
             anchorC = 0f;
             // 空矩形(選択 0 画素。後段の範囲は (0,0,-1,-1))は候補 0 件。下の長さが 0 になり、色の表が無い経路で
@@ -354,7 +371,8 @@ namespace Iroca {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
                 return TryComputeRecolorAnchorByColor(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
                     out anchorL, out anchorC, material, statsExclude, claimed, ct,
-                    palette.Index, palette.OkL, palette.OkC, palette.Colors, palette.Count);
+                    palette.Index, palette.OkL, palette.OkC, palette.Colors, palette.Count,
+                    pre != null && pre.ColorCount == palette.Count ? pre : null);
             }
 
             // コア画素(strength>=AnchorStrengthMin & a>=128)の OkLab (L, C) を pass1 で一度だけ
@@ -503,30 +521,50 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// TryComputeRecolorAnchor の色の表がある場合。(L, C) は色の番号だけで決まるので、コア画素を
-        /// 色ごとに 1 回の走査で数え、ヒストグラム(飽和度・地色の山を探す L・地色の L・代表 C を取る chroma)は
-        /// 色ごとの (L, C) と個数から作る(旧: 画素を 3 回走査)。各ビンへの加算は画素ごとに 1 ずつ足すのと同じ整数加算で、
-        /// ビンの式も画素ごとの経路と同じなので、ヒストグラムと戻り値はビット単位で同じ。
-        /// 意図した変更では両経路を同時に直すこと(色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる)。
-        /// material(推定し直し)で外す判定も色だけで決まるので、色ごとに 1 回判定して個数ごと外す。
+        /// コア画素(<see cref="IsAnchorCore"/>)の色ごとの個数(色の表がある場合)。基準色の推定の 1 段目・推定し直しと、
+        /// 彩度の中央値・分位(<see cref="ComputeCoreChromaMedianAndPercentile"/>)は同じコア画素を数えるので、1 回数えて
+        /// 使い回す(旧: 同じ範囲を最大 3 回走査していた。性能の候補 K3)。個数は整数で、どこで数えても同じ。
+        /// 個数の配列は作業配列のプールから借り、<see cref="Dispose"/> で返す。使う側は書き換えない。
         /// </summary>
-        private static bool TryComputeRecolorAnchorByColor(
-            Color32* px, float* strength, int w,
+        private sealed class AnchorCoreCounts : IDisposable {
+            private readonly WorkScratch _scratch = new WorkScratch();
+            internal int* Counts;
+            internal int Total;
+            internal int ColorCount;
+
+            internal static AnchorCoreCounts Count(Color32* px, float* strength, int w,
+                int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
+                bool* statsExclude, float* claimed, CancellationToken ct, ColorPalette palette) {
+                if (palette == null || bbMaxX < bbMinX || bbMaxY < bbMinY) {
+                    return null;
+                }
+                var c = new AnchorCoreCounts { ColorCount = palette.Count };
+                try {
+                    c.Counts = c._scratch.Int(palette.Count, clear: true);
+                    c.Total = CountAnchorCoreInto(c.Counts, px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
+                        statsExclude, claimed, ct, palette.Index, palette.Count);
+                    return c;
+                } catch {
+                    c.Dispose();
+                    throw;
+                }
+            }
+
+            public void Dispose() {
+                Counts = null;
+                _scratch.Dispose();
+            }
+        }
+
+        // コア画素を色ごとに数えて cnt(色の数の長さ・0 で埋めてあること)へ足し、コア画素の数を返す。
+        // ワーカーごとに色数ぶんの配列へ数えてから足し合わせる。色が多い表(最大 2^20 色)で
+        // ワーカー全員が持つと 1 回で 50MB を超えるので、配列の合計が AnchorCountBudget に収まる人数で数える
+        // (普通のテクスチャは数千〜数万色で、人数は変わらない)。整数の加算なので人数によらず結果は同じ。
+        private static int CountAnchorCoreInto(int* cnt, Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
-            out float anchorL, out float anchorC,
-            AnchorMaterial material,
-            bool* statsExclude, float* claimed, CancellationToken ct,
-            int* pIdx, float* pL, float* pC, Color32* pCol, int colorCount) {
-            anchorL = 0f;
-            anchorC = 0f;
-            // 色ごとの個数(色の数の長さ)は作業配列のプールから借り、抜けるときに返す(0.4.0 の 3-12)。
-            using var scratch = new WorkScratch();
-            int* cnt = scratch.Int(colorCount, clear: true);
-            // 色ごとの個数は、ワーカーごとに色数ぶんの配列へ数えてから足し合わせる。色が多い表(最大 2^20 色)で
-            // ワーカー全員が持つと 1 回で 50MB を超えるので、配列の合計が AnchorCountBudget に収まる人数で数える
-            // (普通のテクスチャは数千〜数万色で、人数は変わらない)。整数の加算なので人数によらず結果は同じ。
+            bool* statsExclude, float* claimed, CancellationToken ct, int* pIdx, int colorCount) {
             int workers = Math.Max(1, AnchorCountBudget / Math.Max(1, colorCount));
-            int candCount = Histogram.AccumulateParallelRowsNative(bbMinY, bbMaxY + 1, cnt, colorCount, (y0, y1, local) => {
+            return Histogram.AccumulateParallelRowsNative(bbMinY, bbMaxY + 1, cnt, colorCount, (y0, y1, local) => {
                 int n = 0;
                 for (int y = y0; y < y1; y++) {
                     int rowOff = y * w;
@@ -541,6 +579,44 @@ namespace Iroca {
                 }
                 return n;
             }, ct, workers);
+        }
+
+        /// <summary>
+        /// TryComputeRecolorAnchor の色の表がある場合。(L, C) は色の番号だけで決まるので、コア画素を
+        /// 色ごとに 1 回の走査で数え、ヒストグラム(飽和度・地色の山を探す L・地色の L・代表 C を取る chroma)は
+        /// 色ごとの (L, C) と個数から作る(旧: 画素を 3 回走査)。各ビンへの加算は画素ごとに 1 ずつ足すのと同じ整数加算で、
+        /// ビンの式も画素ごとの経路と同じなので、ヒストグラムと戻り値はビット単位で同じ。
+        /// 意図した変更では両経路を同時に直すこと(色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる)。
+        /// material(推定し直し)で外す判定も色だけで決まるので、色ごとに 1 回判定して個数ごと外す。
+        /// </summary>
+        private static bool TryComputeRecolorAnchorByColor(
+            Color32* px, float* strength, int w,
+            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
+            out float anchorL, out float anchorC,
+            AnchorMaterial material,
+            bool* statsExclude, float* claimed, CancellationToken ct,
+            int* pIdx, float* pL, float* pC, Color32* pCol, int colorCount, AnchorCoreCounts pre) {
+            anchorL = 0f;
+            anchorC = 0f;
+            // 色ごとの個数(色の数の長さ)は作業配列のプールから借り、抜けるときに返す(0.4.0 の 3-12)。
+            // 呼び出し側が数えてあれば(pre。1 段目・推定し直し・彩度の分位で同じ数え上げを使い回す)数え直さない。
+            using var scratch = new WorkScratch();
+            int* cnt;
+            int candCount;
+            if (pre != null) {
+                // 数えた個数を使い回す(下の material で 0 にするので、そのときは写してから)。
+                candCount = pre.Total;
+                if (material.Active) {
+                    cnt = scratch.Int(colorCount, clear: false);
+                    Buffer.MemoryCopy(pre.Counts, cnt, (long)colorCount * sizeof(int), (long)colorCount * sizeof(int));
+                } else {
+                    cnt = pre.Counts;
+                }
+            } else {
+                cnt = scratch.Int(colorCount, clear: true);
+                candCount = CountAnchorCoreInto(cnt, px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
+                    statsExclude, claimed, ct, pIdx, colorCount);
+            }
             if (candCount < AnchorMinPixels) {
                 return false;
             }
