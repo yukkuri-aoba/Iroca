@@ -119,6 +119,41 @@ namespace Iroca {
         }
 
         /// <summary>
+        /// <see cref="RetireByGuid"/> を複数の GUID にまとめて当てる。キャッシュフォルダの列挙は 1 回だけ
+        /// (フォルダごとの削除で、中のアセットの数だけ列挙していた)。退避するファイルは GUID ごとに呼んだときと同じ
+        /// (名前が「GUID + 拡張子」か「GUID_番号 + 拡張子」のもの)。
+        /// </summary>
+        public void RetireByGuids(System.Collections.Generic.ICollection<string> guids) {
+            if (guids == null || guids.Count == 0 || !Directory.Exists(CacheDir)) {
+                return;
+            }
+            var wanted = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+            foreach (var g in guids) {
+                if (!string.IsNullOrEmpty(g)) {
+                    wanted.Add(g);
+                }
+            }
+            if (wanted.Count == 0) {
+                return;
+            }
+            string[] files;
+            try { files = Directory.GetFiles(CacheDir); } catch (Exception ex) {
+                Debug.LogWarning($"[Iroca] {_label} cache scan failed: {ex.Message}");
+                return;
+            }
+            foreach (string file in files) {
+                string fileName = Path.GetFileName(file);
+                if (string.IsNullOrEmpty(fileName) || !fileName.EndsWith(_extension, StringComparison.Ordinal)) {
+                    continue;
+                }
+                string stem = fileName.Substring(0, fileName.Length - _extension.Length);
+                if (wanted.Contains(GuidOfName(stem))) {
+                    RetireToOrphan(file);
+                }
+            }
+        }
+
+        /// <summary>
         /// キャッシュフォルダを走査し、GUID が引けない現用ファイルを <c>.orphan</c> へ退避、
         /// GUID が再び引けた退避ファイルを元名へ復元、猶予期間を過ぎた退避ファイルを実削除する。
         /// 即削除しない理由は各ストアの CleanupOrphans を参照。

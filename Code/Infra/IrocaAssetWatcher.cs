@@ -1,5 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Collections.Generic;
 using UnityEditor;
 
 namespace Iroca {
@@ -13,13 +14,17 @@ namespace Iroca {
         // 削除確定前に GUID を解決する（OnPostprocessAllAssets まで待つと
         // GUIDToAssetPath が空を返す場合があり、特定が難しくなるため）。
         private static AssetDeleteResult OnWillDeleteAsset(string assetPath, RemoveAssetOptions options) {
-            Retire(AssetDatabase.AssetPathToGUID(assetPath));
             // フォルダなら中のアセット(下のフォルダも含む)の分も。窓を開くたびの掃除(CleanupOrphans)も GUID の引けない
             // ファイルを退避するが、窓を開かない間は残り続けていた。
+            // フォルダのときは GUID をまとめて渡し、キャッシュのフォルダの列挙を 1 回で済ませる(中のアセットごとに
+            // 3 つのキャッシュのフォルダを列挙していた)。
             if (AssetDatabase.IsValidFolder(assetPath)) {
-                foreach (var guid in AssetDatabase.FindAssets("", new[] { assetPath })) {
-                    Retire(guid);
-                }
+                var guids = new List<string> { AssetDatabase.AssetPathToGUID(assetPath) };
+                guids.AddRange(AssetDatabase.FindAssets("", new[] { assetPath }));
+                MaskFileStore.RetireMasksByGuids(guids);
+                SessionFileStore.RetireSessionsByGuids(guids);
+            } else {
+                Retire(AssetDatabase.AssetPathToGUID(assetPath));
             }
             // アセット本体の削除は Unity に続行させる。
             return AssetDeleteResult.DidNotDelete;

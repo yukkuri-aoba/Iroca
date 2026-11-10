@@ -165,6 +165,12 @@ namespace Iroca {
             BoundRecipeFiles.RetireByGuid(guid);
         }
 
+        /// <summary><see cref="RetireSessionByGuid"/> を複数の GUID にまとめて(フォルダの列挙はそれぞれ 1 回)。</summary>
+        public static void RetireSessionsByGuids(System.Collections.Generic.ICollection<string> guids) {
+            Files.RetireByGuids(guids);
+            BoundRecipeFiles.RetireByGuids(guids);
+        }
+
         /// <summary>
         /// SessionCache を走査し、対応するテクスチャ（GUID）が見つからないファイルを整理する。
         /// AssetWatcher の delete フックを取りこぼした場合の二段構え。

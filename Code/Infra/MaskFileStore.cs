@@ -113,6 +113,9 @@ namespace Iroca {
         /// </summary>
         public static void RetireMaskByGuid(string guid) => Files.RetireByGuid(guid);
 
+        /// <summary><see cref="RetireMaskByGuid"/> を複数の GUID にまとめて(フォルダの列挙は 1 回)。</summary>
+        public static void RetireMasksByGuids(System.Collections.Generic.ICollection<string> guids) => Files.RetireByGuids(guids);
+
         /// <summary>
         /// MaskCache を走査し、対応するテクスチャ（GUID）が見つからないファイルを整理する。
         /// AssetWatcher の delete フックを取りこぼした場合の二段構え。
