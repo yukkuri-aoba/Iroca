@@ -23,5 +23,9 @@ namespace Iroca {
         // 編集状態(IrocaSessionState)の JSON。中身は Editor 側だけが解釈する。
         [SerializeField, HideInInspector] internal string sessionJson = "";
         [SerializeField, HideInInspector] internal int formatVersion = CurrentFormatVersion;
+        // どの版のいろかの仕上がりで確かめたか(Editor 側の RecipeOutputVersion)。保存形式の版(formatVersion)とは別で、
+        // 計算が変わって仕上がりが変わるリリースごとに上がる。印の無い古いレシピは 0(0.3.x 以前)。古いいろかは知らない
+        // 欄を読み飛ばすので、この欄を足しても古い版で開ける。
+        [SerializeField, HideInInspector] internal int outputVersion;
     }
 }

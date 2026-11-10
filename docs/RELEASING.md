@@ -19,6 +19,7 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
 ## 手順
 
 1. **CHANGELOG**: `CHANGELOG.md` に `## [<VERSION>]` 節を書く（空だと CI が fail する）。
+   仕上がりの版も確かめる: 前のタグから仕上がりが変わる（`scripts/golden/golden_hashes.json` のハッシュが変わった・Services 側だけで出力が変わった）のに `Code/Infra/RecipeOutputVersion.cs` の `Current` が前のタグと同じなら、リリースを止めて 1 つ上げ、`FirstRelease` にこの版を足す（上げないと、前の版で確かめたレシピに「仕上がりが変わることがある」と知らせられない）。
 2. **zip + インストーラ生成**:
    ```powershell
    .\scripts\Build-VpmPackage.ps1 -Version <VERSION>

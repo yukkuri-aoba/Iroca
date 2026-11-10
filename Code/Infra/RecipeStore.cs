@@ -83,6 +83,25 @@ namespace Iroca {
             // アセットの記録が積まれると、ウィンドウの Undo と二重になる)。
             recipe.sessionJson = json;
             recipe.formatVersion = IrocaRecipe.CurrentFormatVersion;
+            // 中身を変えたのは今の版の仕上がり(窓のプレビュー)を見てのことなので、今の版で確かめたことにする。
+            recipe.outputVersion = RecipeOutputVersion.Current;
+            EditorUtility.SetDirty(recipe);
+            AssetDatabase.SaveAssetIfDirty(recipe);
+            return true;
+        }
+
+        /// <summary>
+        /// 今の版の仕上がりで確かめたことにする(<see cref="RecipeOutputVersion"/>。登録・インスペクタの「確かめた」・
+        /// 確かめてのアップロード)。<paramref name="undoName"/> を渡すと Undo に積む。変えたら true。
+        /// </summary>
+        public static bool MarkOutputChecked(IrocaRecipe recipe, string undoName = null) {
+            if (recipe == null || recipe.outputVersion == RecipeOutputVersion.Current) {
+                return false;
+            }
+            if (undoName != null) {
+                Undo.RecordObject(recipe, undoName);
+            }
+            recipe.outputVersion = RecipeOutputVersion.Current;
             EditorUtility.SetDirty(recipe);
             AssetDatabase.SaveAssetIfDirty(recipe);
             return true;
@@ -151,6 +170,7 @@ namespace Iroca {
             recipe.sourceTexture = texture;
             recipe.sessionJson = state != null ? JsonUtility.ToJson(state) : "";
             recipe.formatVersion = IrocaRecipe.CurrentFormatVersion;
+            recipe.outputVersion = RecipeOutputVersion.Current;
             // CreateAsset がその場でファイルに書く。SaveAssets は呼ばない(プロジェクトの未保存のアセットを
             // 全部、利用者の知らないところで保存してしまう)。
             AssetDatabase.CreateAsset(recipe, path);

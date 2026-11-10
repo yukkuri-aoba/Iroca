@@ -84,6 +84,37 @@ namespace Iroca.EditorTests {
             return s;
         }
 
+        // ─── レシピの仕上がりの版の印(RecipeOutputVersion) ───
+
+        // 作ったときと中身を変えて保存したときに今の版になり、同じ中身の保存(開いただけの自動保存など)では変わらない。
+        // 「確かめた」(登録・インスペクタ・アップロード)は中身が同じでも今の版にし、Undo で戻る。
+        [Test]
+        public void Recipe_OutputVersion_IsCurrentWhenCreatedOrChanged_NotWhenSavedUnchanged() {
+            var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(_tex);
+            var state = SampleSession();
+            var recipe = RecipeStore.Create(texture, state, _assets.Folder);
+            Assert.AreEqual(RecipeOutputVersion.Current, recipe.outputVersion, "作ったレシピが今の版になっていない");
+
+            recipe.outputVersion = 0;   // 前の版のいろかで作ったもの
+            Assert.IsFalse(RecipeStore.Save(recipe, state));
+            Assert.AreEqual(0, recipe.outputVersion, "同じ中身の保存で印を上げた(開いただけで確かめたことになる)");
+            state.zones[0].tolerance = 0.4f;
+            Assert.IsTrue(RecipeStore.Save(recipe, state));
+            Assert.AreEqual(RecipeOutputVersion.Current, recipe.outputVersion, "中身を変えて保存したのに印が上がらない");
+
+            recipe.outputVersion = 0;
+            Undo.IncrementCurrentGroup();
+            try {
+                Assert.IsTrue(RecipeStore.MarkOutputChecked(recipe, "Iroca: Checked"));
+                Assert.AreEqual(RecipeOutputVersion.Current, recipe.outputVersion);
+                Assert.IsFalse(RecipeStore.MarkOutputChecked(recipe), "今の版なのに書き直した");
+                Undo.PerformUndo();
+                Assert.AreEqual(0, recipe.outputVersion, "「確かめた」が Undo で戻らない");
+            } finally {
+                Undo.ClearUndo(recipe);
+            }
+        }
+
         // ─── セッション ───
 
         [Test]

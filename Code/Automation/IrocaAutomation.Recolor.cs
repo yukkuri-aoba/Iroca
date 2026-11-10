@@ -692,6 +692,8 @@ namespace Iroca {
                     Undo.RegisterCompleteObjectUndo(recipe, UndoName);
                     RecipeStore.Save(recipe, state);
                 }
+                // 今の版で色替えして登録したので、今の版の仕上がりで確かめたことにする(中身が同じでも。窓の登録と同じ)。
+                RecipeStore.MarkOutputChecked(recipe);
                 // 窓の読み直し(読み直す前の窓を記録する)も同じグループに入れ、1 回の Ctrl+Z でレシピと窓がそろって戻るようにする。
                 if (reloadWindow) {
                     EditingWindows.Current.ReloadFromRecipe(recipe, UndoName);

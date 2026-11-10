@@ -213,6 +213,38 @@ namespace Iroca.EditorTests {
             Assert.AreEqual("登録した内容", RecipeZoneName(), "戻した中身がレシピに書かれない");
         }
 
+        // 前の版の仕上がりで確かめたレシピ(RecipeOutputVersion)は、窓で開いただけでは印を変えない(確かめていない)。
+        // 中身を変えて保存すると今の版になり、登録は中身が同じでも今の版にする(窓のプレビュー = 今の版の仕上がりを見て登録した)。
+        [Test]
+        public void OpeningOnly_DoesNotMarkTheOutputVersion_EditingAndRegisteringDo() {
+            Object.DestroyImmediate(_win);
+            _recipe.outputVersion = 0;
+            _win = ScriptableObject.CreateInstance<IrocaWindow>();
+            Assert.AreSame(_recipe, _win.BoundRecipe, "テストの前提: レシピから開いている");
+
+            Save();
+            NonDestructiveApplier.RaiseBeforeApplyForTests();
+            Assert.AreEqual(0, _recipe.outputVersion, "開いただけで、今の版で確かめたことにした");
+
+            SetZoneName("窓で直した内容");
+            Save();
+            Assert.AreEqual(RecipeOutputVersion.Current, _recipe.outputVersion, "中身を変えて保存したのに印が上がらない");
+
+            _recipe.outputVersion = 0;
+            var avatar = new GameObject("avatar");
+            try {
+                var plan = RegistrationService.Describe(avatar, _win.SourceTexture, _recipe);
+                _win.CommitRegistration(plan, _recipe, 0);
+                Assert.AreEqual(RecipeOutputVersion.Current, _recipe.outputVersion, "登録したのに印が上がらない");
+            } finally {
+                foreach (var c in avatar.GetComponents<Component>()) {
+                    Undo.ClearUndo(c);
+                }
+                Undo.ClearUndo(avatar);
+                Object.DestroyImmediate(avatar);
+            }
+        }
+
         private void ChangeOutside(string zoneName) => _recipe.sessionJson = JsonUtility.ToJson(State(zoneName));
 
         private string ZoneName() => _win.Session.zones[0].name;

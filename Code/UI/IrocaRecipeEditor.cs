@@ -27,6 +27,7 @@ namespace Iroca {
                 EditorGUILayout.LabelField(string.Format(Localization.RecipeInspectorZonesFormat,
                     state.zones.Count, enabled), EditorStyles.miniLabel);
             }
+            RecipeOutputNotice.Draw(recipe);
 
             using (new EditorGUI.DisabledScope(recipe.sourceTexture == null)) {
                 if (GUILayout.Button(TempContent.Of(Localization.OpenInIroca, Localization.OpenInIrocaTooltip))) {

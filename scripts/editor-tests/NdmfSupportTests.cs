@@ -128,6 +128,75 @@ namespace Iroca.EditorTests {
                 "アップロードされる部品なのに止めていない");
         }
 
+        private IrocaRecipe OutputRecipe(string name, int outputVersion, bool withSource = true) {
+            var recipe = Track(ScriptableObject.CreateInstance<IrocaRecipe>());
+            recipe.name = name;
+            recipe.outputVersion = outputVersion;
+            if (withSource) {
+                recipe.sourceTexture = Track(new Texture2D(4, 4));
+            }
+            return recipe;
+        }
+
+        // 前の版のいろかの仕上がりで確かめたレシピ(RecipeOutputVersion)は、アップロードの前に 1 回確かめる。アバターで使う
+        // (EditorOnly でない)元テクスチャのあるものだけを、重複なしで数える。再生では聞かない。
+        [Test]
+        public void OutdatedRecipes_AreConfirmedOnceBeforeUpload_NotInPlayMode() {
+            var avatar = Track(new GameObject("avatar"));
+            var outfit = new GameObject("outfit");
+            outfit.transform.SetParent(avatar.transform, false);
+            var old = OutputRecipe("old-recipe", 0);
+            var current = OutputRecipe("current-recipe", RecipeOutputVersion.Current);
+            var noSource = OutputRecipe("no-source", 0, withSource: false);
+            var c = outfit.AddComponent<IrocaRecolor>();
+            c.recipes.AddRange(new[] { old, current, null, noSource });
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(old);   // 同じレシピを別の所でも使う
+            var spare = new GameObject("spare");
+            spare.transform.SetParent(avatar.transform, false);
+            spare.tag = "EditorOnly";
+            spare.AddComponent<IrocaRecolor>().recipes.Add(OutputRecipe("spare-recipe", 0));
+
+            CollectionAssert.AreEqual(new[] { old }, NdmfSupport.OutdatedRecipes(avatar),
+                "今の版のもの・元テクスチャの無いもの・EditorOnly の下のものを数えた／重複した");
+            Assert.IsTrue(NdmfSupport.ShouldConfirmOutdated(avatar, false, out var outdated, out var message));
+            CollectionAssert.AreEqual(new[] { old }, outdated);
+            StringAssert.Contains("old-recipe", message);
+            StringAssert.Contains(RecipeOutputVersion.ReleasesOf(0), message);
+            Assert.IsFalse(NdmfSupport.ShouldConfirmOutdated(avatar, true, out _, out _), "再生(アップロードではない)で聞いた");
+
+            old.outputVersion = RecipeOutputVersion.Current;
+            Assert.IsFalse(NdmfSupport.ShouldConfirmOutdated(avatar, false, out _, out _), "確かめた後も聞いた");
+        }
+
+        // VRChat SDK のアップロード前の処理に組み込まれ、NDMF が使えないときに止める確認の後・NDMF などの前に動く。
+        // batch mode では聞けないので、警告だけで続ける(確かめたことにはしない)。
+        [Test]
+        public void VrchatSdk_RunsTheOutdatedRecipeGuard_AfterTheNdmfGuard_AndDoesNotAskInBatchMode() {
+            var callback = FindType("VRC.SDKBase.Editor.BuildPipeline.IVRCSDKPreprocessAvatarCallback");
+            if (callback == null) {
+                Assert.Ignore("VRChat SDK が無い");
+            }
+            var guard = typeof(NdmfSupport).Assembly.GetType("Iroca.OutdatedRecipeUploadGuard");
+            var ndmfGuard = typeof(NdmfSupport).Assembly.GetType("Iroca.NdmfUploadGuard");
+            Assert.IsNotNull(guard, "VRChat SDK があるのに、前の版のレシピの確認がコンパイルされていない");
+            Assert.IsTrue(callback.IsAssignableFrom(guard));
+            object instance = Activator.CreateInstance(guard, nonPublic: true);
+            int order = (int)guard.GetProperty("callbackOrder").GetValue(instance);
+            int ndmfOrder = (int)ndmfGuard.GetProperty("callbackOrder").GetValue(Activator.CreateInstance(ndmfGuard, nonPublic: true));
+            Assert.Greater(order, ndmfOrder, "NDMF が使えないときに止める確認より先に聞く");
+            Assert.Less(order, -11000, "NDMF などの前処理より先に確かめていない");
+
+            if (!Application.isBatchMode) {
+                return;   // 画面のある Unity では確認の画面が出るので呼ばない
+            }
+            var avatar = Track(new GameObject("avatar"));
+            var old = OutputRecipe("old-recipe", 0);
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(old);
+            Assert.IsTrue((bool)guard.GetMethod("OnPreprocessAvatar").Invoke(instance, new object[] { avatar }),
+                "batch mode なのにアップロードを止めた");
+            Assert.AreEqual(0, old.outputVersion, "聞いていないのに確かめたことにした");
+        }
+
         private static Type FindType(string fullName) =>
             AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType(fullName)).FirstOrDefault(t => t != null);
 

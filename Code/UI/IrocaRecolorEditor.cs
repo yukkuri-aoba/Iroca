@@ -57,6 +57,7 @@ namespace Iroca {
         private void DrawRecipe(IrocaRecolor component, IrocaRecipe recipe, HashSet<Texture2D> seen) {
             EditorGUILayout.Space(2);
             EditorGUILayout.LabelField(recipe.name, EditorStyles.boldLabel);
+            RecipeOutputNotice.Draw(recipe);
             var source = recipe.sourceTexture;
             if (source == null) {
                 EditorGUILayout.HelpBox(Localization.RecolorNoSource, MessageType.Warning);
@@ -198,6 +199,23 @@ namespace Iroca {
                 }
             }
             return null;
+        }
+    }
+
+    /// <summary>
+    /// 前の版のいろかの仕上がりで確かめたレシピ(<see cref="RecipeOutputVersion"/>)の案内と「確かめた」ボタン。
+    /// 「Iroca Recolor」とレシピのインスペクタが使う。
+    /// </summary>
+    internal static class RecipeOutputNotice {
+        public static void Draw(IrocaRecipe recipe) {
+            if (!RecipeOutputVersion.IsOutdated(recipe)) {
+                return;
+            }
+            EditorGUILayout.HelpBox(string.Format(Localization.RecipeOutdatedFormat,
+                RecipeOutputVersion.ReleasesOf(recipe.outputVersion)), MessageType.Info);
+            if (GUILayout.Button(TempContent.Of(Localization.OutputCheckedButton, Localization.OutputCheckedButtonTooltip))) {
+                RecipeStore.MarkOutputChecked(recipe, Localization.OutputCheckedButton);
+            }
         }
     }
 

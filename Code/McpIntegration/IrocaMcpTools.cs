@@ -30,7 +30,8 @@ namespace Iroca.McpIntegration {
         + "the meshes that use it. Open the thumbnail, then pass the uv of the part to change as 'at' to iroca_recolor. Every result also "
         + "reports whether NDMF and the AI can be used, and the preset names. To check a result, pass 'points' ([[u,v],...]): for each spot it "
         + "returns the color before and after, the zone painting it, each zone's selection strength and masks, and its mesh and UV island. "
-        + "'points' or coverage=true runs the recolor once, which takes a moment on a large texture.")]
+        + "'points' or coverage=true runs the recolor once, which takes a moment on a large texture. 'outdatedRecipes' lists recipes made "
+        + "with an earlier Iroca whose result can look different in this version (recoloring and registering again marks them current).")]
     public static class IrocaInspectTool {
         public class Parameters {
             [ToolParameter("Scene object path/name/'#instanceID', or a texture/material asset path (Assets/...). Omit to list the scene.", Required = false)]

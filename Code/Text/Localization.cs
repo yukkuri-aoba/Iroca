@@ -1546,6 +1546,32 @@ namespace Iroca {
         public static string RecolorOutsideAvatar => IsJapanese
             ? "このオブジェクトはアバターの中にないので、アップロードでもシーンのプレビューでも色替えされません。アバター（VRChat の Avatar Descriptor が付いたオブジェクト）か、その下の衣装へ付け直してください。"
             : "This object is not inside an avatar, so it is recolored neither in the upload nor in the scene preview. Put the component on the avatar (the object with the VRChat Avatar Descriptor) or an outfit under it.";
+        // 仕上がりの版(RecipeOutputVersion)。{0} = いろかのリリース。
+        public static string OutputVersionBeforeFormat => IsJapanese ? "{0} より前" : "before {0}";
+        // {0} = その版になった最初のリリース、{1} = 次の版になった最初のリリース。
+        public static string OutputVersionRangeFormat => IsJapanese ? "{0} 以降 {1} より前" : "from {0} to before {1}";
+        // {0} = 作ったいろかのリリースの範囲(OutputVersionBeforeFormat など)。
+        public static string RecipeOutdatedFormat => IsJapanese
+            ? "いろかの {0} の版で作られたレシピです。今の版では仕上がりが変わることがあります。シーンのプレビューは今の版の仕上がりです。確かめたら「確かめた」を押してください（アップロードのときの確認も出なくなります）。"
+            : "This recipe was made with a version of Iroca {0}. The result can look different in this version. The scene preview shows this version's result. When you have checked it, press \"Checked\" (the confirmation at upload will no longer appear either).";
+        public static string OutputCheckedButton => IsJapanese ? "確かめた" : "Checked";
+        public static string OutputCheckedButtonTooltip => IsJapanese
+            ? "このレシピの今の版の仕上がりを確かめたことにします（シーンのプレビューや再生で色を見てから押します）。この案内とアップロードのときの確認が出なくなります。Ctrl+Z で戻せます。"
+            : "Marks this recipe's result in this version as checked (press it after looking at the colors in the scene preview or in Play mode). This notice and the confirmation at upload no longer appear. Ctrl+Z restores it.";
+        // いろかの窓で開いたとき。{0} は RecipeOutdatedFormat と同じ。
+        public static string RecipeOutdatedNoticeFormat => IsJapanese
+            ? "このレシピは、いろかの {0} の版で作られました。今の版では仕上がりが変わることがあります"
+            : "This recipe was made with a version of Iroca {0}. The result can look different in this version";
+        public static string OutdatedUploadTitle => IsJapanese ? "いろか: 前の版で作ったレシピ" : "Iroca: Recipes from an earlier version";
+        // {0} = レシピの数、{1} = いちばん古いものを作ったいろかのリリースの範囲、{2} = レシピの名前の並び(NameQuoteFormat)。
+        public static string OutdatedUploadFormat => IsJapanese
+            ? "このアバターの色替えのレシピ {0} 個（{2}）は、いろかの {1} の版で作られました。今の版では仕上がりが変わることがあります（シーンのプレビューは今の版の仕上がりです）。\n\nこのままアップロードすると、確かめたことにして、次からは聞きません。"
+            : "{0} recolor recipe(s) on this avatar ({2}) were made with a version of Iroca {1}. The result can look different in this version (the scene preview shows this version's result).\n\nIf you upload now, they are marked as checked and you will not be asked again.";
+        public static string OutdatedUploadContinue => IsJapanese ? "このままアップロード（確かめたことにする）" : "Upload (mark as checked)";
+        public static string OutdatedUploadStop => IsJapanese ? "やめる" : "Stop";
+        public static string OutdatedUploadStopped => IsJapanese
+            ? "前の版で作ったレシピを確かめるため、アップロードをやめました。シーンのプレビューで色を確かめてから、もう一度アップロードしてください。"
+            : "Stopped the upload so you can check the recipes made with an earlier version. Check the colors in the scene preview, then upload again.";
         public static string RecolorNoSource => IsJapanese
             ? "レシピに元テクスチャが設定されていません。"
             : "The recipe has no source texture.";

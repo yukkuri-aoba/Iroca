@@ -138,6 +138,11 @@ namespace Iroca {
             // 開いただけでは(古い形の)レシピを書き直さないよう、読んだ内容を保存するときの形を覚える。
             SessionPersistence.MarkRecipeOpened(Doc.boundRecipe, Editing.ToSaveState());
             Editing.NotifyChanged(EditChange.Replaced);
+            // 前の版の仕上がりで確かめたレシピなら知らせる(印は変えない。中身を変えて保存するか登録すると今の版になる)。
+            if (RecipeOutputVersion.IsOutdated(Doc.boundRecipe)) {
+                ShowNotification(new GUIContent(string.Format(Localization.RecipeOutdatedNoticeFormat,
+                    RecipeOutputVersion.ReleasesOf(Doc.boundRecipe.outputVersion))));
+            }
             return true;
         }
 
@@ -514,6 +519,8 @@ namespace Iroca {
             SessionPersistence.MarkRecipeSynced(recipe);
             // 消えたレシピの欄は確認画面で知らせてあるので外す(RegisterMessage)。
             RegistrationService.SwitchAndAttach(plan, recipe, keepShared: choice == 2, out var component, replaceLost: true);
+            // 窓のプレビュー(今の版の仕上がり)を見て登録したので、今の版で確かめたことにする(中身が同じでも)。
+            RecipeStore.MarkOutputChecked(recipe);
             Undo.CollapseUndoOperations(undoGroup);
             return component;
         }

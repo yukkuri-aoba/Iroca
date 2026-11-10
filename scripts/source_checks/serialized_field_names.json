@@ -225,6 +225,7 @@
       "height",
       "materials",
       "meshes",
+      "outdatedRecipes",
       "path",
       "points",
       "recipes",
@@ -311,6 +312,7 @@
     ],
     "IrocaRecipe": [
       "formatVersion",
+      "outputVersion",
       "sessionJson",
       "sourceTexture"
     ],

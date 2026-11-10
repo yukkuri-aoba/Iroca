@@ -160,6 +160,43 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // 0.3.x 以前のいろかが書いたレシピのファイル(仕上がりの版の印 outputVersion が無い)は、版 0(0.4.0 より前の仕上がり)として
+        // 読む。今の版では仕上がりが変わることがあるので、インスペクタ・窓・アップロードで知らせる対象になる。中身はそのまま読める。
+        [Test]
+        public void V030RecipeAsset_WithoutTheOutputVersion_IsFromBeforeTheCurrentOutput() {
+            var probe = ScriptableObject.CreateInstance<IrocaRecipe>();
+            string scriptGuid;
+            try {
+                scriptGuid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(MonoScript.FromScriptableObject(probe)));
+            } finally {
+                Object.DestroyImmediate(probe);
+            }
+            Assert.IsNotEmpty(scriptGuid, "テストの前提: IrocaRecipe のスクリプトの GUID が引けない");
+            string path = _assets.Folder + "/old-recipe.asset";
+            File.WriteAllText(TestAssets.Abs(path),
+                "%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!114 &11400000\nMonoBehaviour:\n"
+                + "  m_ObjectHideFlags: 0\n  m_CorrespondingSourceObject: {fileID: 0}\n  m_PrefabInstance: {fileID: 0}\n"
+                + "  m_PrefabAsset: {fileID: 0}\n  m_GameObject: {fileID: 0}\n  m_Enabled: 1\n  m_EditorHideFlags: 0\n"
+                + $"  m_Script: {{fileID: 11500000, guid: {scriptGuid}, type: 3}}\n  m_Name: old-recipe\n  m_EditorClassIdentifier: \n"
+                + $"  sourceTexture: {{fileID: 2800000, guid: {_guid}, type: 3}}\n"
+                + "  sessionJson: '" + F.V030RecipeSession + "'\n  formatVersion: 1\n");
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+            var recipe = AssetDatabase.LoadAssetAtPath<IrocaRecipe>(path);
+            Assert.IsNotNull(recipe, "古いレシピのファイルを読めない");
+            Assert.AreSame(_texture, recipe.sourceTexture);
+            Assert.AreEqual(0, recipe.outputVersion, "印の無い古いレシピが版 0 にならない");
+            Assert.IsTrue(RecipeOutputVersion.IsOutdated(recipe));
+            StringAssert.Contains("0.4.0", RecipeOutputVersion.ReleasesOf(recipe.outputVersion));
+            Assert.IsNotNull(RecipeStore.Load(recipe), "中身を読めない");
+
+            // 今の版で作ったレシピはファイルに印を書く(次に読んだときも今の版)。
+            var made = RecipeStore.Create(_texture, IrocaSessionState.CreateDefault(), _assets.Folder);
+            Assert.AreEqual(RecipeOutputVersion.Current, made.outputVersion);
+            StringAssert.Contains("outputVersion: " + RecipeOutputVersion.Current,
+                File.ReadAllText(TestAssets.Abs(AssetDatabase.GetAssetPath(made))));
+            Assert.IsFalse(RecipeOutputVersion.IsOutdated(made));
+        }
+
         // ───────────── 期待する中身 ─────────────
 
         private static readonly Color Red = new Color(0.75f, 0.125f, 0.125f, 1f);

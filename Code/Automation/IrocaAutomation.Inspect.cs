@@ -56,6 +56,8 @@ namespace Iroca {
             public List<string> materials = new List<string>();
             public List<string> renderers = new List<string>();
             public List<string> recipes = new List<string>();
+            // recipes のうち、前の版のいろかの仕上がりで確かめたもの(今の版では仕上がりが変わることがある。RecipeOutputVersion)
+            public List<string> outdatedRecipes = new List<string>();
             // Iroca の書き出し物なら、その元のテクスチャ(色替えは元に対して行う)。元そのものなら空。
             public string editableSource = "";
             public string thumbnail = "";
@@ -303,6 +305,9 @@ namespace Iroca {
             }
             foreach (var recipe in RecipeStore.FindForTexture(source ?? tex)) {
                 info.recipes.Add(AssetDatabase.GetAssetPath(recipe));
+                if (RecipeOutputVersion.IsOutdated(recipe)) {
+                    info.outdatedRecipes.Add(AssetDatabase.GetAssetPath(recipe));
+                }
             }
             return info;
         }
