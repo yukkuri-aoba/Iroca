@@ -380,6 +380,10 @@ def main() -> int:
         print(__doc__, file=sys.stderr)
         return 2
     BASE.mkdir(parents=True, exist_ok=True)
+    # 呼び手はバイトをそのまま流すので、こちらの文字は UTF-8 にそろえる（相手の既定は cp932）
+    # （データのファイル名には cp932 に無い文字もある）
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     return COMMANDS[sys.argv[1]](sys.argv[2:])
 
 

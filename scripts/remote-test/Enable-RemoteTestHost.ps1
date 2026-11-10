@@ -67,10 +67,11 @@ if ((Get-Service sshd).Status -ne 'Running') {
 # ファイアウォール: 同じ LAN からだけ
 $rule = Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue
 if ($rule) {
-    Set-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -RemoteAddress LocalSubnet -Enabled True
+    # 回線が「パブリック」扱いでも通るよう、プロファイルは全部にする（相手は LocalSubnet に絞る）
+    Set-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -RemoteAddress LocalSubnet -Profile Any -Enabled True
 } else {
     New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' -Direction Inbound `
-        -Protocol TCP -LocalPort 22 -Action Allow -RemoteAddress LocalSubnet | Out-Null
+        -Protocol TCP -LocalPort 22 -Action Allow -RemoteAddress LocalSubnet -Profile Any | Out-Null
 }
 
 # 3. 鍵の登録（管理者のアカウントは ProgramData 側のファイルしか見ない）

@@ -82,7 +82,8 @@ class Transport:
                     "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=6", host]
 
     def endpoint(self) -> tuple[str, int]:
-        r = subprocess.run(["ssh", "-G", self.host], capture_output=True, text=True)
+        # ssh -G は UTF-8 で出す（日本語のユーザー名を cp932 で読むと落ちる）
+        r = subprocess.run(["ssh", "-G", self.host], capture_output=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             # 例: ~/.ssh/config に余計なアカウントの権限があると ssh は設定ごと読まない
             lines = (r.stderr or "").strip().splitlines()
