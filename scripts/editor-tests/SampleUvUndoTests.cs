@@ -83,6 +83,45 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(Uv2, Zone.sampleUV);
         }
 
+        // サンプル色を取り直したら、前の部位の島から導いた値(内部サンプル・包絡ゲート・彩度天井・穴埋めの余白)を
+        // 既定へ戻す(点検 自-3)。許容範囲は残す。Undo 1 回で色と一緒に戻る。同じ色を別の場所で拾い直しただけなら残す。
+        [Test]
+        public void ColorRepick_ClearsTheValuesDerivedFromThePreviousIsland_AndUndoBringsThemBack() {
+            Pick(Red, Uv1);
+            Undo.IncrementCurrentGroup();
+            Undo.RecordObject(_host, "Auto-tune Zone");
+            Zone.extraSamples.Add(new Color(0.6f, 0.1f, 0.1f));
+            Zone.shadowValueFloor = 0.3f;
+            Zone.partSatCeiling = 0.7f;
+            Zone.partHueBand = 0.12f;
+            Zone.chromaCeiling = 0.2f;
+            Zone.holeFillMargin = 0.25f;
+            Zone.tolerance = 0.33f;
+            Undo.FlushUndoRecordObjects();
+            Undo.IncrementCurrentGroup();
+
+            Pick(Red, Uv2);   // 同じ色を別の場所で: 残す
+            Assert.AreEqual(0.3f, Zone.shadowValueFloor, "色が同じなら残す");
+
+            Pick(Blue, Uv1);
+            Assert.AreEqual(0, Zone.extraSamples.Count, "内部サンプル");
+            Assert.AreEqual(0f, Zone.shadowValueFloor, "陰影の明度下限");
+            Assert.AreEqual(0f, Zone.partSatCeiling, "別パーツの彩度上限");
+            Assert.AreEqual(0f, Zone.partHueBand, "別パーツの色相幅");
+            Assert.AreEqual(0f, Zone.chromaCeiling, "彩度天井");
+            Assert.AreEqual(0f, Zone.holeFillMargin, "穴埋めの余白");
+            Assert.AreEqual(0.33f, Zone.tolerance, "許容範囲は残す");
+
+            Undo.PerformUndo();
+            Assert.AreEqual(Red, Zone.sampleColor);
+            Assert.AreEqual(1, Zone.extraSamples.Count, "Undo で内部サンプルも戻る");
+            Assert.AreEqual(0.3f, Zone.shadowValueFloor);
+            Assert.AreEqual(0.7f, Zone.partSatCeiling);
+            Assert.AreEqual(0.12f, Zone.partHueBand);
+            Assert.AreEqual(0.2f, Zone.chromaCeiling);
+            Assert.AreEqual(0.25f, Zone.holeFillMargin);
+        }
+
         [Test]
         public void UnrelatedUndo_KeepsPosition() {
             Pick(Red, Uv1);

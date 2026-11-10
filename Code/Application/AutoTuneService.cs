@@ -161,9 +161,22 @@ namespace Iroca {
                 && ParamEq(zone.holeFillMargin, r.holeFillMargin);
         }
 
+        // 適用値のうち、前のサンプルの島から導いた 5 項目を既定へ戻したもの(サンプル色を取り直したときの
+        // EditingSession.ClearIslandDerived と同じ。手で触っていないので、手調整とは見ない)。
+        private static ZoneAutoTuner.TuneResult IslandCleared(ZoneAutoTuner.TuneResult r) {
+            var d = s_zoneDefaults ??= new ColorZone();
+            r.shadowValueFloor = d.shadowValueFloor;
+            r.partSatCeiling = d.partSatCeiling;
+            r.partHueBand = d.partHueBand;
+            r.chromaCeiling = d.chromaCeiling;
+            r.holeFillMargin = d.holeFillMargin;
+            return r;
+        }
+
         /// <summary>
         /// 導出パラメータが「ユーザーの手調整を含まない」状態か(上書きの確認を出さなくてよいか)。
-        /// ・自動調整済みのゾーン(<paramref name="lastInput"/> がある): その適用値のままなら手調整なし
+        /// ・自動調整済みのゾーン(<paramref name="lastInput"/> がある): その適用値のまま(サンプル色を取り直して、前の島から
+        ///   導いた値だけが既定へ戻ったものを含む)なら手調整なし
         /// ・未調整のゾーン: 新しいゾーンへ入れる初期値（<see cref="EditingSession.NewZoneInitialTolerance"/>）
         ///   だけが ZoneAutoTuner の既定と違うなら、それは置いた値であって手調整ではない
         /// 自動調整の入力はドメインリロードで失われるため、リロード直後の 1 回だけは
@@ -176,7 +189,7 @@ namespace Iroca {
                 return false;
             }
             if (lastInput != null) {
-                return ValuesIntact(zone, lastInput.applied);
+                return ValuesIntact(zone, lastInput.applied) || ValuesIntact(zone, IslandCleared(lastInput.applied));
             }
 
             // 未調整ゾーン: 初期 tolerance を既定値に均してから、他に既定と違う項目が

@@ -241,5 +241,29 @@ namespace Iroca.EditorTests {
             zone.tolerance += 0.05f;
             Assert.IsFalse(AutoTuneService.UntouchedByUser(zone, input));
         }
+
+        // サンプル色を取り直して、前の島から導いた値だけが既定へ戻ったゾーン(EditingSession.ClearIslandDerived)は、
+        // 手で触っていないので上書きの確認を出さない。そのうえで手で変えたら確認を出す。
+        [Test]
+        public void UntouchedByUser_AfterTheColorRepickClearedTheIslandValues() {
+            var zone = RedZone(clicked: false);
+            var session = Session(zone);
+            var run = AutoTuneService.Start(zone, session, _pixels, "k", null, 0, 0);
+            WaitForAnalysis(run);
+            var input = run.ToInput();
+            // 証拠つきの導出が入れる島の値(この絵の従来の導出は入れないので、適用値として足す)。
+            input.applied.shadowValueFloor = 0.3f;
+            input.applied.partSatCeiling = 0.7f;
+            input.applied.partHueBand = 0.12f;
+            input.applied.chromaCeiling = 0.2f;
+            input.applied.holeFillMargin = 0.25f;
+            input.applied.ApplyTo(zone, session);
+            Assert.IsTrue(AutoTuneService.UntouchedByUser(zone, input), "テストの前提: 適用値のまま");
+
+            EditingSession.ClearIslandDerived(zone);
+            Assert.IsTrue(AutoTuneService.UntouchedByUser(zone, input), "色を取り直しただけで手調整と見た");
+            zone.partHueBand = 0.05f;
+            Assert.IsFalse(AutoTuneService.UntouchedByUser(zone, input), "手で入れた値");
+        }
     }
 }

@@ -625,11 +625,9 @@ namespace Iroca {
                 // （自動調整が AI 提案の証拠を取る位置）を無効化する。次のスポイトで付き直す。
                 // UndoHelper.ColorField が代入前に記録済みなので、Undo で色と位置が対で戻る。
                 zone.ClearSampleUV();
-                // サンプルカラーが変わったら、自動トーン抽出で生成済みの内部サンプルは
-                // 古いパーツのものになるためクリアする（次の自動調整で作り直す）。
-                if (zone.extraSamples != null && zone.extraSamples.Count > 0) {
-                    zone.extraSamples.Clear();
-                }
+                // サンプルカラーが変わったら、前のパーツの島から導いた値(自動トーン抽出の内部サンプルと
+                // 包絡ゲート・彩度天井・穴埋めの余白)は古いパーツのものになるため既定へ戻す（次の自動調整で作り直す）。
+                EditingSession.ClearIslandDerived(zone);
                 Editing.NotifyChanged(EditChange.Content);
             }
 
