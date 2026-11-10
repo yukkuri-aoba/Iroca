@@ -92,6 +92,58 @@ namespace Iroca {
             }
         }
 
+        /// <summary>gAMA がこの値(1/2.2)なら、Unity の取り込みも補正しない(sRGB の画面でそのまま見える)。</summary>
+        internal const uint GammaUncorrected = 45455;
+
+        /// <summary>
+        /// PNG の先頭(IDAT の手前)のチャンクから gAMA と sRGB の有無を読む(画素は読まない。どのスレッドからでもよい。CRC は見ない)。
+        /// gAMA が無い・PNG でない・読めないときは false。開けないときは IOException を投げる。
+        /// </summary>
+        public static bool TryReadGamma(string path, out uint gamma, out bool hasSrgb) {
+            gamma = 0;
+            hasSrgb = false;
+            bool haveGamma = false;
+            using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64)) {
+                var head = new byte[8];
+                try {
+                    ReadExactly(file, head, 8);
+                    if (!TextureIO.IsPngSignature(head)) {
+                        return false;
+                    }
+                    while (true) {
+                        ReadExactly(file, head, 8);
+                        uint length = BigEndian(head, 0);
+                        int type = FourCc(head, 4);
+                        if (type == FourCc("IDAT") || type == FourCc("IEND")) {
+                            break;
+                        }
+                        if (type == FourCc("gAMA") && length == 4) {
+                            var g = new byte[4];
+                            ReadExactly(file, g, 4);
+                            gamma = BigEndian(g, 0);
+                            haveGamma = true;
+                            Skip(file, 4);
+                        } else {
+                            if (type == FourCc("sRGB")) {
+                                hasSrgb = true;
+                            }
+                            Skip(file, (long)length + 4);
+                        }
+                    }
+                } catch (EndOfStreamException) {
+                    return haveGamma;
+                }
+            }
+            return haveGamma;
+        }
+
+        /// <summary>
+        /// Unity の取り込み(TextureImporter)が、この PNG に gAMA の補正を当てるか。gAMA が 1/2.2 以外で、sRGB の印が無く、
+        /// 「Ignore PNG file gamma」が切れているときだけ当てる(LoadImage と PngFileDecoder は gAMA を当てない。EditMode で確かめた)。
+        /// </summary>
+        internal static bool ImporterAppliesGamma(uint gamma, bool hasSrgb, bool ignorePngGamma) =>
+            !ignorePngGamma && !hasSrgb && gamma != GammaUncorrected;
+
         private static NativePixels Decode(Stream file, CancellationToken cancel, bool headerOnly, out bool supportedHeader) {
             supportedHeader = false;
             var header = new byte[8];

@@ -789,6 +789,7 @@ namespace Iroca {
             }
 
             DrawLargeSourceNotice();
+            DrawPngGammaNotice();
             // マテリアルの色の設定(メインカラー・色調補正・重ね描きなど)で、アバター上の色がテクスチャと違うとき。
             DrawMaterialColorNotice();
             DrawShadowColorNotice();
@@ -871,6 +872,50 @@ namespace Iroca {
             }
             EditorGUILayout.HelpBox(text, MessageType.Warning);
             if (GUILayout.Button(TempContent.Of(Localization.LargeSourceDismiss, Localization.LargeSourceDismissTooltip))) {
+                SessionState.SetBool(key, true);
+            }
+        }
+
+        // gAMA の案内の覚え(OnGUI ごとにファイルを開かないよう、テクスチャと取り込み結果(imageContentsHash。
+        // Ignore PNG file gamma を切り替えて取り込み直すと変わる)が変わったときだけ引き直す)。
+        [System.NonSerialized] private Texture2D _gammaFor;
+        [System.NonSerialized] private Hash128 _gammaHash;
+        [System.NonSerialized] private bool _gammaNotice;
+        [System.NonSerialized] private uint _gammaValue;
+
+        /// <summary>
+        /// 原本の PNG に gAMA があり(1/2.2 以外)、sRGB の印が無く、取り込みの Ignore PNG file gamma が切れているときの案内。
+        /// Unity の取り込みはこのとき gAMA でアバターの色を補正するが、いろかが読むファイルの色(LoadImage も同じ)は補正前なので、
+        /// 色替えの結果がアバターで見える色と少し違う。補正そのものは真似しない。
+        /// </summary>
+        private void DrawPngGammaNotice() {
+            if (SourceTexture == null) {
+                return;
+            }
+            if (_gammaFor != SourceTexture || _gammaHash != SourceTexture.imageContentsHash) {
+                _gammaFor = SourceTexture;
+                _gammaHash = SourceTexture.imageContentsHash;
+                _gammaNotice = false;
+                string path = CurrentTexturePath(SourceTexture);
+                try {
+                    if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path) && AssetImporter.GetAtPath(path) is TextureImporter ti
+                        && PngFileDecoder.TryReadGamma(path, out uint gamma, out bool hasSrgb)) {
+                        _gammaNotice = PngFileDecoder.ImporterAppliesGamma(gamma, hasSrgb, ti.ignorePngGamma);
+                        _gammaValue = gamma;
+                    }
+                } catch (System.Exception e) when (e is System.IO.IOException || e is System.UnauthorizedAccessException) {
+                    _gammaNotice = false;   // 読めなければ案内しない(色替えそのものは別の経路で扱う)
+                }
+            }
+            if (!_gammaNotice) {
+                return;
+            }
+            string key = IrocaPrefs.PngGammaDismissedPrefix + CurrentTexturePath(SourceTexture);
+            if (SessionState.GetBool(key, false)) {
+                return;
+            }
+            EditorGUILayout.HelpBox(string.Format(Localization.PngGammaNoticeFormat, _gammaValue), MessageType.Warning);
+            if (GUILayout.Button(TempContent.Of(Localization.LargeSourceDismiss, Localization.PngGammaDismissTooltip))) {
                 SessionState.SetBool(key, true);
             }
         }

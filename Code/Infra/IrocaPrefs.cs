@@ -43,6 +43,7 @@ namespace Iroca {
         internal const string MaterialColorDismissedPrefix = "Iroca.MaterialColor.Dismissed:"; // + テクスチャのパス
         internal const string ShadowColorDismissedPrefix = "Iroca.ShadowColor.Dismissed:"; // + テクスチャのパス
         internal const string LargeSourceDismissedPrefix = "Iroca.LargeSource.Dismissed:";     // + テクスチャのパス
+        internal const string PngGammaDismissedPrefix = "Iroca.PngGamma.Dismissed:";           // + テクスチャのパス
         internal const string AiSetupBannerDismissed = "Iroca.AiSetup.BannerDismissed";
         internal const string BurstCompileFailed = "Iroca.Burst.CompileFailed";
         internal const string SentisRestartRecommended = "Iroca.Sentis.RestartRecommended";

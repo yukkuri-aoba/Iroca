@@ -53,6 +53,7 @@ PREFS_KEYS = {
     "Iroca.MaterialColor.Dismissed:",    # + テクスチャのパス
     "Iroca.ShadowColor.Dismissed:",      # + テクスチャのパス
     "Iroca.LargeSource.Dismissed:",      # + テクスチャのパス
+    "Iroca.PngGamma.Dismissed:",         # + テクスチャのパス
     "Iroca.AiSetup.BannerDismissed",
     "Iroca.Burst.CompileFailed",
     "Iroca.Sentis.RestartRecommended",

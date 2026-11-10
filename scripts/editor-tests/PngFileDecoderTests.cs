@@ -119,7 +119,7 @@ namespace Iroca.EditorTests {
 
         // claimedWidth・claimedHeight: 見出し(IHDR)に書く寸法(既定は W と行の数。画素のデータはいつも rows)。
         private string WritePng(string name, int depth, int colorType, byte[][] rows, int bpp, byte[] plte = null, byte[] trns = null,
-            int interlace = 0, bool splitIdat = false, uint claimedWidth = W, uint claimedHeight = 0) {
+            int interlace = 0, bool splitIdat = false, uint claimedWidth = W, uint claimedHeight = 0, uint? gama = null, bool srgb = false) {
             string path = Path.Combine(_dir, name + ".png");
             using (var f = File.Create(path)) {
                 f.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, 0, 8);
@@ -131,6 +131,15 @@ namespace Iroca.EditorTests {
                     CrcChunk(f, "IHDR", ihdr.ToArray());
                 }
                 CrcChunk(f, "tEXt", Encoding.ASCII.GetBytes("Comment\0ancillary chunk"));
+                if (gama.HasValue) {
+                    using (var g = new MemoryStream()) {
+                        WriteBigEndian(g, gama.Value);
+                        CrcChunk(f, "gAMA", g.ToArray());
+                    }
+                }
+                if (srgb) {
+                    CrcChunk(f, "sRGB", new byte[] { 0 });
+                }
                 if (plte != null) {
                     CrcChunk(f, "PLTE", plte);
                 }
@@ -290,6 +299,62 @@ namespace Iroca.EditorTests {
             try {
                 Assert.IsNull(TextureIO.DecodeSourceFile(path, null), "LoadImage でも読めない");
             } finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
+        }
+
+        // gAMA・sRGB は IDAT の手前のチャンクから読む(CRC・画素は見ない)。
+        [Test]
+        public void TryReadGamma_ReadsGammaAndSrgb() {
+            Assert.IsTrue(PngFileDecoder.TryReadGamma(WritePng("g1", 8, 2, Rows(W * 3), 3, gama: 100000), out uint g, out bool srgb));
+            Assert.AreEqual((100000u, false), (g, srgb));
+            Assert.IsTrue(PngFileDecoder.TryReadGamma(WritePng("g2", 8, 2, Rows(W * 3), 3, gama: 45455, srgb: true), out g, out srgb));
+            Assert.AreEqual((45455u, true), (g, srgb));
+            Assert.IsFalse(PngFileDecoder.TryReadGamma(WritePng("g3", 8, 2, Rows(W * 3), 3), out _, out _), "gAMA が無い");
+            string notPng = Path.Combine(_dir, "not.png");
+            File.WriteAllText(notPng, "this is not a png at all");
+            Assert.IsFalse(PngFileDecoder.TryReadGamma(notPng, out _, out _), "PNG でない");
+        }
+
+        [Test]
+        public void ImporterAppliesGamma_OnlyWhenNotSrgbNotIgnoredAndNotTheStandardValue() {
+            Assert.IsTrue(PngFileDecoder.ImporterAppliesGamma(100000, hasSrgb: false, ignorePngGamma: false));
+            Assert.IsFalse(PngFileDecoder.ImporterAppliesGamma(45455, hasSrgb: false, ignorePngGamma: false), "1/2.2");
+            Assert.IsFalse(PngFileDecoder.ImporterAppliesGamma(100000, hasSrgb: true, ignorePngGamma: false), "sRGB");
+            Assert.IsFalse(PngFileDecoder.ImporterAppliesGamma(100000, hasSrgb: false, ignorePngGamma: true), "Ignore PNG file gamma");
+        }
+
+        // 案内の前提: gAMA を当てるのは取り込み(TextureImporter)だけ。LoadImage と PngFileDecoder は当てない
+        // (2022.3 と 6000 で同じ。gAMA 1.0 の灰色 128 が、取り込みでは 186 になる)。
+        [Test]
+        public void GammaChunk_IsAppliedByTheImporterOnly() {
+            var raw = new byte[W * 3];
+            for (int i = 0; i < raw.Length; i++) { raw[i] = 128; }
+            var rows = new byte[H][];
+            for (int y = 0; y < H; y++) { rows[y] = raw; }
+            string path = _assets.Folder + "/gamma.png";
+            string abs = TestAssets.Abs(path);
+            File.Copy(WritePng("gamma", 8, 2, rows, 3, gama: 100000), abs, true);
+
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            try {
+                Assert.IsTrue(tex.LoadImage(File.ReadAllBytes(abs)));
+                Assert.AreEqual(128, tex.GetPixels32()[0].r, "LoadImage は当てない");
+            } finally { Object.DestroyImmediate(tex); }
+            var own = PngFileDecoder.TryDecode(abs);
+            try {
+                Assert.AreEqual(128, own.ToArray()[0].r, "PngFileDecoder は当てない");
+            } finally { own.Release(); }
+
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+            importer.isReadable = true;
+            importer.textureCompression = TextureImporterCompression.Uncompressed;
+            importer.mipmapEnabled = false;
+            importer.ignorePngGamma = false;
+            importer.SaveAndReimport();
+            Assert.AreNotEqual(128, AssetDatabase.LoadAssetAtPath<Texture2D>(path).GetPixels32()[0].r, "取り込みは gAMA を当てる");
+            importer.ignorePngGamma = true;
+            importer.SaveAndReimport();
+            Assert.AreEqual(128, AssetDatabase.LoadAssetAtPath<Texture2D>(path).GetPixels32()[0].r, "Ignore PNG file gamma で当てない");
         }
 
         // 指定した種類のチャンクのうち、先頭から数えて which 番目(-1 は最後)の CRC の 1 バイトだけを変える(中身は正しいまま)。

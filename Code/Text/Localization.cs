@@ -138,6 +138,13 @@ namespace Iroca {
         public static string LargeSourceExportNoticeFormat => IsJapanese
             ? "大きい画像です（{0}×{1}）。辺が 8192 を超えるので、編集・プレビュー・「アバターに非破壊で登録」はインポート設定の大きさ（{2}×{3}）で処理します。書き出し（「適用して保存」）は元の解像度で処理するため、書き出した画像とは色がわずかに違うことがあります。また書き出すときにメモリを {4:0} GB ほど使います（この PC は {5:0} GB）。足りないと Unity が重くなったり落ちたりするので、書き出す前にほかのアプリを閉じてください。"
             : "Large image ({0}×{1}). Because a side exceeds 8192, editing, the preview, and \"Register to avatar (non-destructive)\" are processed at the import size ({2}×{3}). Exporting (\"Apply & Save\") is processed at the original resolution, so the exported image may differ slightly in color. Exporting also uses about {4:0} GB of memory (this PC has {5:0} GB). If memory runs short, Unity may slow down or crash, so close other apps before exporting.";
+        // PNG に gAMA があり、sRGB の印が無く、取り込みの「Ignore PNG file gamma」が切れているとき。{0} = gAMA の値(10 万分の 1 単位)。
+        public static string PngGammaNoticeFormat => IsJapanese
+            ? "この PNG には gAMA（{0}）があり、sRGB の印がありません。Unity の取り込みはこのガンマで色を補正しますが、いろかはファイルの色のまま色替えするため、アバターで見える色と少し違うことがあります。そろえるときは、インポート設定の「Ignore PNG file gamma」を入れるか、PNG を sRGB で保存し直してください。"
+            : "This PNG has a gAMA chunk ({0}) and no sRGB chunk. Unity's import corrects the colors with this gamma, but Iroca recolors the colors as stored in the file, so the colors on the avatar may differ slightly. To match them, turn on \"Ignore PNG file gamma\" in the import settings, or save the PNG again as sRGB.";
+        public static string PngGammaDismissTooltip => IsJapanese
+            ? "このテクスチャではこの案内を表示しません。次に Unity を開いたときにまた出ます。"
+            : "Hide this notice for this texture. It comes back the next time you open Unity.";
         public static string LargeSourceDismiss => IsJapanese ? "閉じる" : "Dismiss";
         public static string LargeSourceDismissTooltip => IsJapanese
             ? "このテクスチャではこの案内を表示しません。次に Unity を開いたときにまた出ます。"
