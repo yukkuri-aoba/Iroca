@@ -105,7 +105,9 @@ namespace Iroca {
             public float[] at;
             public float tolerance;
             public bool enabled;
-            // 自動調整のかけ方("evidence" / "conventional" / "skipped: 理由")。この依頼で調整しなかったゾーンは空
+            // 自動調整のかけ方(AutoTuneService.Run.Method: "evidence" / "conventional" / "conventional (理由)" か、
+            // "skipped: 理由")。AI の証拠を渡しても使えずに従来の導出へ戻ったら "conventional (evidence not usable: 理由)"。
+            // この依頼で調整しなかったゾーンは空
             public string autoTune = "";
             // このゾーンのマスクが画像全体に占める割合(除外・含める)
             public float excludedFraction;

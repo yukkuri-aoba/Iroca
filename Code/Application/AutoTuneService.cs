@@ -259,6 +259,34 @@ namespace Iroca {
             public bool UsedEvidence => !string.IsNullOrEmpty(Result.evidenceDiag) && !Result.evidenceDiag.StartsWith("fallback");
 
             /// <summary>
+            /// どう調整したか(自動化の zones[].autoTune。英語の決まった文字列で、ここ 1 か所で作る)。
+            /// 証拠を渡しても使えずに従来の導出へ戻ったとき(汚れた提案・素材の画素が足りない)は "evidence" と言わない。
+            /// </summary>
+            public string Method {
+                get {
+                    if (HadEvidence) {
+                        return UsedEvidence ? "evidence" : "conventional (evidence not usable: " + EvidenceUnusableReason + ")";
+                    }
+                    return ConventionalReason == ReasonEvidenceFlood
+                        ? "conventional (AI region spread to the background)"
+                        : "conventional";
+                }
+            }
+
+            // 証拠を使えなかった理由(導出診断の "fallback <理由> …" の理由。診断が無い = 小さすぎて解析しなかった)。
+            private string EvidenceUnusableReason {
+                get {
+                    const string prefix = "fallback ";
+                    string diag = Result.evidenceDiag;
+                    if (string.IsNullOrEmpty(diag) || !diag.StartsWith(prefix)) {
+                        return "not analysed";
+                    }
+                    int end = diag.IndexOf(' ', prefix.Length);
+                    return end < 0 ? diag.Substring(prefix.Length) : diag.Substring(prefix.Length, end - prefix.Length);
+                }
+            }
+
+            /// <summary>
             /// 由来(再現データの meta.json 用): 証拠の有無・正規化の有無・導出診断。書き出された失敗ケースが
             /// 「証拠経路を通ったのか、AI 未ウォームで従来導出だったのか」を後から判別できないと、どちらの経路を直せばよいか
             /// 分からない(2026-08-29: スニーカー明部クリックの再現データで証拠なし導出と byte 一致したが、証拠ありでも

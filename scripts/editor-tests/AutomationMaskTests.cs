@@ -343,6 +343,37 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // AI の範囲を証拠に渡しても、使えずに従来の導出へ戻ったら(クリックした素材が範囲の半分しか無い)、"evidence" と
+        // 報告しない(以前は証拠を渡しただけで "evidence" と言っていた。点検 自-7)。
+        [Test]
+        public void AutoTune_WithAnUnusableRegion_IsNotReportedAsEvidence() {
+            const int s = 64;   // 解析する最小の寸法(32)より大きく
+            var gray = new Color32(200, 200, 200, 255);
+            var px = new Color32[s * s];
+            for (int y = 0; y < s; y++) {
+                for (int x = 0; x < s; x++) {
+                    px[y * s + x] = x < s / 2 ? gray : Blue;
+                }
+            }
+            string tex = _assets.WritePng("gray-blue", px, s, s);
+            var whole = Enumerable.Repeat(true, s * s).ToArray();
+
+            // 前提: 画像全体の範囲は、灰色(無彩)の素材が半分しか無いので、Core の解析も証拠に使わない。
+            var zone = EditingSession.NewZone(new System.Collections.Generic.List<ColorZone>());
+            zone.sampleColor = gray;
+            zone.sampleUV = new Vector2(0.25f, 0.5f);
+            zone.EnsureId();
+            var session = IrocaSessionState.CreateDefault();
+            session.zones.Clear();
+            session.zones.Add(zone);
+            var core = ZoneAutoTuner.AnalyzeWithEvidence(px, s, s, zone.Clone(), ZoneAutoTuner.SessionInput.From(session), whole, s, s);
+            StringAssert.StartsWith("fallback contaminated", core.evidenceDiag, "テストの前提: 汚れた範囲");
+
+            var all = new MaskSuggestProposal { mask = NativeBools.CopyOf(whole, s, s), width = s, height = s };
+            var r = RunOk(Request(tex, "[{\"name\":\"gray\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]", "[]", autoTune: true), all);
+            Assert.AreEqual("conventional (evidence not usable: contaminated)", r.zones.Single().autoTune);
+        }
+
         // ─── 依頼全体の期限・AI の時間切れ ───
 
         // 依頼を出し、AI には何も返させずに、終わるまで問い合わせ直す(期限は短くしてある)。

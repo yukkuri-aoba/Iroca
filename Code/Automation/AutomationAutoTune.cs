@@ -33,7 +33,7 @@ namespace Iroca {
         // AI の証拠待ちが 1 度時間切れになった(残りのゾーンでは AI に聞かない。聞くとゾーンの数だけ時間切れを待つ)。
         private bool _aiTimedOut;
 
-        /// <summary>ゾーン名 → どう調整したか("evidence" / "conventional" / "skipped: …")。</summary>
+        /// <summary>ゾーン名 → どう調整したか(<see cref="AutoTuneService.Run.Method"/> か "skipped: …")。</summary>
         public readonly Dictionary<string, string> How = new Dictionary<string, string>();
 
         public bool Done => _index >= _zoneIds.Count;
@@ -89,7 +89,7 @@ namespace Iroca {
                     case AutoTuneService.Status.Done:
                         run.ApplyTo(zone, _state);
                         zone.UpdateCacheIfNeeded();
-                        How[zone.name] = HowOf(run);
+                        How[zone.name] = run.Method;
                         break;
                     case AutoTuneService.Status.Failed:
                         Skip(zone, run);
@@ -131,15 +131,6 @@ namespace Iroca {
                     + "call iroca_recolor again with the same names to tune them.");
             }
             Release();
-        }
-
-        private static string HowOf(AutoTuneService.Run run) {
-            if (run.HadEvidence) {
-                return "evidence";
-            }
-            return run.ConventionalReason == AutoTuneService.ReasonEvidenceFlood
-                ? "conventional (AI region spread to the background)"
-                : "conventional";
         }
 
         private void Skip(ColorZone zone, AutoTuneService.Run run) {
