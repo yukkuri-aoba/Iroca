@@ -913,6 +913,19 @@ namespace Iroca.EditorTests {
             Assert.AreEqual("red", r.zones.Single().name);
         }
 
+        [Test]
+        public void Recolor_PreviewAndAvatar_CompareInTheBackground() {
+            // avatar・preview の比較画像(作業解像度の色替え)も、png と同じく背景で計算する(8K ではメインスレッドが数秒止まった)。
+            // 依頼はその場で途中経過を返し、問い合わせ直しで結果を返す。
+            string src = Halves();
+            string json = IrocaAutomation.Recolor(Request(src, "preview", "[{\"name\":\"red\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]"));
+            StringAssert.Contains("\"pending\":true", json);
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(WaitOnThisThread(json));
+            Assert.IsTrue(r.ok, json);
+            Assert.AreEqual(0.5f, r.changedFraction, 1e-4f);
+            Assert.IsTrue(File.Exists(r.preview), "比較画像を書くこと");
+        }
+
         private static bool RecolorRunning()
             => JsonUtility.FromJson<IrocaAutomation.InspectResult>(IrocaAutomation.Inspect(null)).recolorRunning;
 

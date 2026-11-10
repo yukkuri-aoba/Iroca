@@ -100,6 +100,13 @@ namespace Iroca.EditorTests {
             WriteFile("old-vacc.json", F.V010Preset);
             string json = IrocaAutomation.Recolor("{\"texture\":\"" + _path + "\",\"apply\":\"preview\",\"preset\":\"" + preset
                 + "\",\"changes\":[],\"autoTune\":false}");
+            // 比較画像は背景で作るので、終わるまで問い合わせ直す(エディタのコマは要らない)。
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (json.Contains("\"pending\":true")) {
+                Assert.Less(watch.Elapsed.TotalSeconds, 60, json);
+                System.Threading.Thread.Sleep(5);
+                json = IrocaAutomation.RecolorStatus();
+            }
             var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
             Assert.IsTrue(r.ok, json);
             CollectionAssert.AreEqual(new[] { "skirt", "ribbon", "shirt" }, r.zones.Select(z => z.name).ToArray(),

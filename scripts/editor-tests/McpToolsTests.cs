@@ -78,7 +78,7 @@ namespace Iroca.EditorTests {
         [Test]
         public void Recolor_PassesArgumentsAsTheRequest() {
             string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
-            string json = Call("IrocaRecolorTool",
+            string json = CallUntilDone(
                 "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"autoTune\":false,\"changes\":[{\"name\":\"red\",\"at\":[0.5,0.5],\"to\":\"#1A2B5C\"}]}");
             Assert.AreEqual("True", Token(json, "success"), json);
             Assert.AreEqual("red", Token(json, "data.zones[0].name"), json);
@@ -89,7 +89,7 @@ namespace Iroca.EditorTests {
         public void Recolor_AcceptsChangesSentAsString() {
             // 配列を JSON の文字列で送ってくるクライアントもある。
             string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
-            string json = Call("IrocaRecolorTool", Args(("texture", src), ("apply", "preview"),
+            string json = CallUntilDone(Args(("texture", src), ("apply", "preview"),
                 ("changes", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]")));
             Assert.AreEqual("True", Token(json, "success"), json);
         }
@@ -130,7 +130,7 @@ namespace Iroca.EditorTests {
             string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
             string change = "{\"name\":\"red\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}";
             string mask = "{\"op\":\"dont_paint\",\"at\":[0.5,0.5],\"by\":\"island\"}";
-            string json = Call("IrocaRecolorTool", "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"autoTune\":false,\"changes\":" + change + "}");
+            string json = CallUntilDone("{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"autoTune\":false,\"changes\":" + change + "}");
             Assert.AreEqual("True", Token(json, "success"), json);
             Assert.AreEqual("red", Token(json, "data.zones[0].name"), json);
             json = Call("IrocaRecolorTool", "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"autoTune\":false,\"changes\":[" + change + "],\"masks\":" + mask + "}");
@@ -227,6 +227,18 @@ namespace Iroca.EditorTests {
                 .First(a => a.GetType().FullName == "MCPForUnity.Editor.Tools.McpForUnityToolAttribute");
             var maxPoll = Convert.ToDouble(attr.GetType().GetProperty("MaxPollSeconds").GetValue(attr));
             Assert.Greater(maxPoll, IrocaAutomation.RequestBudgetSeconds + 30, "期限の後の仕上げ(書き出し)の分の余裕");
+        }
+
+        // 依頼を出し、終わるまで同じ引数で問い合わせ直す(サーバーと同じ。比較画像・書き出しは背景で進むので、コマを挟まなくてよい)。
+        private string CallUntilDone(string argsJson) {
+            string json = Call("IrocaRecolorTool", argsJson);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (Token(json, "_mcp_status") == "pending") {
+                Assert.Less(watch.Elapsed.TotalSeconds, 60, json);
+                System.Threading.Thread.Sleep(5);
+                json = Call("IrocaRecolorTool", AddAction(argsJson));
+            }
+            return json;
         }
 
         private string AddAction(string argsJson)

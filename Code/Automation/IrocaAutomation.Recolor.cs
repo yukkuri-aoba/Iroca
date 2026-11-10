@@ -315,6 +315,8 @@ namespace Iroca {
             public readonly List<AutomationMaskEdits.Edit> maskEditList = new List<AutomationMaskEdits.Edit>();
             public AutomationMaskEdits maskEdits;
             public AutomationAutoTune tune;
+            // avatar・preview の仕上げの比較画像(作業解像度の色替え)を背景で計算しているもの
+            public Task<Comparison> compare;
             // png の仕上げ(比較画像・元の解像度の色替え・PNG 化)を背景で計算しているもの
             public Task<PngExport> export;
             public readonly CancellationTokenSource cts = new CancellationTokenSource();
@@ -406,10 +408,10 @@ namespace Iroca {
 
         /// <summary>
         /// 進められるところまで進める(メインスレッド)。終わったら最後の結果、まだ待つなら null。
-        /// マスク操作 → 自動調整 → 仕上げの順(自動調整はマスクで外した所を見ない)。avatar・preview の仕上げ(作業解像度の比較画像と登録)はその場で行う。
-        /// png の仕上げは、元の解像度の色替えと PNG 化が重い(16K 級では MCP の 30 秒の時間切れを超え、
-        /// その間エディタも止まる)ので、UI の書き出しと同じく計算を背景のスレッドへ回し、Unity の API
-        /// (元の画素の読み込み・書き込み・取り込み)だけをメインスレッドで行う。
+        /// マスク操作 → 自動調整 → 仕上げの順(自動調整はマスクで外した所を見ない)。
+        /// 仕上げの色替えは重い(png は元の解像度の色替えと PNG 化で、16K 級では MCP の 30 秒の時間切れを超える。avatar・preview も
+        /// 作業解像度の色替えで、8K ではメインスレッドが数秒止まった)ので、UI の書き出しと同じく計算を背景のスレッドへ回し、
+        /// Unity の API(元の画素の読み込み・書き込み・取り込み・登録)だけをメインスレッドで行う。
         /// </summary>
         private static string AdvanceRecolor(RecolorJob job) {
             if (job.maskEdits != null) {
@@ -439,6 +441,13 @@ namespace Iroca {
             }
             job.maskEdits?.ReleaseAiIfNoWindow();
             if (job.r.apply != ApplyPng) {
+                if (job.compare == null) {
+                    StartCompare(job);
+                    return null;
+                }
+                if (!job.compare.IsCompleted) {
+                    return null;
+                }
                 return CompleteRecolor(job);
             }
             if (job.export == null) {
@@ -463,7 +472,9 @@ namespace Iroca {
                     : tuning
                     ? "Auto-tuning the zones (the first time on a texture, the AI prepares the image, which can take a while). "
                       + "Call again to get the result."
-                    : "Writing the recolored PNG (a large texture takes a while). Call again to get the result.",
+                    : job.r.apply == ApplyPng
+                    ? "Writing the recolored PNG (a large texture takes a while). Call again to get the result."
+                    : "Recoloring the texture for the preview image (a large texture takes a while). Call again to get the result.",
             };
             return JsonUtility.ToJson(p);
         }
@@ -731,18 +742,49 @@ namespace Iroca {
         private static string ZoneNames(IrocaSessionState state)
             => string.Join(", ", state.zones.Where(z => z != null).Select(z => "'" + z.name + "'"));
 
-        // avatar・preview の仕上げ: 比較画像を作り、登録まで行って、最後の結果を返す(png は StartPngExport)。
-        private static string CompleteRecolor(RecolorJob job) {
-            var r = job.r;
+        /// <summary>
+        /// avatar・preview の仕上げの比較画像(作業解像度の色替え)を背景で始める(メインスレッド)。終わったら
+        /// <see cref="CompleteRecolor"/> が受け取る。png は <see cref="StartPngExport"/>。
+        /// </summary>
+        private static void StartCompare(RecolorJob job) {
             var state = job.state;
-            var tex = job.tex;
             foreach (var z in state.zones) {
                 if (z != null) {
                     z.UpdateCacheIfNeeded();
                 }
             }
-            NativeMemoryLifecycle.WorkStarted();
-            try { FillResult(job, Compare(job.work, state, CancellationToken.None, keepAfter: false, out _)); } finally { NativeMemoryLifecycle.WorkEnded(); }
+            var work = job.work.AddRef();   // 背景の比較が読む間の参照
+            var ct = job.cts.Token;
+            NativeMemoryLifecycle.WorkStarted();   // 手を止めたときの縮小と、全部返す予約がこの計算を待つように
+            // 取り消しのトークンは Task.Run に渡さない(始まる前に取り消されると中身が走らず、参照を返せない)。
+            job.compare = Task.Run(() => {
+                try {
+                    ct.ThrowIfCancellationRequested();
+                    return Compare(work, state, ct, keepAfter: false, out _);
+                } finally {
+                    work.Release();
+                    NativeMemoryLifecycle.WorkEnded();
+                }
+            });
+        }
+
+        // avatar・preview の仕上げの残り(メインスレッド): 比較画像を受け取り、登録まで行って、最後の結果を返す。
+        private static string CompleteRecolor(RecolorJob job) {
+            var r = job.r;
+            var state = job.state;
+            var tex = job.tex;
+            var task = job.compare;
+            if (task.IsCanceled) {
+                return FinishRecolor(r, "the recolor was cancelled.");
+            }
+            if (task.IsFaulted) {
+                var ex = task.Exception?.GetBaseException();
+                if (ex is OperationCanceledException) {
+                    return FinishRecolor(r, "the recolor was cancelled.");
+                }
+                return FinishRecolor(r, $"{ex?.GetType().Name}: {ex?.Message}");
+            }
+            FillResult(job, task.Result);
 
             // ── 反映 ──
             if (r.apply == ApplyAvatar) {
@@ -753,7 +795,7 @@ namespace Iroca {
                 }
                 string edited = job.waited ? EditedWhileWaiting(job) : null;
                 if (edited != null) {
-                    return FinishRecolor(r, $"while this call was waiting for auto-tune, {edited}, so the result was not applied "
+                    return FinishRecolor(r, $"while this call was waiting, {edited}, so the result was not applied "
                         + "(to keep those edits). Call iroca_recolor again to apply it on top of the current state.");
                 }
                 // 書き込み先と同じレシピ(どちらも無いときを含む)を表示している窓だけ、書いた後に読み直す。別のレシピを
