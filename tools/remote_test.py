@@ -262,7 +262,8 @@ def forwarded_env(extra: list[str]) -> dict[str, str]:
 
 def git_config_to_mirror(repo: Path) -> dict[str, str]:
     cfg = {}
-    for key in ("core.autocrlf", "core.eol", "core.symlinks"):
+    # core.hooksPath はテスト（test_hooks_configured）が見る。相手でコミットはしないのでフックは動かない
+    for key in ("core.autocrlf", "core.eol", "core.symlinks", "core.hooksPath"):
         v = git(repo, "config", "--get", key, check=False)
         if v:
             cfg[key] = v
@@ -390,7 +391,7 @@ def _prepare(t: Transport, run_id: str, argv: list[str], fetch: list[str], env_e
         "env": forwarded_env(env_extra),
         "argv": argv,
         "fetch": fetch,
-        "git_config": git_config_to_mirror(REPO),
+        "git_config": {"main": git_config_to_mirror(REPO), "dev_safe": git_config_to_mirror(DEV_SAFE)},
     }
     _upload(t, run_id, "request.json", json.dumps(request, ensure_ascii=False).encode("utf-8"))
     log(f"準備 {time.monotonic() - t0:.1f} 秒。{info.get('computer') or 'リモート'} で実行します")

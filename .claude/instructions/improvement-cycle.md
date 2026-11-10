@@ -13,8 +13,11 @@
 ## サイクルの基本形
 1. **現状計測** — 実 C# ハーネス経由のテストでスコア・失敗ケースを数値で把握する:
    ```
-   python -m pytest dev_safe/Tests/regression/ -q
+   python tools/remote_test.py -- -m pytest dev_safe/Tests/regression/ -q
    ```
+   `tools/remote_test.py` は LAN のテスト用 PC につながればそこで回し、つながらなければ手元で回す（`--` の後ろは
+   `python` に渡す引数そのまま。作業ツリーの今の中身を測る）。pytest で回すテストはこの入口を使う。視覚レビュー
+   （`visual_review.py`）・EditMode・abcheck は手元で回す。仕組みは `docs/testing-architecture.md` の「テスト用の別 PC で回す」。
    採否判断に使う計測（この手順 1 と手順 5）では、環境変数 `IROCA_CSHARP_GATE_FULL=1`（旧名 `VACC_CSHARP_GATE_FULL` も効く）と `IROCA_AUTOTUNE_GATE_FULL=1`（旧名 `VACC_AUTOTUNE_GATE_FULL` も効く）を立てる。立てないと品質ゲートは 1 被写体しか測らず、残りを測らないまま「全パス」と見誤る。
 2. **失敗分析** — 最もスコアを落とす／誤検出・見逃しが目立つケースを特定し、原因を具体的に仮説化する（色空間、閾値、連結成分処理、マスク膨張/収縮など）。
 3. **変更前スナップショット** — 旧出力を保存する:

@@ -332,8 +332,9 @@ def cmd_run(argv: list[str]) -> int:
     try:
         t0 = time.monotonic()
         try:
-            _sync_repo(MAIN, req["repos"]["main"], run_dir, req.get("git_config", {}))
-            _sync_repo(DEV_SAFE, req["repos"]["dev_safe"], run_dir, req.get("git_config", {}))
+            git_config = req.get("git_config", {})
+            _sync_repo(MAIN, req["repos"]["main"], run_dir, git_config.get("main", {}))
+            _sync_repo(DEV_SAFE, req["repos"]["dev_safe"], run_dir, git_config.get("dev_safe", {}))
             for b in ("main.bundle", "dev_safe.bundle"):
                 (run_dir / b).unlink(missing_ok=True)
             _apply_data(run_dir, req)

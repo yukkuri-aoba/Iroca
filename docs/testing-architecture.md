@@ -268,6 +268,9 @@ dotnet 側（`scripts/build-check`）も asmdef と同じ境目で分けてあ�
 
 ## 標準の実行コマンド
 
+下の `.\.venv\Scripts\python.exe <引数>` は、`python tools/remote_test.py -- <引数>` と書くと LAN のテスト用 PC に
+つながったときだけそこで回る（下の「テスト用の別 PC で回す」）。
+
 ```powershell
 # 回帰テスト一式（改善サイクルの基本形）
 .\.venv\Scripts\python.exe -m pytest dev_safe/Tests/regression/ -q
@@ -334,6 +337,10 @@ LAN にテスト用の PC があるときは、テストをそちらで回して
 - 実行後のファイルが要るときは `--fetch <本体からの相対パス>`（複数可）で手元の同じ場所へ持ち帰る。
 - 相手の置き場は `<相手のホーム>\iroca-remote\`（`Iroca\`・`Iroca\dev_safe\`・`UnityManaged\`・`inbox\`）。
   ハーネスの実行キャッシュは相手の dev_safe の中に溜まり、相手の `cache_gc` が掃除する。
+- `core.autocrlf`・`core.hooksPath` などは手元の値を相手のリポジトリへ写す（`test_hooks_configured` が見る）。
+- 実測（2026-11-11、相手は i5-1340P・16GB・Wi-Fi 越し）: 初回の setup 19 分（データ 13.7GB を約 21MB/s）。
+  以後の準備は数秒。回帰 FULL（`IROCA_CSHARP_GATE_FULL=1`・`IROCA_AUTOTUNE_GATE_FULL=1`）はキャッシュ空で
+  15 分 30 秒、温まった後は golden・source_checks・unit-run 込みの 1645 件で 4 分 18 秒（空きメモリで 3 並列に下がる）。
 
 **リモートで回さないもの**: 視覚レビュー（`visual_review.py` の snapshot・compare・approve）は承認を手元の
 作業ツリーと索引の中身に結び付けるので手元で回す。Unity 実機の EditMode テスト・abcheck も手元。
