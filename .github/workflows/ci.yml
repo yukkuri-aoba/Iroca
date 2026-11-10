@@ -110,4 +110,6 @@ jobs:
           IROCA_GOLDEN_TOLERANT: "1"
           # CI ではハーネスが無いことによる skip を許さない（走っていないのに緑を防ぐ）。
           IROCA_REQUIRE_HARNESS: "1"
-        run: /tmp/venv/bin/python -m pytest scripts/golden scripts/source_checks scripts/unit-run -q -n 0 -rs
+        # 並列はローカルと同じ pytest.ini の既定（-n 4 --dist loadfile）。以前は -n 0 で全部直列だった（理由の記録なし）。
+        # ハーネスのビルドはプロセスをまたぐロックの中（tools/harness_build.py）なので、ワーカーが同時に作り直さない。
+        run: /tmp/venv/bin/python -m pytest scripts/golden scripts/source_checks scripts/unit-run -q -rs
