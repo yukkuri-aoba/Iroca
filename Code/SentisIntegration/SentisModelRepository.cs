@@ -20,7 +20,7 @@ namespace Iroca.SentisIntegration {
     /// (ONNX ScriptedImporter が ModelAsset を生成) → ModelWriter.Save で .sentis を
     /// モデル置き場へキャッシュ → 一時アセット削除。2 回目以降は .sentis を
     /// ModelLoader.Load で直接ロードする(高速・Assets 非汚染)。
-    /// キャッシュ名に Sentis パッケージ版を含め、版が変わったら自動再変換する。
+    /// キャッシュ名に Sentis パッケージ版と ONNX の中身の印(SHA-256 の先頭 8 桁)を含め、どちらかが変わったら自動再変換する。
     /// </summary>
     internal static class SentisModelRepository {
         public const string EncoderFileName = MaskSuggestBridge.EncoderFileName;
@@ -55,9 +55,26 @@ namespace Iroca.SentisIntegration {
             return s_sentisVersion = info.version;
         }
 
+        /// <summary>
+        /// .onnx の変換済みキャッシュのパス(&lt;stem&gt;.&lt;Sentis の版&gt;.&lt;ONNX の SHA-256 の先頭 8 桁&gt;.sentis)。
+        /// 以前は &lt;stem&gt;.&lt;版&gt;.sentis で、有効かを「キャッシュの時刻 ≥ ONNX の時刻」だけで見ていた。使うたびに
+        /// キャッシュの時刻を今にする(<see cref="MarkUsed"/>)ので、ONNX を元の時刻のままコピーして置き直すと、古い .sentis を
+        /// 使い続けた。中身の印を名前に入れて、中身が違えば別のキャッシュにする(共有フォルダで別の ONNX を持つプロジェクト
+        /// どうしも、作り直し合わない)。古い名前のキャッシュは <see cref="DeleteStaleCaches"/> が 30 日使われなければ消す。
+        /// 読み込むたびに ONNX を 1 回読む(モデルを読み込むのはドメインごとに 1 回で、大きい方で 0.1 秒前後)。
+        /// </summary>
         static string CachePathFor(string onnxPath) =>
             Path.Combine(CacheDir,
-                Path.GetFileNameWithoutExtension(onnxPath) + "." + SentisVersion() + ".sentis");
+                Path.GetFileNameWithoutExtension(onnxPath) + "." + SentisVersion() + "." + ContentTag(onnxPath) + ".sentis");
+
+        // ファイルの中身の SHA-256 の先頭 8 桁(16 進の小文字)。
+        static string ContentTag(string path) {
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
+            using (var sha = System.Security.Cryptography.SHA256.Create()) {
+                byte[] digest = sha.ComputeHash(fs);
+                return BitConverter.ToString(digest, 0, 4).Replace("-", "").ToLowerInvariant();
+            }
+        }
 
         /// <summary>
         /// .onnx を Model としてロードする(.sentis キャッシュ経由)。失敗時は null + error。
@@ -70,12 +87,12 @@ namespace Iroca.SentisIntegration {
                     error = string.Format(Localization.AiErrModelMissingFormat, onnxPath);
                     return null;
                 }
+                // 名前に ONNX の中身の印が入っているので、あれば今の ONNX から作ったもの(時刻は見ない)。
                 string cachePath = CachePathFor(onnxPath);
-                if (File.Exists(cachePath) &&
-                    File.GetLastWriteTimeUtc(cachePath) >= File.GetLastWriteTimeUtc(onnxPath)) {
+                if (File.Exists(cachePath)) {
                     var cached = TryLoadCache(cachePath, out bool locked, out string why);
                     if (cached != null) {
-                        MarkUsed(cachePath, onnxPath);
+                        MarkUsed(cachePath);
                         DeleteStaleCaches(onnxPath, cachePath);
                         DeleteLeftoverTempCaches(onnxPath);
                         return cached;
@@ -244,23 +261,20 @@ namespace Iroca.SentisIntegration {
 
         /// <summary>
         /// 読み込んだキャッシュの更新時刻を今にする(使った印。<see cref="DeleteStaleCaches"/> が見る)。
-        /// 有効判定は「キャッシュの時刻 ≥ ONNX の時刻」なので、新しくしても判定は変わらない。ただし読んでいる間に
-        /// ONNX が置き換わっていたら(ダウンロードし直した)、古いキャッシュを有効に見せてしまうので触らない。
+        /// キャッシュが有効かは名前(ONNX の中身の印)で決まるので、時刻を新しくしても判定は変わらない。
         /// 失敗は無視する(別の Unity が読んでいる最中など。その Unity が読み終えたときに新しくする)。
         /// </summary>
-        static void MarkUsed(string cachePath, string onnxPath) {
+        static void MarkUsed(string cachePath) {
             try {
-                if (File.GetLastWriteTimeUtc(cachePath) < File.GetLastWriteTimeUtc(onnxPath)) {
-                    return;
-                }
                 File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow);
             } catch { /* 使った印が付かないだけ */ }
         }
 
         /// <summary>
-        /// 同じ .onnx から作られたほかの Sentis 版の .sentis キャッシュのうち、長く使われていないものを削除する。
+        /// 同じ .onnx の名前から作られたほかのキャッシュ(ほかの Sentis 版・ほかの中身の ONNX・中身の印の無い前の名前)のうち、
+        /// 長く使われていないものを削除する。
         ///
-        /// キャッシュ名は &lt;stem&gt;.&lt;version&gt;.sentis で、Sentis の版が変わると別ファイルになる。
+        /// キャッシュ名は &lt;stem&gt;.&lt;version&gt;.&lt;sha8&gt;.sentis で、Sentis の版や ONNX の中身が変わると別ファイルになる。
         /// 掃除しないと版を上げるたびに 45MB 級の孤児が %LOCALAPPDATA% に積み上がる。
         /// ただしこのフォルダは全プロジェクトで共有なので、ほかの版は別のプロジェクト(Unity 2022 の Sentis と
         /// Unity 6 の Inference Engine など)が今も使っていることがある。無条件に消すと、行き来するたびに

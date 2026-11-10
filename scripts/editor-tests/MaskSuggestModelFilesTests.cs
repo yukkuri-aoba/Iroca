@@ -67,6 +67,36 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
+        public void OnnxWithTheSameTimeButOtherContent_GetsAnotherCache() {
+            // キャッシュが有効かを日時だけで見ていたので、ONNX を古い日時のまま置き直す(元の時刻のままコピーする)と、
+            // 古い .sentis を使い続けた。キャッシュの名前に ONNX の中身の印(SHA-256 の先頭 8 桁)を入れる。
+            var cachePathFor = Method(Repository(), "CachePathFor");
+            string dir = Path.Combine(Path.GetTempPath(), "iroca_onnx_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try {
+                string onnx = Path.Combine(dir, TestStem() + ".onnx");
+                var when = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                File.WriteAllBytes(onnx, new byte[] { 1, 2, 3, 4 });
+                File.SetLastWriteTimeUtc(onnx, when);
+                string first = (string)cachePathFor.Invoke(null, new object[] { onnx });
+
+                File.WriteAllBytes(onnx, new byte[] { 1, 2, 3, 5 });   // 同じ大きさ・同じ時刻で中身だけ違う
+                File.SetLastWriteTimeUtc(onnx, when);
+                string other = (string)cachePathFor.Invoke(null, new object[] { onnx });
+                Assert.AreNotEqual(first, other, "中身の違う ONNX が同じキャッシュを使う");
+
+                // 中身が同じなら、時刻が変わっても同じキャッシュ(ダウンロードし直しても変換し直さない)。
+                File.SetLastWriteTimeUtc(onnx, when.AddDays(3));
+                Assert.AreEqual(other, (string)cachePathFor.Invoke(null, new object[] { onnx }));
+                StringAssert.EndsWith(".sentis", other);
+                StringAssert.StartsWith(Path.GetFileNameWithoutExtension(onnx) + ".", Path.GetFileName(other),
+                    "キャッシュの名前は <stem>. で始める(版の違うキャッシュの掃除が同じ形で見つける)");
+            } finally {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Test]
         public void LeftoverCacheTempFiles_OnlyOldOnesAreRemoved() {
             // キャッシュは一時ファイルに書いてから置き換える。保存中に落ちて残った一時ファイルだけを消し、
             // 別の Unity が今書いている一時ファイルは消さない。
@@ -218,8 +248,8 @@ namespace Iroca.EditorTests {
             }
             string onnx = (string)repo.GetProperty("DecoderOnnxPath", BindingFlags.Public | BindingFlags.Static).GetValue(null);
             string cache = (string)Method(repo, "CachePathFor").Invoke(null, new object[] { onnx });
-            if (!File.Exists(cache) || File.GetLastWriteTimeUtc(cache) < File.GetLastWriteTimeUtc(onnx)) {
-                Assert.Ignore("この版の変換済みキャッシュがまだ無い（AI を一度使ってから回す）");
+            if (!File.Exists(cache)) {
+                Assert.Ignore("この版・このモデルの変換済みキャッシュがまだ無い（AI を一度使ってから回す）");
             }
 
             var warnings = new List<string>();
