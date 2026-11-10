@@ -58,14 +58,11 @@ namespace Iroca {
             // キャッシュミス時のみ確保・充填する(ヒット時は FF を省くため不要)。
             bool ffNeedsMatchConf = zone.mode == SelectionMode.ColorPick && zone.useFloodFill;
             // キャッシュにあれば strength へ写す(キャッシュの中身はネイティブメモリにあり、貸し出し中は
-            // 手放されない)。除外マスクが保存時と違えば、変わった画素でこのゾーンの照合がどれも 0 のときだけ
-            // 使う(そのとき照合の直後の配列が計算し直しと同じになり、以降の段はマスクを読まないので選択も同じ)。
+            // 手放されない)。除外マスクが保存時と中身まで同じときだけ使う(別の配列でも、1 画素も違わなければ同じ)。
+            // 除外は連結成分の直前にも掛け直すので、変わった画素の照合が 0 でも選択は変わりうる(2026-11-11)。
             if (selKey != null) {
-                var zoneForCheck = zone;
                 selCached = selectionCache.TryCopy(zone.id, selKey, w, h, strength, run.CommonMask, zoneMaskLayer,
-                    (oldCommon, oldZone) => ExclusionChangeKeepsMatch(zoneForCheck, originalPixels, hsv,
-                        w, h, maskColOf, maskRowBase, maskW, maskH,
-                        oldCommon, oldZone, commonMask, zoneMask, ffNeedsMatchConf, po),
+                    (oldCommon, oldZone) => ExclusionUnchanged(maskW, maskH, oldCommon, oldZone, commonMask, zoneMask),
                     out cachedBox);
             }
             bool needMatchConf = ffNeedsMatchConf && !selCached;
@@ -240,6 +237,11 @@ namespace Iroca {
                         PreviewCoords.UvToPixel(zone.sampleUV.x, zone.sampleUV.y, w, h,
                             out anchorX, out anchorY);
                     }
+                    // 除外は連結の壁にする: 照合は除外の画素に 0 を書くが、そのあとの伝播・帯成長・閉領域の復帰は
+                    // 除外を通って strength を書き戻しうる(線の向こうの成分をつなぐ橋になる)。連結成分の判定の
+                    // 直前に掛け直し、線の向こうにコアが無い成分は落とす。閉領域の判定は除外を通れるままにする
+                    // (除外は選択の外ではなく、囲まれた穴として戻す)。最後に消す段(Masks.cs)は残す。
+                    ReapplyExclusion(strength, w, h, maskColOf, maskRowBase, maskW, maskH, commonMask, zoneMask, po);
                     ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY,
                         hsv, zone.shadowValueFloor, zone.partSatCeiling,
                         ffHueBand, sampH, sampS * ColorZone.HueReliableSatFrac,

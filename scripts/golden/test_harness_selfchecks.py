@@ -215,8 +215,8 @@ def test_refineall_crop_matches_full(harness, tmp_path, case):
 
 # ─────────────── 選択キャッシュ: マスクだけを変えた再生成 ───────────────
 _SELCACHE = re.compile(r"SELCACHE populate_diff=(\d+) hit_vs_fresh=(\d+) miss_vs_fresh=(\d+)")
-_SELCACHE_MASK = re.compile(r"SELCACHE-MASK quiet=(\d+) busy=(\d+) back=(\d+) include=(\d+) reuse=(\d+)"
-                            r" latest=(\d+) latest_excl=(\d+)")
+_SELCACHE_MASK = re.compile(r"SELCACHE-MASK quiet=(\d+) same=(\d+) busy=(\d+) back=(\d+) include=(\d+) reuse=(\d+)"
+                            r" latest=(\d+) latest_excl=(\d+) wall=(\d+) wallblocks=(\d+) wallreuse=(\d+)")
 
 
 @pytest.mark.parametrize("feather", [0.0, 2.0])
@@ -246,8 +246,45 @@ def test_selection_cache_mask_changes(harness, tmp_path, feather):
     assert m and all(int(g) == 0 for g in m.groups()), f"選択キャッシュの基本の検証が崩れています:\n{r.stderr}"
     mm = _SELCACHE_MASK.search(r.stderr)
     assert mm, f"SELCACHE-MASK 行がありません:\n{r.stderr}"
-    quiet, busy, back, include, reuse, latest, latest_excl = (int(g) for g in mm.groups())
-    assert (quiet, busy, back, include) == (0, 0, 0, 0), f"フル再計算と出力が違います: {mm.group(0)}"
-    assert reuse > 0, f"マスクを変えたときに選択を 1 度も使い回していません（検出力のない入力）: {mm.group(0)}"
+    quiet, same, busy, back, include, reuse, latest, latest_excl, wall, wall_blocks, _wall_reuse = (
+        int(g) for g in mm.groups())
+    assert (quiet, same, busy, back, include) == (0, 0, 0, 0, 0), f"フル再計算と出力が違います: {mm.group(0)}"
+    # 使い回すのは、除外の中身が保存時と同じ別の配列(same)のときだけ。除外が変われば照合が変わらなくても計算し直す。
+    assert reuse > 0, f"中身の同じ除外マスクで選択を 1 度も使い回していません（検出力のない入力）: {mm.group(0)}"
+    assert wall == 0, f"選択の端に除外を足した再生成がフル再計算と違います: {mm.group(0)}"
     # 右クリックの宛先が読む値（TryReadLatest）: 持ち越しと作り直しで同じ、除外の画素は 0
     assert (latest, latest_excl) == (0, 0), f"右クリックの宛先が読む選択が表示と違います: {mm.group(0)}"
+
+
+def test_selection_cache_wall_bridge(harness, tmp_path):
+    """除外の線が連結の壁になる(連続領域のシードが無い側は選ばれない)ことと、選択キャッシュの使い回しの関係。
+
+    同じ赤の 2 つの面を、細い淡い橋(ハイライトの帯成長でだけ選択になる。許容範囲が狭く、橋の画素は照合が 0)がつなぐ。
+    除外のない状態で作った選択キャッシュへ、橋の上に除外を足すと、足した画素の照合は 0 でも、連結成分の直前の掛け直しで
+    橋が切れ、シードの無い側が選択から外れる。照合が 0 かで使い回しを決めると、古い選択（橋がつながったまま）が出て、
+    フル再計算と食い違う（wall が 0 でない。2026-11-11 に外した旧の近道では 12,192 画素違った）。
+    """
+    n = 256
+    rgba = np.zeros((n, n, 4), np.uint8)
+    rgba[..., :3] = 150
+    rgba[..., 3] = 255
+    rgba[100:160, 20:90, :3] = (200, 30, 30)      # シードのある面
+    rgba[100:160, 170:236, :3] = (200, 30, 30)    # シードの無い面
+    rgba[126:130, 90:170, :3] = (255, 190, 190)   # 2 つをつなぐ橋
+    img_raw, mask_raw, out_raw, zj = (tmp_path / "img.raw", tmp_path / "mask.raw", tmp_path / "out.raw",
+                                      tmp_path / "z.json")
+    G.write_raw(img_raw, rgba)
+    G.write_raw(mask_raw, np.zeros((n, n), np.uint8))
+    # 既定値に頼らず、連続領域・ハイライト・許容範囲を明示する（橋が照合 0 で帯成長だけで選ばれる条件）。
+    zone = G.zone(name="red", sample=(200 / 255, 30 / 255, 30 / 255), target=(0.1, 0.7, 0.2), tolerance=0.02,
+                  useFloodFill=True, seedUV=[55 / n, 130 / n], sampleUV=[55 / n, 130 / n],
+                  highlightRecovery=True, highlightBandExpand=True)
+    zj.write_text(json.dumps({"zones": [G._zone_json(zone)], "settings": G.settings()}), encoding="utf-8")
+    r = _run(harness, img_raw, mask_raw, out_raw, "--zones", zj, "--selcache-mask")
+    assert r.returncode == 0, f"--selcache-mask 失敗 (exit={r.returncode}):\n{r.stderr}"
+    mm = _SELCACHE_MASK.search(r.stderr)
+    assert mm, f"SELCACHE-MASK 行がありません:\n{r.stderr}"
+    quiet, same, busy, back, include, reuse, latest, latest_excl, wall, wall_blocks, _wall_reuse = (
+        int(g) for g in mm.groups())
+    assert wall_blocks > 0, f"選択の端にまたがる角が 1 つも無く、何も確かめていません: {mm.group(0)}"
+    assert (quiet, same, busy, back, include, wall) == (0, 0, 0, 0, 0, 0), f"フル再計算と出力が違います: {mm.group(0)}"

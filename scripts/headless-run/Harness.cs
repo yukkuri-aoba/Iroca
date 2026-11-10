@@ -1758,6 +1758,7 @@ namespace Iroca {
         // 選択キャッシュのマスク変更の検証: 除外マスク・含めるマスクだけを変えた再生成が、キャッシュを持ち越しても
         // フル再計算と byte 一致するかを確かめる("SELCACHE-MASK" 行。差分はどれも 0 が正)。
         //   quiet   : どのゾーンも変えなかった 24px 角を共通の除外に足す(照合が 0 なら使い回しになる)
+        //   same    : quiet と中身が同じ別の配列(中身が同じなら選択を使い回す。reuse が 1 以上になる)
         //   busy    : いちばん変化の多い 24px 角を共通の除外に足す(そこに合うゾーンは計算し直しになる)
         //   back    : 共通の除外を元に戻す(中身は同じで別の配列)
         //   include : 先頭ゾーンの含めるマスクに quiet の角を足す(選択はそのまま使える)
@@ -1765,6 +1766,9 @@ namespace Iroca {
         //   latest  : 右クリックの宛先が読む値(TryReadLatest)が、持ち越したキャッシュと同じマスクで作り直した
         //             キャッシュとで違う画素の数(各段・全ゾーンの合計)
         //   latest_excl : TryReadLatest が除外の画素で 0 を返さなかった数(保存はマスクを掛ける前なので、読むときに掛ける)
+        //   wall    : 選択の端にまたがる角へ除外を足した再生成が、フル再計算と違う画素の数(下の wall の説明)。
+        //             wallblocks は試した角の数、
+        //             wallreuse はそのうち選択を使い回した角の数(0 だと、この検査は何も確かめていない)
         // マスクの寸法が画像と違うときは試さない(skipped)。
         private static void RunSelectionCacheMaskCheck(Color32[] input, int w, int h, MaskSnapshot masks,
             List<ColorZone> zones, SettingsCfg st, SelectionCache cache, Color32[] current) {
@@ -1841,11 +1845,16 @@ namespace Iroca {
                     }
                 }
             }
+            double stepCachedMs = 0, stepFreshMs = 0;
             int Step(MaskSnapshot m) {
                 var withCache = (Color32[])input.Clone();
+                var swc = Stopwatch.StartNew();
                 PixelProcessor.ProcessPixelsArray(withCache, w, h, m, zones, st.ToRecolorSettings(), selectionCache: cache);
+                stepCachedMs = swc.Elapsed.TotalMilliseconds;
                 var fresh = (Color32[])input.Clone();
+                var swf = Stopwatch.StartNew();
                 PixelProcessor.ProcessPixelsArray(fresh, w, h, m, zones, st.ToRecolorSettings());
+                stepFreshMs = swf.Elapsed.TotalMilliseconds;
                 int n = 0;
                 for (int i = 0; i < fresh.Length; i++) {
                     if (fresh[i].r != withCache[i].r || fresh[i].g != withCache[i].g
@@ -1859,6 +1868,11 @@ namespace Iroca {
             int reuse0 = cache.MaskReuseCount;
             var quietCommon = WithBlock(masks.common, quiet);
             int dQuiet = Step(With(quietCommon, masks.zoneIncludes));
+            // 体感の目安: 何も選ばれていない所(quiet)へ除外を足した 1 手の処理時間。キャッシュ付き(選択を計算し直す)と、
+            // キャッシュなしのフル計算。除外が変われば計算し直すので、2 つはほぼ同じになる(2026-11-11 まで、照合が 0 の
+            // 所を塗る手は選択を使い回していた)。
+            string quietMs = $"quiet_cached_ms={stepCachedMs:F1} quiet_fresh_ms={stepFreshMs:F1}";
+            int dSame = Step(With(quietCommon.Clone(), masks.zoneIncludes));
             int dBusy = Step(With(WithBlock(quietCommon, bestBusy), masks.zoneIncludes));
             var backCommon = masks.common?.Clone();
             int dBack = Step(With(backCommon, masks.zoneIncludes));
@@ -1867,9 +1881,56 @@ namespace Iroca {
             includes.TryGetValue(zones[0].id, out var inc0);
             includes[zones[0].id] = WithBlock(inc0, quiet);
             int dInclude = Step(With(backCommon, includes));
+            // wall: 選択の端にまたがる 24px 角(その中の一部の画素だけが再着色される角。細い橋・縁・穴埋めの画素を含む)を、
+            //   角ごとに「除外なしで作ったキャッシュ」から共通の除外へ足す。除外は連結成分の直前にも掛け直す(線の向こうの
+            //   成分を切る)ので、足した画素の照合が 0 でも、伝播・帯成長・閉領域で選択になっていた画素なら選択が変わる。
+            //   照合が 0 かで使い回しを決める旧の近道は、この角で古い選択を出していた(2026-11-11 に外した)。
+            //   角が多いと遅いので、64 個まで等間隔に選ぶ(wallblocks は試した数)。
+            int dWall = 0, wallBlocks = 0, wallReuse = 0;
+            {
+                var edge = new List<int>();
+                for (int k = 0; k < bx * by; k++) {
+                    int x0 = (k % bx) * B, y0 = (k / bx) * B, n = 0;
+                    for (int y = y0; y < y0 + B; y++) {
+                        for (int x = x0; x < x0 + B; x++) {
+                            Color32 a = input[y * w + x], b = current[y * w + x];
+                            if (a.r != b.r || a.g != b.g || a.b != b.b || a.a != b.a) {
+                                n++;
+                            }
+                        }
+                    }
+                    if (n > 0 && n < B * B) {
+                        edge.Add(k);
+                    }
+                }
+                // 画像が大きいと 1 角あたりが重い(3 回の全体処理)ので、4K 以上は 2 角まで(256² は 64 角)。
+                int maxBlocks = Math.Clamp((int)(64L * 262144 / ((long)w * h)), 2, 64);
+                int stride = Math.Max(1, (edge.Count + maxBlocks - 1) / maxBlocks);
+                for (int e = 0; e < edge.Count; e += stride) {
+                    using (var wallCache = new SelectionCache()) {
+                        var seedRun = (Color32[])input.Clone();
+                        PixelProcessor.ProcessPixelsArray(seedRun, w, h, masks, zones, st.ToRecolorSettings(), selectionCache: wallCache);
+                        var m = With(WithBlock(masks.common, edge[e]), masks.zoneIncludes);
+                        var withCache = (Color32[])input.Clone();
+                        PixelProcessor.ProcessPixelsArray(withCache, w, h, m, zones, st.ToRecolorSettings(), selectionCache: wallCache);
+                        var fresh = (Color32[])input.Clone();
+                        PixelProcessor.ProcessPixelsArray(fresh, w, h, m, zones, st.ToRecolorSettings());
+                        wallReuse += wallCache.MaskReuseCount;
+                        for (int i = 0; i < fresh.Length; i++) {
+                            if (fresh[i].r != withCache[i].r || fresh[i].g != withCache[i].g
+                                || fresh[i].b != withCache[i].b || fresh[i].a != withCache[i].a) {
+                                dWall++;
+                            }
+                        }
+                    }
+                    wallBlocks++;
+                }
+            }
             Console.Error.WriteLine(
-                $"SELCACHE-MASK quiet={dQuiet} busy={dBusy} back={dBack} include={dInclude} "
-                + $"reuse={cache.MaskReuseCount - reuse0} latest={latestDiff} latest_excl={latestExcl}");
+                $"SELCACHE-MASK quiet={dQuiet} same={dSame} busy={dBusy} back={dBack} include={dInclude} "
+                + $"reuse={cache.MaskReuseCount - reuse0} latest={latestDiff} latest_excl={latestExcl} "
+                + $"wall={dWall} wallblocks={wallBlocks} wallreuse={wallReuse}");
+            Console.Error.WriteLine($"SELCACHE-MASK-MS {quietMs}");
         }
 
         // ─── AI マスク提案の純計算層検証(--samops-*) ───

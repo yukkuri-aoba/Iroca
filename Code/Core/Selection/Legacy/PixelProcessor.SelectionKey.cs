@@ -17,7 +17,7 @@ namespace Iroca {
         // ハーネスの --selkey-audit が SELKEY-DERIVED で確かめる)。float は
         // ビット表現で完全一致判定(丸め衝突を避ける)。曖昧なものは安全側で含める(ミスが増えるだけ)。
         // マスクの中身も含めない: 含めるマスクは保存する選択に効かず、除外マスクは保存時の配列と比べて
-        // 使えるかを判定する(SelectionCache・ExclusionChangeKeepsMatch)。
+        // 使えるかを判定する(SelectionCache・ExclusionUnchanged。除外が 1 画素でも変われば計算し直す)。
         // internal はハーネスの --selkey-audit が直接呼ぶため(名前の文字列で反射して呼ぶと、改名がコンパイルで分からない)。
         internal static string BuildSelectionKey(
             ColorZone z, float edgeFeather, int aaCleanup, int holeFillPasses, int holeFillMinNeighbors,
@@ -57,77 +57,23 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 除外(共通 ∪ ゾーン)が old から now に変わったとき、変わった画素(除外になった・外れた)のどれでも
-        /// このゾーンの照合(strength と、使うなら highlightPot・matchConf)が +0 か。+0 なら照合の直後の配列は
-        /// old で計算したときと同じ(除外の画素には +0 を書くので)で、その後の段はマスクを読まないため、
-        /// マスクを掛ける前の選択も old のときと同じになる。変わった画素が全体の 1/16 を超えたら調べずに false
-        /// (調べるより計算し直す方が速い)。
-        /// 照合の式はゾーンのループの照合と同じでなければならない(量子化をならした色が取れればその色、
-        /// 無ければ画素の色と HSV)。ループが使う色の表の値は、同じ色・同じ HSV で同じ関数を呼んだものなので
-        /// (ColorPick は位置を見ない)、ここでは表を使わない。
+        /// 除外(共通 ∪ ゾーン)が old から now で 1 画素も変わっていないか(別の配列でも中身が同じなら true)。
+        /// 保存した選択を使い回してよいのは、この場合だけ。除外は照合だけでなく、連結成分の直前にも掛け直す
+        /// (線の向こうの成分を切る)ので、除外が変われば、変わった画素の照合が 0 でも、伝播・帯成長・閉領域で
+        /// 選択になる画素の連結が変わり、選択が変わりうる。変わった画素の照合を調べて使い回す近道は、この前提
+        /// 「照合が 0 の画素なら後の段はマスクを読まない」に頼っていたため、2026-11-11 に外した。
         /// </summary>
-        private static bool ExclusionChangeKeepsMatch(ColorZone zone, Color32* originalPixels, PixelHsv hsv,
-            int w, int h, int[] colOf, int[] rowBase,
-            int maskW, int maskH, ulong* oldCommon, ulong* oldZone, ulong* newCommon, ulong* newZone,
-            bool usesMatchConf, ParallelOptions po) {
-            if (colOf == null) {
-                return true;   // マスクの表が無い = どちらでも除外なし
-            }
-            var rows = new bool[maskH];
+        private static bool ExclusionUnchanged(int maskW, int maskH,
+            ulong* oldCommon, ulong* oldZone, ulong* newCommon, ulong* newZone) {
             int words = MaskWordCount(maskW, maskH);
-            long changed = 0;
             for (int wi = 0; wi < words; wi++) {
                 ulong d = (MaskWord(oldCommon, wi) | MaskWord(oldZone, wi))
                         ^ (MaskWord(newCommon, wi) | MaskWord(newZone, wi));
-                if (d == 0UL) {
-                    continue;
+                if (d != 0UL) {
+                    return false;
                 }
-                changed += Bits.PopCount(d);
-                MarkMaskRows(rows, wi, maskW, maskH);
             }
-            if (changed == 0) {
-                return true;
-            }
-            if (changed > (long)maskW * maskH / 16) {
-                return false;
-            }
-
-            bool usesPot = zone.highlightRecovery;
-            int failed = 0;
-            Parallel.For(0, h, po, (y, loop) => {
-                if (!rows[rowBase[y] / maskW] || Volatile.Read(ref failed) != 0) {
-                    return;
-                }
-                int rowOff = y * w;
-                for (int x = 0; x < w; x++) {
-                    int idx = rowBase[y] + colOf[x];
-                    bool was = MaskSnapshot.GetBit(oldCommon, idx) || MaskSnapshot.GetBit(oldZone, idx);
-                    bool now = MaskSnapshot.GetBit(newCommon, idx) || MaskSnapshot.GetBit(newZone, idx);
-                    if (was == now) {
-                        continue;
-                    }
-                    int i = rowOff + x;
-                    float s, hPot, mc;
-                    if (zone.mode == SelectionMode.ColorPick
-                        && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc)) {
-                        Color.RGBToHSV(qc, out float qh, out float qs, out float qv);
-                        zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x, y, w, h,
-                            out s, out hPot, out mc);
-                    } else {
-                        int k = HsvSlot(hsv.Index, i);
-                        zone.GetMatchScoresPrecomputedHSV(hsv.H[k], hsv.S[k], hsv.V[k], (Color)originalPixels[i],
-                            x, y, w, h, out s, out hPot, out mc);
-                    }
-                    if (BitConverter.SingleToInt32Bits(s) != 0
-                        || (usesPot && BitConverter.SingleToInt32Bits(hPot) != 0)
-                        || (usesMatchConf && BitConverter.SingleToInt32Bits(mc) != 0)) {
-                        Volatile.Write(ref failed, 1);
-                        loop.Stop();
-                        return;
-                    }
-                }
-            });
-            return failed == 0;
+            return true;
         }
     }
 }

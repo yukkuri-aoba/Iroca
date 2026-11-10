@@ -70,7 +70,9 @@ Code/Core/
   Pipeline/    PixelProcessor（入口）・ゾーン 1 つ分の流れ・RunContext / RunBuffers / ZoneState / ZoneBuffers・
                SelectionResult（選択と再着色の境目）・強度の範囲
   Selection/   Legacy（今の選択の段。`ColorZone` の照合・選択キャッシュの鍵）
-  Masks/       除外・含めるの適用（製品の契約）
+  Masks/       除外・含めるの適用（製品の契約）。除外は照合・連結成分の直前・最後の 3 か所で効く
+               （連結成分の直前の掛け直しで、除外の線が連結を切る壁になる。閉領域の復帰は除外を通れる。
+               除外が変われば、選択キャッシュは使い回さず選択を計算し直す。中身が同じなら使い回す）
   Recolor/     再着色の段（無彩・デコンタミ・アンカーと明るさ・混色帯・カーネル・合成）
   Filters/     ぼかし
   （直下）     ヒープの外のメモリの部品・ColorZone・セッションとプリセット・マスクの形と符号化・自動調整（ZoneAutoTuner）・
