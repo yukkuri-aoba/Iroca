@@ -784,8 +784,16 @@ python tools/visual_review.py check --index         # （任意）今ステー�
      測った作業ツリーから複数のコミットに分けてよいが、1 つのファイルの hunk を分けたものは落ちる。測っていないファイルを
      足したものも落ちる。共有の作業ツリーで他人の未コミットを入れずに測ったなら `compare --index`。
   3. dev_safe の測定器と基準が、承認した比較のときと同じ中身なこと（作業ツリーで見る）。
-  4. 品質ゲートのしきい値の較正（保存済みの CSV で good/bad の分離を見るだけで、今のコードの出力は測らない。通っても
-     品質ゲートが通ったことにはならない）。
+  本体のフックは今のコードの品質を測らない（出力にもそう書く）。品質ゲートのしきい値の較正（`quality_report.py --validate`。
+  保存済みの CSV で good/bad の分離を見るだけ）は、2026-11-10 から dev_safe のフックが、しきい値・ラベル・CSV を
+  変えたコミットでだけ回す。
+- **dev_safe にも pre-commit フックがある**（2026-11-10、点検 D-4。`dev_safe/hooks/pre-commit` → 本体の
+  `tools/check_visual_review.py --dev-safe`）。測定器と基準（`tools/review_state.py` の `DEV_SAFE_FILES`: fixtures.py・
+  測定スクリプト・2 つのベースライン・`subjects.json`・GT 許容の上書き）をステージしたコミットに、本体と同じ承認を求める
+  （ステージした中身がファイルごとに dev_safe の HEAD か承認で測った中身と同じで、本体の測るコードと測定器が承認のときのまま）。
+  **ベースラインを凍結するコミットにも承認が要る**。品質ゲートのしきい値・ラベル・CSV（`quality_thresholds.py`・
+  `quality_labels.json`・`Baselines/quality_report.csv`・`quality_report.py`）をステージしたら `quality_report.py --validate`
+  を回す。承認の成果物（`approved.json`・`review.json` など）だけのコミットは何も求めない。dev_safe だけを clone した所では何もしない。
   `git stash` の往復やチェックアウトは中身が同じなら承認を切らない。`python tools/visual_review.py check [--index]` で、
   承認が有効か・今の中身をコミットしたら通るかを確かめられる（`workflow_review.py check` も同じ）。
 - **ゲートの対象は「headless ハーネスがコンパイルする製品ソース」と、測り方を決めるもの**（`tools/review_state.py` の
@@ -798,11 +806,12 @@ python tools/visual_review.py check --index         # （任意）今ステー�
     要求しても検証にならず、バイパスを日常動作として学習させるだけだった（レビュー §6-14）。
   - 対象外のファイルは ci.yml の `build-check`（dotnet 型チェック）が受け持つ。
   - Core にファイルを足せば（どのサブフォルダでも）ゲート対象も自動で増える（手書きミラーを置かない）。
-- **フックは clone ごとに 1 回の有効化が必要**（忘れるとゲートは一切動かない）:
+- **フックは clone ごとに 1 回の有効化が必要**（忘れるとゲートは一切動かない）。本体と dev_safe の両方:
   ```
   git config core.hooksPath scripts/hooks
+  git -C dev_safe config core.hooksPath hooks
   ```
-  確認: `git config core.hooksPath` の出力が `scripts/hooks` であること。
+  確認: それぞれの `git config core.hooksPath` の出力が `scripts/hooks`・`hooks` であること（`test_hooks_configured.py` が見る）。
 - `SKIP_VISUAL_REVIEW=1` は「出力に影響しない変更（IO・プレビュー・コメントのみ）」に限る。
 - **出力を変えないはずのリファクタ**（Core の死んだコードの削除・重複の整理・定数化など）は、
   「影響しない」を思い込みで済ませず `dev_safe/scripts/refactor_abcheck/abcheck.py` で機械的に示す。
@@ -822,7 +831,7 @@ python tools/visual_review.py check --index         # （任意）今ステー�
 2. .NET SDK 8 をインストール（winget: `Microsoft.DotNet.SDK.8`）。
 3. Unity 2022.3.22f1 を Unity Hub で入れて `UnityManaged` / `UNITY_EDITOR_PATH` を設定
    （上記「Unity 導入済み環境」）。Unity を入れられない場合のみ 2 DLL シムで代替。
-4. `git config core.hooksPath scripts/hooks` でフックを有効化。
+4. `git config core.hooksPath scripts/hooks` と `git -C dev_safe config core.hooksPath hooks` でフックを有効化。
 5. `dotnet build scripts/headless-run/Harness.csproj -c Release` → pytest 一式で緑を確認。
 6. dev_safe が無いマシンでは `git clone https://github.com/yukkuri-aoba/Iroca_dev_safe dev_safe`。
 7. ホスト Unity プロジェクトに本体をリンクする（上記「ホスト Unity プロジェクト」）。

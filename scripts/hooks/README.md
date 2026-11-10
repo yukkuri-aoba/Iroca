@@ -20,7 +20,14 @@ git config core.hooksPath scripts/hooks
 
 - `SKIP_VISUAL_REVIEW=1 git commit ...` — 視覚レビューチェックを回避。**出力に影響しない変更（IO・プレビュー・コメントのみ）に限る**。
   ワークフロー承認と品質ゲート較正も含めて、フックの検査を全部飛ばす。
-- `SKIP_QUALITY_GATE=1` — 品質ゲート較正検証のみ回避。
+- `SKIP_QUALITY_GATE=1` — 品質ゲート較正検証のみ回避（dev_safe のフックが、しきい値・ラベル・CSV を変えたときに回す）。
+
+## dev_safe のフック
+
+dev_safe（別のリポジトリ）にも `dev_safe/hooks/pre-commit` がある（2026-11-10〜）。dev_safe のルートで
+`git config core.hooksPath hooks` を 1 回実行して有効化する。測定器と基準（fixtures.py・測定スクリプト・ベースライン・
+`subjects.json` など）をステージしたコミットに視覚レビューの承認を求め、品質ゲートのしきい値・ラベル・CSV を変えたら
+`quality_report.py --validate` を回す（本体の `tools/check_visual_review.py --dev-safe`）。
 
 ## 注意
 

@@ -12,8 +12,9 @@
 #   2. ステージしたファイルごとに、コミットされる中身（index。git commit -- <パス> の一時 index も）が
 #      「HEAD と同じ」か「承認した比較で測った中身と同じ」こと（ファイル単位。時刻は見ない。2026-11-10〜）
 #   3. dev_safe の測定器と基準が、承認した比較のときと同じ中身なこと
-#   4. 出力品質ゲートのしきい値較正 (quality_report.py --validate) が健全なこと
-#      （保存済みの CSV を読むだけで、今のコードの出力は測らない）
+# 今のコードの品質は測らない。品質ゲートのしきい値較正 (quality_report.py --validate) は、2026-11-10 から
+# dev_safe のフック（dev_safe/hooks/pre-commit。有効化は dev_safe で git config core.hooksPath hooks）が、
+# しきい値・ラベル・CSV を変えたコミットでだけ回す。
 # 回避: SKIP_VISUAL_REVIEW=1（出力に影響しない変更＝IO/プレビュー/コメントのみに限る）
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0

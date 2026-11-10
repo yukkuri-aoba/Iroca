@@ -70,6 +70,9 @@ chore(ci): release.yml に SHA256 検証ステップを追加
 **その場で手動コミットする**。溜めると、どの本体コミットに対応する検証だったのかが失われる。
 
 - 本体 Code/ の修正とペアのテストは、必ず同じタイミングで両リポにコミットする。
+- dev_safe にも pre-commit フックがある（有効化は `git -C dev_safe config core.hooksPath hooks`。2026-11-10〜）。
+  測定器と基準（fixtures.py・測定スクリプト・ベースライン・`subjects.json` など）をステージしたコミットには、本体と同じ
+  視覚レビューの承認が要る（`docs/testing-architecture.md` の「視覚レビュー」）。
 - push は通常どおりユーザー確認を取る（下記）。
 
 ## 確認なしに実行してはいけない git 操作

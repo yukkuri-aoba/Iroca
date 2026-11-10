@@ -55,9 +55,10 @@ git switch develop
 **どれも飛ばすと「壊れる」のではなく「静かに検査されなくなる」。** 順に実行する。
 
 ```powershell
-# (1) pre-commit フック（視覚レビューの出荷ゲート）を有効化
-#     未設定だと test_hooks_path_is_configured が fail する（唯一 fail で気づける項目）
+# (1) pre-commit フック（視覚レビューの出荷ゲート）を有効化。dev_safe（別のリポジトリ）にもある（2026-11-10〜）
+#     未設定だと test_hooks_configured.py が fail する（唯一 fail で気づける項目）
 git config core.hooksPath scripts/hooks
+git -C dev_safe config core.hooksPath hooks
 
 # (2) Python 環境
 py -m venv .venv
