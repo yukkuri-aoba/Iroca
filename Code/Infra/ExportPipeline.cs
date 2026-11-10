@@ -1,5 +1,7 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -68,6 +70,79 @@ namespace Iroca {
         /// </summary>
         public static string BatchOutputPath(string srcPath)
             => InExportFolder(srcPath, Path.GetFileNameWithoutExtension(srcPath) + PathUtils.RecoloredSuffix + ".png");
+
+        /// <summary>一括書き出しの計画(<see cref="PlanBatch{T}"/>)。</summary>
+        internal sealed class BatchPlan<T> where T : class {
+            /// <summary>書き出す項目(同じ項目の 2 つ目以降と、元のパスが無いものを落とした、渡した並びのまま)。</summary>
+            public readonly List<T> Items = new List<T>();
+            /// <summary>出力先が重なる組。出力先ごとに、そこへ書くことになる元のパス(2 つ以上。並びのまま)。</summary>
+            public readonly List<(string output, List<string> sources)> SharedOutputs = new List<(string, List<string>)>();
+            /// <summary>
+            /// 出力先が、ほかの項目の元そのもの(X.png と X_recolored.png を並べたとき)。先に書くと、その項目は色替えした後の
+            /// 中身を読んで二重に色替えする。(出力先を書く元, その出力先 = ほかの項目の元)。
+            /// </summary>
+            public readonly List<(string source, string output)> OverwritesASource = new List<(string, string)>();
+
+            public bool HasConflicts => SharedOutputs.Count > 0 || OverwritesASource.Count > 0;
+        }
+
+        /// <summary>
+        /// 一括書き出しの計画を立てる(ファイルにもアセットにも触らない)。同じ項目の 2 つ目以降は落とし、出力先
+        /// (<see cref="BatchOutputPath"/>)が重なる組と、出力先がほかの項目の元と同じものを返す。どちらかがあれば
+        /// 書き出さずに止める(元の拡張子を捨てるので Body.psd と Body.png はどちらも Body_recolored.png に書き、2 つ目が
+        /// 黙って上書きしていた)。パスは大小を区別せずに比べる(<see cref="IsSameFile"/> と同じ)。
+        /// </summary>
+        internal static BatchPlan<T> PlanBatch<T>(IEnumerable<T> items, Func<T, string> sourcePathOf) where T : class {
+            var plan = new BatchPlan<T>();
+            var sources = new List<string>();
+            foreach (var item in items) {
+                if (item == null || plan.Items.Contains(item)) {
+                    continue;
+                }
+                string src = sourcePathOf(item);
+                if (string.IsNullOrEmpty(src)) {
+                    continue;
+                }
+                plan.Items.Add(item);
+                sources.Add(src);
+            }
+
+            var sourceKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var src in sources) {
+                sourceKeys.Add(PathKey(src));
+            }
+            var byOutput = new Dictionary<string, (string output, List<string> sources)>(StringComparer.OrdinalIgnoreCase);
+            var order = new List<string>();
+            foreach (var src in sources) {
+                string output = BatchOutputPath(src);
+                string key = PathKey(output);
+                if (!byOutput.TryGetValue(key, out var entry)) {
+                    entry = (output, new List<string>());
+                    byOutput.Add(key, entry);
+                    order.Add(key);
+                }
+                entry.sources.Add(src);
+                if (sourceKeys.Contains(key)) {
+                    plan.OverwritesASource.Add((src, output));
+                }
+            }
+            foreach (var key in order) {
+                var entry = byOutput[key];
+                if (entry.sources.Count > 1) {
+                    plan.SharedOutputs.Add(entry);
+                }
+            }
+            return plan;
+        }
+
+        // 同じファイルかを比べる鍵(フルパス。'/' と '\' の違いを消す)。フルパスにできないパスは区切りだけそろえる。
+        private static string PathKey(string path) {
+            try {
+                return Path.GetFullPath(path);
+            } catch (Exception) {
+                return path.Replace('\\', '/');
+            }
+        }
 
         private static string InExportFolder(string srcPath, string fileName) {
             string folder = PathUtils.ExportFolderFor(srcPath);

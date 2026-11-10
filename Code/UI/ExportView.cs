@@ -676,17 +676,15 @@ namespace Iroca {
 
         private void RunBatchApply() {
             var session = _host.Session;
-            var plannedOutputs = new List<string>();
-            foreach (var tex in batchTextures) {
-                if (tex == null) {
-                    continue;
-                }
-                string srcPath = AssetDatabase.GetAssetPath(tex);
-                if (string.IsNullOrEmpty(srcPath)) {
-                    continue;
-                }
-                plannedOutputs.Add(ExportPipeline.BatchOutputPath(srcPath));
+            // 同じテクスチャの 2 つ目以降を落とし、出力先が重なる・ほかの項目の元を書き潰すものがあれば、何も書かずに止める。
+            var plan = ExportPipeline.PlanBatch(batchTextures.Where(t => t != null), AssetDatabase.GetAssetPath);
+            if (plan.HasConflicts) {
+                string message = string.Format(Localization.BatchOutputConflictsFormat, DescribeConflicts(plan));
+                Debug.LogWarning("[Iroca] " + message);
+                EditorUtility.DisplayDialog(Localization.Error, message, Localization.OK);
+                return;
             }
+            var plannedOutputs = plan.Items.Select(t => ExportPipeline.BatchOutputPath(AssetDatabase.GetAssetPath(t))).ToList();
 
             bool anyExists = plannedOutputs.Any(File.Exists);
             if (anyExists) {
@@ -718,8 +716,8 @@ namespace Iroca {
             NativeMemoryLifecycle.WorkStarted();
             try {
                 AssetDatabase.StartAssetEditing();
-                for (int i = 0; i < batchTextures.Count; i++) {
-                    var tex = batchTextures[i];
+                for (int i = 0; i < plan.Items.Count; i++) {
+                    var tex = plan.Items[i];
                     if (tex == null) {
                         continue;
                     }
@@ -727,7 +725,7 @@ namespace Iroca {
                     if (EditorUtility.DisplayCancelableProgressBar(
                             Localization.BatchProgress,
                             tex.name,
-                            (float)i / Mathf.Max(1, batchTextures.Count))) {
+                            (float)i / Mathf.Max(1, plan.Items.Count))) {
                         break;
                     }
 
@@ -798,6 +796,18 @@ namespace Iroca {
 
             EditorUtility.DisplayDialog(Localization.Complete,
                 Localization.BatchComplete(success), Localization.OK);
+        }
+
+        // 一括適用を止めた理由(書き出し先の重なり)を 1 行ずつ。internal は ExportPipelineTests が文を確かめるため。
+        internal static string DescribeConflicts<T>(ExportPipeline.BatchPlan<T> plan) where T : class {
+            var lines = new List<string>();
+            foreach (var (output, sources) in plan.SharedOutputs) {
+                lines.Add(Localization.BatchSharedOutput(string.Join(", ", sources), output));
+            }
+            foreach (var (source, output) in plan.OverwritesASource) {
+                lines.Add(Localization.BatchOutputIsSource(source, output));
+            }
+            return string.Join("\n", lines);
         }
     }
 }

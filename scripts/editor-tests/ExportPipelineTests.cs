@@ -99,6 +99,43 @@ namespace Iroca.EditorTests {
         public void BatchOutputPath_AddsSuffix()
             => Assert.AreEqual("Assets/Tex/a_recolored.png", Norm(ExportPipeline.BatchOutputPath("Assets/Tex/a.tga")));
 
+        // ─── 一括書き出しの計画(出力先の重なり) ───
+
+        private static ExportPipeline.BatchPlan<string> Plan(params string[] sources)
+            => ExportPipeline.PlanBatch(sources, s => s);
+
+        // 元の拡張子を捨てるので、Body.psd と Body.png はどちらも Body_recolored.png に書く(2 つ目が黙って上書きしていた)。
+        [Test]
+        public void PlanBatch_SameNameWithDifferentExtensions_SharesTheOutput() {
+            var plan = Plan("Assets/Tex/Body.psd", "Assets/Tex/Hair.png", "Assets/Tex/Body.png");
+            Assert.IsTrue(plan.HasConflicts);
+            Assert.AreEqual(1, plan.SharedOutputs.Count);
+            Assert.AreEqual("Assets/Tex/Body_recolored.png", Norm(plan.SharedOutputs[0].output));
+            CollectionAssert.AreEqual(new[] { "Assets/Tex/Body.psd", "Assets/Tex/Body.png" }, plan.SharedOutputs[0].sources);
+            CollectionAssert.IsEmpty(plan.OverwritesASource);
+            StringAssert.Contains("Body_recolored.png", ExportView.DescribeConflicts(plan));
+        }
+
+        // X.png と X_recolored.png を並べると、X.png の書き出しが X_recolored.png を書き換え、続く項目がそれを読んで二重に色替えする。
+        // 大小だけ違うパスも同じファイル。
+        [Test]
+        public void PlanBatch_OutputThatIsAnotherSource_IsAConflict() {
+            var plan = Plan("Assets/Tex/X.png", "Assets/Tex/x_RECOLORED.png");
+            Assert.IsTrue(plan.HasConflicts);
+            Assert.AreEqual(1, plan.OverwritesASource.Count);
+            Assert.AreEqual("Assets/Tex/X.png", plan.OverwritesASource[0].source);
+            Assert.AreEqual("Assets/Tex/X_recolored.png", Norm(plan.OverwritesASource[0].output));
+            CollectionAssert.IsEmpty(plan.SharedOutputs);
+        }
+
+        // 同じテクスチャを 2 回入れても 1 回だけ書く(重なりとは言わない)。空の欄は飛ばす。
+        [Test]
+        public void PlanBatch_DuplicatesAreDroppedWithoutConflict() {
+            var plan = Plan("Assets/Tex/A.png", null, "Assets/Tex/B.tga", "Assets/Tex/A.png", "");
+            Assert.IsFalse(plan.HasConflicts);
+            CollectionAssert.AreEqual(new[] { "Assets/Tex/A.png", "Assets/Tex/B.tga" }, plan.Items);
+        }
+
         [Test]
         public void OutputPath_PackageSourceGoesUnderAssets() {
             // パッケージのフォルダは VCC / ALCOM の更新で丸ごと入れ替わり、中に書いた画像が消える。

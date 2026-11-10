@@ -678,6 +678,16 @@ namespace Iroca {
         public static string BatchComplete(int count) => IsJapanese
             ? $"{count} 件のテクスチャを処理しました"
             : $"Processed {count} texture(s)";
+        // 一括適用の書き出し先が重なるので止めた。{0} = 重なりの一覧(1 行ずつ)。
+        public static string BatchOutputConflictsFormat => IsJapanese
+            ? "書き出し先が重なるので、一括適用を止めました（何も書き出していません）。一覧から外すか、ファイルの名前を変えてから、もう一度押してください。\n\n{0}"
+            : "Batch apply was stopped because output files would collide (nothing was written). Remove items from the list or rename the files, then try again.\n\n{0}";
+        public static string BatchSharedOutput(string sources, string output) => IsJapanese
+            ? $"・{sources} は、どれも {output} に書き出します"
+            : $"- {sources} would all be written to {output}";
+        public static string BatchOutputIsSource(string source, string output) => IsJapanese
+            ? $"・{source} の書き出し先 {output} は、一覧にある別のテクスチャの元です（先に書くと、色替えした後の画像をもう一度色替えします）"
+            : $"- The output of {source} ({output}) is the source of another texture in the list (it would be recolored twice)";
 
         public static string ZoneEnabledTooltip => IsJapanese
             ? "このゾーンを有効/無効にします"
