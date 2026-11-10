@@ -182,6 +182,8 @@ namespace Iroca {
                         + "元のテクスチャそのものへは書かない。既にあるファイルは overwrite が true のときだけ置き換える"
                         + "（RecolorByPreset・RecolorWithZones の 3 引数の版は断る。コマンドラインは -irocaOverwrite、ジョブの JSON は overwrite）。",
                     "色は [r,g,b]（0..1）。enabled なゾーンが 1 つも無いと error になる。",
+                    "範囲の外・NaN の値（ゾーンの割合は 0..1、settings は窓のスライダーと同じ範囲）は断らずに範囲へ丸め、"
+                        + "丸めた欄を warnings で知らせる（プリセットも同じ）。",
                     "プリセットに入っているマスク（除外・含める）も UI と同じく当てる。",
                     "MCP 経路: iroca_inspect・iroca_recolor・iroca_open（引数は Inspect・Recolor の依頼 JSON・Open と同じ）。",
                     "結果には 'preview'（比較パネル PNG のパス。UserSettings/Iroca/mcp/preview に書き、Assets には置かない。"
@@ -279,8 +281,13 @@ namespace Iroca {
                     return Fail("zones JSON has no zones.");
                 }
 
+                var settings = req.settings ?? new SettingsDto();
                 var state = new IrocaSessionState { zones = req.zones.Select(BuildZone).ToList() };
-                SettingsFromDto(req.settings ?? new SettingsDto()).CopyTo(state);
+                SettingsFromDto(settings).CopyTo(state);
+                ClampAndReportOutOfRange(RecolorValueRanges.ClampedSettingNames(
+                        settings.edgeFeather, settings.antiAliasCleanup, settings.holeFillPasses, settings.holeFillMinNeighbors,
+                        settings.relaxedSatMin, settings.relaxedSatRamp, settings.decontaminationRadius),
+                    state.zones, warnings);
                 return Json(RunRecolorCore(sourceAssetPath, state, outputAssetPath, overwrite, warnings));
             } catch (Exception ex) {
                 return Fail($"{ex.GetType().Name}: {ex.Message}", warnings);
@@ -518,12 +525,45 @@ namespace Iroca {
         private static IrocaSessionState SessionFromPreset(IrocaPresetData p, string textureGuid, List<string> warnings) {
             var state = new IrocaSessionState();
             PresetApplier.ApplyZonesAndSettings(p, state, textureGuid);
+            // 手で書いたプリセットは範囲の外の値も持てる(全体設定は読み込みで丸めてあるので、丸める前の値で比べる)。
+            ClampAndReportOutOfRange(RecolorValueRanges.ClampedSettingNames(
+                    p.edgeFeather, p.antiAliasCleanup, p.holeFillPasses, p.holeFillMinNeighbors,
+                    p.relaxedSatMin, p.relaxedSatRamp, p.decontaminationRadius),
+                state.zones, warnings);
             if (PresetApplier.HasMasks(p) && PresetApplier.MadeForOtherTexture(p, textureGuid)) {
                 warnings.Add("the masks of this preset were made on another texture, so they were not used (zones and settings were).");
                 return state;
             }
             state.maskState = PresetApplier.MaskStateOf(p);
             return state;
+        }
+
+        /// <summary>
+        /// 範囲の外・NaN の値(UI のスライダーの範囲の外)を丸めたことを warnings で知らせる(点検 A-8。断らずに丸める)。
+        /// 全体設定は <see cref="RecolorSettings"/> のコンストラクタが丸めるので、丸める前の値で比べた名前を受け取る。
+        /// ゾーンはここで <see cref="RecolorValueRanges.ClampZone"/> で丸めて書き戻す(Core の入口でもう一度丸めても同じ値。
+        /// 出力は丸めた値を渡したときと同じ)。
+        /// </summary>
+        private static void ClampAndReportOutOfRange(List<string> clampedSettings, List<ColorZone> zones, List<string> warnings) {
+            if (clampedSettings != null && clampedSettings.Count > 0) {
+                warnings.Add("settings out of range (or NaN) were clamped to their allowed range: "
+                    + string.Join(", ", clampedSettings) + ".");
+            }
+            if (zones == null) {
+                return;
+            }
+            foreach (var zone in zones) {
+                if (zone == null) {
+                    continue;
+                }
+                var names = new List<string>();
+                if (!RecolorValueRanges.ClampZone(zone, names)) {
+                    continue;
+                }
+                zone.UpdateCacheIfNeeded();
+                warnings.Add($"zone '{zone.name}': values out of range (or NaN) were clamped to their allowed range: "
+                    + string.Join(", ", names) + ".");
+            }
         }
 
         private static RecolorSettings SettingsFromDto(SettingsDto d) => new RecolorSettings(

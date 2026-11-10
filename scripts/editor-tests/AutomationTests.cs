@@ -68,6 +68,62 @@ namespace Iroca.EditorTests {
             AssertOnlyRightHalfChanged(Run(preset, out _));
         }
 
+        // ─── 範囲の外・NaN の値(点検 A-8: 断らずに丸めて知らせる) ───
+
+        // zones JSON の設定とゾーンの値が範囲の外なら、Core の入口と同じく丸める。出力は丸めた値を渡したときとビット単位で
+        // 同じで、丸めた欄を warnings で知らせる。JsonUtility は素の NaN を NaN のまま読むので、NaN は既定値へ戻す。
+        [Test]
+        public void ZonesJson_OutOfRangeValues_AreClampedLikeTheirClampedValues_AndReported() {
+            string src = _assets.WritePng("src", Enumerable.Repeat(Red, W * H).ToArray(), W, H);
+            const string zone = "\"name\":\"z\",\"sample\":[0.784,0.118,0.118],\"target\":[0.1,0.2,0.8]";
+            string outOfRange = "{\"zones\":[{" + zone + ",\"tolerance\":1.7,\"valueBlend\":-0.5,\"partHueBand\":NaN}],"
+                + "\"settings\":{\"edgeFeather\":9,\"antiAliasCleanup\":-2,\"holeFillPasses\":40,\"holeFillMinNeighbors\":0,"
+                + "\"relaxedSatMin\":NaN,\"decontaminationRadius\":99}}";
+            // 丸めた値(NaN は既定値: partHueBand 0・relaxedSatMin は zones JSON の既定と同じなので書かない)。
+            string clamped = "{\"zones\":[{" + zone + ",\"tolerance\":1,\"valueBlend\":0,\"partHueBand\":0}],"
+                + "\"settings\":{\"edgeFeather\":5,\"antiAliasCleanup\":0,\"holeFillPasses\":10,\"holeFillMinNeighbors\":1,"
+                + "\"decontaminationRadius\":12}}";
+            Assume.That(RecolorSettings.DefaultRelaxedSatMin, Is.EqualTo(ZonesJsonDefaults.RelaxedSatMin), "テストの前提");
+
+            var a = StaticResult(IrocaAutomation.RecolorWithZones(src, outOfRange, _assets.Folder + "/out_of_range.png"));
+            var b = StaticResult(IrocaAutomation.RecolorWithZones(src, clamped, _assets.Folder + "/clamped.png"));
+            Assert.IsTrue(a.ok, a.error);
+            Assert.IsTrue(b.ok, b.error);
+            Assert.Greater(b.changedPixels, 0, "テストの前提: 色が変わる");
+            CollectionAssert.AreEqual(File.ReadAllBytes(b.output), File.ReadAllBytes(a.output), "範囲の外の値と丸めた値で出力が違う");
+
+            string settingsWarning = a.warnings.SingleOrDefault(w => w.StartsWith("settings out of range"));
+            Assert.IsNotNull(settingsWarning, string.Join("\n", a.warnings));
+            foreach (var name in new[] { "edgeFeather", "antiAliasCleanup", "holeFillPasses", "holeFillMinNeighbors",
+                         "relaxedSatMin", "decontaminationRadius" }) {
+                StringAssert.Contains(name, settingsWarning);
+            }
+            StringAssert.DoesNotContain("relaxedSatRamp", settingsWarning, "範囲の中の値は知らせない");
+            string zoneWarning = a.warnings.SingleOrDefault(w => w.StartsWith("zone 'z'"));
+            Assert.IsNotNull(zoneWarning, string.Join("\n", a.warnings));
+            foreach (var name in new[] { "tolerance", "valueBlend", "partHueBand" }) {
+                StringAssert.Contains(name, zoneWarning);
+            }
+            StringAssert.DoesNotContain("saturationGuard", zoneWarning, "範囲の中の値は知らせない");
+            Assert.IsFalse(b.warnings.Any(w => w.Contains("clamped")), "範囲の中の値なのに知らせた: " + string.Join("\n", b.warnings));
+        }
+
+        // 手で書いたプリセットの範囲の外の値も、同じく丸めて知らせる(MCP の preset も同じ関数を通る)。
+        [Test]
+        public void Preset_OutOfRangeValues_AreReported() {
+            string src = _assets.WritePng("src", Enumerable.Repeat(Red, W * H).ToArray(), W, H);
+            var preset = RedToBlue(out var zone);
+            zone.tolerance = 3f;
+            zone.outputSaturation = float.NaN;
+            preset.decontaminationRadius = 64;
+            var r = StaticResult(IrocaAutomation.RecolorByPreset(src, JsonUtility.ToJson(preset), _assets.Folder + "/preset.png"));
+            Assert.IsTrue(r.ok, r.error);
+            Assert.IsTrue(r.warnings.Any(w => w.StartsWith("settings out of range") && w.Contains("decontaminationRadius")),
+                string.Join("\n", r.warnings));
+            Assert.IsTrue(r.warnings.Any(w => w.StartsWith("zone 'red'") && w.Contains("tolerance") && w.Contains("outputSaturation")),
+                string.Join("\n", r.warnings));
+        }
+
         // ─── 静的 API・CLI の出力先(MCP の iroca_recolor と同じ決まり) ───
 
         private static IrocaAutomation.RecolorResult StaticResult(string json)
