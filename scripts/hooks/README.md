@@ -14,7 +14,7 @@ git config core.hooksPath scripts/hooks
 
 | フック | 役割 |
 |--------|------|
-| `pre-commit` | ハーネスがコンパイルする製品ソース（`tools/harness_scope.py`）を含むコミット時に、固定設定の承認・ワークフロー承認・承認の鮮度・品質ゲート較正を検査（`tools/check_visual_review.py`） |
+| `pre-commit` | 視覚レビューの範囲のファイル（ハーネスがコンパイルする製品ソース・`scripts/headless-run`・tools の測定器。`tools/review_state.py`）を含むコミット時に、固定設定とワークフローの承認・**ステージした中身**が「HEAD と同じ」か「承認した比較で測った中身と同じ」か（ファイル単位）・dev_safe の測定器と基準・品質ゲート較正を検査（`tools/check_visual_review.py`）。承認の時刻やファイルの mtime は見ない（2026-11-10〜） |
 
 ## バイパス
 

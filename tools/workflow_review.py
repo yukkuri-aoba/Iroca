@@ -1,7 +1,10 @@
 """ワンショット / AI提案を含める適用後の独立した出荷レビュー。
 
-python tools/workflow_review.py snapshot|compare|approve [--note ...]
-通常の visual_review からも呼ぶ。compare は全ケース(SUBJECTS × 2 条件)必須で、欠落や回帰は承認不可。
+測る・承認するのは tools/visual_review.py の snapshot / compare / approve(固定設定と一緒に回す。ここだけを回す口は
+2026-11-10 に外した。2 つの承認は同じ比較の実行(run_id)と同じ中身(state)に結び付く)。ここは
+python tools/workflow_review.py check [--index]
+で、承認が有効か(と、今の作業ツリー・index をコミットしたらフックを通るか)を確かめる。
+compare は全ケース(SUBJECTS × 2 条件)必須で、欠落や回帰は承認不可。
 満足基準の未達は回帰と分けて記録する(既知の限界を成功と呼ばない)。
 """
 from __future__ import annotations
@@ -10,53 +13,50 @@ import argparse
 from datetime import datetime
 import json
 from pathlib import Path
+import subprocess
 import sys
 
-from harness_scope import harness_source_files
+import review_state as rs
 from workflow_contract import (SUBJECTS, WORKFLOWS, SELECTION_METRICS, load_baseline,
                                selection_violations, sha256)
 
 ROOT = Path(__file__).resolve().parents[1]
 REVIEW = ROOT / "dev_safe/Tests/workflow_review"
-BASE = ROOT / "dev_safe/Tests/Baselines/refactor-pre"
+FIXED_APPROVED = ROOT / "dev_safe/Tests/visual_review/approved.json"
 MODES = ("oneshot", "assisted_include")
+# 2: state を git の blob の id にし、測り元(state_source)・比較の実行(run_id)・変更前の来歴(snapshot)を持つ(2026-11-10)
+SCHEMA = 2
 
 
 def expected_cases() -> set[str]:
     return {f"{mode}/{sid}/p50" for mode in MODES for sid in SUBJECTS}
 
 
-def state() -> dict:
-    """時刻ではなく、測るC#・測定器・基準の内容に結果を結びつける。"""
-    paths = set(harness_source_files())
-    paths.update(ROOT / p for p in (
-        "scripts/headless-run/Harness.cs", "scripts/headless-run/Harness.csproj",
-        "scripts/headless-run/HarnessSources.props",
-        "tools/workflow_review.py", "tools/workflow_contract.py", "tools/visual_review.py",
-        "tools/harness_build.py",
-        "dev_safe/scripts/measure_evidence_autotune.py", "dev_safe/scripts/sam_proposal.py",
-        "dev_safe/scripts/freeze_sam_fixtures.py", "dev_safe/measure_residual.py",
-        "dev_safe/scripts/measure_sam_e2e.py", "dev_safe/scripts/measure_operating_curve.py",
-        "dev_safe/measure_click_position.py", "dev_safe/Tests/regression/fixtures.py",
-        "dev_safe/Tests/regression/headless_io.py",
-        # 出力にだけある線の物差し(パネルの 3 段目と cases の phantom)
-        "dev_safe/Tests/regression/phantom_edges.py",
-        # GT 許容(同色の別部位)の規則と理由つき上書き。変われば design 採点が変わる
-        "dev_safe/Tests/regression/gt_tolerance.py", "dev_safe/Tests/regression/colorspace.py",
-        "dev_safe/Tests/Baselines/gt_tolerance_overrides.json",
-        "dev_safe/Tests/subjects.json",
-    ))
-    paths.update(BASE / n for n in ("evidence_autotune_baseline.json", "assisted_include_baseline.json"))
-    return {p.relative_to(ROOT).as_posix(): sha256(p) for p in sorted(paths)}
+def state(code: str = "worktree") -> dict:
+    """時刻ではなく、測る C#・測定器・基準の中身(git の blob の id)に結果を結びつける(tools/review_state.py)。
+
+    code はコードの部分をどこから読むか(worktree / index / rev:<rev>)。測定器と dev_safe はいつも作業ツリー。
+    """
+    return rs.state(code)
 
 
-def validate_review() -> dict:
+def validate_review(check_current: bool = True) -> dict:
+    """review.json が完全で、回帰が無く、パネルと入力資産が比較のときのままであることを確かめて返す。
+
+    check_current=True なら、比較で測った中身(state)が今の同じ測り元の中身と同じことも求める(approve・check)。
+    pre-commit は False で呼び、ステージしたファイルごとに確かめる(review_state.check_staged)。
+    """
     doc = json.loads((REVIEW / "review.json").read_text(encoding="utf-8"))
-    if doc.get("schema") != 1 or doc.get("state") != state():
-        raise ValueError("ワークフローの比較結果が古い: workflow_review.py compare を実行")
+    if doc.get("schema") != SCHEMA:
+        raise ValueError("ワークフローの比較結果が古い形式です: visual_review.py compare をやり直す")
     if doc.get("dll_source") != "built":
         raise ValueError("比較結果が、ビルドした来歴の分かる DLL で測ったものではありません"
                          f"(dll_source={doc.get('dll_source')!r}。IROCA_HARNESS_DLL を外して compare をやり直す)")
+    if check_current:
+        changed = rs.diff(state(doc["state_source"]), doc["state"])
+        if changed:
+            raise ValueError(f"比較の後に、測るものを決めるファイルが変わりました({doc['state_source']}): "
+                             f"{', '.join(changed[:6])}{' …' if len(changed) > 6 else ''}。visual_review.py compare をやり直す")
     if set(doc.get("cases", {})) != expected_cases():
         raise ValueError(f"ワンショット/追加操作後の{len(expected_cases())}ケースが揃っていません")
     for cid, row in doc["cases"].items():
@@ -73,22 +73,52 @@ def validate_review() -> dict:
     return doc
 
 
-def validate_approval() -> dict:
-    doc = validate_review()
+def validate_approval(check_current: bool = True) -> dict:
+    """ワークフローと固定設定の両方の承認が、同じ比較の実行(run_id)と同じ中身(state)を指していることを確かめる。"""
+    doc = validate_review(check_current)
     approved = json.loads((REVIEW / "approved.json").read_text(encoding="utf-8"))
     if approved.get("review_sha256") != sha256(REVIEW / "review.json"):
         raise ValueError("ワークフロー比較後の目視承認がありません")
+    fixed = json.loads(FIXED_APPROVED.read_text(encoding="utf-8"))
+    if fixed.get("run_id") != doc.get("run_id") or fixed.get("state") != doc.get("state"):
+        raise ValueError("固定設定の承認が、ワークフローと同じ比較(visual_review.py compare の 1 回)を指していません")
     return doc
 
 
 def approve(note: str) -> None:
     if not note or not note.strip():
         raise ValueError("--note に実際に目視した範囲と既知の未達を記録してください")
-    validate_review()
-    marker = {"approved_at": datetime.now().isoformat(), "note": note,
+    doc = validate_review()
+    marker = {"approved_at": datetime.now().isoformat(), "note": note, "run_id": doc["run_id"],
               "review_sha256": sha256(REVIEW / "review.json")}
     (REVIEW / "approved.json").write_text(json.dumps(marker, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"[workflow] {len(expected_cases())}ケースの目視承認を記録しました")
+
+
+def check(index: bool = False) -> list[str]:
+    """承認が有効で、今の中身(index=True ならステージした中身)をコミットしてもフックを通るかを確かめる。
+
+    本体の範囲のファイルは「HEAD と同じ」か「承認で測った中身と同じ」なら通す(フックと同じ規則)。
+    dev_safe の測定器と基準は、承認で測った中身と今の作業ツリーが同じことを求める。問題の一覧を返す(空なら通る)。
+    """
+    doc = validate_approval(check_current=False)
+    approved = doc["state"]
+    if index:
+        paths = [p for p in rs.staged() if rs.in_main_scope(p)]
+        problems = rs.check_staged(paths, approved)
+    else:
+        now = rs.main_part(state("worktree"))
+        head = rs.main_part(rs.committed_state())
+        problems = [f"{p}: 作業ツリーの中身が、承認した比較で測った中身とも HEAD とも違う"
+                    for p in rs.diff(now, head) if now.get(p) != approved.get(p)]
+    problems += [f"{p}: dev_safe の測定器・基準が、承認した比較のときと違う"
+                 for p in rs.diff(rs.dev_safe_state(), rs.dev_safe_part(approved))]
+    return problems
+
+
+def _git_head() -> str:
+    r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True)
+    return r.stdout.strip()
 
 
 def _backend():
@@ -101,7 +131,14 @@ def _backend():
     return mea, mcp, fx, gtt
 
 
-def generate(snapshot: bool = False) -> None:
+def generate(snapshot: bool = False, measured: dict | None = None) -> None:
+    """ワンショットと追加操作後のパネルを作る(visual_review.py の snapshot / compare から呼ぶ)。
+
+    measured は測るものの来歴 {"source": worktree/index/rev:<rev>, "state": 測り始めの中身, "run_id": 比較の実行,
+    "snapshot": 変更前の来歴(compare のとき)}。DLL は呼ぶ側が fixtures に固定してある(fixtures.pin_harness)。
+    """
+    if measured is None:
+        raise ValueError("workflow_review.generate は visual_review.py の snapshot / compare から呼ぶ")
     import numpy as np
     from PIL import Image
     import visual_review as vr
@@ -115,7 +152,7 @@ def generate(snapshot: bool = False) -> None:
         (REVIEW / "review.json").unlink(missing_ok=True)
     baselines = {"oneshot": load_baseline(mea.BASELINE_PATH),
                  "assisted_include": load_baseline(mea.ASSISTED_BASELINE_PATH)}
-    initial_state = state()
+    initial_state = measured["state"]
     dll, registry = fx.ensure_harness(), mcp._subject_registry()
     folder = REVIEW / ("snapshot" if snapshot else "compare")
     folder.mkdir(parents=True, exist_ok=True)
@@ -199,12 +236,19 @@ def generate(snapshot: bool = False) -> None:
         fx._mem_cache.clear()
         del r, rgba, output
     if not snapshot:
-        if state() != initial_state or any(sha256(Path(p)) != h for p, h in assets.items()):
-            raise ValueError("計測中にコード/入力が変更されました。compare を再実行してください")
-        doc = {"schema": 1, "generated_at": datetime.now().isoformat(),
-               "dll_sha256": sha256(Path(dll)), "state": initial_state,
+        # 測り始めてから(固定設定の分を含む)測るものが変わっていないか(点検 B-7①。時刻ではなく中身で見る)
+        changed = rs.diff(state(measured["source"]), initial_state)
+        changed += [p for p, h in assets.items() if sha256(Path(p)) != h]
+        if changed:
+            raise ValueError(f"計測中にコード/入力が変更されました: {', '.join(changed[:6])}。compare を再実行してください")
+        info = fx.harness_info()
+        doc = {"schema": SCHEMA, "generated_at": datetime.now().isoformat(), "run_id": measured["run_id"],
+               "state_source": measured["source"], "state": initial_state, "head": _git_head(),
+               "dll_sha256": sha256(Path(dll)),
                # 来歴の分かる DLL(fixtures がビルドして写したもの)か、IROCA_HARNESS_DLL の外の DLL か(点検 B-5)
-               "dll_source": "built" if fx.harness_info() is not None else "external",
+               "dll_source": "built" if info is not None else "external",
+               "dll_built_from": rs.digest(info.sources) if info is not None else None,
+               "snapshot": measured.get("snapshot"),
                "assets": assets, "cases": cases}
         (REVIEW / "review.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
         validate_review()
@@ -223,16 +267,17 @@ def generate(snapshot: bool = False) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("snapshot", "compare", "approve", "check"))
-    parser.add_argument("--note", default="")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("command", choices=("check",),
+                        help="承認が有効か、今の中身をコミットしてもフックを通るかを確かめる")
+    parser.add_argument("--index", action="store_true", help="作業ツリーでなく、ステージした中身で確かめる")
     args = parser.parse_args()
-    if args.command in ("snapshot", "compare"):
-        generate(snapshot=args.command == "snapshot")
-    elif args.command == "approve":
-        approve(args.note)
-    else:
-        validate_approval()
+    problems = check(index=args.index)
+    if problems:
+        print("[workflow] 承認と中身が合いません(visual_review.py compare → 目視 → approve をやり直す):")
+        for p in problems:
+            print(f"  {p}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

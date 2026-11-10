@@ -85,9 +85,33 @@ class BuildInfo:
 
 
 # ─────────────────────────── git ───────────────────────────
+# git がフックへ渡す「どのリポジトリか」の環境変数。フックの中から別のリポジトリ(本体のフックから dev_safe、またはその逆)を
+# 読むと、これが残っていると相手ではなくフックのリポジトリを読む(githooks の説明どおり)。リポジトリは cwd で決めるので外す。
+_GIT_LOCATION_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_PREFIX", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+                     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE")
+_git_dirs: dict[str, Path] = {}
+
+
+def _repo_env(cwd: Path) -> dict:
+    """cwd のリポジトリを読むための環境変数。GIT_INDEX_FILE(pre-commit の中の、コミットされる index)は、
+    それが cwd のリポジトリの git ディレクトリの中にあるときだけ残す(別のリポジトリの index を読ませない)。"""
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_LOCATION_ENV}
+    idx = env.pop("GIT_INDEX_FILE", None)
+    if idx:
+        key = str(Path(cwd).resolve())
+        if key not in _git_dirs:
+            r = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=str(cwd), capture_output=True,
+                               text=True, timeout=60, env=env)
+            _git_dirs[key] = Path(r.stdout.strip()).resolve() if r.returncode == 0 else Path("/nonexistent")
+        p = Path(idx) if os.path.isabs(idx) else Path(os.getcwd()) / idx
+        if p.resolve().is_relative_to(_git_dirs[key]):
+            env["GIT_INDEX_FILE"] = idx if os.path.isabs(idx) else str(p.resolve())
+    return env
+
+
 def git(args: list[str], cwd: Path = ROOT, input: bytes | None = None, env: dict | None = None) -> bytes:
     r = subprocess.run(["git", *args], cwd=str(cwd), input=input, capture_output=True, timeout=120,
-                       env=None if env is None else {**os.environ, **env})
+                       env={**_repo_env(Path(cwd)), **(env or {})})
     if r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args[:3])} が失敗しました: {r.stderr.decode('utf-8', 'replace')}")
     return r.stdout

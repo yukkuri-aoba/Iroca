@@ -108,9 +108,8 @@ precision で過検出に数えられ、設計どおりの挙動と本当の欠�
 `python tools/visual_review.py approve --note "実際の確認範囲と既知の未達"` を実行する
 （変更前とビット一致のパネルは読まなくてよく、変更前の無いパネルは変化ありとして扱う。下記「視覚レビュー」）。
 
-既存の固定設定レビューが有効なら、ワークフローだけは
-`python tools/workflow_review.py compare` → 38枚のうち変化したパネルの目視 →
-`python tools/workflow_review.py approve --note "確認範囲と既知の未達"` で更新できる。
+ワークフローだけを測り直す口は無い（2026-11-10 に外した）。2 つの承認は同じ `compare` の 1 回（`run_id`）と同じ
+中身を指すので、測定器や基準だけを直したときも `visual_review.py compare` を回す（DLL が同じなら固定設定はキャッシュに当たる）。
 pre-commitは**両方の承認**を要求する。部分実行・回帰・古いコード/測定器/ベースライン/
 入力資産・欠落/変更画像は承認不可。再compareすると旧承認は無効になる。
 このゲートもnet8ハーネスの評価であり、Unity Editorの操作E2Eを代替しない。
@@ -728,11 +727,38 @@ UI の操作そのもの（OnGUI・ダイアログ）はここでも検証しな
 ## 視覚レビュー（出荷ゲート）
 
 ```
-python tools/visual_review.py snapshot            # 変更前の出力を保存
-python tools/visual_review.py compare --engine csharp   # 3 列比較パネル生成
-（変化したケースのパネル PNG を Read で 1 枚ずつ目視確認）
-python tools/visual_review.py approve --note "確認した範囲と根拠"   # 承認マーカー
+python tools/visual_review.py snapshot              # 変更前の出力を保存（既定で HEAD のコードをビルドして撮る）
+python tools/visual_review.py compare               # 作業ツリーのコードで 3 列比較パネル生成（--index ならステージした中身）
+（compare が一覧に出した、変化したケースのパネル PNG を Read で 1 枚ずつ目視確認）
+python tools/visual_review.py approve --note "確認した範囲と根拠"   # 承認（測った中身に結び付く）
+python tools/visual_review.py check --index         # （任意）今ステージした中身をコミットしたらフックを通るか
 ```
+
+`--engine csharp` は書いても書かなくてもよい（csharp だけ）。固定設定とワンショット/追加操作後は、いつも同じ
+`compare` の 1 回で測り、2 つの承認は同じ比較の実行（`run_id`）と同じ中身（`state`）を指す
+（ワークフローだけを回す口 `workflow_review.py compare / approve` は 2026-11-10 に外した。DLL が同じならキャッシュに
+当たるので、両方を回し直しても速い）。
+
+**承認は時刻ではなく「測った中身」に結び付く**（2026-11-10、点検 B-1・B-4・B-7①・D-4。`tools/review_state.py`）。
+- 測るものを決めるファイル（`state`）は 3 つ: コード（ハーネスがコンパイルする製品ソースと `scripts/headless-run` の追跡
+  ファイル）、本体の測定器（`tools/visual_review.py` / `workflow_review.py` / `workflow_contract.py` / `harness_build.py` /
+  `harness_scope.py` / `review_state.py`）、dev_safe の測定スクリプト・fixtures・2 つのベースライン・`subjects.json`・GT 許容の上書き。
+  中身は git の blob の id（`git hash-object` で autocrlf の変換をかけて数える。作業ツリーは CRLF、index は LF なので、
+  バイト列のハッシュでは index と比べられない）。
+- `compare` は測り始めに、ビルドした DLL の来歴（どのソースから作ったか）と今の中身が一致することを確かめ、
+  終わりにもう一度中身を取って、食い違えば（測っている途中の編集）やり直させる。`approve` も、比較の後に中身が
+  変わっていれば断る。`review.json` に `run_id`・`state_source`（worktree / index）・`state`・変更前の来歴（`snapshot`）を残す。
+- `compare --index` は、ステージした中身のコード（`git checkout-index` で書き出す。測定器と dev_safe は作業ツリーのまま）を
+  ビルドして測る。共有の作業ツリーに他のセッションの未コミットの Core の変更があるとき、それを入れずに自分の変更だけを
+  測れる。中身が作業ツリーと同じなら作業ツリーでビルドするので速い。違えば書き出したソースのビルドで、改行の違いで DLL が
+  変わり、固定設定もワークフローもコールドになる（固定設定 約 8 分＋ワークフロー 約 7 分の見込み）。
+- `snapshot` は既定で **HEAD のコード**をビルドして撮る（点検 B-4。`--worktree` で作業ツリーから、`--rev <rev>` でそのコミットから）。
+  「変更前」がいつも HEAD になり、他人の未コミットも入らない。`snapshot_before/meta.json`（と `workflow_review/snapshot/meta.json`）に
+  何から撮ったか（`state`・HEAD・作業ツリーのコードが撮ったコードと違うか）を残す。測定器（Python）は作業ツリーのまま動くので、
+  **測定器や dev_safe の基準を変えるときは、変える前に snapshot を撮る**（変えた後に撮ると、変更前と同じ中身を測ることになる）。
+- `approve` は、変更前と同じ中身を測った比較（変化 0 が何も示さない）を断る。測った中身がコミット済みの中身（本体と dev_safe の
+  HEAD）と同じなら、HEAD を確かめただけなので通す。来歴の無い古い snapshot は、コードが HEAD と同じ比較だけ通す。
+  snapshot が無ければ全パネルが「変更前なし」で目視に回るので通す。
 
 - 承認は `dev_safe/Tests/visual_review/approved.json` に記録される。`--note` には
   **実際に見た範囲と、それで十分と判断した根拠**を書く（必須。無いか空だと ValueError で止まり、承認されない）。
@@ -749,21 +775,23 @@ python tools/visual_review.py approve --note "確認した範囲と根拠"   # �
   （ビット一致のケースは読まなくてよい）、compare はそのパネルだけを一覧に出す。
 - 固定設定は選択を使い回さずに測り（書き出しと同じ経路）、回帰が使い回して測った出力がキャッシュにあれば突き合わせる。
   食い違い（選択キャッシュの鍵の漏れ）があると approve できない（2026-11-10、点検 D-3。上の「実行時間の作り」）。
-- pre-commit フック（`scripts/hooks/pre-commit`）が承認の鮮度と品質ゲート較正
-  （`tools/check_visual_review.py`）を検査する。較正は保存済みの CSV で good/bad の分離を見るだけで、
-  今のコードの出力は測らない（通っても品質ゲートが通ったことにはならない）。鮮度は二方式で見る:
-  - 固定設定: `approved.json` の承認時刻が、ステージしたゲート対象ファイルの **mtime** より新しいこと
-    （`approve` 自体も、比較パネルがゲート対象ファイルの mtime より新しいことを要求する）。内容が同じでも
-    mtime が進めば無効になるので、`git stash` の往復やチェックアウトは compare → approve の前に済ませる。
-  - ワークフロー: `review.json` に compare 時点の **内容の SHA-256**（ゲート対象 C#・`Harness.cs` / `Harness.csproj`・
-    `tools/visual_review.py` / `workflow_review.py` / `workflow_contract.py`・dev_safe の測定スクリプト・2 つのベースライン・
-    `subjects.json`・GT 許容の上書き）とパネル・入力資産のハッシュを残し、今の内容と一致すること、
-    `workflow_review/approved.json` がその `review.json` を指していること。時刻を見ないので stash では切れないが、
-    ツールや測定器を直すと切れる。`python tools/workflow_review.py check` でこちらだけを単独で確かめられる
-    （有効なら何も出さず終了コード 0、無効なら理由つきの例外で止まり終了コード 1）。
-- **ゲートの対象は「headless ハーネスがコンパイルする製品ソース」**（`Harness.csproj` と、それが Import する
-  `HarnessSources.props` から導出＝`tools/harness_scope.py`。0.4.0 の 3-13 から `Code/Core` 全部（サブフォルダを含む）と
-  `Code/MaskSuggest/Ops`）。
+- pre-commit フック（`scripts/hooks/pre-commit` → `tools/check_visual_review.py`）は、範囲のファイルがステージされている
+  ときに次を見る（2026-11-10 から。それまでは固定設定を承認時刻とファイルの mtime で見ていて、hunk を分けて stage すると
+  測っていない「HEAD＋一部の hunk」が通り、承認もコミットのたびに使い切られなかった）:
+  1. 固定設定とワークフローの両方の承認があり、同じ比較を指し、回帰・欠けたケース・変わったパネルや入力資産が無いこと。
+  2. **ステージしたファイルごとに**、コミットされる中身（index の blob。`git commit -- <パス>` の一時 index も
+     `GIT_INDEX_FILE` で読む）が「HEAD と同じ」か「承認した比較で測った中身と同じ」こと（判断 17 の (b) ファイル単位）。
+     測った作業ツリーから複数のコミットに分けてよいが、1 つのファイルの hunk を分けたものは落ちる。測っていないファイルを
+     足したものも落ちる。共有の作業ツリーで他人の未コミットを入れずに測ったなら `compare --index`。
+  3. dev_safe の測定器と基準が、承認した比較のときと同じ中身なこと（作業ツリーで見る）。
+  4. 品質ゲートのしきい値の較正（保存済みの CSV で good/bad の分離を見るだけで、今のコードの出力は測らない。通っても
+     品質ゲートが通ったことにはならない）。
+  `git stash` の往復やチェックアウトは中身が同じなら承認を切らない。`python tools/visual_review.py check [--index]` で、
+  承認が有効か・今の中身をコミットしたら通るかを確かめられる（`workflow_review.py check` も同じ）。
+- **ゲートの対象は「headless ハーネスがコンパイルする製品ソース」と、測り方を決めるもの**（`tools/review_state.py` の
+  `in_main_scope`）。製品ソースは `Harness.csproj` と、それが Import する `HarnessSources.props` から導出（`tools/harness_scope.py`。
+  0.4.0 の 3-13 から `Code/Core` 全部（サブフォルダを含む）と `Code/MaskSuggest/Ops`）。2026-11-10 から `scripts/headless-run` の
+  追跡ファイル（`Harness.cs` など）と tools の測定器も対象（点検 D-4。2ca22249 は `Harness.cs` だけを変えて承認なしで入った）。
   UI / Infra / Automation は対象外で、`Code/` 全体を対象にしていた頃のように
   「文言 1 行の修正で 30 分の compare か SKIP 変数か」の二択にはならない。
   - 理由: ハーネスがコンパイルしないファイルの変更は、compare を何回回しても検出できない。

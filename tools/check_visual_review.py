@@ -2,12 +2,14 @@
 
 フックの実体は scripts/hooks/pre-commit（有効化: git config core.hooksPath scripts/hooks）。
 
-アルゴリズムファイル（headless ハーネスがコンパイルする製品ソース。範囲は
-Harness.csproj から導出 = tools/harness_scope.py）がステージされているとき、次の順で検査する:
-  1. 固定設定の視覚レビュー承認 approved.json があるか。
-  2. ワンショット/追加操作後のワークフロー承認が有効か（workflow_review.validate_approval:
-     比較結果が現在の C#・測定器・入力の内容と一致し、目視承認があるか）。
-  3. approved.json が全ステージファイルより新しいか（視覚レビュー実施の確認）。
+範囲のファイル（tools/review_state.py の in_main_scope: headless ハーネスがコンパイルする製品ソース・
+scripts/headless-run・tools の測定器）がステージされているとき、次の順で検査する:
+  1. 視覚レビューの承認が有効か（workflow_review.validate_approval: 固定設定とワンショット/追加操作後の両方の承認が、
+     同じ比較の実行と同じ中身を指し、回帰・欠けたケース・変わったパネルや入力資産が無いこと）。
+  2. ステージしたファイルごとに、コミットされる中身（index の blob。GIT_INDEX_FILE が立っていればその index）が
+     「HEAD と同じ」か「承認した比較で測った中身と同じ」か（ファイル単位。判断 17 の (b)）。hunk を分けて stage した
+     ファイルはどちらとも違うので落ちる。承認の時刻とファイルの mtime は見ない（2026-11-10、点検 B-1）。
+  3. dev_safe の測定器と基準（別のリポジトリ）が、承認した比較のときと同じ中身か（作業ツリーで見る）。
   4. 出力品質ゲートのしきい値較正が健全か（quality_report.py --validate が
      good/bad ラベルを分離できているか）。SKIP_QUALITY_GATE=1 でスキップ可。
      **保存済みの CSV を読むだけで、今のコードの出力は測らない**（通っても「品質ゲート OK」ではない）。
@@ -24,15 +26,12 @@ pre-commit では走らせない(コミットを重くしない)。代わりに�
 """
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness_scope import is_harness_source  # noqa: E402
 
 # git リポジトリルートを取得
 try:
@@ -46,34 +45,13 @@ try:
 except (subprocess.CalledProcessError, UnicodeDecodeError):
     sys.exit(0)  # git リポジトリ外または取得失敗では無条件通過
 
-APPROVED_JSON = ROOT / "dev_safe" / "Tests" / "visual_review" / "approved.json"
-
-
-def get_staged_files() -> list[str]:
-    result = subprocess.run(
-        ["git", "diff", "--cached", "--name-only"],
-        capture_output=True,
-        encoding="utf-8",
-    )
-    return [f.strip() for f in result.stdout.splitlines() if f.strip()]
-
-
-def is_algorithm_file(path: str) -> bool:
-    """視覚レビューを要求するファイルか（＝ headless ハーネスがコンパイルする製品ソースか）。
-
-    範囲は Harness.csproj から導出する（tools/harness_scope.py）。詳細な理由はそちらの
-    docstring を参照。要点は「ハーネスがコンパイルしないファイルの変更は compare を
-    何回回しても検出できない」ので、compare を要求しても検証にならず、バイパスを
-    常態化させるだけ、ということ。対象外のファイルは ci.yml の型チェックが受け持つ。
-    """
-    return is_harness_source(path)
-
-
-def get_file_mtime(rel_path: str) -> datetime | None:
-    p = ROOT / rel_path.replace("/", "\\")
-    if not p.exists():
-        return None
-    return datetime.fromtimestamp(p.stat().st_mtime)
+HOWTO = (
+    "  1. python tools/visual_review.py snapshot            # 変更前(既定で HEAD のコードから。HEAD が変更前なら後でもよい)\n"
+    "  2. python tools/visual_review.py compare [--index]   # 今の中身を測る(--index ならステージした中身のコード)\n"
+    "  3. compare が一覧に出した(変化があった)PNG を Read ツールで 1 枚ずつ確認\n"
+    "  4. python tools/visual_review.py approve --note \"<目視した範囲と根拠>\"\n"
+    "  確かめるだけなら: python tools/visual_review.py check --index"
+)
 
 
 def main() -> None:
@@ -81,59 +59,33 @@ def main() -> None:
         print("[pre-commit] SKIP_VISUAL_REVIEW=1 のため視覚レビューチェックをスキップします")
         sys.exit(0)
 
-    staged = get_staged_files()
-    algo_staged = [f for f in staged if is_algorithm_file(f)]
+    import review_state as rs
+    scope = [f for f in rs.staged(ROOT) if rs.in_main_scope(f)]
+    if not scope:
+        sys.exit(0)  # 範囲のファイルなし → チェック不要
 
-    if not algo_staged:
-        sys.exit(0)  # アルゴリズムファイルなし → チェック不要
-
-    print(f"[pre-commit] アルゴリズムファイル変更を検出: {len(algo_staged)} ファイル")
-    for f in algo_staged:
+    print(f"[pre-commit] 視覚レビューの範囲のファイル(コード・ハーネス・測定器)の変更を検出: {len(scope)} ファイル")
+    for f in scope:
         print(f"  {f}")
 
-    if not APPROVED_JSON.exists():
-        _fail(
-            "視覚レビューが未実施です。コミット前に以下を実行してください:\n"
-            "\n"
-            "  1. python tools/visual_review.py snapshot   # 変更前（すでに変更済みなら不要）\n"
-            "  2. python tools/visual_review.py compare    # 比較パネル生成\n"
-            "  3. compare が一覧に出した（変化があった）PNG を Read ツールで 1 枚ずつ確認\n"
-            "  4. python tools/visual_review.py approve --note \"<目視した範囲と根拠>\"  # 確認完了マーカー"
-        )
-
-    approved_data = json.loads(APPROVED_JSON.read_text(encoding="utf-8"))
-    approved_at = datetime.fromisoformat(approved_data["approved_at"])
-    # 固定設定の目視とは別に、主経路と追加操作後の全ケース・回帰床・画像・
-    # C#/測定器/入力資産の内容一致を検査する。旧承認や部分実行では通さない。
     import workflow_review
     try:
-        workflow_review.validate_approval()
+        doc = workflow_review.validate_approval(check_current=False)
     except (OSError, ValueError, KeyError, TypeError) as e:
-        _fail(f"ワンショット/追加操作後のレビュー承認が無効です: {e}\n"
-              "  python tools/workflow_review.py compare\n"
-              "  全パネルを目視後: python tools/workflow_review.py approve --note <確認範囲>")
+        _fail(f"視覚レビューの承認が無いか、無効です: {e}\n{HOWTO}")
 
-    # ステージされたアルゴリズムファイルの中で最新の mtime を取得
-    newest_mtime: datetime | None = None
-    newest_file: str = ""
-    for f in algo_staged:
-        mtime = get_file_mtime(f)
-        if mtime is not None and (newest_mtime is None or mtime > newest_mtime):
-            newest_mtime = mtime
-            newest_file = f
+    bad = rs.check_staged(scope, doc["state"])
+    if bad:
+        _fail("コミットする中身が、承認した比較で測った中身と合いません(ファイルごとに「HEAD と同じ」か"
+              "「測った中身と同じ」なら通します):\n  " + "\n  ".join(bad) + "\n"
+              "ステージした中身を測り直すなら compare --index。\n" + HOWTO)
+    dev = rs.diff(rs.dev_safe_state(), rs.dev_safe_part(doc["state"]))
+    if dev:
+        _fail("dev_safe の測定器・基準が、承認した比較のときと違います(測り方が変わったので測り直す):\n  "
+              + "\n  ".join(dev) + "\n" + HOWTO)
 
-    if newest_mtime is not None and approved_at < newest_mtime:
-        _fail(
-            f"視覚レビュー承認後にファイルが変更されました。再度 compare → approve を実行してください。\n"
-            f"  最新変更ファイル : {newest_file}\n"
-            f"  ファイル更新時刻 : {newest_mtime.strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"  視覚レビュー承認 : {approved_at.strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-
-    print(
-        f"[pre-commit] 視覚レビュー承認確認済み "
-        f"({approved_at.strftime('%Y-%m-%d %H:%M:%S')})"
-    )
+    print(f"[pre-commit] 視覚レビュー承認確認済み(比較 {doc['run_id'][:8]}・測り元 {doc['state_source']}・"
+          f"{doc['generated_at'][:16]}。ステージした {len(scope)} ファイルは HEAD か測った中身と同じ)")
 
     run_quality_gate_validate()
     sys.exit(0)

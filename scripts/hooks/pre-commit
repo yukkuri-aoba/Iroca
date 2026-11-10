@@ -4,13 +4,14 @@
 # 有効化（clone 直後に 1 回、リポジトリルートで実行）:
 #   git config core.hooksPath scripts/hooks
 #
-# 内容: ハーネスがコンパイルする製品ソース（範囲は tools/harness_scope.py が Harness.csproj の
-# Compile Include から導出。UI/Infra 等は対象外で、ci.yml の型チェックが受け持つ）が
-# ステージされているとき、tools/check_visual_review.py が次の順で検査する。
-#   1. 固定設定の視覚レビュー承認 (dev_safe/Tests/visual_review/approved.json) があること
-#   2. ワンショット/追加操作後のワークフロー承認が有効なこと（tools/workflow_review.py の
-#      validate_approval: 比較結果が現在の C#・測定器・入力の内容と一致し、目視承認があること）
-#   3. approved.json がステージファイルより新しいこと
+# 内容: 範囲のファイル（tools/review_state.py の in_main_scope: ハーネスがコンパイルする製品ソース・
+# scripts/headless-run・tools の測定器。範囲は Harness.csproj の Compile Include から導出。UI/Infra 等は対象外で、
+# ci.yml の型チェックが受け持つ）がステージされているとき、tools/check_visual_review.py が次の順で検査する。
+#   1. 視覚レビューの承認が有効なこと（固定設定とワンショット/追加操作後の両方が、同じ比較の実行と同じ中身を指す。
+#      tools/workflow_review.py の validate_approval）
+#   2. ステージしたファイルごとに、コミットされる中身（index。git commit -- <パス> の一時 index も）が
+#      「HEAD と同じ」か「承認した比較で測った中身と同じ」こと（ファイル単位。時刻は見ない。2026-11-10〜）
+#   3. dev_safe の測定器と基準が、承認した比較のときと同じ中身なこと
 #   4. 出力品質ゲートのしきい値較正 (quality_report.py --validate) が健全なこと
 #      （保存済みの CSV を読むだけで、今のコードの出力は測らない）
 # 回避: SKIP_VISUAL_REVIEW=1（出力に影響しない変更＝IO/プレビュー/コメントのみに限る）

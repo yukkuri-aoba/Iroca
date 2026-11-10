@@ -1,32 +1,43 @@
-"""改善サイクル用視覚レビュースクリプト。
+"""改善サイクル用視覚レビュースクリプト(出荷ゲート)。
 
 使い方:
-    python tools/visual_review.py snapshot    # 変更前スナップショット保存
-    python tools/visual_review.py compare     # 固定設定 + ワンショット/追加操作後の実 C# 比較
-    python tools/visual_review.py compare --engine csharp  # 実 C# Harness 出力で比較
-    python tools/visual_review.py approve --note "<目視した範囲と根拠>"  # 確認完了マーカー書き込み
+    python tools/visual_review.py snapshot                 # 変更前の出力を保存(既定で HEAD のコードから)
+    python tools/visual_review.py snapshot --worktree      # 作業ツリーのコードから(変更前の作業ツリーを撮るとき)
+    python tools/visual_review.py compare                  # 作業ツリーのコードで、固定設定 + ワンショット/追加操作後を比べる
+    python tools/visual_review.py compare --index          # ステージした中身のコードで比べる(他人の未コミットを入れない)
+    python tools/visual_review.py approve --note "<目視した範囲と根拠>"  # 承認(測った中身に結び付く)
+    python tools/visual_review.py check [--index]          # 承認が有効か、今の中身をコミットしてもフックを通るか
 
-  エンジンは csharp のみ。ワンショット/追加操作後には ONNX と凍結埋め込みも必要。
+  エンジンは csharp のみ(--engine csharp は書いても書かなくてもよい)。ワンショット/追加操作後には ONNX と凍結埋め込みも必要。
   固定設定の無マスク出力はワンショットではない。全条件の目視後に approve する。
 
+承認は時刻ではなく「測った中身」に結び付く(2026-11-10、点検 B-1・B-4・B-7①)。compare は測るものを決めるファイル
+(コード・測定器・dev_safe の基準。tools/review_state.py)の中身を測り始めと終わりに取り、食い違えばやり直させる。
+pre-commit は、ステージした範囲のファイルが「HEAD と同じ」か「承認した比較で測った中身と同じ」なら通す(ファイル単位)。
+snapshot は既定で HEAD のコードをビルドして撮る(「変更前」がいつも HEAD になり、共有の作業ツリーにある他人の未コミットも
+入らない)。approve は、変更前と同じ中身を測った比較(変化 0 が何も示さない)を断る。
+
 改善サイクルでの手順:
-    1. 変更を加える前に `snapshot` を実行（旧アルゴリズム出力を保存）
+    1. 変更を加える前に(HEAD が変更前なら後でもよい) `snapshot` を実行。測定器(Python)や dev_safe の基準を変えるときは、
+       変える前に撮る(snapshot は測定器を作業ツリーのまま動かすので、変えた後に撮ると変更前にならない)
     2. 変更を加えてテストを実行
-    3. `compare` を実行 → 生成された PNG を Read ツールで1枚ずつ確認
+    3. `compare` を実行 → 一覧に出た(変化があった)PNG を Read ツールで1枚ずつ確認
          - 元テクスチャにない質感・ノイズが追加されていないか
          - 変換対象エリアに変換漏れがないか
          - 関係ない部分が変わっていないか（全体サムネイル必須）
          - テクスチャを切り出して作業した場合も、全体サムネイルで切り出し外を確認
        `+masked` 付きのケースは除外マスクを与えて走らせたもので、compare が
        「守った画素が 1 つも変わっていないか」を機械で数える（目視では見えないため）。
-    4. 問題がなければ `approve` を実行（マスク契約違反があると approve は失敗する）
-    5. コミット（pre-commit フックが approve を確認する）
+    4. 問題がなければ `approve` を実行（マスク契約・α・選択の使い回しの食い違いがあると approve は失敗する）
+    5. コミット（pre-commit フックが、ステージした中身と承認を突き合わせる）
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -46,7 +57,7 @@ from PIL import Image, ImageDraw
 _ROOT = Path(__file__).resolve().parent.parent          # リポジトリルート
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness_scope import harness_source_files          # noqa: E402
+import review_state as rs                                # noqa: E402
 from workflow_contract import MASKED_REVIEW_CASES        # noqa: E402
 _DEV_SAFE = _ROOT / "dev_safe"
 _TESTS = _DEV_SAFE / "Tests"
@@ -396,38 +407,164 @@ def _hstack_with_sep(cols: list[np.ndarray], sep_px: int = 4) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# 測る DLL と中身(snapshot・compare 共通。2026-11-10、点検 B-1・B-4・B-5・B-7①)
+# ---------------------------------------------------------------------------
+SNAPSHOT_META = SNAPSHOT_BEFORE_DIR / "meta.json"
+
+
+def _prepare_harness(source: str, allow_external: bool, cmd: str):
+    """source(worktree / index / rev:<rev>)のコードでハーネスをビルドして写し、このプロセスで測る DLL に決める。
+
+    返すのは来歴(tools/harness_build.BuildInfo)。IROCA_HARNESS_DLL(来歴の無い外の DLL)は、allow_external の
+    ときだけ使い(None を返す)、その結果は承認できない。
+    """
+    from regression import fixtures as fx
+    if fx.external_dll():
+        if not allow_external:
+            print(f"[{cmd}] IROCA_HARNESS_DLL={fx.external_dll()} が立っています。出荷ゲートは来歴の分かる DLL"
+                  "(このツールがビルドしたもの)で測ります。外して回すか、見るだけなら --allow-external-dll を付けてください"
+                  "(その結果は承認できません)。")
+            sys.exit(1)
+        fx.ensure_harness()
+        return None
+    try:
+        info = fx.build_harness_info(source)
+    except fx.HarnessUnavailable as e:
+        raise RuntimeError(f"dotnet / Unity DLL が利用できません(--engine csharp は使えません): {e}")
+    except fx.HarnessBuildFailed as e:
+        raise RuntimeError(f"Harness ビルド失敗:\n{e}")
+    fx.pin_harness(info)
+    print(f"[{cmd}] ハーネス {info.dll_sha256[:16]} を測ります(コードは {source} から)")
+    return info
+
+
+def _measured_state(source: str, info) -> dict:
+    """測り始めの中身。ビルドした DLL の来歴と食い違えば(ビルドの後に編集された)止める(点検 B-7①)。"""
+    st = rs.state(source)
+    if info is not None:
+        bad = sorted(k for k, v in info.sources.items() if st.get(k) != v)
+        if bad:
+            raise RuntimeError(f"ビルドした後にソースが変わりました: {', '.join(bad[:6])}。やり直してください")
+    return st
+
+
+def _git_head() -> str:
+    import subprocess
+    r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=_ROOT, capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+# ---------------------------------------------------------------------------
 # snapshot
 # ---------------------------------------------------------------------------
-def cmd_snapshot(engine: str = "csharp") -> None:
-    """現在のアルゴリズム出力を全ケース分 snapshot_before に保存する。"""
+def cmd_snapshot(engine: str = "csharp", source: str = "rev:HEAD", allow_external: bool = False) -> None:
+    """変更前の出力を全ケース分 snapshot_before(と workflow_review/snapshot)に保存する。
+
+    既定は HEAD のコードをビルドして撮る(点検 B-4。「変更前」がいつも HEAD になり、共有の作業ツリーにある他人の
+    未コミットの変更も入らない。作業ツリーと HEAD のコードが同じなら作業ツリーの DLL を使うので、実行キャッシュに当たる)。
+    meta.json に、どのコード・測定器・基準から撮ったか(state)を残し、compare と approve が「変更前と同じ中身を
+    測っていないか」を確かめる。
+    """
+    info = _prepare_harness(source, allow_external, "snapshot")
+    st0 = _measured_state(source, info) if info is not None else None
     SNAPSHOT_BEFORE_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"[snapshot] 全ケースをスナップショット中 (engine={engine}) …")
+    # 途中で止まった snapshot を、来歴つきの完全なものと取り違えないように、先に古い meta を消す
+    SNAPSHOT_META.unlink(missing_ok=True)
+    import workflow_review
+    (workflow_review.REVIEW / "snapshot" / "meta.json").unlink(missing_ok=True)
+    print(f"[snapshot] 全ケースをスナップショット中 (engine={engine}, コード={source}) …")
     # 1 件ずつ保存して手放す(全ケースの出力を同時に抱えるとメモリが尽きる。compare と同じ)。
     saved: list[str] = []
     for case_id, _input, output_rgba, _exclude, _shared_diff in _iter_engine(engine):
         Image.fromarray(output_rgba).save(SNAPSHOT_BEFORE_DIR / f"{case_id}.png")
         saved.append(case_id)
         print(f"  保存: {case_id}.png")
+    print(f"[snapshot] {len(saved)} ケース完了 → {SNAPSHOT_BEFORE_DIR}")
+    workflow_review.generate(snapshot=True, measured={"source": source, "state": st0, "run_id": None})
+    if st0 is not None:
+        changed = rs.diff(rs.state(source), st0)
+        if changed:
+            raise RuntimeError(f"snapshot の途中で中身が変わりました: {', '.join(changed[:6])}。撮り直してください")
     meta = {
         "timestamp": datetime.now().isoformat(),
         "cases": sorted(saved),
+        # 来歴(点検 B-4)。state が無い(外の DLL・2026-11-10 より前の)snapshot は、何から撮ったか分からない
+        "source": source,
+        "state": st0,
+        "state_digest": rs.digest(st0) if st0 is not None else None,
+        "head": _git_head(),
+        "dirty": (rs.code_state("worktree") != rs.code_state(source)) if st0 is not None else None,
+        "dll_sha256": info.dll_sha256 if info is not None else None,
     }
-    (SNAPSHOT_BEFORE_DIR / "meta.json").write_text(
-        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    print(f"[snapshot] {len(saved)} ケース完了 → {SNAPSHOT_BEFORE_DIR}")
-    import workflow_review
-    workflow_review.generate(snapshot=True)
+    text = json.dumps(meta, indent=2, ensure_ascii=False)
+    SNAPSHOT_META.write_text(text, encoding="utf-8")
+    (workflow_review.REVIEW / "snapshot" / "meta.json").write_text(text, encoding="utf-8")
+    if meta["dirty"]:
+        print("[snapshot] 注意: 作業ツリーのコードは、撮ったコードと違います(compare で、その違いが変化として出ます)。")
+
+
+def snapshot_provenance(st: dict) -> dict:
+    """今の snapshot が、測る中身 st に対してどんな「変更前」か(compare が review.json に残し、approve が見る)。"""
+    if not SNAPSHOT_META.exists():
+        return {"present": False}
+    meta = json.loads(SNAPSHOT_META.read_text(encoding="utf-8"))
+    out = {"present": True, "timestamp": meta.get("timestamp"), "source": meta.get("source"),
+           "head": meta.get("head"), "state_digest": meta.get("state_digest")}
+    snap_state = meta.get("state")
+    out["legacy"] = snap_state is None
+    out["same_as_compare"] = snap_state == st if snap_state is not None else None
+    out["code_same_as_compare"] = (rs.code_part(snap_state) == rs.code_part(st)) if snap_state is not None else None
+    return out
+
+
+def snapshot_rule(doc: dict, committed: dict) -> str | None:
+    """approve してよいか(点検 B-4)。断るときは理由を返す。
+
+    - 比較で測った中身がコミット済みの中身(本体と dev_safe の HEAD)と同じなら、HEAD を確かめただけなので通す。
+    - snapshot が無いなら、全パネルが「変更前なし」として目視に回っているので通す。
+    - 来歴の無い(古い形の)snapshot は、コードが HEAD と同じ比較だけ通す(コードを変えたのに変更前の中身が分からない)。
+    - 変更前と同じ中身を測った比較は、変化 0 が何も示さないので断る。
+    """
+    st = doc["state"]
+    if st == committed:
+        return None
+    snap = doc.get("snapshot") or {}
+    if not snap.get("present"):
+        return None
+    if snap.get("legacy"):
+        if rs.code_part(st) == rs.code_part(committed):
+            return None
+        return ("変更前(snapshot)がどのコードから撮られたか分かりません(古い形)。コードを変えた比較の承認には、"
+                "来歴のある snapshot が要ります: python tools/visual_review.py snapshot(既定で HEAD から)→ compare")
+    if snap.get("same_as_compare"):
+        return ("変更前(snapshot)と同じ中身を測っています。変化 0 は何も示しません。HEAD から撮り直すか"
+                "(python tools/visual_review.py snapshot)、測定器・基準を変えたときは変える前に撮った snapshot と比べてください")
+    return None
 
 
 # ---------------------------------------------------------------------------
 # compare
 # ---------------------------------------------------------------------------
-def cmd_compare(engine: str = "csharp") -> None:
+def cmd_compare(engine: str = "csharp", source: str = "worktree", allow_external: bool = False) -> None:
     """3列比較パネル（元テクスチャ | 変更前 | 変更後）を全ケース分生成する。
 
     engine="csharp" のとき「変更後」を実 C# Harness の出力で描画する(出荷物を忠実に確認)。
+    source="index" ならステージした中身のコードをビルドして測る(共有の作業ツリーにある他人の未コミットを入れない)。
+    測り始めと終わりの中身(state)、比較の実行の id(run_id)、変更前の来歴を review.json に残す。approve と pre-commit は
+    これを見る(時刻は見ない)。
     """
+    info = _prepare_harness(source, allow_external, "compare")
+    st0 = _measured_state(source, info) if info is not None else rs.state(source)
+    run_id = uuid.uuid4().hex
+    snap = snapshot_provenance(st0)
+    if snap.get("legacy"):
+        print("[compare] 注意: 変更前(snapshot)の来歴がありません(古い形か外の DLL)。何のコードから撮ったか分からないので、"
+              "コードを変えた比較は承認できません(python tools/visual_review.py snapshot で HEAD から撮り直す)。")
+    elif snap.get("same_as_compare"):
+        print("[compare] 注意: 変更前(snapshot)と同じ中身を測っています。変化 0 は何も示しません"
+              "(HEAD を確かめるだけなら承認できます)。")
+    elif snap.get("present") and snap.get("code_same_as_compare") is False and snap.get("source") == "worktree":
+        print("[compare] 注意: 変更前は作業ツリーから撮っています。共有の作業ツリーでは他人の未コミットが入りえます。")
     COMPARE_DIR.mkdir(parents=True, exist_ok=True)
 
     # snapshot_before は、そのケースを描くときに 1 枚ずつ読む。4K の全ケース(1 件 64MB × 100 超)と
@@ -538,12 +675,12 @@ def cmd_compare(engine: str = "csharp") -> None:
 
     # マスク契約の検査結果を残す（approve が読んで違反時にブロックする）。
     MASK_CONTRACT_JSON.write_text(
-        json.dumps({"checked_at": datetime.now().isoformat(), "cases": contract},
+        json.dumps({"checked_at": datetime.now().isoformat(), "run_id": run_id, "cases": contract},
                    indent=2, ensure_ascii=False),
         encoding="utf-8")
 
     CHANGE_SUMMARY_JSON.write_text(
-        json.dumps({"generated_at": datetime.now().isoformat(), "cases": change_summary,
+        json.dumps({"generated_at": datetime.now().isoformat(), "run_id": run_id, "cases": change_summary,
                     # 選択を使い回さずに測った出力と、回帰が使い回して測った出力(キャッシュにあるもの)の突き合わせ
                     "selection_share_check": {"checked": len(share_checked), "leaks": share_leaks},
                     # 出力の α が入力と違う画素(全ケースを数える。載っているのは違反のあったケースだけ)
@@ -613,7 +750,7 @@ def cmd_compare(engine: str = "csharp") -> None:
     print("問題がなければ:")
     print('  python tools/visual_review.py approve --note "<目視した範囲と根拠>"')
     import workflow_review
-    workflow_review.generate()
+    workflow_review.generate(measured={"source": source, "state": st0, "run_id": run_id, "snapshot": snap})
 
 
 def _print_phantom_table(changed_cases: dict) -> None:
@@ -634,49 +771,42 @@ def _print_phantom_table(changed_cases: dict) -> None:
 # ---------------------------------------------------------------------------
 # approve
 # ---------------------------------------------------------------------------
-def _newest_code_mtime() -> float:
-    """ハーネスがコンパイルする製品ソースの最新 mtime。
-
-    pre-commit フック(tools/check_visual_review.py)が approve を要求する範囲と同じ
-    定義(tools/harness_scope.py)を共有する。ここがズレると「フックは通るのに
-    approve が陳腐と言う」のような食い違いが起きる。
-    """
-    newest = 0.0
-    for p in harness_source_files():
-        newest = max(newest, p.stat().st_mtime)
-    return newest
+def _load_run_json(path: Path, run_id: str, what: str) -> dict:
+    """compare が書いた検査結果(mask_contract.json・change_summary.json)を、同じ比較の実行のものとして読む。"""
+    if not path.exists():
+        print(f"[approve] エラー: {what}の結果がありません。compare を実行してください:")
+        print("  python tools/visual_review.py compare")
+        sys.exit(1)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    if doc.get("run_id") != run_id:
+        print(f"[approve] エラー: {what}の結果が、ワークフローと同じ比較(compare の 1 回)のものではありません。"
+              "compare をやり直してください。")
+        sys.exit(1)
+    return doc
 
 
 def cmd_approve(note: str | None = None) -> None:
-    """視覚レビュー確認完了マーカーを書き込む。
+    """視覚レビューの承認を、比較で測った中身(state)と比較の実行(run_id)に結び付けて書く。
 
-    空承認ガード(監査 4-1): compare パネルが存在し、かつ最新の Code/ ソース変更より
-    新しいことを検証する。パネルより後にコードを変えた場合は compare からやり直し。
+    比較の後に測るものが変わっていれば断る(時刻ではなく中身で見る。点検 B-1・B-7①)。マスク契約・α・選択の
+    使い回しの食い違いは目視では分からないので、compare が数えた結果を承認の前提にする。変更前と同じ中身を
+    測った比較(変化 0 が何も示さない)は断る(点検 B-4。snapshot_rule)。
     """
     import workflow_review
-    # 固定設定だけの承認では自動調整経路を検証できない。別条件の比較も必須。
-    workflow_review.validate_review()
+    # 固定設定だけの承認では自動調整経路を検証できない。別条件の比較も必須。測った中身が今と同じことも確かめる。
+    doc = workflow_review.validate_review()
     if not note or not note.strip():
         raise ValueError("--note に固定設定とワークフロー全ケースの目視範囲を記録してください")
+    run_id = doc["run_id"]
     panels = sorted(COMPARE_DIR.glob("*_comparison.png"))
     if not panels:
         print("[approve] エラー: 比較パネルがありません。先に compare を実行してください:")
-        print("  python tools/visual_review.py compare --engine csharp")
-        sys.exit(1)
-    oldest_panel = min(p.stat().st_mtime for p in panels)
-    code_mtime = _newest_code_mtime()
-    if code_mtime > oldest_panel:
-        print("[approve] エラー: 比較パネルより新しい Code/ 変更があります(パネルが陳腐)。")
-        print("  compare を再実行してから approve してください。")
+        print("  python tools/visual_review.py compare")
         sys.exit(1)
 
     # マスク契約(除外指定した画素は絶対に変わらない)は目視では検出できないので、
-    # compare が数えた違反を承認の前提条件にする。人間の注意力に委ねない唯一の項目。
-    if not MASK_CONTRACT_JSON.exists():
-        print("[approve] エラー: マスク契約の検査結果がありません。compare を実行してください:")
-        print("  python tools/visual_review.py compare --engine csharp")
-        sys.exit(1)
-    contract = json.loads(MASK_CONTRACT_JSON.read_text(encoding="utf-8"))
+    # compare が数えた違反を承認の前提条件にする。人間の注意力に委ねない項目。
+    contract = _load_run_json(MASK_CONTRACT_JSON, run_id, "マスク契約の検査")
     cases = contract.get("cases") or {}
     if not cases:
         print("[approve] エラー: マスク付きケースが 1 件も検査されていません"
@@ -690,7 +820,7 @@ def cmd_approve(note: str | None = None) -> None:
         print("  これは目視では見えない退行です。承認せず原因を直してください。")
         sys.exit(1)
     # 選択の使い回し(回帰とプレビュー)と使い回さない経路(書き出し)の食い違いも、目視では分からない(点検 D-3)。
-    summary = json.loads(CHANGE_SUMMARY_JSON.read_text(encoding="utf-8")) if CHANGE_SUMMARY_JSON.exists() else {}
+    summary = _load_run_json(CHANGE_SUMMARY_JSON, run_id, "変化の内訳")
     share = summary.get("selection_share_check")
     if share is None:
         print("[approve] エラー: 選択の使い回しの突き合わせの結果がありません。compare を実行してください。")
@@ -709,6 +839,16 @@ def cmd_approve(note: str | None = None) -> None:
         for cid, v in sorted(alpha["violations"].items()):
             print(f"    {cid}: {v:,} px")
         sys.exit(1)
+    # 変更前が何から撮られたか(点検 B-4)
+    refuse = snapshot_rule(doc, rs.committed_state())
+    if refuse:
+        print(f"[approve] エラー: {refuse}")
+        sys.exit(1)
+    snap = doc.get("snapshot") or {}
+    if snap.get("legacy"):
+        print("[approve] 注意: 変更前(snapshot)の来歴がありません。コードは HEAD と同じなので承認しますが、"
+              "測定器・基準の変更は、変える前に撮った snapshot との比較でしか確かめられません。")
+
     REVIEW_DIR.mkdir(parents=True, exist_ok=True)
     # 既定の注記は「何をどこまで見たか」を書かない定型文だった。ツールが検証できない主張
     # （全パネル確認済み）を勝手に記録すると、承認記録そのものが信用できなくなるので、
@@ -716,6 +856,10 @@ def cmd_approve(note: str | None = None) -> None:
     marker = {
         "approved_at": datetime.now().isoformat(),
         "note": note,
+        # 承認は時刻でなく、この比較の実行で測った中身に結び付く(pre-commit はこれとステージした中身を突き合わせる)
+        "run_id": run_id,
+        "state_source": doc["state_source"],
+        "state": doc["state"],
         "panels": len(panels),
         "mask_contract_cases": len(cases),
         "mask_contract_violations": 0,
@@ -726,69 +870,50 @@ def cmd_approve(note: str | None = None) -> None:
         json.dumps(marker, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     workflow_review.approve(note)
-    print(f"[approve] マーカーを書き込みました: {APPROVED_JSON} (panels={len(panels)})")
-    print("  コミット可能です。")
+    print(f"[approve] マーカーを書き込みました: {APPROVED_JSON} (panels={len(panels)}, 測り元={doc['state_source']})")
+    print("  コミットできるのは、範囲のファイルが「HEAD と同じ」か「この比較で測った中身と同じ」ものだけです"
+          "(確かめるなら python tools/visual_review.py check --index)。")
 
 
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
-def _parse_engine(argv: list[str]) -> str:
-    """argv から --engine python|csharp を取り出す(既定 csharp = 出荷される実 C#)。
-
-    Python 再実装(vacc_python)は引退済みのため、python 指定は明示エラーになる。
-    """
-    for i, a in enumerate(argv):
-        if a == "--engine" and i + 1 < len(argv):
-            eng = argv[i + 1]
-            if eng not in ("python", "csharp"):
-                print(f"不明な engine: {eng!r} (python|csharp)")
-                sys.exit(1)
-            return eng
-        if a.startswith("--engine="):
-            eng = a.split("=", 1)[1]
-            if eng not in ("python", "csharp"):
-                print(f"不明な engine: {eng!r} (python|csharp)")
-                sys.exit(1)
-            return eng
-    return "csharp"
-
-
-def _parse_note(argv: list[str]) -> str | None:
-    """argv から --note <text> / --note=<text> を取り出す(approve 用)。"""
-    for i, a in enumerate(argv):
-        if a == "--note" and i + 1 < len(argv):
-            return argv[i + 1]
-        if a.startswith("--note="):
-            return a.split("=", 1)[1]
-    return None
-
-
 def main() -> None:
-    if len(sys.argv) < 2:
-        print(__doc__)
-        sys.exit(1)
-
-    cmd = sys.argv[1]
-    engine = _parse_engine(sys.argv[2:])
-    if cmd in ("snapshot", "compare") and os.environ.get("IROCA_HARNESS_DLL") \
-            and "--allow-external-dll" not in sys.argv[2:]:
-        # ビルドしない外の DLL は、どのソースから作ったか分からない(点検 B-5)。見るだけなら --allow-external-dll。
-        # その比較結果は承認できない(workflow_review.validate_review が dll_source を見て断る)。
-        print(f"[{cmd}] IROCA_HARNESS_DLL={os.environ['IROCA_HARNESS_DLL']} が立っています。出荷ゲートは来歴の分かる"
-              "DLL(このツールがビルドしたもの)で測ります。外して回すか、見るだけなら --allow-external-dll を付けてください"
-              "(その結果は承認できません)。")
-        sys.exit(1)
-    if cmd == "snapshot":
-        cmd_snapshot(engine)
-    elif cmd == "compare":
-        cmd_compare(engine)
-    elif cmd == "approve":
-        cmd_approve(_parse_note(sys.argv[2:]))
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("command", choices=("snapshot", "compare", "approve", "check"))
+    ap.add_argument("--engine", default="csharp", choices=("python", "csharp"),
+                    help="csharp のみ(Python 再実装は引退済み)")
+    src = ap.add_mutually_exclusive_group()
+    src.add_argument("--index", action="store_true",
+                     help="compare / check: 作業ツリーでなく、ステージした中身のコードで測る・確かめる")
+    src.add_argument("--worktree", action="store_true", help="snapshot: HEAD でなく作業ツリーのコードから撮る")
+    src.add_argument("--rev", default=None, help="snapshot: このコミットのコードから撮る(既定 HEAD)")
+    ap.add_argument("--allow-external-dll", action="store_true",
+                    help="IROCA_HARNESS_DLL の DLL で測る(見るだけ。来歴が無いので承認できない)")
+    ap.add_argument("--note", default=None, help="approve: 実際に目視した範囲と根拠")
+    args = ap.parse_args()
+    if args.engine == "python":
+        _run_all_cases()
+    if args.command == "snapshot":
+        if args.index:
+            ap.error("snapshot に --index は使えません(--worktree か --rev)")
+        source = "worktree" if args.worktree else f"rev:{args.rev or 'HEAD'}"
+        cmd_snapshot(args.engine, source, args.allow_external_dll)
+    elif args.command == "compare":
+        if args.worktree or args.rev:
+            ap.error("compare は作業ツリー(既定)か --index で測ります")
+        cmd_compare(args.engine, "index" if args.index else "worktree", args.allow_external_dll)
+    elif args.command == "approve":
+        cmd_approve(args.note)
     else:
-        print(f"不明なコマンド: {cmd!r}")
-        print("使い方: python tools/visual_review.py [snapshot|compare|approve] [--engine python|csharp]")
-        sys.exit(1)
+        import workflow_review
+        problems = workflow_review.check(index=args.index)
+        if problems:
+            print("[check] 承認と中身が合いません(compare → 目視 → approve をやり直す):")
+            for p in problems:
+                print(f"  {p}")
+            sys.exit(1)
+        print(f"[check] 承認は有効で、{'ステージした中身' if args.index else '作業ツリー'}をコミットしてもフックを通ります。")
 
 
 if __name__ == "__main__":
