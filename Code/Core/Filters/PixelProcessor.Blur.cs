@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Iroca {
-    // ぼかし(箱フィルタの和・ガウシアン・ぼかしの流出止め)。選択のぼかしと、デコンタミの近傍の和が使う。
+    // ぼかし(箱フィルタの和・ガウシアン)。選択のぼかしと、デコンタミの近傍の和が使う。
     internal static unsafe partial class PixelProcessor {
         /// <summary>
         /// 分離型ボックス和フィルタ。各ピクセル位置で (2r+1)×(2r+1) 窓内の合計を dst に書き込む
@@ -166,51 +166,6 @@ namespace Iroca {
                 s_floatPool.Return(temp);
             }
             return true;
-        }
-
-        private static void ConstrainBlur(float* blurred, float* original, int w, int h, int radius, CancellationToken ct = default) {
-            // マッチがなかった領域へのブラーの流出を防止。
-            // original > 0 を float マスクに変換して BoxFilterSum に流すことで
-            // 近傍チェックを O(N·r²) から O(N) に削減。
-            int len = w * h;
-            float* mask = null, neighborSum = null;
-            try {
-                mask = s_floatPool.Rent(len);
-                neighborSum = s_floatPool.Rent(len);
-                // 行並列(要素独立・自 index 書き込みのみ=出力ビット不変)。per-index デリゲートを避ける。
-                var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-                var maskL = mask;
-                Parallel.For(0, h, po, y => {
-                    int rowOff = y * w;
-                    for (int x = 0; x < w; x++) {
-                        int i = rowOff + x;
-                        maskL[i] = original[i] > 0f ? 1f : 0f;
-                    }
-                });
-
-                BoxFilterSum(mask, neighborSum, w, h, radius, ct);
-
-                var neighborSumL = neighborSum;
-                Parallel.For(0, h, po, y => {
-                    int rowOff = y * w;
-                    for (int x = 0; x < w; x++) {
-                        int i = rowOff + x;
-                        if (original[i] > 0f) {
-                            continue;
-                        }
-                        if (neighborSumL[i] <= 0f) {
-                            blurred[i] = 0f;
-                        }
-                    }
-                });
-            } finally {
-                if (neighborSum != null) {
-                    s_floatPool.Return(neighborSum);
-                }
-                if (mask != null) {
-                    s_floatPool.Return(mask);
-                }
-            }
         }
     }
 }

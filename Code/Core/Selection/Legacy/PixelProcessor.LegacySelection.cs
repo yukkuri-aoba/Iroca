@@ -391,12 +391,12 @@ namespace Iroca {
 
             if (!selCached && edgeFeather > EdgeFeatherBlurMin && hasPostBox) {
                 // ガウシアンブラー用の一時バッファ。GaussianBlur 内部の Parallel.For
-                // でキャンセルが入っても preBlur/blurOut が漏れないよう try/finally で囲む。
-                float* preBlur = null;
+                // でキャンセルが入っても blurOut が漏れないよう try/finally で囲む。
+                // ぼかしの外への流出止め(ConstrainBlur)は置かない: ぼかしの窓(±半径、画像の端で切る)の中に選択の画素が
+                // 1 つも無ければ、ぼかした値は重みと 0 の積の和でちょうど 0 になる。同じ半径の箱で数えて 0 に戻す段は
+                // 何も変えていなかった(点検 選-5。4K で 192MB と全画素 3 回の走査)。
                 float* blurOut = null;
                 try {
-                    preBlur = s_floatPool.Rent(len);
-                    Buffer.MemoryCopy(strength, preBlur, (long)len * sizeof(float), (long)len * sizeof(float));
                     blurOut = s_floatPool.Rent(len);
                     if (GaussianBlur(strength, blurOut, w, h, edgeFeather,
                         ppMinX, ppMinY, ppMaxX, ppMaxY, cancellationToken)) {
@@ -404,14 +404,10 @@ namespace Iroca {
                         s_floatPool.Return(strength);
                         strength = zb.Strength = blurOut;
                         blurOut = null; // 二重返却防止
-                        ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * GaussianRadiusPerSigma), cancellationToken);
                     }
                 } finally {
                     if (blurOut != null) {
                         s_floatPool.Return(blurOut);
-                    }
-                    if (preBlur != null) {
-                        s_floatPool.Return(preBlur);
                     }
                 }
                 debug?.RecordStage(zone.id, DebugStages.Blur, ToManaged(strength, len), w, h);

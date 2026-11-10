@@ -183,7 +183,7 @@ namespace Iroca {
 
         // 以下は「複数の箇所で同じ値でなければならない」しきい値。片側だけ変えると bbox 限定のビット不変や
         // 排他条件が崩れるので、名前で束ねておく。
-        // ガウシアンブラーの半径 = ceil(sigma × これ)。GaussianBlur 本体・後段 bbox の余白・ConstrainBlur の
+        // ガウシアンブラーの半径 = ceil(sigma × これ)。GaussianBlur 本体と後段 bbox の余白の
         // 半径が同じでないと、bbox の外へ広がったブラーを取りこぼす。
         private const float GaussianRadiusPerSigma = 2.5f;
         // edgeFeather がこれを超えたら境界ぼかしを走らせる。後段 bbox の余白・ぼかしの実行条件・
