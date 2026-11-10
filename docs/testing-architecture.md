@@ -737,8 +737,11 @@ python tools/visual_review.py approve --note "確認した範囲と根拠"   # �
 - 承認は `dev_safe/Tests/visual_review/approved.json` に記録される。`--note` には
   **実際に見た範囲と、それで十分と判断した根拠**を書く（必須。無いか空だと ValueError で止まり、承認されない）。
 - `compare` は変更前（snapshot）との差を数え、`dev_safe/Tests/visual_review/change_summary.json` に書く。
-  固定設定のケースごとに `changed`（変更前と RGB が違う画素数）・`toward_original`（元テクスチャとの差が縮んだ画素＝
+  固定設定のケースごとに `changed`（変更前と RGBA のどれかが違う画素数。2026-11-10 までは RGB だけで、α だけの変化は
+  「ビット一致」になっていた）・`alpha_changed`（そのうち α が違う画素）・`toward_original`（元テクスチャとの差が縮んだ画素＝
   誤爆の除去）・`away_from_original`（差が広がった画素＝新しい・強まった着色）・`max_delta`（変更前との最大差）。
+  あわせて全ケースで「出力の α ＝ 入力の α」を数え（`alpha_contract`。golden の `test_alpha_is_preserved` が合成入力で
+  見ている不変条件）、1 画素でも違えば approve できない。ワークフロー側は同じ違反を回帰（`alpha`）として扱う。
   snapshot の無いケースは載らない。同じ表を変化の大きい順にコンソールにも出し、`changed` が 0 でないケースだけ
   パネルに等倍クロップの 2 段目が付く。`changed` が 0 のケースは変更前とビット一致。ワークフロー側は
   `dev_safe/Tests/workflow_review/review.json` の各ケースの `changed_from_snapshot`（変更前と違う画素数。

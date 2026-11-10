@@ -150,6 +150,8 @@ def generate(snapshot: bool = False) -> None:
             regressions = selection_violations(metrics, baselines[mode][f"{sid}/p50"])
             if mode == "assisted_include" and r["include_applied"] != baselines[mode][f"{sid}/p50"]["include_applied"]:
                 regressions.append("include_applied")
+            if vr.alpha_violations(rgba, output):     # 再着色は色だけを変える(点検 B-7⑤)
+                regressions.append("alpha")
             previous = REVIEW / "snapshot" / name
             before = np.array(Image.open(previous).convert("RGBA")) if previous.exists() else None
             def tile(arr, label):

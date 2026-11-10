@@ -215,28 +215,41 @@ def _iter_engine(engine: str):
 CROP_SIZE = 384  # 等倍クロップの一辺（px）
 
 
+def _changed_px(before: np.ndarray, after: np.ndarray) -> np.ndarray:
+    """変更前と RGBA のどれかが違う画素(α だけの変化も変化として数える。点検 B-7⑤)。"""
+    return np.any(before != after, axis=-1)
+
+
 def _classify_change(orig: np.ndarray, before: np.ndarray, after: np.ndarray) -> dict:
     """変化画素を「元へ復帰 / 元から離れた」に分類する。
 
     元テクスチャからの L1 距離が縮んだ画素は **誤爆着色の除去**、伸びた画素は
     **新規/強化された着色**。総変化画素数だけでは、この 2 つが打ち消し合って
-    「大きく変わった」以上のことが分からない。
+    「大きく変わった」以上のことが分からない。変化は RGBA の 4 チャンネルで数え、α が変わった画素は
+    alpha_changed にも数える(2026-11-10 まで RGB だけを見ていて、α だけの変化は「ビット一致」になった)。
     """
-    o = orig[..., :3].astype(np.int16)
-    b = before[..., :3].astype(np.int16)
-    a = after[..., :3].astype(np.int16)
-    ch = np.any(b != a, axis=-1)
+    o = orig.astype(np.int16)
+    b = before.astype(np.int16)
+    a = after.astype(np.int16)
+    ch = _changed_px(before, after)
     n = int(ch.sum())
     if n == 0:
-        return {"changed": 0, "toward_original": 0, "away_from_original": 0, "max_delta": 0}
+        return {"changed": 0, "alpha_changed": 0, "toward_original": 0, "away_from_original": 0, "max_delta": 0}
     db = np.abs(b - o).sum(-1)[ch]
     da = np.abs(a - o).sum(-1)[ch]
     return {
         "changed": n,
+        "alpha_changed": int((before[..., 3] != after[..., 3]).sum()),
         "toward_original": int((da < db).sum()),
         "away_from_original": int((da > db).sum()),
         "max_delta": int(np.abs(b - a).max()),
     }
+
+
+def alpha_violations(orig: np.ndarray, after: np.ndarray) -> int:
+    """出力の α が入力の α と違う画素の数。再着色は色だけを変える不変条件(golden の test_alpha_is_preserved が
+    合成入力で見ている)なので、実物の被写体でもマスク契約と同じく機械で数え、1 画素でもあれば承認しない。"""
+    return int((orig[..., 3] != after[..., 3]).sum())
 
 
 def _densest_change_window(changed: np.ndarray, size: int) -> tuple[int, int]:
@@ -440,11 +453,15 @@ def cmd_compare(engine: str = "csharp") -> None:
     change_summary: dict[str, dict] = {}   # ケース -> 変化画素の内訳
     share_checked: list[str] = []          # 回帰が選択を使い回して測った出力と突き合わせたケース
     share_leaks: dict[str, int] = {}       # そのうち出力が違ったケース -> 違う画素数(選択キャッシュの鍵の漏れ)
+    alpha_contract: dict[str, int] = {}    # α が入力と違う画素があったケース -> 画素数(B-7⑤)
     for case_id, input_rgba, after_rgba, exclude, shared_diff in _iter_engine(engine):
         if shared_diff is not None:
             share_checked.append(case_id)
             if shared_diff:
                 share_leaks[case_id] = shared_diff
+        n_alpha = alpha_violations(input_rgba, after_rgba)
+        if n_alpha:
+            alpha_contract[case_id] = n_alpha
         bp = before_paths.get(case_id)
         before_rgba: np.ndarray | None = np.array(Image.open(bp).convert("RGBA")) if bp else None
 
@@ -487,9 +504,7 @@ def cmd_compare(engine: str = "csharp") -> None:
             stats = _classify_change(input_rgba, before_rgba, after_rgba)
             change_summary[case_id] = stats
             if stats["changed"] > 0:
-                changed_mask = np.any(
-                    before_rgba[..., :3].astype(np.int16)
-                    != after_rgba[..., :3].astype(np.int16), axis=-1)
+                changed_mask = _changed_px(before_rgba, after_rgba)
                 cy, cx = _densest_change_window(changed_mask, CROP_SIZE)
                 crop_row = _hstack_with_sep([
                     _add_label(_crop(input_rgba, cy, cx, CROP_SIZE),
@@ -530,7 +545,9 @@ def cmd_compare(engine: str = "csharp") -> None:
     CHANGE_SUMMARY_JSON.write_text(
         json.dumps({"generated_at": datetime.now().isoformat(), "cases": change_summary,
                     # 選択を使い回さずに測った出力と、回帰が使い回して測った出力(キャッシュにあるもの)の突き合わせ
-                    "selection_share_check": {"checked": len(share_checked), "leaks": share_leaks}},
+                    "selection_share_check": {"checked": len(share_checked), "leaks": share_leaks},
+                    # 出力の α が入力と違う画素(全ケースを数える。載っているのは違反のあったケースだけ)
+                    "alpha_contract": {"checked": len(generated), "violations": alpha_contract}},
                    indent=2, ensure_ascii=False), encoding="utf-8")
 
     print(f"[compare] {len(generated)} ケース完了")
@@ -544,10 +561,10 @@ def cmd_compare(engine: str = "csharp") -> None:
         print(f"[変化サマリ] 変化ケース {len(changed_cases)}/{len(change_summary)} / "
               f"変化画素 合計 {total:,}")
         if changed_cases:
-            print(f"  {'case':32}{'変化':>12}{'元へ復帰':>12}{'元から離れた':>14}{'最大差':>7}")
+            print(f"  {'case':32}{'変化':>12}{'うちα':>8}{'元へ復帰':>12}{'元から離れた':>14}{'最大差':>7}")
             for cid, v in sorted(changed_cases.items(),
                                  key=lambda kv: -kv[1]["changed"]):
-                print(f"  {cid:32}{v['changed']:>12,}{v['toward_original']:>12,}"
+                print(f"  {cid:32}{v['changed']:>12,}{v.get('alpha_changed', 0):>8,}{v['toward_original']:>12,}"
                       f"{v['away_from_original']:>14,}{v['max_delta']:>7}")
             print("  ※ 変化の大きいケースから等倍クロップ(パネル 2 段目)を確認すること。")
             _print_phantom_table(changed_cases)
@@ -558,6 +575,9 @@ def cmd_compare(engine: str = "csharp") -> None:
           f"{len(share_checked)}/{len(generated)} ケース)と突き合わせ: 食い違い {len(share_leaks)} ケース")
     for cid, n in sorted(share_leaks.items()):
         print(f"  NG  {cid}: {n:,} px(選択キャッシュの鍵に漏れがある。approve はブロックされます)")
+    print(f"[α] 出力の α が入力と違うケース {len(alpha_contract)}/{len(generated)}")
+    for cid, n in sorted(alpha_contract.items()):
+        print(f"  NG  {cid}: {n:,} px(再着色は色だけを変える。approve はブロックされます)")
     print()
     if contract:
         total = sum(contract.values())
@@ -680,6 +700,15 @@ def cmd_approve(note: str | None = None) -> None:
         for cid, v in sorted(share["leaks"].items()):
             print(f"    {cid}: {v:,} px")
         sys.exit(1)
+    alpha = summary.get("alpha_contract")
+    if alpha is None:
+        print("[approve] エラー: α の検査結果がありません。compare を実行してください。")
+        sys.exit(1)
+    if alpha["violations"]:
+        print("[approve] エラー: 出力の α が入力の α と違うケースがあります(再着色は色だけを変える):")
+        for cid, v in sorted(alpha["violations"].items()):
+            print(f"    {cid}: {v:,} px")
+        sys.exit(1)
     REVIEW_DIR.mkdir(parents=True, exist_ok=True)
     # 既定の注記は「何をどこまで見たか」を書かない定型文だった。ツールが検証できない主張
     # （全パネル確認済み）を勝手に記録すると、承認記録そのものが信用できなくなるので、
@@ -691,6 +720,7 @@ def cmd_approve(note: str | None = None) -> None:
         "mask_contract_cases": len(cases),
         "mask_contract_violations": 0,
         "selection_share_checked": share["checked"],
+        "alpha_checked": alpha["checked"],
     }
     APPROVED_JSON.write_text(
         json.dumps(marker, indent=2, ensure_ascii=False), encoding="utf-8"
