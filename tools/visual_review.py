@@ -166,16 +166,20 @@ def _iter_cases_csharp():
     settings_cfg = fx._settings_to_harness(default_settings())
 
     def _batch(rgba, cases, suffix: str, exclude):
+        """選択を使い回さずに測り(書き出しと同じ経路。点検 D-3)、回帰が使い回して測った出力がキャッシュにあれば
+        突き合わせる。返すのは (出力, 使い回した側と違う画素数 or None(キャッシュに無い)) の並び。"""
         specs = [([_zone_to_harness(make_zone(c), c)], settings_cfg, f"{c.case_id}{suffix}")
                  for c in cases]
-        return fx.run_harness_many(rgba, specs, exclude=exclude)
+        outs = fx.run_harness_many(rgba, specs, exclude=exclude, share_selection=False)
+        shared = fx.cached_outputs(rgba, specs, exclude=exclude, share_selection=True)
+        return [(o, None if s is None else int(np.any(o != s, axis=-1).sum())) for o, s in zip(outs, shared)]
 
     # 被写体ごとに実行して返す(呼び出し側が使い終えた出力は次の被写体の前に手放せる)。
     for subject in SUBJECT_REGISTRY.values():
         rgba, gt_mask = load_subject_inputs(subject)
         cases = load_cases(subject)
-        for case, out in zip(cases, _batch(rgba, cases, "", None)):   # exclude=None → 全画素処理
-            yield case.case_id, rgba, out, None
+        for case, (out, shared_diff) in zip(cases, _batch(rgba, cases, "", None)):   # exclude=None → 全画素処理
+            yield case.case_id, rgba, out, None, shared_diff
 
         # ── 除外マスク付きの変種(N-12: ゲートにマスク経路を通す) ──
         n_masked = MASKED_SUBJECT_CASES.get(subject.subject_id, 0)
@@ -185,18 +189,19 @@ def _iter_cases_csharp():
             raise RuntimeError(
                 f"{subject.subject_id}: マスクケースには single_mask 戦略の GT が要ります")
         exclude = _build_review_mask(gt_mask)
-        for case, out in zip(cases[:n_masked],
-                             _batch(rgba, cases[:n_masked], MASKED_SUFFIX, exclude)):
-            yield f"{case.case_id}{MASKED_SUFFIX}", rgba, out, exclude.astype(bool)
+        for case, (out, shared_diff) in zip(cases[:n_masked],
+                                            _batch(rgba, cases[:n_masked], MASKED_SUFFIX, exclude)):
+            yield f"{case.case_id}{MASKED_SUFFIX}", rgba, out, exclude.astype(bool), shared_diff
 
 
 def _iter_engine(engine: str):
-    """(case_id, input_rgba, output_rgba, exclude_or_None) を順に返す。C# は被写体ごとに実行する。"""
+    """(case_id, input_rgba, output_rgba, exclude_or_None, 選択を使い回した出力との差 or None) を順に返す。
+    C# は被写体ごとに実行する。"""
     if engine == "csharp":
         yield from _iter_cases_csharp()
         return
     for cid, (i, o, e) in sorted(_run_all_cases().items()):
-        yield cid, i, o, e
+        yield cid, i, o, e, None
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +391,7 @@ def cmd_snapshot(engine: str = "csharp") -> None:
     print(f"[snapshot] 全ケースをスナップショット中 (engine={engine}) …")
     # 1 件ずつ保存して手放す(全ケースの出力を同時に抱えるとメモリが尽きる。compare と同じ)。
     saved: list[str] = []
-    for case_id, _input, output_rgba, _exclude in _iter_engine(engine):
+    for case_id, _input, output_rgba, _exclude, _shared_diff in _iter_engine(engine):
         Image.fromarray(output_rgba).save(SNAPSHOT_BEFORE_DIR / f"{case_id}.png")
         saved.append(case_id)
         print(f"  保存: {case_id}.png")
@@ -433,7 +438,13 @@ def cmd_compare(engine: str = "csharp") -> None:
     to_review: list[Path] = []             # 目視が要るパネル（変化あり、または変更前なし）
     contract: dict[str, int] = {}          # マスク付きケース -> 契約違反画素数
     change_summary: dict[str, dict] = {}   # ケース -> 変化画素の内訳
-    for case_id, input_rgba, after_rgba, exclude in _iter_engine(engine):
+    share_checked: list[str] = []          # 回帰が選択を使い回して測った出力と突き合わせたケース
+    share_leaks: dict[str, int] = {}       # そのうち出力が違ったケース -> 違う画素数(選択キャッシュの鍵の漏れ)
+    for case_id, input_rgba, after_rgba, exclude, shared_diff in _iter_engine(engine):
+        if shared_diff is not None:
+            share_checked.append(case_id)
+            if shared_diff:
+                share_leaks[case_id] = shared_diff
         bp = before_paths.get(case_id)
         before_rgba: np.ndarray | None = np.array(Image.open(bp).convert("RGBA")) if bp else None
 
@@ -517,7 +528,9 @@ def cmd_compare(engine: str = "csharp") -> None:
         encoding="utf-8")
 
     CHANGE_SUMMARY_JSON.write_text(
-        json.dumps({"generated_at": datetime.now().isoformat(), "cases": change_summary},
+        json.dumps({"generated_at": datetime.now().isoformat(), "cases": change_summary,
+                    # 選択を使い回さずに測った出力と、回帰が使い回して測った出力(キャッシュにあるもの)の突き合わせ
+                    "selection_share_check": {"checked": len(share_checked), "leaks": share_leaks}},
                    indent=2, ensure_ascii=False), encoding="utf-8")
 
     print(f"[compare] {len(generated)} ケース完了")
@@ -541,6 +554,11 @@ def cmd_compare(engine: str = "csharp") -> None:
         else:
             print("  すべてのケースが変更前とビット一致（出力に影響しない変更）。")
         print()
+    print(f"[選択の使い回し] 使い回さずに測った出力を、回帰が使い回して測った出力(キャッシュにある "
+          f"{len(share_checked)}/{len(generated)} ケース)と突き合わせ: 食い違い {len(share_leaks)} ケース")
+    for cid, n in sorted(share_leaks.items()):
+        print(f"  NG  {cid}: {n:,} px(選択キャッシュの鍵に漏れがある。approve はブロックされます)")
+    print()
     if contract:
         total = sum(contract.values())
         print(f"[マスク契約] {len(contract)} ケースを検査 / 違反 合計 {total:,} px")
@@ -651,6 +669,17 @@ def cmd_approve(note: str | None = None) -> None:
             print(f"    {cid}: {v:,} px")
         print("  これは目視では見えない退行です。承認せず原因を直してください。")
         sys.exit(1)
+    # 選択の使い回し(回帰とプレビュー)と使い回さない経路(書き出し)の食い違いも、目視では分からない(点検 D-3)。
+    summary = json.loads(CHANGE_SUMMARY_JSON.read_text(encoding="utf-8")) if CHANGE_SUMMARY_JSON.exists() else {}
+    share = summary.get("selection_share_check")
+    if share is None:
+        print("[approve] エラー: 選択の使い回しの突き合わせの結果がありません。compare を実行してください。")
+        sys.exit(1)
+    if share["leaks"]:
+        print("[approve] エラー: 選択を使い回した出力と使い回さない出力が食い違うケースがあります(選択キャッシュの鍵の漏れ):")
+        for cid, v in sorted(share["leaks"].items()):
+            print(f"    {cid}: {v:,} px")
+        sys.exit(1)
     REVIEW_DIR.mkdir(parents=True, exist_ok=True)
     # 既定の注記は「何をどこまで見たか」を書かない定型文だった。ツールが検証できない主張
     # （全パネル確認済み）を勝手に記録すると、承認記録そのものが信用できなくなるので、
@@ -661,6 +690,7 @@ def cmd_approve(note: str | None = None) -> None:
         "panels": len(panels),
         "mask_contract_cases": len(cases),
         "mask_contract_violations": 0,
+        "selection_share_checked": share["checked"],
     }
     APPROVED_JSON.write_text(
         json.dumps(marker, indent=2, ensure_ascii=False), encoding="utf-8"

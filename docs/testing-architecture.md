@@ -350,7 +350,7 @@ $env:IROCA_NATIVE_GUARD = "1"; $env:IROCA_POOL_POISON = "1"
 | 指標の結果キャッシュ | 品質指標 `recolor_quality.compute_all_metrics`（4096² で 1 件約 5 秒）の結果を、`(入力, 出力, 評価マスク, 目標色)` の内容と `recolor_quality.py` / `colorspace.py`・numpy / scipy の版の SHA-256 をキーに `_harness_cache/metrics/` へ保存（2026-10-16）。出力が変われば計算し直す。値は型ごと戻すので計算直後と bit 一致（品質ゲート全 21 件で確認） | `IROCA_METRICS_CACHE=0` |
 | PNG のデコードキャッシュ | `fixtures._load_rgba`（テクスチャ・GT・評価領域の読み込み口）のデコード結果を、ファイルの中身と Pillow の版の SHA-256 をキーに `_harness_cache/decoded/` へ `.npy` で保存（2026-10-17）。4096² で 1 枚 0.1〜0.4 秒 → 0.02 秒。1 枚 64MB なので被写体の画像 1 組で数 GB 使う | `IROCA_DECODED_CACHE=0` |
 | SAM 提案の結果キャッシュ | `sam_proposal.proposal_for_click_full`（提案マスク + 診断）と `measure_sam_e2e.one_case`（e2e の 1 ケース）の結果を、AI 提案の純計算だけのダイジェスト（`fixtures.samops_digest`。下の段落）・ONNX・埋め込み / 凍結 logits・テクスチャ・GT・クリック・粒度と関与する Python ソースの SHA-256 をキーに `_harness_cache/results/` へ保存（2026-10-17）。どちらも 1 回に dotnet を 6〜10 回起動していた。共通部品は `fixtures.result_key / result_load / result_store`。ズーム再推論のクロップの埋め込みは、実 C# が作ったエンコーダ入力の中身・エンコーダ・onnxruntime の版をキーに `_harness_cache/cropemb/` へ置く（2026-10-20。以前は矩形だけをキーに作業ディレクトリへ置き、samops の入力画像 raw も「あれば使う」だったので、テクスチャ・C# の前処理・エンコーダを変えても古い物を使いえた。入力画像 raw はいま内容ハッシュ名） | `IROCA_RESULT_CACHE=0` |
-| バッチ実行 | 同じテクスチャの複数ケース（通常 5 色）を Harness `--batch` で 1 プロセスにまとめ、dotnet 起動と 64MB の入力書き出しを 1 回にする。`run_harness_many` は `shareSelection` を立て、選択の結果をケース間で使い回す（2026-11-09。製品のプレビューと同じ規則で、設定の中で同じ位置のゾーンを同じゾーンとみなす。使えるかは選択の鍵の一致で決まる。5 色は変更先とゾーン名だけが違うので選択は 1 回で済む）。単発実行とのビット一致は `test_harness_batch_parity` が見る。性能計測などケースごとに選択から測りたい呼び出しは立てない | 使い回しだけ止めるなら `IROCA_SHARE_SELECTION=0`（2026-11-10〜。キャッシュの鍵に `noshare` が付き、使い回した側の出力とは混ざらない） |
+| バッチ実行 | 同じテクスチャの複数ケース（通常 5 色）を Harness `--batch` で 1 プロセスにまとめ、dotnet 起動と 64MB の入力書き出しを 1 回にする。`run_harness_many` は `shareSelection` を立て、選択の結果をケース間で使い回す（2026-11-09。製品のプレビューと同じ規則で、設定の中で同じ位置のゾーンを同じゾーンとみなす。使えるかは選択の鍵の一致で決まる。5 色は変更先とゾーン名だけが違うので選択は 1 回で済む）。単発実行とのビット一致は `test_harness_batch_parity` が見る（2026-11-10 から、全項目を書いたゾーンで塗り先の色が `NearWhiteRecolorIsGentle` の境を越える組も入れる。塗り先の色はそれ自体は鍵に入らず、この bool を通して選択を変える）。性能計測などケースごとに選択から測りたい呼び出しと、出荷ゲート（`share_selection=False`）は立てない | 使い回しだけ止めるなら `IROCA_SHARE_SELECTION=0`（2026-11-10〜。キャッシュの鍵に `noshare` が付き、使い回した側の出力とは混ざらない） |
 | ワーカー分離 | `dev_safe/_iou_csharp_work/<worker>-<実行の印>/` に分けて並列実行の書き込み衝突を防ぐ（`fixtures.worker_id`。印は xdist の実行の id、無ければプロセス ID。2026-11-10 までは `gw0` などのワーカー名だけで、同じ作業ツリーで別のセッションが回す pytest と名前が重なった）。通った実行の作業ディレクトリは終わりに消す（`Tests/conftest.py` の `pytest_sessionfinish`。落ちた実行の分は調べるために残し、`cache_gc.py` が 3 日で消す）。ハーネスのビルドはプロセス跨ぎのロックで直列化 | — |
 
 **キャッシュキーには DLL のダイジェストが入っている**ので、`Code/` を変更して再ビルドした
@@ -409,9 +409,12 @@ Unity の確認用ホスト）を見直すよう 1 行出す。これらは掃�
 元の日時のままなので、ファイル単位ではビルドした直後でも消され、ハーネスが起動しなくなっていた。
 測るときの DLL の写し（`dllsnap/`）と index・コミットから書き出したビルドの残り（`srcbuild/`）は、キャッシュの 30 日でなく
 DLL の印と同じ `IROCA_CACHE_GC_DLL_DAYS`（既定 1 日）使われなければ消す（2026-11-10。ソースを変えるたびに増え、実行の間しか要らない）。
-`tools/visual_review.py compare --engine csharp` の固定 104 ケースも同じ `run_harness_many`
-（キャッシュ + `--batch`）を通るので、直前に回帰スイートを回していれば dotnet を起動せずに
-同じ DLL の出力が返る（以前は 1 件ずつ単発起動で約 15 分かかっていた）。
+`tools/visual_review.py compare --engine csharp` の固定設定のケースも同じ `run_harness_many`
+（キャッシュ + `--batch`）を通るが、**選択を使い回さずに**（`share_selection=False`、鍵に `noshare`）測る（2026-11-10、点検 D-3）。
+書き出しは選択キャッシュを使わないので、出荷ゲートはその経路を測る。回帰が使い回して測った同じケースの出力がキャッシュにあれば
+（`fixtures.cached_outputs`）突き合わせ、1 画素でも違えば「選択キャッシュの鍵の漏れ」として出し、approve を止める
+（`change_summary.json` の `selection_share_check`）。そのため DLL を変えた後の最初の compare は、回帰の直後でも固定設定の分が
+コールドになる（+4〜8 分の見込み）。同じ DLL で compare をやり直すときはキャッシュに当たる。
 
 **DLL のバイト列は「ソース + コンパイラ」だけで決まる**（2026-09-14、`Harness.csproj` の
 `EnableSourceLink=false`）。それまでは SourceLink が `obj/Harness.sourcelink.json` に git の HEAD
@@ -741,6 +744,8 @@ python tools/visual_review.py approve --note "確認した範囲と根拠"   # �
   `dev_safe/Tests/workflow_review/review.json` の各ケースの `changed_from_snapshot`（変更前と違う画素数。
   snapshot が無ければ null）が同じ役をする。目視するのは変化のあるケースと変更前の無いケースだけで
   （ビット一致のケースは読まなくてよい）、compare はそのパネルだけを一覧に出す。
+- 固定設定は選択を使い回さずに測り（書き出しと同じ経路）、回帰が使い回して測った出力がキャッシュにあれば突き合わせる。
+  食い違い（選択キャッシュの鍵の漏れ）があると approve できない（2026-11-10、点検 D-3。上の「実行時間の作り」）。
 - pre-commit フック（`scripts/hooks/pre-commit`）が承認の鮮度と品質ゲート較正
   （`tools/check_visual_review.py`）を検査する。較正は保存済みの CSV で good/bad の分離を見るだけで、
   今のコードの出力は測らない（通っても品質ゲートが通ったことにはならない）。鮮度は二方式で見る:
