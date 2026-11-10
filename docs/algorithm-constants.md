@@ -427,7 +427,7 @@
 | `EvErodeR` | `2` | 設計 | EV | 証拠の芯の収縮量。残存島の計測の「境界 2px は無害」に揃えた |
 | `EvMinErodedPixels` | `256` | 不明 | EV | 収縮後の芯がこれ未満なら細い部位として収縮なしで使う。由来の記録なし |
 | `EvMinMaterialFrac` | `0.80f` | 実測 | EV | 無彩地色の汚染門。汚染したセグメント 0.63、他の 13 被写体 0.91 以上を見て間に置いた |
-| `EvMinMaterialFracChromatic` | `NormOutlierFrac` | 設計 | EV | 有彩地色の汚染門。裾判定と同じ 1/10。実測で裾 0.002 と通常 0.28 以上の間にあると確認 |
+| `EvMinMaterialFracChromatic` | `0.10f` | 設計 | EV | 有彩地色の汚染門（地色の素材がセグメントの何割か）。実測で裾 0.002 と通常 0.28 以上の間にあると確認。値は正規化の外れ値判定 NormOutlierFrac と同じ 1/10 だが意味が違うので、2026-11-10 に名前の連動を外した（点検 D-17 段 2。片方を動かしてももう片方は動かない） |
 | `EvMinDomainPixels` | `MinNearSampleCount` | 設計 | EV | ドメインの最小標本数。MinNearSampleCount に揃えた |
 | `EvCoverTarget` | `0.98f` | 実測 | XS | 補完を始める被覆率。0.2% の取り残しを埋めると別素材と衝突し、8% 未被覆では効いた |
 | `EvCoverGainMin` | `0.002f` | 不明 | EV | 1 色足しても被覆が増えないときの打ち切り幅（TB の被覆許容にも流用）。由来の記録なし |

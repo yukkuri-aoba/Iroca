@@ -75,7 +75,10 @@ namespace Iroca {
         //     (45→29)に落ち、tol 0.20→0.285 で IoU 0.995→0.889。門を残す。
         // 実測: 金属フレームを巻き込んだゴーグルのセグメントで 0.63、他の 13 被写体は 0.91 以上。
         private const float EvMinMaterialFrac = 0.80f;
-        private const float EvMinMaterialFracChromatic = NormOutlierFrac;
+        // 有彩の門は正規化の外れ値判定(NormOutlierFrac)と同じ 0.10 だが、意味が違う(こちらは「地色の素材が
+        // セグメントの何割か」、あちらは「クリックの帯が最頻帯の何割か」)ので名前で連動させない(点検 D-17 段 2)。
+        // 片方を動かしてももう片方は動かない。値の根拠は上の実測(裾 0.002 と通常 0.28 以上の間)。
+        private const float EvMinMaterialFracChromatic = 0.10f;
         // ドメインが標本として足りない(セグメントに地色と同じ素材がほぼ無い)ときは地色を問わず従来へ。
         private const int EvMinDomainPixels = MinNearSampleCount;
 
