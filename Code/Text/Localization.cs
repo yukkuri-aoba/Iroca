@@ -483,6 +483,8 @@ namespace Iroca {
             ? "自動（素材フォルダの Prefab から）: メッシュ {0} 個" : "Automatic (from a prefab in the asset folder): {0} mesh(es)";
         public static string MeshStatusManualFormat => IsJapanese
             ? "指定: メッシュ {0} 個" : "Chosen: {0} mesh(es)";
+        public static string MeshStatusSearching => IsJapanese
+            ? "メッシュを探しています…" : "Looking for meshes…";
         public static string MeshStatusNone => IsJapanese
             ? "見つかりません（色での選択はそのまま使えます）。FBX・Prefab をドラッグして指定できます"
             : "Not found (color selection still works). Drag an FBX or prefab here to choose one";

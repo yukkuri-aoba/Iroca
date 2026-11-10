@@ -33,8 +33,11 @@ namespace Iroca {
             }
 
             EditorGUILayout.BeginHorizontal();
-            // 初回はここでメッシュを探す(テクスチャ単位でキャッシュ。欄を畳んでいる間は探さない)。
-            var current = parts.SourceObject;
+            // 初回は描画の外(次のエディタの更新)でメッシュを探し、それまで「探しています」を出す(テクスチャ単位で
+            // キャッシュ。欄を畳んでいる間は探さない)。
+            var found = parts.FoundForDrawing;
+            bool searching = parts.Searching;
+            var current = searching ? null : parts.SourceObject;
             EditorGUI.BeginChangeCheck();
             // MinWidth: ObjectField は既定で「ラベル幅＋約 55px」を最小幅に要求する。設定列のラベル幅は
             // 最長ラベルに合わせて広がる(英語では ~176px)ので、右の「探し直す」と合わせてこの行だけが
@@ -66,13 +69,17 @@ namespace Iroca {
             }
             EditorGUILayout.EndHorizontal();
 
-            var found = parts.Found;
+            // ボタンで探し直した・指定した後は、この描画のうちに結果がある(描画の外へ回すのは自動の初回だけ)。
+            if (!searching) {
+                found = parts.FoundForDrawing;
+            }
             // 折り返す: 見つからない・読めないときの案内は設定列の幅に 1 行で入らず、末尾が欠けていた
             // （LabelField は 1 行の高さ固定）。行数が変わるのは状態が変わったときだけ。
-            GUILayout.Label(TempContent.Of(StatusText(parts, found), MeshListTooltip(found)),
+            GUILayout.Label(TempContent.Of(searching ? Localization.MeshStatusSearching : StatusText(parts, found),
+                                           MeshListTooltip(found)),
                             EditorStyles.wordWrappedMiniLabel);
 
-            using (new EditorGUI.DisabledScope(!parts.HasMesh)) {
+            using (new EditorGUI.DisabledScope(searching || found == null || found.found.Count == 0)) {
                 EditorGUI.BeginChangeCheck();
                 bool show = EditorGUILayout.ToggleLeft(
                     TempContent.Of(Localization.MeshShowIslands, Localization.MeshShowIslandsTooltip), ShowIslands);

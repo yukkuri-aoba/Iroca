@@ -41,24 +41,76 @@ namespace Iroca {
             _maskView = maskView;
         }
 
+        // 自動の探索を次のエディタの更新へ回してあるか(FoundForDrawing)。
+        bool _searchScheduled;
+
         /// <summary>メッシュの探索結果(未探索なら探す)。使っているメッシュが無ければ null。</summary>
         public MeshUvLocator.Result Found {
             get {
-                var tex = _host != null ? _host.SourceTexture : null;
-                // テクスチャだけで見分けていた頃は、シーンを替えてから同じテクスチャを開くと、消えたアバターを
-                // 指したまま「メッシュ」欄が None になり(個数は前のまま)、右クリックの「メッシュの形で」も効かなかった。
-                if (tex != _searchedFor || (_searched && IsStale(_found, _manualObject, _sceneStamp, SceneStamp()))) {
-                    Reset();
-                    _searchedFor = tex;
-                }
-                if (!_searched && tex != null) {
-                    _found = MeshUvLocator.FindForTexture(tex);
+                ForgetIfOutdated();
+                if (!_searched && _searchedFor != null) {
+                    _found = MeshUvLocator.FindForTexture(_searchedFor);
                     _sceneStamp = SceneStamp();
                     _searched = true;
                     StartMapBuild();
                 }
                 return _found;
             }
+        }
+
+        /// <summary>
+        /// 描画(OnGUI)から読む探索結果。まだ探していなければ、その場では探さずに次のエディタの更新で探して描き直し、
+        /// それまでは null を返す(<see cref="Searching"/> が true)。探索は全 Renderer の UV と三角形の読み出しと、
+        /// 見つからなければ Prefab を最大 8 個読むので、テクスチャを開いた直後の最初の描画を止めていた。
+        /// Unity の API を使うので背景には出せず、描画の外(次の更新)で行う。右クリックのメニューなど結果が要る所は
+        /// <see cref="Found"/> がその場で探す。
+        /// </summary>
+        public MeshUvLocator.Result FoundForDrawing {
+            get {
+                ForgetIfOutdated();
+                if (!_searched && _searchedFor != null) {
+                    ScheduleSearch();
+                    return null;
+                }
+                return _found;
+            }
+        }
+
+        /// <summary>自動の探索を次の更新へ回して、まだ探していないか(マスク欄に「探しています」を出す)。</summary>
+        public bool Searching => !_searched && _searchedFor != null;
+
+        // テクスチャが替わった・覚えた結果が古くなった(Renderer の消失・シーンの替わり)なら捨てる。
+        // 古いかは Layout のとき(と描画の外)だけ確かめる。描画の中ではマウスが動くたびに 4〜5 回ずつ呼ばれ、
+        // そのたびに見つけた Renderer の生存とシーンの組を確かめていた。Layout で捨てれば、同じフレームの
+        // Repaint まで同じ結果を使うので、並ぶ要素の数も食い違わない。
+        void ForgetIfOutdated() {
+            var tex = _host != null ? _host.SourceTexture : null;
+            var e = Event.current;
+            bool check = e == null || e.type == EventType.Layout;
+            // テクスチャだけで見分けていた頃は、シーンを替えてから同じテクスチャを開くと、消えたアバターを
+            // 指したまま「メッシュ」欄が None になり(個数は前のまま)、右クリックの「メッシュの形で」も効かなかった。
+            if (tex != _searchedFor || (check && _searched && IsStale(_found, _manualObject, _sceneStamp, SceneStamp()))) {
+                Reset();
+                _searchedFor = tex;
+            }
+        }
+
+        void ScheduleSearch() {
+            if (_searchScheduled) {
+                return;
+            }
+            _searchScheduled = true;
+            // delayCall で Unity は例外を受け止めない(投げると、同じ回に積まれた他のツールの処理が飛ぶ)ので、ここで受け止める。
+            UnityEditor.EditorApplication.delayCall += () => {
+                _searchScheduled = false;
+                try {
+                    if (_host == null || !Searching) {
+                        return;
+                    }
+                    _ = Found;
+                    _host.RequestRepaint();
+                } catch (System.Exception ex) { Debug.LogException(ex); }
+            };
         }
 
         /// <summary>

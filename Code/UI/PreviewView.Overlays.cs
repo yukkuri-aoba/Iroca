@@ -64,7 +64,9 @@ namespace Iroca {
                 return;
             }
             var parts = _host._maskView?.MeshParts;
-            var segments = parts != null && parts.HasMesh ? parts.IslandOutline() : null;
+            // 描画の中では探さない(まだなら次の更新で探して描き直す。MeshPartController.FoundForDrawing)。
+            var found = parts?.FoundForDrawing;
+            var segments = found != null && found.found.Count > 0 ? parts.IslandOutline() : null;
             if (segments == null || segments.Length < 2) {
                 return;
             }
