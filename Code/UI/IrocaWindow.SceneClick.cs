@@ -160,8 +160,17 @@ namespace Iroca {
             if (!MeshUvLocator.UsesTexture(hit.material, targets, out string prop)) {
                 return false;
             }
-            _previewView.ShowSceneHighlight(SceneClickHighlight.Build(
-                SourceTexture, hit, hit.material.GetTextureScale(prop), hit.material.GetTextureOffset(prop)));
+            // Unity の API(マテリアル・Renderer の名前)はここで読み、島のチャート分け・輪郭・塗りの下絵は背景で求める
+            // (当たったサブメッシュ全体の辺の辞書を作るので、大きいメッシュではクリックの処理を止めていた)。
+            var texture = SourceTexture;
+            Vector2 scale = hit.material.GetTextureScale(prop), offset = hit.material.GetTextureOffset(prop);
+            string name = hit.renderer != null ? hit.renderer.name : null;
+            Vector2[] uv = hit.uv;
+            int[] tris = hit.submeshTriangles;
+            int tri = hit.triangle;
+            Vector2 hitUv = hit.hitUv;
+            _previewView.ShowSceneHighlightLater((fw, fh) =>
+                SceneClickHighlight.Compute(texture, name, uv, tris, tri, hitUv, scale, offset, fw, fh));
             SceneClickUsed = true;
             return true;
         }

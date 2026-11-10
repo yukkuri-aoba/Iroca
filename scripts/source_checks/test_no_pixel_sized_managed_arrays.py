@@ -69,6 +69,8 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "ゾーンの数(strengths はゾーンごとの配列の配列)",
     ("Code/UI/PreviewView.Overlays.cs", "new Vector3[segs.Length]"):
         "重ね表示の線分の数",
+    ("Code/UI/PreviewView.SceneHighlight.cs", "new bool[w * h]"):
+        "Scene クリックの島の塗りの下絵。プレビューテクスチャの寸法(長辺 MaxSize 384 以下)で、原本の大きさに依らない",
     ("Code/Automation/TextureColorSummary.cs", "new Color32[sw * sh]"):
         "長辺 AnalysisMaxSide(256) か InspectThumbnailMaxSide(512) 以下に縮めた画像の画素数",
     ("Code/Core/RecolorPreview.cs", "new Color32[panelW * panelH]"):

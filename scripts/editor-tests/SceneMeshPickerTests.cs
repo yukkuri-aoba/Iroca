@@ -187,6 +187,31 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
+        public void BackgroundComputeMatchesBuildAndPreparesTheFill() {
+            // 窓は島の計算を背景のスレッドで行い(Compute)、塗りの下絵もそこで作る。同期の Build と同じ島・輪郭で、
+            // 下絵は描くときに作るもの(FillMaskOf)と同じ。
+            MeshObject(Far, StandardMaterial());
+            var hit = SceneMeshPicker.Pick(FromFront(Far, new Vector2(0.25f, 0.75f)));
+            var tex = Track(new Texture2D(8, 8));
+            var built = SceneClickHighlight.Build(tex, hit, Vector2.one, Vector2.zero);
+            SceneClickHighlight computed = null;
+            string name = hit.renderer.name;
+            System.Threading.Tasks.Task.Run(() => {
+                computed = SceneClickHighlight.Compute(tex, name, hit.uv, hit.submeshTriangles, hit.triangle, hit.hitUv,
+                                                       Vector2.one, Vector2.zero, 32, 24);
+            }).Wait();
+
+            CollectionAssert.AreEqual(built.island.triangles, computed.island.triangles);
+            CollectionAssert.AreEqual(built.outline, computed.outline);
+            Assert.AreEqual(built.point, computed.point);
+            Assert.AreEqual(32, computed.fillW);
+            Assert.AreEqual(24, computed.fillH);
+            CollectionAssert.AreEqual(SceneClickHighlight.FillMaskOf(built.island, 32, 24), computed.fillMask);
+            Assert.That(System.Array.IndexOf(computed.fillMask, true), Is.GreaterThanOrEqualTo(0), "島の内側の画素がある");
+            Assert.IsNull(built.fillMask, "同期の Build は下絵を作らない(描くときに作る)");
+        }
+
+        [Test]
         public void HighlightFoldsTiledUvBackOntoTheTexture() {
             // Tiling 4 だと四角の UV 0.1..0.4 は 0.4..1.6 に広がり、クリック位置 (0.25, 0.75) は
             // (0.7, 1.3) → 繰り返しで (0.7, 0.3)。島も同じだけ下げて、クリック位置と同じ場所に描く。

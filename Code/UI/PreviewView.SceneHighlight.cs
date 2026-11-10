@@ -21,29 +21,65 @@ namespace Iroca {
         public Vector2[] outline;
         /// <summary>表示を始めた時刻(EditorApplication.timeSinceStartup)。塗りを薄めていくのに使う。</summary>
         public double shownAt;
+        /// <summary>
+        /// 島の塗りの下絵(画素が島の内側か。fillW × fillH、行 0 = 下端)。背景で作っておいたもの。null か寸法が
+        /// プレビューと違えば、描くときに作る。
+        /// </summary>
+        public bool[] fillMask;
+        public int fillW, fillH;
 
         /// <summary>
         /// 当たりから作る。scale / offset は当たったマテリアルのメインテクスチャの Tiling / Offset。
         /// 島は右クリックの「この島」と同じまとまり(<see cref="IslandTriangles"/>)。
         /// </summary>
         public static SceneClickHighlight Build(Texture2D texture, SceneMeshPicker.Hit hit, Vector2 scale, Vector2 offset) {
-            var tiled = new Vector2(hit.hitUv.x * scale.x + offset.x, hit.hitUv.y * scale.y + offset.y);
+            var h = Compute(texture, hit.renderer != null ? hit.renderer.name : null, hit.uv, hit.submeshTriangles,
+                            hit.triangle, hit.hitUv, scale, offset, 0, 0);
+            h.shownAt = EditorApplication.timeSinceStartup;
+            return h;
+        }
+
+        /// <summary>
+        /// <see cref="Build"/> の中身のうち、Unity の API に触らない計算(島のチャート分け・輪郭と、fillW × fillH が
+        /// 正ならその寸法の塗りの下絵)。背景のスレッドで呼べる(Scene のクリックでメインスレッドを止めない)。
+        /// shownAt は呼び出し側がメインスレッドで入れる。
+        /// </summary>
+        internal static SceneClickHighlight Compute(Texture2D texture, string name, Vector2[] uv, int[] submeshTriangles,
+            int triangle, Vector2 hitUv, Vector2 scale, Vector2 offset, int fillW, int fillH) {
+            var tiled = new Vector2(hitUv.x * scale.x + offset.x, hitUv.y * scale.y + offset.y);
             Vector2 point = MeshRaycast.WrapToTexture(tiled, out Vector2 shift);
             var island = new UvChartSource {
-                name = hit.renderer != null ? hit.renderer.name : null,
-                uv = hit.uv,
-                triangles = IslandTriangles(hit.uv, hit.submeshTriangles, hit.triangle),
+                name = name,
+                uv = uv,
+                triangles = IslandTriangles(uv, submeshTriangles, triangle),
                 scale = scale,
                 // 繰り返しで戻した分(shift)だけ島もずらし、クリック位置と同じ場所に描く。
                 offset = offset - shift,
             };
-            return new SceneClickHighlight {
+            var h = new SceneClickHighlight {
                 texture = texture,
                 point = point,
                 island = island,
                 outline = MeshPartController.ComputeIslandOutline(new[] { island }),
-                shownAt = EditorApplication.timeSinceStartup,
             };
+            if (fillW > 0 && fillH > 0 && island.triangles.Length >= 3) {
+                h.fillMask = FillMaskOf(island, fillW, fillH);
+                h.fillW = fillW;
+                h.fillH = fillH;
+            }
+            return h;
+        }
+
+        /// <summary>島の塗りの下絵(w × h の画素が島の内側か)。Unity の API に触らないので背景でも呼べる。</summary>
+        internal static unsafe bool[] FillMaskOf(UvChartSource island, int w, int h) {
+            // 島の内側の判定は右クリックの「この島」と同じラスタライズ(画素中心が三角形の内側か)
+            using var map = UvChartMap.Build(w, h, new[] { island });
+            int* raster = map.Raster;
+            var mask = new bool[w * h];
+            for (int i = 0; i < mask.Length; i++) {
+                mask[i] = raster[i] >= 0;
+            }
+            return mask;
         }
 
         /// <summary>
@@ -74,6 +110,8 @@ namespace Iroca {
         private const double SceneFillHoldSeconds = 1.0;
         private const double SceneFillFadeSeconds = 1.0;
         private const float SceneFillAlpha = 0.45f;
+        // 塗りを薄めている間の描き直しの間隔(30 回/秒)。
+        private const double SceneFadeFrameSeconds = 1.0 / 30.0;
         // クリック位置の輪(画面上の大きさで固定。4K の全体表示では 1 テクセルが見えないため)。
         private const float SceneRingRadius = 9f;
         // 拡大中にクリック位置へ寄せるとき、枠の端からこの割合より内側に見えていれば動かさない。
@@ -88,13 +126,46 @@ namespace Iroca {
         [System.NonSerialized] private Texture2D _sceneFillTexture;
         [System.NonSerialized] private SceneClickHighlight _sceneFillFor;
 
+        // 背景で求めている Scene クリックの世代。後のクリック・消去・同期の表示が来たら、前の結果は捨てる。
+        [System.NonSerialized] private int _sceneHighlightGen;
+
         /// <summary>Scene でクリックした場所を表示する(拡大中ならそこへスクロールする)。</summary>
         internal void ShowSceneHighlight(SceneClickHighlight highlight) {
+            _sceneHighlightGen++;
             _sceneHighlight = highlight;
             _pendingFocusUv = highlight?.point;
         }
 
+        /// <summary>
+        /// 島の計算(当たったサブメッシュ全体のチャート分け・輪郭・塗りの下絵)を背景で行い、できたらメインスレッドで
+        /// 表示する。以前はクリックの処理の中で同期に求め、塗りは次の描画でチャート分けとラスタライズをもう 1 回していた。
+        /// compute には今のプレビューの寸法(塗りの下絵の寸法)を渡す。後のクリック・消去が来たら結果は捨てる。
+        /// </summary>
+        internal void ShowSceneHighlightLater(System.Func<int, int, SceneClickHighlight> compute) {
+            int gen = ++_sceneHighlightGen;
+            int fw = previewTexture != null ? previewTexture.width : 0;
+            int fh = previewTexture != null ? previewTexture.height : 0;
+            var host = _host;
+            System.Threading.Tasks.Task.Run(() => compute(fw, fh)).ContinueWith(t => PreviewJobMainThread.Post(() => {
+                if (gen != _sceneHighlightGen || host == null) {
+                    return;
+                }
+                if (t.IsFaulted) {
+                    Debug.LogException(t.Exception?.InnerException ?? t.Exception);
+                    return;
+                }
+                var h = t.Result;
+                if (h == null) {
+                    return;
+                }
+                h.shownAt = EditorApplication.timeSinceStartup;
+                ShowSceneHighlight(h);
+                host.RequestRepaint();
+            }), System.Threading.Tasks.TaskScheduler.Default);
+        }
+
         internal void ClearSceneHighlight() {
+            _sceneHighlightGen++;
             _sceneHighlight = null;
             _pendingFocusUv = null;
             ReleaseSceneFill();
@@ -118,9 +189,10 @@ namespace Iroca {
                 return _sceneFillTexture;
             }
             ReleaseSceneFill();
-            // 島の内側の判定は右クリックの「この島」と同じラスタライズ(画素中心が三角形の内側か)
-            using var map = UvChartMap.Build(w, hgt, new[] { h.island });
-            int* raster = map.Raster;
+            // 背景で作った下絵が今の寸法なら使う(チャート分けとラスタライズをメインスレッドでやり直さない)。
+            bool[] mask = h.fillMask != null && h.fillW == w && h.fillH == hgt
+                ? h.fillMask
+                : SceneClickHighlight.FillMaskOf(h.island, w, hgt);
             var c = IrocaColors.SceneHighlight;
             var on = new Color32((byte)(c.r * 255f), (byte)(c.g * 255f), (byte)(c.b * 255f), 255);
             _sceneFillTexture = new Texture2D(w, hgt, TextureFormat.RGBA32, false) {
@@ -132,7 +204,7 @@ namespace Iroca {
             var pixels = (Color32*)NativeArrayUnsafeUtility.GetUnsafePtr(_sceneFillTexture.GetRawTextureData<Color32>());
             int count = w * hgt;
             for (int i = 0; i < count; i++) {
-                pixels[i] = raster[i] >= 0 ? on : default;
+                pixels[i] = mask[i] ? on : default;
             }
             _sceneFillTexture.Apply(false, true);
             _sceneFillFor = h;
@@ -269,8 +341,10 @@ namespace Iroca {
                     GUI.DrawTexture(local, fillTex, ScaleMode.StretchToFill, true);
                     GUI.color = prevColor;
                 }
-                // 薄めている間は描き直しを続ける(エディタは要求が無いと再描画しない)。
-                _host.RequestRepaint();
+                // 薄めている間は描き直しを続ける(エディタは要求が無いと再描画しない)。以前は毎フレーム本体・別窓・
+                // マスク編集の窓をすべて描き直していた。変わるのはプレビューの塗りの濃さだけなので、30 回/秒の予約で
+                // プレビューを描いている窓だけを描く(予約は IrocaWindow.TickRepaintWatch が RequestPreviewRepaint で捌く)。
+                _host.RequestRepaintAfter(SceneFadeFrameSeconds);
             } else if (_sceneFillTexture != null) {
                 ReleaseSceneFill(); // 消し終わったら手放す
             }
