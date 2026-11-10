@@ -73,6 +73,11 @@ namespace Iroca {
                     });
                     palRecolored = outRc;
                 }
+                // デコンタミの縁の色 d = α·T + (1−α)·背景 を、前景を内側と同じ写し方に通した d′ = d + α·(T_eff − T) へ
+                // 差し替える(点検 D-16。EdgeForeground)。T_eff は画素ごとに、内側と同じく成分の地図の白側の余白で決める
+                // (ゾーンで 1 つにすると、白のべた塗りで縁だけ 0.84 に止まって輪になる)。
+                var edgeFg = aaMaskLocal != null ? new EdgeForeground(zone.sampleColor) : default;
+                float edgeTR = zone.targetColor.r * 255f, edgeTG = zone.targetColor.g * 255f, edgeTB = zone.targetColor.b * 255f;
                 int* palIdxRecolor = palette != null ? palette.Index : null;
                 // 色ごとの表を作れないゾーン(成分別 L マップあり)は、スレッドごとのメモで使い回す。
                 int recolorMemoEpoch = palette != null && palRecolored == null && rcMaxX >= 0
@@ -87,6 +92,8 @@ namespace Iroca {
                         int lastId = -1;
                         float lastMid = float.NaN, lastUp = float.NaN;
                         Color32 lastOut = default;
+                        // 縁の T_eff − T も、直前の縁の画素と白側の余白が同じなら使い回す(成分ごとに同じ値なので)。
+                        float lastEdgeUp = float.NaN, edgeDR = 0f, edgeDG = 0f, edgeDB = 0f;
                         for (int x = rcMinX; x <= rcMaxX; x++) {
                             int i = rowOff + x;
                             float s = strengthForRecolor[i];
@@ -136,6 +143,20 @@ namespace Iroca {
                                 // ゾーンが 1 つ(claimedLocal が null)のときは従来どおり占有率 1 を書く(出力不変)。
                                 Color32 decon = decontaminatedLocal[i];
                                 float ea = decon.a / 255f;
+                                if (ea > 0f) {
+                                    bool edgeHasMap = zRegMidMap != null && zRegMidMap[i] >= 0f;
+                                    float edgeUp = edgeHasMap && zRegUpMap != null ? zRegUpMap[i] : AchromaFormOffset;
+                                    if (!(edgeUp == lastEdgeUp)) {
+                                        Color32 te = edgeFg.Target(in rcParams, edgeUp);
+                                        edgeDR = te.r - edgeTR; edgeDG = te.g - edgeTG; edgeDB = te.b - edgeTB;
+                                        lastEdgeUp = edgeUp;
+                                    }
+                                    decon = new Color32(
+                                        (byte)Mathf.Clamp(Mathf.RoundToInt(decon.r + ea * edgeDR), 0, 255),
+                                        (byte)Mathf.Clamp(Mathf.RoundToInt(decon.g + ea * edgeDG), 0, 255),
+                                        (byte)Mathf.Clamp(Mathf.RoundToInt(decon.b + ea * edgeDB), 0, 255),
+                                        decon.a);
+                                }
                                 decon.a = originalPixels[i].a;
                                 if (room >= 0.999f) {
                                     pixels[i] = decon;

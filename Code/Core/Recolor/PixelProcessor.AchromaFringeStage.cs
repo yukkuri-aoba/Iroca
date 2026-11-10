@@ -53,8 +53,12 @@ namespace Iroca {
                         FillExcludedRect(fringeExcluded, w, fx0, fy0, fx1, fy1,
                             maskColOf, maskRowBase, commonMask, zoneMask, po);
                     }
+                    // 前景(サンプル)は塗り先そのものでなく、内側と同じ写し方に通した色へ置き換える(点検 D-16。EdgeForeground)。
+                    // フチ消しの画素はマッチの外側で成分の地図に載らないので、白側の余白は地図なしと同じ AchromaFormOffset
+                    // (ゾーンで 1 つ)。
+                    Color32 fringeTarget = new EdgeForeground(zone.sampleColor).Target(in z.Params, AchromaFormOffset);
                     CleanAchromaFringe(pixels, originalPixels, strengthForRecolor, claimedLocal,
-                        w, h, zone.sampleColor, zone.targetColor, rcMinX, rcMinY, rcMaxX, rcMaxY,
+                        w, h, zone.sampleColor, fringeTarget, rcMinX, rcMinY, rcMaxX, rcMaxY,
                         cancellationToken, fringeExcluded, rb.ClaimedFlag);
                 }
 

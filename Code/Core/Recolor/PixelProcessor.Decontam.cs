@@ -120,6 +120,32 @@ namespace Iroca {
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static byte DecontamCoverageByte(float alpha) => (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * 255f), 0, 255);
 
+        /// <summary>
+        /// α 分解の縁(デコンタミ・無彩のフチ消し)が前景に塗る色 T_eff(点検 D-16)。
+        /// 縁は「α·サンプル + (1−α)·背景」と見て、前景のサンプルを塗り先 T へ置き換える。ところが内側は T そのものでなく、
+        /// 再着色の核(<see cref="RecolorPixel"/>)の補正(outputSaturation・基準色の補正・無彩パスの余白)を通った色で
+        /// 塗られる。T のままだと α≈1 の縁が内側と食い違う(白→黒で内側は L 0.16 なのに縁は 0 の暗い輪、
+        /// outputSaturation &lt; 1 で縁だけ鮮やか)。前景のサンプルを内側と同じ写し方に通した色を塗る
+        /// (混色帯が素材色を RecolorPixel に通すのと同じ考え方)。
+        /// 地色の基準はサンプル自身の L(無彩パスで各成分の地色が中心へ写るのにそろえる)。白側の余白 regUp は呼び出し側が
+        /// 渡す(縁の画素の成分の地図の値、無ければ AchromaFormOffset。内側の合成と同じ決め方)。
+        /// </summary>
+        private readonly struct EdgeForeground {
+            private readonly byte _sR, _sG, _sB;
+            private readonly float _sL, _sV;
+
+            internal EdgeForeground(Color sampleColor) {
+                _sR = (byte)Mathf.Clamp(Mathf.RoundToInt(sampleColor.r * 255f), 0, 255);
+                _sG = (byte)Mathf.Clamp(Mathf.RoundToInt(sampleColor.g * 255f), 0, 255);
+                _sB = (byte)Mathf.Clamp(Mathf.RoundToInt(sampleColor.b * 255f), 0, 255);
+                OkLab.RgbToOklab(_sR, _sG, _sB, out _sL, out _, out _);
+                _sV = Mathf.Max(_sR, Mathf.Max(_sG, _sB)) / 255f;   // Color.RGBToHSV の V と同じ(画素の pixV と同じ量)
+            }
+
+            /// <summary>前景のサンプルを内側と同じ写し方に通した色(α は使わない)。</summary>
+            internal Color32 Target(in RecolorParams p, float regUp) => RecolorPixel(_sR, _sG, _sB, _sV, 1f, in p, _sL, regUp);
+        }
+
         // BG–sample 線分からの距離² の上限(各 ch 約 31 階調)。これを超える色は α 分解の前提
         // (2 色の混色)が成り立たない。AA デコンタミの両経路と無彩フチ消しで共通。
         private const float DecontamLineDistSqMax = 3000f;
@@ -441,14 +467,16 @@ namespace Iroca {
         ///     保護パーツであり得る)。ドナーに入れると BG 推定がサンプル色で汚染される。
         ///   - 書き込み対象から外す … ユーザーが「触るな」と指定した画素であり、
         ///     target 混色を塗るのはマスク契約の違反。
+        ///
+        /// fgTarget: 式の target。塗り先そのものでなく、サンプルを内側と同じ写し方に通した色(EdgeForeground。点検 D-16)。
         /// </summary>
         private static void CleanAchromaFringe(
             Color32* pixels, Color32* originalPixels, float* strength, float* claimed,
-            int w, int h, Color sampleColor, Color targetColor,
+            int w, int h, Color sampleColor, Color32 fgTarget,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY, CancellationToken ct = default,
             bool* maskExcluded = null, bool* claimedFlag = null) {
             float sR = sampleColor.r * 255f, sG = sampleColor.g * 255f, sB = sampleColor.b * 255f;
-            float tR = targetColor.r * 255f, tG = targetColor.g * 255f, tB = targetColor.b * 255f;
+            float tR = fgTarget.r, tG = fgTarget.g, tB = fgTarget.b;
             int x0 = Mathf.Max(0, bbMinX - AchromaFringeMatchRadius);
             int x1 = Mathf.Min(w - 1, bbMaxX + AchromaFringeMatchRadius);
             int y0 = Mathf.Max(0, bbMinY - AchromaFringeMatchRadius);
