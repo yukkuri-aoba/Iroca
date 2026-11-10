@@ -1335,5 +1335,32 @@ namespace Iroca.UnitRun {
             ColorTintLut.Apply(src, src, r, g, b);
             Check.Equal((byte)100, src[0].g, "in place");
         }
+
+        // 大きい画像(区間ごとに並列に当てる)でも、画素ごとに表を引いた結果と同じ。同じ配列へ書いても同じ。
+        public static void TintLut_LargeImageMatchesPerPixel() {
+            var r = ColorTintLut.Build(0.8f, true);
+            var g = ColorTintLut.Build(1.7f, true);
+            var b = ColorTintLut.Build(0.3f, false);
+            const int n = (1 << 19) + 11;
+            var rng = new Random(1111);
+            var src = new UnityEngine.Color32[n];
+            for (int i = 0; i < n; i++) {
+                src[i] = new UnityEngine.Color32((byte)rng.Next(256), (byte)rng.Next(256), (byte)rng.Next(256), (byte)rng.Next(256));
+            }
+            var dst = new UnityEngine.Color32[n];
+            ColorTintLut.Apply(src, dst, r, g, b);
+            var inPlace = (UnityEngine.Color32[])src.Clone();
+            ColorTintLut.Apply(inPlace, inPlace, r, g, b);
+            for (int i = 0; i < n; i++) {
+                var c = src[i];
+                var want = new UnityEngine.Color32(r[c.r], g[c.g], b[c.b], c.a);
+                if (dst[i].r != want.r || dst[i].g != want.g || dst[i].b != want.b || dst[i].a != want.a) {
+                    throw new Exception($"画素 {i} が画素ごとの表引きと違う");
+                }
+                if (inPlace[i].r != want.r || inPlace[i].g != want.g || inPlace[i].b != want.b || inPlace[i].a != want.a) {
+                    throw new Exception($"同じ配列へ書いたとき、画素 {i} が画素ごとの表引きと違う");
+                }
+            }
+        }
     }
 }

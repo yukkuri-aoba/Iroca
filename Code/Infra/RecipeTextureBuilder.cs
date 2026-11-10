@@ -551,9 +551,14 @@ namespace Iroca {
             bool gray = importer.alphaSource == TextureImporterAlphaSource.FromGrayScale;
             var top = (Color32*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility
                 .GetUnsafePtr(tex.GetPixelData<Color32>(0));
-            for (int i = 0, n = tex.width * tex.height; i < n; i++) {
-                top[i].a = gray ? (byte)((top[i].r + top[i].g + top[i].b + 1) / 3) : (byte)255;
-            }
+            // シーンへ上げる前にメインスレッドで全画素を回すので、行の範囲に分けて並列に書く(画素ごとに独立)。
+            int w = tex.width, h = tex.height;
+            System.Threading.Tasks.Parallel.For(0, h,
+                new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, y => {
+                    for (int i = y * w, end = i + w; i < end; i++) {
+                        top[i].a = gray ? (byte)((top[i].r + top[i].g + top[i].b + 1) / 3) : (byte)255;
+                    }
+                });
             // ミップのアルファも作り直す(RGB は同じ一番上から作るので変わらない)。
             tex.Apply(updateMipmaps: tex.mipmapCount > 1, makeNoLongerReadable: false);
         }

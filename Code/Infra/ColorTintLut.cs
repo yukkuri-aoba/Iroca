@@ -38,14 +38,35 @@ namespace Iroca {
         }
 
         /// <summary>src の各画素の RGB を表で置き換えて dst へ書く(src と dst は同じでもよい)。</summary>
+        // 確定のたび・ドラッグの追従のたびにメインスレッドで全画素を回すので、大きい画像は区間に分けて並列に当てる
+        // (画素ごとに独立なので、どう分けても結果は同じ)。
         public static unsafe void Apply(Color32* src, Color32* dst, int count, byte[] r, byte[] g, byte[] b) {
             fixed (byte* lr = r)
             fixed (byte* lg = g)
             fixed (byte* lb = b) {
-                for (int i = 0; i < count; i++) {
-                    var c = src[i];
-                    dst[i] = new Color32(lr[c.r], lg[c.g], lb[c.b], c.a);
+                if (count < ParallelMinPixels) {
+                    ApplyRange(src, dst, 0, count, lr, lg, lb);
+                    return;
                 }
+                // fixed の変数はラムダで使えないので、ふつうのポインタへ写して渡す(並列の間も fixed の中なので固定されたまま)。
+                byte* pr = lr, pg = lg, pb = lb;
+                int chunks = (count + RangePixels - 1) / RangePixels;
+                System.Threading.Tasks.Parallel.For(0, chunks,
+                    new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, k => {
+                        int i0 = k * RangePixels;
+                        ApplyRange(src, dst, i0, Math.Min(count, i0 + RangePixels), pr, pg, pb);
+                    });
+            }
+        }
+
+        // これ未満の画素数なら 1 本で当てる(スレッドを起こす方が高い)。並列のときの 1 区間の画素数。
+        private const int ParallelMinPixels = 1 << 18;
+        private const int RangePixels = 1 << 16;
+
+        private static unsafe void ApplyRange(Color32* src, Color32* dst, int i0, int i1, byte* lr, byte* lg, byte* lb) {
+            for (int i = i0; i < i1; i++) {
+                var c = src[i];
+                dst[i] = new Color32(lr[c.r], lg[c.g], lb[c.b], c.a);
             }
         }
 
