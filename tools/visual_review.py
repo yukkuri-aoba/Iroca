@@ -38,6 +38,7 @@ import json
 import os
 import sys
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -80,6 +81,8 @@ SNAPSHOT_BEFORE_DIR = REVIEW_DIR / "snapshot_before"
 COMPARE_DIR = REVIEW_DIR / "compare"
 APPROVED_JSON = REVIEW_DIR / "approved.json"
 CSHARP_WORK = REVIEW_DIR / "_csharp_work"
+# snapshot で PNG を並べて保存するスレッドの数(4K の出力 1 枚 64MB。待ちはこの 2 倍まで)。
+SNAPSHOT_SAVE_WORKERS = 4
 
 THUMB_HEIGHT = 512  # 比較パネルの列高さ（px）
 
@@ -185,24 +188,41 @@ def _iter_cases_csharp():
         shared = fx.cached_outputs(rgba, specs, exclude=exclude, share_selection=True)
         return [(o, None if s is None else int(np.any(o != s, axis=-1).sum())) for o, s in zip(outs, shared)]
 
-    # 被写体ごとに実行して返す(呼び出し側が使い終えた出力は次の被写体の前に手放せる)。
-    for subject in SUBJECT_REGISTRY.values():
+    def _subject_items(subject) -> list:
+        """1 被写体ぶんの (case_id, 入力, 出力, 除外, 差) を順に並べて返す(背景のスレッドで呼ぶ)。"""
         rgba, gt_mask = load_subject_inputs(subject)
         cases = load_cases(subject)
-        for case, (out, shared_diff) in zip(cases, _batch(rgba, cases, "", None)):   # exclude=None → 全画素処理
-            yield case.case_id, rgba, out, None, shared_diff
+        items = [(case.case_id, rgba, out, None, shared_diff)
+                 for case, (out, shared_diff) in zip(cases, _batch(rgba, cases, "", None))]   # exclude=None → 全画素処理
 
         # ── 除外マスク付きの変種(N-12: ゲートにマスク経路を通す) ──
         n_masked = MASKED_SUBJECT_CASES.get(subject.subject_id, 0)
         if n_masked <= 0:
-            continue
+            return items
         if gt_mask is None:
             raise RuntimeError(
                 f"{subject.subject_id}: マスクケースには single_mask 戦略の GT が要ります")
         exclude = _build_review_mask(gt_mask)
-        for case, (out, shared_diff) in zip(cases[:n_masked],
-                                            _batch(rgba, cases[:n_masked], MASKED_SUFFIX, exclude)):
-            yield f"{case.case_id}{MASKED_SUFFIX}", rgba, out, exclude.astype(bool), shared_diff
+        exclude_bool = exclude.astype(bool)   # 呼び出し側は読むだけ
+        items += [(f"{case.case_id}{MASKED_SUFFIX}", rgba, out, exclude_bool, shared_diff)
+                  for case, (out, shared_diff) in zip(cases[:n_masked],
+                                                      _batch(rgba, cases[:n_masked], MASKED_SUFFIX, exclude))]
+        return items
+
+    # 被写体ごとに実行して返す(呼び出し側が使い終えた出力は次の被写体の前に手放せる)。
+    # 呼び出し側が 1 つの被写体の縮小・パネル・PNG の保存をしている間に、次の被写体のハーネスを背景のスレッドで
+    # 走らせる(直列・メインスレッドの洗い出しの 試-1・試-2。以前は交互で、片方が動く間もう片方が止まっていた)。
+    # 先に求めるのは 1 被写体だけ(同時に持つ出力は、渡している被写体と計算中の被写体の 2 つぶんまで。
+    # 全ケースを抱えて 10GB を超えた事故の対策を崩さない)。ハーネスを呼ぶのはこのスレッド 1 本だけで、
+    # 渡す順・中身は直列のときと同じ。
+    subjects = list(SUBJECT_REGISTRY.values())
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        ahead = pool.submit(_subject_items, subjects[0]) if subjects else None
+        for i in range(len(subjects)):
+            items = ahead.result()
+            ahead = pool.submit(_subject_items, subjects[i + 1]) if i + 1 < len(subjects) else None
+            yield from items
+            del items
 
 
 def _iter_engine(engine: str):
@@ -477,11 +497,19 @@ def cmd_snapshot(engine: str = "csharp", source: str = "rev:HEAD", allow_externa
     (workflow_review.REVIEW / "snapshot" / "meta.json").unlink(missing_ok=True)
     print(f"[snapshot] 全ケースをスナップショット中 (engine={engine}, コード={source}) …")
     # 1 件ずつ保存して手放す(全ケースの出力を同時に抱えるとメモリが尽きる。compare と同じ)。
+    # 4K の PNG の圧縮(1 枚 0.5 秒前後)はスレッドで並べる(圧縮の間は GIL を放す)。待ちの数に上限を付けて、
+    # 保存を待つ出力を持ちすぎない。中身は 1 本で保存したときと同じバイト列。
     saved: list[str] = []
-    for case_id, _input, output_rgba, _exclude, _shared_diff in _iter_engine(engine):
-        Image.fromarray(output_rgba).save(SNAPSHOT_BEFORE_DIR / f"{case_id}.png")
-        saved.append(case_id)
-        print(f"  保存: {case_id}.png")
+    pending: list = []
+    with ThreadPoolExecutor(max_workers=SNAPSHOT_SAVE_WORKERS) as pool:
+        for case_id, _input, output_rgba, _exclude, _shared_diff in _iter_engine(engine):
+            pending.append(pool.submit(Image.fromarray(output_rgba).save, SNAPSHOT_BEFORE_DIR / f"{case_id}.png"))
+            saved.append(case_id)
+            print(f"  保存: {case_id}.png")
+            while len(pending) > 2 * SNAPSHOT_SAVE_WORKERS:
+                pending.pop(0).result()
+        for f in pending:
+            f.result()
     print(f"[snapshot] {len(saved)} ケース完了 → {SNAPSHOT_BEFORE_DIR}")
     workflow_review.generate(snapshot=True, measured={"source": source, "state": st0, "run_id": None})
     if st0 is not None:
