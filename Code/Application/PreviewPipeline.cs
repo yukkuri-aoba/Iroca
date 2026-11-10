@@ -726,9 +726,11 @@ namespace Iroca {
             if (_cachedSourceTexture == sourceTexture &&
                 _cachedSrcPixels != null &&
                 ReferenceEquals(_cachedSrcPixels, TrueSource) &&
-                _cachedRawDisplay != null &&
                 _cachedSrcW == srcW && _cachedSrcH == srcH &&
                 _cachedPrevW == prevW && _cachedPrevH == prevH) {
+                // 同じ原本。縮めた控え(scale<1)がまだ無い(前のジョブが apply の前に次の操作で古くなった)ときは null のまま
+                // 渡し、ジョブが作って apply で確定する。選択キャッシュは原本が同じなので捨てない(以前は「控えがある」も
+                // 一致の条件に入っていて、縮める段のテクスチャでは控えが確定するまで、操作のたびに選択を捨てていた)。
                 srcPixels = _cachedSrcPixels;
                 rawDisplay = _cachedRawDisplay;
             } else {
