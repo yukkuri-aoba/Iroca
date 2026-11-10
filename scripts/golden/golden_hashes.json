@@ -101,6 +101,22 @@
         4
       ]
     },
+    "feather_aa_red_green_no_decontam": {
+      "sha256": "7629c483da3fc92c3e72951c7140e03de5bb4cd4811b28cd8e1503a299dddecd",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "feather_chroma_on_white_to_blue": {
+      "sha256": "e13530b59d6616ca1847ee05746f4b848d2851d62dc05055425faa1aaebe50cb",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
     "grad_blue_to_white": {
       "sha256": "062a0cfbdd9ef3425b948d7b96f59a1149fe2f8272eb0bbae9b5060d6e4bdda5",
       "shape": [

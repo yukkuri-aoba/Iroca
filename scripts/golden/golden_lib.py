@@ -393,6 +393,17 @@ def build_cases() -> list[tuple[str, np.ndarray, dict, dict]]:
                   zone(sample=n((200, 190, 180)), target=n((40, 160, 60)), tolerance=0.35,
                        chromaThreshold=0.15), settings()))
 
+    # 境界ぼかし(edgeFeather > 0)。ほかのケースは全部 0 で、ぼかしの段(GaussianBlur と後段の範囲の余白)を
+    # 1 画素も踏んでいなかった。無彩の地の上の部品(ぼかしが部品の外へ広がる)と、デコンタミ OFF の 2 色の境界。
+    cases.append(("feather_chroma_on_white_to_blue",
+                  S.chromatic_on_neutral((210, 50, 50), 235),
+                  zone(sample=n((210, 50, 50)), target=n((40, 70, 200)), tolerance=0.30),
+                  settings(edgeFeather=1.5)))
+    cases.append(("feather_aa_red_green_no_decontam",
+                  S.two_color_aa((210, 50, 50), (50, 180, 70)),
+                  zone(sample=n((210, 50, 50)), target=n((40, 70, 200)), tolerance=0.30),
+                  settings(edgeFeather=2.0, useDecontamination=False)))
+
     # ─── 端ケース（α・極端な寸法）。落ちない・黙って変わらないことを固定する ───
     red, blue = n((200, 50, 50)), n((40, 70, 200))
     red_zone = dict(sample=red, target=blue, tolerance=0.35)
