@@ -43,8 +43,8 @@ namespace Iroca {
             public int width;
             public int height;
             public int zonesApplied;
-            // 比較パネル PNG(左=変換前 / 中=変換後 / 右=変化画素をマゼンタ表示)の絶対パス。
-            // 生成に失敗した場合は空文字(理由は warnings)。エージェントはこれを画像として開いて目視検証する。
+            // 比較パネル PNG(左=変換前 / 中=変換後 / 右=変化画素をマゼンタ表示)の絶対パス(UserSettings/Iroca/mcp/preview。
+            // Assets には置かない)。生成に失敗した場合は空文字(理由は warnings)。エージェントはこれを画像として開いて目視検証する。
             public string preview = "";
             // preview を「見て確かめる」ようエージェントを誘導する短い案内。
             public string note = "";
@@ -125,6 +125,8 @@ namespace Iroca {
             public string preset = "";
             // zones モード: フラットなゾーン設定。
             public ZonesRequest zones;
+            // true なら、出力先に既にあるファイルを置き換える(既定は断る。コマンドラインの -irocaOverwrite と同じ)
+            public bool overwrite;
         }
 
         [Serializable]
@@ -157,8 +159,8 @@ namespace Iroca {
             var doc = new SchemaDoc {
                 version = ExtractVersion(),
                 methods = new[] {
-                    "RecolorByPreset(sourceAssetPath, presetPathOrNameOrJson, outputAssetPath) -> RecolorResult",
-                    "RecolorWithZones(sourceAssetPath, zonesRequestJson, outputAssetPath) -> RecolorResult",
+                    "RecolorByPreset(sourceAssetPath, presetPathOrNameOrJson, outputAssetPath[, overwrite]) -> RecolorResult",
+                    "RecolorWithZones(sourceAssetPath, zonesRequestJson, outputAssetPath[, overwrite]) -> RecolorResult",
                     "Inspect(target, maxColors, pointsUv, coverage) -> { kind, ndmf, ai, recolorRunning, presets, objects, "
                         + "textures:[{path, colors:[{hex, uv}], thumbnail, zonesFrom, zones, commonExcludedFraction, meshes, points}] }"
                         + "（target なしでシーンのアバター一覧、シーンのオブジェクトで使っているテクスチャ、テクスチャ・マテリアル・レシピで主な色と代表点・"
@@ -176,11 +178,14 @@ namespace Iroca {
                     "DescribeSchema() -> this document",
                 },
                 notes = new[] {
-                    "パスは Assets 相対（Assets/...）・プロジェクト相対・絶対のいずれも可。出力は .png。",
+                    "パスは Assets 相対（Assets/...）・プロジェクト相対・絶対のいずれも可。出力は Assets/ の下の .png だけで、"
+                        + "元のテクスチャそのものへは書かない。既にあるファイルは overwrite が true のときだけ置き換える"
+                        + "（RecolorByPreset・RecolorWithZones の 3 引数の版は断る。コマンドラインは -irocaOverwrite、ジョブの JSON は overwrite）。",
                     "色は [r,g,b]（0..1）。enabled なゾーンが 1 つも無いと error になる。",
                     "プリセットに入っているマスク（除外・含める）も UI と同じく当てる。",
                     "MCP 経路: iroca_inspect・iroca_recolor・iroca_open（引数は Inspect・Recolor の依頼 JSON・Open と同じ）。",
-                    "結果には 'preview'（比較パネル PNG のパス: 左=変換前 / 中=変換後 / 右=変化画素をマゼンタ表示）と "
+                    "結果には 'preview'（比較パネル PNG のパス。UserSettings/Iroca/mcp/preview に書き、Assets には置かない。"
+                        + "左=変換前 / 中=変換後 / 右=変化画素をマゼンタ表示）と "
                         + "変化メトリクス（changedPixels / changedFraction / largestComponentFraction / changeComponentCount / changeBBox）が付く。",
                     "検証ループ: 再着色 → 'preview' 画像を開いて意図通りか目視 → ずれていれば target/tolerance を調整して再実行。"
                         + "largestComponentFraction が小さい・changeComponentCount が多い＝変化が散在＝過検出の疑い。",
@@ -225,8 +230,17 @@ namespace Iroca {
         /// <summary>
         /// プリセットを使ってテクスチャを再着色し PNG を書き出す。
         /// <paramref name="presetPathOrNameOrJson"/> はファイルパス・プリセット名・インライン JSON のいずれでも可。
+        /// 出力先に既にファイルがあれば断る(置き換えるときは overwrite を渡す版。決まりは <see cref="AutomationOutputRules"/>)。
         /// </summary>
-        public static string RecolorByPreset(string sourceAssetPath, string presetPathOrNameOrJson, string outputAssetPath) {
+        public static string RecolorByPreset(string sourceAssetPath, string presetPathOrNameOrJson, string outputAssetPath)
+            => RecolorByPreset(sourceAssetPath, presetPathOrNameOrJson, outputAssetPath, overwrite: false);
+
+        /// <summary>
+        /// <see cref="RecolorByPreset(string, string, string)"/> の、出力先に既にあるファイルを置き換えるかを選べる版。
+        /// 置き換えると、その画像を使うマテリアル・アバターの見た目も変わるので、利用者に確かめてから true にする。
+        /// </summary>
+        public static string RecolorByPreset(string sourceAssetPath, string presetPathOrNameOrJson, string outputAssetPath,
+            bool overwrite) {
             var warnings = new List<string>();
             try {
                 var preset = ResolvePreset(presetPathOrNameOrJson);
@@ -237,7 +251,8 @@ namespace Iroca {
                 string abs = ResolveExistingFile(sourceAssetPath);
                 string rel = abs != null ? PathUtils.ToAssetsRelativeOrNull(abs) : null;
                 string guid = rel != null ? AssetDatabase.AssetPathToGUID(rel) : "";
-                return Json(RunRecolorCore(sourceAssetPath, SessionFromPreset(preset, guid, warnings), outputAssetPath, warnings));
+                return Json(RunRecolorCore(sourceAssetPath, SessionFromPreset(preset, guid, warnings), outputAssetPath, overwrite,
+                    warnings));
             } catch (Exception ex) {
                 return Fail($"{ex.GetType().Name}: {ex.Message}", warnings);
             }
@@ -246,8 +261,16 @@ namespace Iroca {
         /// <summary>
         /// フラットなゾーン設定 JSON（<c>{"zones":[...],"settings":{...}}</c>）で再着色して PNG を書き出す。
         /// プリセット保存を経由せず、その場の色指定で変換したいときに使う。
+        /// 出力先に既にファイルがあれば断る(置き換えるときは overwrite を渡す版)。
         /// </summary>
-        public static string RecolorWithZones(string sourceAssetPath, string zonesRequestJson, string outputAssetPath) {
+        public static string RecolorWithZones(string sourceAssetPath, string zonesRequestJson, string outputAssetPath)
+            => RecolorWithZones(sourceAssetPath, zonesRequestJson, outputAssetPath, overwrite: false);
+
+        /// <summary>
+        /// <see cref="RecolorWithZones(string, string, string)"/> の、出力先に既にあるファイルを置き換えるかを選べる版。
+        /// </summary>
+        public static string RecolorWithZones(string sourceAssetPath, string zonesRequestJson, string outputAssetPath,
+            bool overwrite) {
             var warnings = new List<string>();
             try {
                 ZonesRequest req;
@@ -258,7 +281,7 @@ namespace Iroca {
 
                 var state = new IrocaSessionState { zones = req.zones.Select(BuildZone).ToList() };
                 SettingsFromDto(req.settings ?? new SettingsDto()).CopyTo(state);
-                return Json(RunRecolorCore(sourceAssetPath, state, outputAssetPath, warnings));
+                return Json(RunRecolorCore(sourceAssetPath, state, outputAssetPath, overwrite, warnings));
             } catch (Exception ex) {
                 return Fail($"{ex.GetType().Name}: {ex.Message}", warnings);
             }
@@ -270,7 +293,8 @@ namespace Iroca {
 
         /// <summary>
         /// <c>Unity.exe -batchmode -quit -executeMethod Iroca.IrocaAutomation.RunFromCommandLine
-        ///   -irocaSource &lt;path&gt; -irocaOutput &lt;path&gt; (-irocaPreset &lt;path|name&gt; | -irocaZonesFile &lt;json&gt; | -irocaJob &lt;json&gt;)</c>
+        ///   -irocaSource &lt;path&gt; -irocaOutput &lt;path&gt; (-irocaPreset &lt;path|name&gt; | -irocaZonesFile &lt;json&gt; | -irocaJob &lt;json&gt;)
+        ///   [-irocaOverwrite]</c>
         /// で呼ぶ、MCP を介さない完全ヘッドレス経路。結果は Console と UserSettings/Iroca/mcp/result.json に出す。
         /// batchmode のときだけ成否を終了コードにして Unity を終える(開いているエディタから呼ばれたときは終えない)。
         /// </summary>
@@ -281,22 +305,25 @@ namespace Iroca {
             string preset = GetArg(args, "-irocaPreset");
             string zonesFile = GetArg(args, "-irocaZonesFile");
             string jobFile = GetArg(args, "-irocaJob");
+            // 出力先に既にあるファイルを置き換える(無ければ断る。静的 API・MCP と同じ決まり)。
+            bool overwrite = HasArg(args, "-irocaOverwrite");
 
             string resultJson;
             try {
                 if (!string.IsNullOrEmpty(jobFile)) {
                     var job = JsonUtility.FromJson<JobRequest>(File.ReadAllText(jobFile));
                     if (job != null && string.Equals(job.mode, "zones", StringComparison.OrdinalIgnoreCase)) {
-                        resultJson = RecolorWithZones(job.source, job.zones != null ? JsonUtility.ToJson(job.zones) : "", job.output);
+                        resultJson = RecolorWithZones(job.source, job.zones != null ? JsonUtility.ToJson(job.zones) : "", job.output,
+                            overwrite || job.overwrite);
                     } else if (job != null) {
-                        resultJson = RecolorByPreset(job.source, job.preset, job.output);
+                        resultJson = RecolorByPreset(job.source, job.preset, job.output, overwrite || job.overwrite);
                     } else {
                         resultJson = Fail("job file parse failed.");
                     }
                 } else if (!string.IsNullOrEmpty(zonesFile)) {
-                    resultJson = RecolorWithZones(source, File.ReadAllText(zonesFile), output);
+                    resultJson = RecolorWithZones(source, File.ReadAllText(zonesFile), output, overwrite);
                 } else {
-                    resultJson = RecolorByPreset(source, preset, output);
+                    resultJson = RecolorByPreset(source, preset, output, overwrite);
                 }
             } catch (Exception ex) {
                 resultJson = Fail($"{ex.GetType().Name}: {ex.Message}");
@@ -327,18 +354,25 @@ namespace Iroca {
         /// imported=null で呼んで読む（取り込み済みテクスチャへのフォールバックはしない。PNG/JPG のみ）。
         /// 画素はヒープの外に置く（色替え前の写しと、色替えした画素。0.4.0 の計画の A6）。
         /// 色替えは非破壊ビルドと同じ入口なので、有効なゾーンだけを並び順のまま、state のマスクを当てて処理する。
+        /// 出力先の決まり(Assets/ の下の .png・既にあれば overwrite のときだけ・元と別)と比較画像の置き場は MCP の
+        /// <see cref="Recolor"/> と同じ(<see cref="AutomationOutputRules"/>)。出力先は重い色替えの前に確かめる。
         /// 静的 API と batchmode の経路。MCP の <see cref="Recolor"/> は同じ <see cref="SessionRecolor.Apply"/> を
         /// 自分の手順(作業解像度の比較画像・背景での書き出し)で呼ぶ。
         /// </summary>
         private static unsafe RecolorResult RunRecolorCore(
             string sourceAssetPath, IrocaSessionState state,
-            string outputAssetPath, List<string> warnings) {
+            string outputAssetPath, bool overwrite, List<string> warnings) {
             var result = new RecolorResult { warnings = warnings ?? new List<string>() };
-
-            if (string.IsNullOrEmpty(outputAssetPath)) { result.error = "output path is empty."; return result; }
 
             string srcAbs = ResolveExistingFile(sourceAssetPath);
             if (srcAbs == null) { result.error = $"source not found: {sourceAssetPath}"; return result; }
+
+            result.error = AutomationOutputRules.ResolvePngOutput(outputAssetPath, null, overwrite, srcAbs, OverwriteHint,
+                out string outAbs);
+            if (result.error != null) {
+                return result;
+            }
+            result.error = "";
 
             int enabledCount = RecolorInput.CountEnabled(state.zones);
             if (enabledCount == 0) { result.error = "no enabled zones."; return result; }
@@ -360,8 +394,7 @@ namespace Iroca {
 
                 SessionRecolor.Apply(pixels.Ptr, w, h, state);
 
-                string writeError = WriteRecoloredPng(pixels, srcAbs, outputAssetPath, out string outAbs);
-                if (writeError != null) { result.error = writeError; return result; }
+                if (!TryWritePng(pixels, outAbs, srcAbs)) { result.error = "PNG encode failed."; return result; }
 
                 var m = RecolorPreview.ComputeMetrics(originalPixels.Ptr, pixels.Ptr, w, h);
                 result.changedPixels = m.changedPixels;
@@ -369,7 +402,7 @@ namespace Iroca {
                 result.largestComponentFraction = m.largestComponentFraction;
                 result.changeComponentCount = m.componentCount;
                 result.changeBBox = new[] { m.bboxX, m.bboxY, m.bboxW, m.bboxH };
-                WritePreviewPanel(originalPixels, pixels, outAbs, srcAbs, result);
+                WritePreviewPanel(originalPixels, pixels, srcAbs, result);
 
                 result.ok = true;
                 result.output = outAbs;
@@ -385,30 +418,27 @@ namespace Iroca {
             }
         }
 
+        // 出力先に既にファイルがあるときの案内に入れる、置き換えの許しの渡し方。
+        private const string OverwriteHint = "overwrite = true (the RecolorByPreset/RecolorWithZones overload with 'overwrite'; "
+            + "-irocaOverwrite or \"overwrite\": true in the job file on the command line)";
+
         /// <summary>
-        /// 変換前/後から比較パネル PNG を組み立てて <paramref name="outAbs"/> の隣(&lt;stem&gt;_preview.png)へ書き出す。
+        /// 変換前/後から比較パネル PNG を組み立てて、MCP の <see cref="Recolor"/> と同じ置き場
+        /// (<see cref="AutomationOutputRules.PreviewPanelPath"/>。UserSettings の下で、取り込まない)へ書く。
         /// 生成できたら <see cref="RecolorResult.preview"/> とエージェント向け <see cref="RecolorResult.note"/> を設定。
         /// 失敗は非致命(本体出力は成功のまま)で warnings に残す。
+        /// 以前は出力の隣(&lt;stem&gt;_preview.png)へ書いて取り込んでいたので、出力先ごとに Assets にテクスチャが増え、
+        /// 名前しだいで原本を指すこともあった(その判定は、置き場が Assets の外になって要らなくなった)。
         /// </summary>
-        private static unsafe void WritePreviewPanel(
-            NativePixels before, NativePixels after, string outAbs, string srcAbs, RecolorResult result) {
-            // 比較パネルの行き先は outAbs から機械的に導く(&lt;stem&gt;_preview.png)ため、
-            // 本体出力が原本と別でも、パネルだけが原本を指すことがある
-            // (例: source=Assets/tex_preview.png, output=Assets/tex.png)。
-            // 呼び出し側の output != source ガードはここを通らないので、同じ判定をこちらにも置く。
-            // 目視検証用の後段生成のために原本を壊すことは絶対に許容できない。
-            string previewAbs = MakePreviewPath(outAbs);
-            if (string.Equals(previewAbs, srcAbs, StringComparison.OrdinalIgnoreCase)) {
-                result.warnings.Add(
-                    "preview panel skipped: its path would overwrite the source texture "
-                    + $"(rename the output so that <stem>_preview.png differs from the source): {previewAbs}");
-                return;
-            }
-
+        private static unsafe void WritePreviewPanel(NativePixels before, NativePixels after, string srcAbs, RecolorResult result) {
             try {
                 var panel = RecolorPreview.BuildComparisonPanel(
                     before.Ptr, after.Ptr, before.Width, before.Height, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
-                if (!TryWritePng(panel, pw, ph, previewAbs)) { result.warnings.Add("preview panel PNG encode failed."); return; }
+                byte[] png;
+                try { png = ExportPipeline.EncodePng(panel, pw, ph); } catch (Exception) { result.warnings.Add("preview panel PNG encode failed."); return; }
+                string previewAbs = AutomationOutputRules.PreviewPanelPath(PathUtils.ToAssetsRelativeOrNull(srcAbs) ?? srcAbs);
+                Directory.CreateDirectory(Path.GetDirectoryName(previewAbs));
+                AtomicFile.WriteAllBytes(previewAbs, png);
 
                 result.preview = previewAbs;
                 result.note = "Open 'preview' to visually verify the result: left=before, middle=after, "
@@ -421,74 +451,15 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 色替えした画素を出力先へ書く(出力先の確かめ → PNG → 取り込み)。エラーなら文言、成功なら null。
-        /// <paramref name="srcAbs"/> は原本の絶対パス(出力が原本を上書きしないことを確かめる)。
-        /// </summary>
-        private static string WriteRecoloredPng(NativePixels pixels, string srcAbs, string outputAssetPath,
-            out string outAbs) {
-            outAbs = AutomationOutputRules.ResolveOutputPath(outputAssetPath);
-            if (outAbs == null) {
-                return $"output must be a .png inside the project: {outputAssetPath}";
-            }
-            // 出力先が元テクスチャそのものだと、再着色結果で原本を上書きして戻せなくなる。
-            // UI の「上書き保存」は明示操作＋確認ダイアログ＋Undo があるが、MCP/batchmode 経由には
-            // 何も無く、引数のミス 1 つで非可逆に原本が失われる。ここで断る。
-            // 比較は大小無視: 取りこぼして原本を壊すより、別ファイルを拒否する側に倒す。
-            if (string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase)) {
-                return "output must differ from source "
-                     + $"(recoloring in place would destroy the original irreversibly): {outputAssetPath}";
-            }
-            if (!TryWritePng(pixels, outAbs, srcAbs)) {
-                return "PNG encode failed.";
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// 画素を PNG にエンコードして <paramref name="abs"/> へ書き出し、Assets 配下なら取り込む。
-        /// エンコードに失敗したら何も書かずに false を返す。I/O 等の例外は捕まえず呼び出し側へ伝える。
-        /// エンコードは UI の書き出しと同じ <see cref="ExportPipeline.EncodePng"/>(Texture2D を作らない。
-        /// 8K で 256MB の写しが要らない)。取り込み設定は既定のまま(元の .meta は写さない。従来どおり)。
-        /// </summary>
-        private static bool TryWritePng(Color32[] pixels, int w, int h, string abs) {
-            byte[] png;
-            try { png = ExportPipeline.EncodePng(pixels, w, h); } catch (Exception) { return false; }
-            WritePngFile(png, abs);
-            return true;
-        }
-
-        /// <summary>
-        /// <see cref="TryWritePng(Color32[],int,int,string)"/> のヒープの外の版(色替えした画素。PNG もヒープの外に作り、
-        /// 書いたら手放す。バイト列は同じ)。
+        /// 色替えした画素を PNG にして <paramref name="abs"/> へ書き、取り込む(出力先は確かめ済み)。PNG もヒープの外に作り、
+        /// 書いたら手放す。取り込み設定は元から引き継ぐ(窓の書き出しの既定と同じ)。エンコードに失敗したら何も書かずに false。
+        /// I/O 等の例外は捕まえず呼び出し側へ伝える。
         /// </summary>
         private static bool TryWritePng(NativePixels pixels, string abs, string srcAbs) {
             NativeArray<byte> png;
             try { png = TextureIO.EncodePng(pixels); } catch (Exception) { return false; }
-            // 取り込み設定は元から引き継ぐ(窓の書き出しの既定と同じ)。
             try { ExportService.WriteAndImport(abs, png, srcAbs, inheritImportSettings: true); } finally { png.Dispose(); }
             return true;
-        }
-
-        /// <summary>PNG のバイト列を <paramref name="abs"/> へ書き、Assets 配下なら取り込む(メインスレッド)。</summary>
-        private static void WritePngFile(byte[] png, string abs) {
-            string dir = Path.GetDirectoryName(abs);
-            if (!string.IsNullOrEmpty(dir)) {
-                Directory.CreateDirectory(dir);
-            }
-            // 出力先に既存 PNG があると、書き込み途中で落ちたときその既存物を壊す。
-            // AtomicFile は一時ファイルへ書き切ってから置換する。
-            AtomicFile.WriteAllBytes(abs, png);
-
-            string rel = PathUtils.ToAssetsRelativeOrNull(abs);
-            if (rel != null) {
-                AssetDatabase.ImportAsset(rel);
-            }
-        }
-
-        private static string MakePreviewPath(string outAbs) {
-            string dir = Path.GetDirectoryName(outAbs) ?? "";
-            string stem = Path.GetFileNameWithoutExtension(outAbs);
-            return Path.Combine(dir, stem + "_preview.png");
         }
 
         private static ColorZone BuildZone(ZoneDto z) {
@@ -638,6 +609,15 @@ namespace Iroca {
                 return null;
             }
             return File.Exists(abs) ? abs : null;
+        }
+
+        private static bool HasArg(string[] args, string name) {
+            foreach (var a in args) {
+                if (string.Equals(a, name, StringComparison.OrdinalIgnoreCase)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static string GetArg(string[] args, string name) {

@@ -212,7 +212,8 @@ namespace Iroca.EditorTests {
 
                 // MCP/コマンドラインの入口(同期。原本を読んで色替えし PNG を書く)。
                 sw.Restart();
-                string res = IrocaAutomation.RecolorWithZones(path, File.ReadAllText(c.zones), assets.Folder + "/auto.png");
+                // 出力先に既にあるファイルは置き換えないので、ケースごとに別の名前にする。
+                string res = IrocaAutomation.RecolorWithZones(path, File.ReadAllText(c.zones), assets.Folder + "/auto_" + c.name + ".png");
                 Step(c.name, "automation", sw.Elapsed.TotalMilliseconds, res.Length > 300 ? res.Substring(0, 300) : res);
                 StringAssert.Contains("\"ok\":true", res.Replace(" ", ""));
             }

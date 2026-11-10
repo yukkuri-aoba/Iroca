@@ -68,6 +68,68 @@ namespace Iroca.EditorTests {
             AssertOnlyRightHalfChanged(Run(preset, out _));
         }
 
+        // ─── 静的 API・CLI の出力先(MCP の iroca_recolor と同じ決まり) ───
+
+        private static IrocaAutomation.RecolorResult StaticResult(string json)
+            => JsonUtility.FromJson<IrocaAutomation.RecolorResult>(json);
+
+        [Test]
+        public void StaticApi_RefusesToReplaceAnExistingFileUnlessOverwrite() {
+            // 3 引数の版は既にあるファイルを置き換えない(以前は黙って置き換え、その画像を使うアバターの見た目まで変わった)。
+            string src = _assets.WritePng("src", Enumerable.Repeat(Red, W * H).ToArray(), W, H);
+            string output = _assets.Folder + "/out.png";
+            var blue = RedToBlue(out _);
+            var green = RedToBlue(out var greenZone);
+            greenZone.targetColor = new Color(0.1f, 0.8f, 0.2f, 1f);
+            var first = StaticResult(IrocaAutomation.RecolorByPreset(src, JsonUtility.ToJson(blue), output));
+            Assert.IsTrue(first.ok, first.error);
+            byte[] written = File.ReadAllBytes(first.output);
+
+            var refused = StaticResult(IrocaAutomation.RecolorByPreset(src, JsonUtility.ToJson(green), output));
+            Assert.IsFalse(refused.ok);
+            StringAssert.Contains("already exists", refused.error);
+            StringAssert.Contains("overwrite", refused.error);
+            CollectionAssert.AreEqual(written, File.ReadAllBytes(first.output), "断ったときは書かないこと");
+
+            var replaced = StaticResult(IrocaAutomation.RecolorByPreset(src, JsonUtility.ToJson(green), output, overwrite: true));
+            Assert.IsTrue(replaced.ok, replaced.error);
+            CollectionAssert.AreNotEqual(written, File.ReadAllBytes(first.output));
+
+            // 元テクスチャ自身は overwrite があっても書かない。
+            var self = StaticResult(IrocaAutomation.RecolorWithZones(src, "{\"zones\":[{\"name\":\"z\"}]}", src, overwrite: true));
+            Assert.IsFalse(self.ok);
+            StringAssert.Contains("must differ from the source", self.error);
+        }
+
+        [TestCase("Packages/iroca_automation_static_out.png")]
+        [TestCase("ProjectSettings/iroca_automation_static_out.png")]
+        [TestCase("Library/iroca_automation_static_out.png")]
+        [TestCase("iroca_automation_static_out.png")]
+        public void StaticApi_WritesOnlyUnderAssets(string output) {
+            string src = _assets.WritePng("src", Enumerable.Repeat(Red, W * H).ToArray(), W, H);
+            string abs = TestAssets.Abs(output);
+            try {
+                var r = StaticResult(IrocaAutomation.RecolorByPreset(src, JsonUtility.ToJson(RedToBlue(out _)), output));
+                Assert.IsFalse(r.ok, r.output);
+                StringAssert.Contains("under Assets/", r.error);
+                Assert.IsFalse(File.Exists(abs), "Assets の外に書いた");
+            } finally {
+                if (File.Exists(abs)) {
+                    File.Delete(abs);
+                }
+            }
+        }
+
+        [Test]
+        public void StaticApi_WritesThePreviewOutsideAssets() {
+            // 比較画像は MCP と同じ UserSettings/Iroca/mcp/preview に書く(以前は出力の隣の <名前>_preview.png に書いて取り込み、
+            // 出力先ごとに Assets にテクスチャが増えた)。
+            Run(RedToBlue(out _), out var result);
+            StringAssert.Contains(Path.Combine("UserSettings", "Iroca", "mcp", "preview"), result.preview);
+            Assert.IsTrue(File.Exists(result.preview), "比較画像を書くこと");
+            Assert.IsFalse(File.Exists(TestAssets.Abs(_assets.Folder + "/out_preview.png")), "Assets に比較画像を書いた");
+        }
+
         [System.Serializable]
         private class PresetListJson {
             public System.Collections.Generic.List<PresetEntryJson> presets = new System.Collections.Generic.List<PresetEntryJson>();

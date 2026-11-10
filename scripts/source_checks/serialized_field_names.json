@@ -86,6 +86,7 @@
     "IrocaAutomation.JobRequest": [
       "mode",
       "output",
+      "overwrite",
       "preset",
       "source",
       "zones"
