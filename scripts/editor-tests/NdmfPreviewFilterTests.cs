@@ -289,6 +289,51 @@ namespace Iroca.EditorTests {
             Assert.IsNotNull(GroupOf(filter.FindTargets(new ComputeContext("test")), mesh), "アバターの中に入ったのに映さない");
         }
 
+        // 上流のツール(MA の Material Setter など)が、プロキシの素材を元テクスチャを使うものへ差し替えた場合。NDMF の対象選びからは
+        // 差し替えが見えないので、範囲の Renderer にはすべてノードを付ける(範囲の外には付けない)。差し替えが無ければ何も変えない。
+        [Test]
+        public void MaterialSwappedUpstream_IsRecolored_AndNodesOnUnusedRenderersChangeNothing() {
+            var (src, mat) = SourceAndMaterial();
+            var plain = Track(new Material(Shader.Find("Standard")) { name = "plain" });
+            var avatar = AvatarRoot();
+            var uses = Mesh("uses", mat, avatar);
+            var swapped = Mesh("swapped", plain, avatar);   // 元は使っていない。上流が src の素材へ差し替える
+            var untouched = Mesh("untouched", plain, avatar);
+            var outside = Mesh("outside", plain);
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(RedToGreen(src));
+
+            var filter = new IrocaPreviewFilter();
+            var groups = filter.FindTargets(new ComputeContext("test"));
+            Assert.AreEqual(3, groups.Count, "範囲の Renderer の数だけノードを付ける(範囲の外には付けない)");
+            Assert.IsNull(GroupOf(groups, outside));
+
+            // 上流がプロキシの素材を差し替えた: 色替えが映る。
+            var swappedProxy = ProxyOf(swapped);
+            swappedProxy.sharedMaterial = mat;
+            var swappedNode = TestAssets.Wait(filter.Instantiate(GroupOf(groups, swapped),
+                new List<(Renderer, Renderer)> { (swapped, swappedProxy) }, new ComputeContext("node")));
+            try {
+                var tex = swappedProxy.sharedMaterial.mainTexture;
+                Assert.IsTrue(tex != null && tex.name.EndsWith("(Iroca)"), $"上流で差し替えた素材に色替えが映らない: {tex}");
+                Assert.AreSame(plain, swapped.sharedMaterial, "元の Renderer を書き換えた");
+            } finally {
+                swappedNode.Dispose();
+            }
+
+            // 差し替えが無い: ノードは何も変えない(毎フレームの差し替え直しでも)。
+            var untouchedProxy = ProxyOf(untouched);
+            var untouchedNode = TestAssets.Wait(filter.Instantiate(GroupOf(groups, untouched),
+                new List<(Renderer, Renderer)> { (untouched, untouchedProxy) }, new ComputeContext("node")));
+            try {
+                Assert.AreSame(plain, untouchedProxy.sharedMaterial, "使っていない素材を差し替えた");
+                untouchedNode.OnFrame(untouched, untouchedProxy);
+                Assert.AreSame(plain, untouchedProxy.sharedMaterial, "毎フレームの差し替え直しで変えた");
+                Assert.AreEqual((RenderAspects)0, untouchedNode.WhatChanged);
+            } finally {
+                untouchedNode.Dispose();
+            }
+        }
+
         // 入れ子の内側のレシピのゾーンがすべて無効なら、その範囲は元の色のまま映す(ビルドと同じ。外側の色で塗らない)。
         [Test]
         public void InnerRecipeWithNoEnabledZones_ShowsItsScopeInTheOriginalColor() {

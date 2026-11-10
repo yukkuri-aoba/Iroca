@@ -30,6 +30,12 @@ namespace Iroca.NdmfIntegration {
     ///   何も映さない規則なので、シーン全体を見るのは、ウィンドウが登録の無いテクスチャを編集している間だけ。
     ///   アバターの外の Iroca Recolor はビルドで効かないので、無いものとして扱う。</item>
     /// <item>Renderer は素材の並びが変わったか、マテリアルは「候補のテクスチャを含むか」だけを見る(配列を作らない)。</item>
+    /// <item>Iroca Recolor の範囲の Renderer には、元の素材が候補のテクスチャを使っていなくても、登録済みの差し替え先が
+    ///   あればグループを作る。上流のツール(Modular Avatar の Material Setter・Material Swap など)がプロキシの素材を
+    ///   差し替えた先で使うことがあり、NDMF の対象選びからはその差し替えが見えないため(<see cref="Instantiate"/> は
+    ///   プロキシの素材を見るので、グループさえあれば効く)。差し替え先を使わないノードは何もしない(範囲の Renderer
+    ///   1 つにつきノード 1 つの負担は受け入れた)。ウィンドウで編集中のテクスチャも、元の素材が使っていなければ
+    ///   レシピの中身(自動保存の後)を映す(開くテクスチャを替えるたびに範囲のノードが作り直されないように)。</item>
     /// <item>どの元テクスチャを何に差し替えるか(<see cref="PreviewTargeting.Routes"/>)は対象を選ぶときに決めて
     ///   グループに持たせる。変われば NDMF が別のグループとしてノードを作り直す。ノード自身が監視するのは、
     ///   自分の Renderer の素材とそのテクスチャ欄、借りたレシピの中身、作業解像度だけ(シーン全体の部品の増減を
@@ -161,18 +167,21 @@ namespace Iroca.NdmfIntegration {
                 uses |= u;
             }
             if (uses == 0) {
-                return null;
+                // 元の素材は候補を使っていない。上流のツールが差し替えた先で使うかもしれないので、持ち主の範囲なら
+                // 登録済みの差し替え先でグループを作る(範囲の外なら何も無い)。
+                var upstream = plan.RoutesFor(renderer.transform, usesLive: false);
+                if (upstream.IsEmpty) {
+                    return null;
+                }
+                context.ObservePath(renderer.transform);
+                return upstream;
             }
 
             // 差し替え先は持ち主(祖先の Iroca Recolor)で決まるので、付け替えたら選び直す。
             context.ObservePath(renderer.transform);
             var routes = plan.RoutesFor(renderer.transform, (uses & UsesLive) != 0);
-            foreach (var m in materials) {
-                if (m != null && Uses(m, routes)) {
-                    return routes;
-                }
-            }
-            return null;
+            // 元の素材が使っていない差し替え先も持たせる(上と同じ理由)。
+            return routes.IsEmpty ? null : routes;
         }
 
         // いまの素材の並びが expected と同じか(配列を作らずに比べる)。
@@ -223,20 +232,6 @@ namespace Iroca.NdmfIntegration {
                 if (uses == (UsesLive | UsesRegistered)) {
                     break;
                 }
-            }
-            s_textureIds.Clear();
-            return uses;
-        }
-
-        private static bool Uses(Material material, PreviewTargeting.Routes routes) {
-            material.GetTexturePropertyNameIDs(s_textureIds);
-            bool uses = false;
-            foreach (int id in s_textureIds) {
-                if (!routes.TryGet(material.GetTexture(id), out _)) {
-                    continue;
-                }
-                uses = true;
-                break;
             }
             s_textureIds.Clear();
             return uses;
