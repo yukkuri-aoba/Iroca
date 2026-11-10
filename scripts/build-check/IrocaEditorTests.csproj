@@ -34,6 +34,9 @@
 
   <ItemGroup>
     <Compile Include="..\editor-tests\**\*.cs" />
+    <!-- Sdk/ は別の asmdef（Iroca.EditorTests.Sdk）で、VRChat SDK を参照する。SDK の無い CI ではコンパイルできないので外す
+         （SDK 入りのホストで Unity が作る。scripts/Run-EditorTests.ps1 -SdkBuild）。 -->
+    <Compile Remove="..\editor-tests\Sdk\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>
