@@ -590,7 +590,7 @@ namespace Iroca {
                 case "clear": op = MaskRegionOp.ClearHere; break;
                 default: return $"unknown mask op '{m.op}' (use 'paint', 'dont_paint', 'only' or 'clear').";
             }
-            if (m.at == null || m.at.Length < 2 || m.at[0] < 0f || m.at[0] > 1f || m.at[1] < 0f || m.at[1] > 1f) {
+            if (!TryReadUv(m.at, out Vector2 at)) {
                 return $"mask op '{opName}': 'at' must be [u, v] within 0..1 (bottom-left origin).";
             }
 
@@ -649,10 +649,27 @@ namespace Iroca {
                 by = by,
                 byName = byName,
                 size = size,
-                uv = new Vector2(m.at[0], m.at[1]),
+                uv = at,
             };
             return null;
         }
+
+        /// <summary>
+        /// 依頼の [u, v](左下原点、0..1)を読む。無い・短い・範囲の外・NaN なら false。マスク操作・changes の at・
+        /// iroca_inspect の points で共有する。JsonUtility は JSON の素の NaN を NaN のまま読むので、比べ方は「範囲の中か」
+        /// にして NaN も落とす(以前の「&lt; 0 か &gt; 1」は NaN を通し、(int)NaN が端へ丸められて別の場所の色を拾った)。
+        /// </summary>
+        internal static bool TryReadUv(float[] at, out Vector2 uv) {
+            uv = new Vector2(-1f, -1f);
+            if (at == null || at.Length < 2 || !IsUnitInterval(at[0]) || !IsUnitInterval(at[1])) {
+                return false;
+            }
+            uv = new Vector2(at[0], at[1]);
+            return true;
+        }
+
+        /// <summary>0..1 の中か(NaN は false)。</summary>
+        internal static bool IsUnitInterval(float x) => x >= 0f && x <= 1f;
 
         private static string ZoneNames(IrocaSessionState state)
             => string.Join(", ", state.zones.Where(z => z != null).Select(z => "'" + z.name + "'"));
@@ -1079,10 +1096,9 @@ namespace Iroca {
             Color from;
             Vector2 uv = new Vector2(-1f, -1f);
             if (c.at != null && c.at.Length >= 2) {
-                if (c.at[0] < 0f || c.at[0] > 1f || c.at[1] < 0f || c.at[1] > 1f) {
+                if (!TryReadUv(c.at, out uv)) {
                     return $"change '{c.name}': 'at' must be [u, v] within 0..1 (bottom-left origin).";
                 }
-                uv = new Vector2(c.at[0], c.at[1]);
                 int x = Mathf.Clamp((int)(uv.x * w), 0, w - 1);
                 int y = Mathf.Clamp((int)(uv.y * h), 0, h - 1);
                 var p = work.Ptr[y * w + x];

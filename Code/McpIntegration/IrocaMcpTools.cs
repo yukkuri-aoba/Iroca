@@ -85,7 +85,7 @@ namespace Iroca.McpIntegration {
 
     /// <summary>
     /// 色替えのツール（<see cref="IrocaAutomation.Recolor"/>）。引数の名前は依頼 JSON の欄と同じなので、
-    /// そのまま渡す（配列を文字列で送ってくるクライアントのために、文字列なら配列へ読み直す）。
+    /// そのまま渡す（配列を文字列で送ってくるクライアントのために文字列なら配列へ読み直し、1 個のオブジェクトは配列に包む）。
     /// </summary>
     [McpForUnityTool("iroca_recolor", Description =
         "Iroca step 2: recolor parts of a texture like the Iroca window does. Each 'changes' entry becomes one zone "
@@ -148,12 +148,66 @@ namespace Iroca.McpIntegration {
             }
 
             var request = @params != null ? (JObject)@params.DeepClone() : new JObject();
-            foreach (var key in new[] { "changes", "masks", "remove" }) {
-                if (request[key] is JValue v && v.Type == JTokenType.String) {
-                    try { request[key] = JToken.Parse((string)v); } catch { return McpResponses.Error($"'{key}' must be a JSON array."); }
-                }
+            string error = NormalizeRequest(request);
+            if (error != null) {
+                return McpResponses.Error(error);
             }
             return McpResponses.FromAutomationPendingOrResult(IrocaAutomation.Recolor(request.ToString()), PollIntervalSeconds, "recolor failed");
+        }
+
+        /// <summary>
+        /// 依頼を Iroca の JsonUtility が読める形にそろえる。読めない形ならその文言、よければ null。
+        /// JsonUtility は、配列の欄に配列でないもの(1 個のオブジェクト・数など)が来ると黙って空にし、数の欄の文字列は
+        /// 数として読む("NaN" は 0)。Newtonsoft は素の NaN・Infinity を読むが、書き戻すと "NaN" の文字列になる
+        /// (2022.3・6000.0 で確かめた)。そのままだと、masks を 1 個で渡すとマスク無しで成功し、at の NaN は [0, v] として
+        /// 色替えしてしまうので、ここで直すか断る。
+        /// </summary>
+        private static string NormalizeRequest(JObject request) {
+            foreach (var key in new[] { "changes", "masks", "remove" }) {
+                var token = request[key];
+                if (token == null || token.Type == JTokenType.Null) {
+                    continue;
+                }
+                // 配列を JSON の文字列で送ってくるクライアントもある。
+                if (token is JValue v && v.Type == JTokenType.String) {
+                    try { token = JToken.Parse((string)v); } catch { return $"'{key}' must be a JSON array."; }
+                }
+                // 1 件だけをオブジェクトで渡されたら、配列に包む。
+                if (token is JObject single) {
+                    token = new JArray(single);
+                }
+                if (!(token is JArray list)) {
+                    return $"'{key}' must be a JSON array.";
+                }
+                request[key] = list;
+                if (key == "remove") {
+                    continue;
+                }
+                for (int i = 0; i < list.Count; i++) {
+                    if (list[i] is JObject entry && entry["at"] != null && entry["at"].Type != JTokenType.Null
+                        && !IsUvPair(entry["at"])) {
+                        return $"{key}[{i}].at must be [u, v]: two numbers within 0..1 (bottom-left origin).";
+                    }
+                }
+            }
+            return null;
+        }
+
+        // 有限の数 2 つの配列か(範囲は Iroca が確かめる)。
+        private static bool IsUvPair(JToken at) {
+            if (!(at is JArray pair) || pair.Count != 2) {
+                return false;
+            }
+            foreach (var c in pair) {
+                if (c.Type != JTokenType.Integer && c.Type != JTokenType.Float) {
+                    return false;
+                }
+                double d = c.Value<double>();
+                if (double.IsNaN(d) || double.IsInfinity(d)) {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 

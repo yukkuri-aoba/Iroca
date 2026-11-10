@@ -123,6 +123,38 @@ namespace Iroca.EditorTests {
             StringAssert.Contains("no readable mesh", Token(json, "error"), json);
         }
 
+        [Test]
+        public void Recolor_SingleObjectInsteadOfArray_IsWrapped() {
+            // JsonUtility は配列の欄に 1 個のオブジェクトが来ると黙って空にする(2022.3・6000.0)。以前は masks を 1 個で渡すと
+            // マスク無しで成功していた。MCP の層で配列に包む。
+            string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
+            string change = "{\"name\":\"red\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}";
+            string mask = "{\"op\":\"dont_paint\",\"at\":[0.5,0.5],\"by\":\"island\"}";
+            string json = Call("IrocaRecolorTool", "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"autoTune\":false,\"changes\":" + change + "}");
+            Assert.AreEqual("True", Token(json, "success"), json);
+            Assert.AreEqual("red", Token(json, "data.zones[0].name"), json);
+            json = Call("IrocaRecolorTool", "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"autoTune\":false,\"changes\":[" + change + "],\"masks\":" + mask + "}");
+            StringAssert.Contains("no readable mesh", Token(json, "error"), "マスク操作が届いていない: " + json);
+            json = Call("IrocaRecolorTool", Args(("texture", src), ("apply", "preview"), ("changes", "[" + change + "]"), ("masks", mask)));
+            StringAssert.Contains("no readable mesh", Token(json, "error"), "文字列で送ったマスク操作が届いていない: " + json);
+        }
+
+        [TestCase("{\"changes\":5}", "'changes' must be a JSON array")]
+        [TestCase("{\"changes\":[{\"at\":[NaN,0.5],\"to\":\"#1A2B5C\"}]}", "changes[0].at")]
+        [TestCase("{\"changes\":[{\"at\":[\"NaN\",0.5],\"to\":\"#1A2B5C\"}]}", "changes[0].at")]
+        [TestCase("{\"changes\":[{\"at\":[null,0.5],\"to\":\"#1A2B5C\"}]}", "changes[0].at")]
+        [TestCase("{\"changes\":[{\"at\":0.5,\"to\":\"#1A2B5C\"}]}", "changes[0].at")]
+        [TestCase("{\"changes\":[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}],\"masks\":[{\"op\":\"only\",\"at\":[0.5,Infinity]}]}", "masks[0].at")]
+        public void Recolor_AtThatIsNotTwoNumbers_IsRefused(string body, string expected) {
+            // Newtonsoft は素の NaN を読むが、書き戻すと "NaN" の文字列になり、JsonUtility はそれを 0 と読む(2022.3・6000.0)。
+            // 文字列・null も黙って数になる。その場所を色替えしないよう、MCP の層で断る。
+            string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
+            string json = Call("IrocaRecolorTool",
+                "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"autoTune\":false," + body.Substring(1));
+            Assert.AreEqual("False", Token(json, "success"), json);
+            StringAssert.Contains(expected, Token(json, "error"), json);
+        }
+
         [UnityTest]
         public IEnumerator Recolor_AutoTune_RepliesPendingThenResultOnStatus() {
             // 自動調整を待つ間は MCP の pending を返し、サーバーの問い合わせ直し(action=status)で最後の結果を返す。

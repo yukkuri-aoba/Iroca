@@ -133,7 +133,7 @@ namespace Iroca {
                         return Finish(r, $"'points' must be up to {MaxInspectPoints} [u, v] pairs.");
                     }
                     foreach (float c in pointsUv) {
-                        if (float.IsNaN(c) || c < 0f || c > 1f) {
+                        if (!IsUnitInterval(c)) {
                             return Finish(r, "'points' must be within 0..1 (bottom-left origin).");
                         }
                     }

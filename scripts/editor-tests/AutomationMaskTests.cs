@@ -204,6 +204,7 @@ namespace Iroca.EditorTests {
         [TestCase("[{\"op\":\"nope\",\"at\":[0.5,0.5]}]", "unknown mask op")]
         [TestCase("[{\"op\":\"only\"}]", "'at' must be")]
         [TestCase("[{\"op\":\"only\",\"at\":[1.5,0.5]}]", "'at' must be")]
+        [TestCase("[{\"op\":\"only\",\"at\":[0.5,NaN]}]", "'at' must be")]
         [TestCase("[{\"op\":\"only\",\"at\":[0.5,0.5],\"zone\":\"nope\"}]", "no zone named 'nope'")]
         [TestCase("[{\"op\":\"only\",\"at\":[0.5,0.5],\"common\":true}]", "common:true works only")]
         [TestCase("[{\"op\":\"clear\",\"at\":[0.5,0.5],\"common\":true,\"zone\":\"red\"}]", "not both")]

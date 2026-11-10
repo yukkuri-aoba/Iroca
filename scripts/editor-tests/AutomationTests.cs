@@ -624,6 +624,9 @@ namespace Iroca.EditorTests {
 
         [TestCase("preview", "[{\"at\":[0.25,0.5],\"to\":\"darkish blue\"}]", "'to' must be a color")]
         [TestCase("preview", "[{\"at\":[1.5,0.5],\"to\":\"#000000\"}]", "'at' must be [u, v]")]
+        // JsonUtility は素の NaN を NaN のまま読む(2022.3・6000.0)。以前は範囲の判定を通り、端の画素の色を拾った。
+        [TestCase("preview", "[{\"at\":[NaN,0.5],\"to\":\"#000000\"}]", "'at' must be [u, v]")]
+        [TestCase("preview", "[{\"at\":[0.5,Infinity],\"to\":\"#000000\"}]", "'at' must be [u, v]")]
         [TestCase("preview", "[{\"to\":\"#000000\"}]", "give 'at'")]
         [TestCase("preview", "[]", "no enabled zones")]
         [TestCase("save", "[{\"from\":\"#C81E1E\",\"to\":\"#000000\"}]", "unknown apply")]
