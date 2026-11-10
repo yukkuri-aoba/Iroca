@@ -319,45 +319,46 @@ namespace Iroca {
             float satFloor = sS * HlBandMinSatFrac;
 
             int len = w * h;
-            // 候補はプールから Rent(ゼロ初期化されないので ClearWork で全 false に戻す)し、
+            var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            // 候補判定は画素の色(と色から求めた HSV)だけで決まるので、色の表があれば色ごとに 1 回だけ
+            // 判定して配る(同じ式に同じ入力を与えた結果なのでビット単位で同じ)。候補の色が 1 つも無ければ、
+            // 帯は 1 画素も育たない(下の R == 0 と同じ)ので、全画素を見ずに抜ける。
+            bool[] candByColor = null;
+            int* pIdx = palette != null ? palette.Index : null;
+            if (palette != null) {
+                candByColor = new bool[palette.Count];
+                var cols = palette.Colors;
+                float* qH = palette.H, qS = palette.S, qV = palette.V;
+                ForEachPaletteChunk(palette.Count, hlbPo, (k0, k1) => {
+                    for (int k = k0; k < k1; k++) {
+                        candByColor[k] = IsHighlightBandCandidate(qH[k], qS[k], qV[k], cols[k],
+                            sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
+                    }
+                });
+                if (Array.IndexOf(candByColor, true) < 0) {
+                    return;
+                }
+            }
+            // 候補はプールから Rent(ゼロ初期化されない。下の判定が全画素に真偽を書く)し、
             // 早期 return / キャンセル例外を含む全経路で finally から Return する。
             bool* candidate = s_boolPool.Rent(len);
             int* runX0 = null, runX1 = null, parent = null;
             try {
-                ClearWork(candidate, 0, len);
-
                 // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
                 // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
-                // 行並列(per-index デリゲートの 1670 万回呼び出しを避ける)。
-                var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-                // 候補判定は画素の色(と色から求めた HSV)だけで決まるので、色の表があれば色ごとに 1 回だけ
-                // 判定して配る(同じ式に同じ入力を与えた結果なのでビット単位で同じ)。
-                bool[] candByColor = null;
-                int* pIdx = palette != null ? palette.Index : null;
-                if (palette != null) {
-                    candByColor = new bool[palette.Count];
-                    var cols = palette.Colors;
-                    float* qH = palette.H, qS = palette.S, qV = palette.V;
-                    ForEachPaletteChunk(palette.Count, hlbPo, (k0, k1) => {
-                        for (int k = k0; k < k1; k++) {
-                            candByColor[k] = IsHighlightBandCandidate(qH[k], qS[k], qV[k], cols[k],
-                                sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
-                        }
-                    });
-                }
+                // 行並列(per-index デリゲートの 1670 万回呼び出しを避ける)。全画素に真偽を書くので、先に 0 で埋めない。
                 Parallel.For(0, h, hlbPo, y => {
                     int rowOff = y * w;
                     if (candByColor != null) {
                         for (int x = 0; x < w; x++) {
                             int i = rowOff + x;
-                            if (candByColor[pIdx[i]]) {
-                                candidate[i] = true;
-                            }
+                            candidate[i] = candByColor[pIdx[i]];
                         }
                         return;
                     }
                     for (int x = 0; x < w; x++) {
                         int i = rowOff + x;
+                        candidate[i] = false;
                         float pV = pixV[HsvSlot(pixIdx, i)];
                         if (pV <= sV) {
                             continue;
