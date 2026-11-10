@@ -334,6 +334,9 @@ namespace Iroca {
                 }
 
                 bool coreRule = keepComp < 0;
+                // 確信できるコアが皆無で明度下限も無いときは、連結成分のふるいを飛ばす(絞り込まない = recall 保護)。
+                // 不透明な選択は全部残る扱いで、下の半透明を外す段は通す(コアが無くても離れた半透明の島は外す)。
+                bool skipSieve = false;
                 if (coreRule) {
                     bool anyCore = false;
                     for (int c = 0; c < compCount; c++) {
@@ -341,9 +344,10 @@ namespace Iroca {
                     }
                     if (!anyCore) {
                         if (!useFloor) {
-                            return; // 確信できるコアが皆無 → 絞り込まない(recall 保護)
+                            skipSieve = true;
+                        } else {
+                            coreRule = false;      // コア規則は使わず、明度下限だけを適用する
                         }
-                        coreRule = false;      // コア規則は使わず、明度下限だけを適用する
                     }
                 }
 
@@ -352,21 +356,23 @@ namespace Iroca {
                 var coreRuleL = coreRule;
                 var floorArr = reachesFloor;
                 var runX0L = runX0; var runX1L = runX1; var compL = comp;
-                Parallel.For(0, bh, ccPo, ly => {
-                    int rb = (ly + minY) * w + minX;
-                    for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++) {
-                        int c = compL[k];
-                        bool keep = keepCompLocal >= 0 ? (c == keepCompLocal)
-                                  : (!coreRuleL || hasCoreArr[c]) && (floorArr == null || floorArr[c]);
-                        if (keep) {
-                            continue;
+                if (!skipSieve) {
+                    Parallel.For(0, bh, ccPo, ly => {
+                        int rb = (ly + minY) * w + minX;
+                        for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++) {
+                            int c = compL[k];
+                            bool keep = keepCompLocal >= 0 ? (c == keepCompLocal)
+                                      : (!coreRuleL || hasCoreArr[c]) && (floorArr == null || floorArr[c]);
+                            if (keep) {
+                                continue;
+                            }
+                            int x1 = runX1L[k];
+                            for (int lx = runX0L[k]; lx <= x1; lx++) {
+                                strength[rb + lx] = 0f;
+                            }
                         }
-                        int x1 = runX1L[k];
-                        for (int lx = runX0L[k]; lx <= x1; lx++) {
-                            strength[rb + lx] = 0f;
-                        }
-                    }
-                });
+                    });
+                }
             } finally {
                 if (comp != null) {
                     s_intPool.Return(comp);
