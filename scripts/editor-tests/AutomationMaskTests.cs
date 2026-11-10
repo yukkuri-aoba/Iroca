@@ -298,6 +298,22 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels), "原本の参照が残っている");
         }
 
+        // ─── AI のエラーと、受け取り先の例外 ───
+
+        [Test]
+        public void AiErrorRightAtTheRequest_ReportsTheReason_AndReturnsThePixels() {
+            // 受理した直後に AI がエラーになったとき(Sentis のデコーダが同期で投げたなど)、"returned nothing" ではなく
+            // 本当の理由を返し、マスク操作が持った原本も返す。
+            string src = AllRed();
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels);
+            _svc.errorOnRequest = true;
+            string json = Run(_svc, Request(src, RedZone, "[{\"op\":\"dont_paint\",\"at\":[0.25,0.5]}]"));
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsFalse(r.ok, json);
+            StringAssert.Contains("boom", r.error);
+            Assert.AreEqual(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels), "原本の参照が残っている");
+        }
+
         // ─── 保存と、iroca_inspect の情報 ───
 
         private void WithAvatar(string src, System.Action body) {

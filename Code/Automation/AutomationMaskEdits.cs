@@ -69,8 +69,10 @@ namespace Iroca {
             while (!Done) {
                 var edit = _edits[_index];
                 if (edit.by == By.Ai) {
+                    // 待ちに入ったら抜ける。提案がその場で届いて失敗した(Error)ときも、下の後始末を通す
+                    // (以前は return で抜けて、原本の参照を持ったままだった)。
                     if (!AdvanceAi(edit)) {
-                        return;
+                        break;
                     }
                 } else {
                     ApplyMesh(edit);
@@ -152,7 +154,14 @@ namespace Iroca {
 
         private void OnProposal(Edit edit, MaskSuggestProposal proposal) {
             if (proposal == null || proposal.mask == null) {
-                Error = $"the AI returned nothing at [{edit.uv.x}, {edit.uv.y}].";
+                // AI のエラーで捨てられたのなら、その理由を出す(AutoTuneService の証拠の受け取りと同じ)。受理した直後に
+                // 同期でエラーになると(Sentis のデコーダが投げたなど)、ここへその場で null が届く。
+                var svc = MaskSuggestBridge.Service;
+                if (svc != null && svc.Phase == MaskSuggestPhase.Error && !string.IsNullOrEmpty(svc.ErrorMessage)) {
+                    Error = $"the AI reported an error at [{edit.uv.x}, {edit.uv.y}]: {svc.ErrorMessage}";
+                } else {
+                    Error = $"the AI returned nothing at [{edit.uv.x}, {edit.uv.y}].";
+                }
                 return;
             }
             EnsureMasks();

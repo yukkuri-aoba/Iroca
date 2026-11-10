@@ -10,6 +10,8 @@ namespace Iroca.EditorTests {
         public bool modelsOk = true;
         // SetSource で新しい元を渡されたとき、埋め込みの計算に入る(false ならすぐ待機中)。
         public bool encodeOnNewSource;
+        // RequestProposal が受理した直後に、その場でエラーになる(Sentis のデコーダが同期で投げたときと同じ。true を返す)。
+        public bool errorOnRequest;
         public string sourceKey;
         public readonly Queue<Vector2Like> queue = new Queue<Vector2Like>();
         public MaskSuggestProposal ready;
@@ -43,6 +45,12 @@ namespace Iroca.EditorTests {
                 return false;
             }
             queue.Enqueue(new Vector2Like { u = u, v = v });
+            if (errorOnRequest) {
+                // 本物と同じく、エラーでは処理待ちを捨てる。
+                queue.Clear();
+                Set(MaskSuggestPhase.Error);
+                return true;
+            }
             if (phase == MaskSuggestPhase.Idle) {
                 Set(MaskSuggestPhase.Decoding);
             }
