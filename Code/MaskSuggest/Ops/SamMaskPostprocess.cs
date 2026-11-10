@@ -371,38 +371,46 @@ namespace Iroca {
 
             // 有効領域を元テクスチャ寸法へ補間し、下原点へ戻す(全画素に書く)。
             var result = NativeBools.AllocateUninitialized(texW, texH);
-            bool* mask = result.Ptr;
-            float scaleX = newW / (float)texW, scaleY = newH / (float)texH;
-            var cx0 = new int[texW]; var cx1 = new int[texW]; var cfx = new float[texW];
-            for (int x = 0; x < texW; x++) {
-                float sx = (x + 0.5f) * scaleX - 0.5f;
-                if (sx < 0f) {
-                    sx = 0f;
-                }
-                if (sx > newW - 1) {
-                    sx = newW - 1;
-                }
-                int x0 = (int)sx;
-                cx0[x] = x0; cx1[x] = Mathf.Min(x0 + 1, newW - 1); cfx[x] = sx - x0;
-            }
-            Parallel.For(0, texH, po, y => {
-                float sy = (y + 0.5f) * scaleY - 0.5f;
-                if (sy < 0f) {
-                    sy = 0f;
-                }
-                if (sy > newH - 1) {
-                    sy = newH - 1;
-                }
-                int y0 = (int)sy; int y1 = Mathf.Min(y0 + 1, newH - 1);
-                float fy = sy - y0;
-                int r0 = y0 * S, r1 = y1 * S;
-                int dstRow = (texH - 1 - y) * texW; // 上原点 y → 下原点行
+            try {
+                bool* mask = result.Ptr;
+                float scaleX = newW / (float)texW, scaleY = newH / (float)texH;
+                var cx0 = new int[texW]; var cx1 = new int[texW]; var cfx = new float[texW];
                 for (int x = 0; x < texW; x++) {
-                    float a = up[r0 + cx0[x]] + (up[r0 + cx1[x]] - up[r0 + cx0[x]]) * cfx[x];
-                    float b = up[r1 + cx0[x]] + (up[r1 + cx1[x]] - up[r1 + cx0[x]]) * cfx[x];
-                    mask[dstRow + x] = (a + (b - a) * fy) > 0f;
+                    float sx = (x + 0.5f) * scaleX - 0.5f;
+                    if (sx < 0f) {
+                        sx = 0f;
+                    }
+                    if (sx > newW - 1) {
+                        sx = newW - 1;
+                    }
+                    int x0 = (int)sx;
+                    cx0[x] = x0; cx1[x] = Mathf.Min(x0 + 1, newW - 1); cfx[x] = sx - x0;
                 }
-            });
+                Parallel.For(0, texH, po, y => {
+                    float sy = (y + 0.5f) * scaleY - 0.5f;
+                    if (sy < 0f) {
+                        sy = 0f;
+                    }
+                    if (sy > newH - 1) {
+                        sy = newH - 1;
+                    }
+                    int y0 = (int)sy; int y1 = Mathf.Min(y0 + 1, newH - 1);
+                    float fy = sy - y0;
+                    int r0 = y0 * S, r1 = y1 * S;
+                    int dstRow = (texH - 1 - y) * texW; // 上原点 y → 下原点行
+                    for (int x = 0; x < texW; x++) {
+                        float a = up[r0 + cx0[x]] + (up[r0 + cx1[x]] - up[r0 + cx0[x]]) * cfx[x];
+                        float b = up[r1 + cx0[x]] + (up[r1 + cx1[x]] - up[r1 + cx0[x]]) * cfx[x];
+                        mask[dstRow + x] = (a + (b - a) * fy) > 0f;
+                    }
+                });
+            } catch {
+                // 拡大の途中の取り消し(Parallel.For の OperationCanceledException)でも、作ったマスクを返す。まだ誰にも
+                // 渡していないので、持ち主はここだけ(4K で 16MB がファイナライザまで残っていた)。プールの Return と違い、
+                // 持ち主の解放は中断中かを見ない。
+                result.Release();
+                throw;
+            }
             return result;
         }
     }
