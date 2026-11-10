@@ -1145,7 +1145,7 @@ namespace Iroca {
                 PhysicalPath(texturePath), "overwrite:true", out outAbs);
 
         // 1 件の変更をゾーンにする。エラーなら文言、成功なら null。
-        private static unsafe string ApplyChange(IrocaSessionState state, ChangeRequest c, NativePixels work, out ColorZone zone) {
+        internal static unsafe string ApplyChange(IrocaSessionState state, ChangeRequest c, NativePixels work, out ColorZone zone) {
             int w = work.Width, h = work.Height;
             zone = null;
             if (c == null) {
@@ -1183,11 +1183,12 @@ namespace Iroca {
                 state.zones.Add(zone);
             }
             zone.enabled = true;
-            // 基準色が変わると、前の場所の調整で導いた内部サンプルは使えない(UI のスポイトと同じ。残すと前の場所も塗る)。
+            // 基準色が変わると、前の場所の調整で導いた値(内部サンプルと、包絡ゲート・彩度天井・穴埋めの余白)は使えない
+            // (窓でサンプル色を取り直したときと同じ関数。残すと前の場所の範囲で新しい場所を切る・前の場所も塗る)。
             // 同じ場所を指したまま色だけ頼み直すなら残す(自動調整が基準色を変えていると、同じ場所でも色の比較は違う)。
             bool samePlace = uv.x >= 0f && zone.sampleUV == uv;
             if (!samePlace && zone.sampleColor != from) {
-                zone.extraSamples?.Clear();
+                EditingSession.ClearIslandDerived(zone);
             }
             zone.sampleColor = from;
             zone.sampleColorSet = true;

@@ -499,6 +499,39 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
+        public unsafe void ApplyChange_AnotherColor_ResetsEverythingDerivedFromThePreviousIsland() {
+            // 窓でサンプル色を取り直したときと同じに、前の島から導いた内部サンプルと 5 項目を既定へ戻す
+            // (点検 自-3)。許容範囲などほかの調整値は残す。
+            var state = IrocaSessionState.CreateDefault();
+            state.zones.Clear();
+            var zone = EditingSession.NewZone(state.zones, "x");
+            zone.sampleColor = new Color(0f, 1f, 0f);
+            zone.sampleColorSet = true;
+            zone.extraSamples = new System.Collections.Generic.List<Color> { new Color(0.1f, 0.2f, 0.9f) };
+            zone.shadowValueFloor = 0.3f;
+            zone.partSatCeiling = 0.6f;
+            zone.partHueBand = 0.1f;
+            zone.chromaCeiling = 0.5f;
+            zone.holeFillMargin = 0.2f;
+            zone.tolerance = 0.37f;
+            state.zones.Add(zone);
+
+            var work = NativePixels.CopyOf(new[] { Red }, 1, 1);
+            string err = IrocaAutomation.ApplyChange(state,
+                new IrocaAutomation.ChangeRequest { name = "x", from = "#C81E1E", to = "#1A2B5C" }, work, out var z);
+            Assert.IsNull(err);
+            Assert.AreSame(zone, z);
+            var d = new ColorZone();
+            Assert.AreEqual(0, zone.extraSamples.Count, "内部サンプル");
+            Assert.AreEqual(d.shadowValueFloor, zone.shadowValueFloor, "shadowValueFloor");
+            Assert.AreEqual(d.partSatCeiling, zone.partSatCeiling, "partSatCeiling");
+            Assert.AreEqual(d.partHueBand, zone.partHueBand, "partHueBand");
+            Assert.AreEqual(d.chromaCeiling, zone.chromaCeiling, "chromaCeiling");
+            Assert.AreEqual(d.holeFillMargin, zone.holeFillMargin, "holeFillMargin");
+            Assert.AreEqual(0.37f, zone.tolerance, "許容範囲は残す");
+        }
+
+        [Test]
         public void Recolor_Png_ShrunkOnImport_WritesTheOriginalResolutionInTheBackground() {
             // png の仕上げは途中経過を返し、元の解像度の色替えと PNG 化は背景で進める(大きいテクスチャで MCP の
             // 時間切れにしない)。取り込みで縮めて編集していても、書き出しは元の解像度で読み直す。
