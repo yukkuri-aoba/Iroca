@@ -142,9 +142,16 @@ namespace Iroca.McpIntegration {
         private const double PollIntervalSeconds = 0.25;
 
         public static object HandleCommand(JObject @params) {
-            // サーバーは途中経過(pending)を受けると、同じ引数に action="status" を足して問い合わせ直してくる。
+            // サーバーは途中経過(pending)を受けると、同じ引数に action="status" を足して問い合わせ直してくる。その引数を
+            // 依頼として渡し、今の依頼の問い合わせかを確かめてもらう(読み直しで消えた依頼の問い合わせが、別の依頼の結果を
+            // 取らないように)。
             if (@params != null && (string)@params["action"] == "status") {
-                return McpResponses.FromAutomationPendingOrResult(IrocaAutomation.RecolorStatus(), PollIntervalSeconds, "recolor failed");
+                var asked = (JObject)@params.DeepClone();
+                asked.Remove("action");
+                string status = NormalizeRequest(asked) == null
+                    ? IrocaAutomation.RecolorStatus(asked.ToString())
+                    : IrocaAutomation.RecolorStatus();
+                return McpResponses.FromAutomationPendingOrResult(status, PollIntervalSeconds, "recolor failed");
             }
 
             var request = @params != null ? (JObject)@params.DeepClone() : new JObject();

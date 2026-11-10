@@ -172,6 +172,8 @@ namespace Iroca {
                         + "masks:[{op=paint|dont_paint|only|clear, at:[u,v], zone, common, by=ai|island|other_meshes, size=auto|fine|coarse}], "
                         + "remove, reset, preset, apply=avatar|png|preview, avatar, output, overwrite, autoTune）",
                     "RecolorStatus() -> pending を返した Recolor の続き（終わるまで pending、終われば Recolor と同じ形）",
+                    "RecolorStatus(requestJson) -> RecolorStatus() と同じ。Recolor に渡したのと同じ依頼 JSON を渡すと、その依頼の続きか"
+                        + "確かめる（別の依頼が動いていれば error。MCP の問い合わせ直しはこれを使う）",
                     "Open(target) -> { ok, texture, recipe }（いろかの窓で開く。target はレシピ・テクスチャ・マテリアル・シーンのオブジェクト）",
                     "ListPresets() -> { presets:[{name,path,scope}] }",
                     "GetVersion() -> { name, version }",

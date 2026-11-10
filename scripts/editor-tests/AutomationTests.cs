@@ -885,6 +885,34 @@ namespace Iroca.EditorTests {
                 string.Join("\n", r.warnings));
         }
 
+        [UnityTest]
+        public IEnumerator RecolorStatus_WithAnotherRequest_IsRefused_AndTheSameRequestGetsItsResult() {
+            // 依頼の中身で、どの依頼の問い合わせかを見分ける。スクリプトの読み直しで依頼が消えた後に別の依頼が始まると、
+            // 前の依頼の問い合わせ(サーバーは止めない)が新しい依頼の結果を取っていた。
+            string src = Halves();
+            string first = Request(src, "preview", "[{\"name\":\"red\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]", autoTune: true);
+            string json = IrocaAutomation.Recolor(first);
+            if (!json.Contains("\"pending\":true")) {
+                Assert.Inconclusive("解析が 1 回目の呼び出しの中で終わった(待ちが無い)");
+            }
+            string other = Request(src, "preview", "[{\"name\":\"blue\",\"from\":\"#1E28C8\",\"to\":\"#FFAA00\"}]", autoTune: true);
+            var refused = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(IrocaAutomation.RecolorStatus(other));
+            Assert.IsFalse(refused.ok);
+            StringAssert.Contains("not in progress", refused.error);
+
+            // 同じ依頼なら、欄の順・空白・知らない欄(MCP の action)が違っても続きを返す。
+            string same = "{ \"action\": \"status\", " + first.Substring(1);
+            double deadline = UnityEditor.EditorApplication.timeSinceStartup + 120;
+            while (json.Contains("\"pending\":true")) {
+                Assert.Less(UnityEditor.EditorApplication.timeSinceStartup, deadline, "自動調整が終わらない: " + json);
+                yield return null;
+                json = IrocaAutomation.RecolorStatus(same);
+            }
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsTrue(r.ok, json);
+            Assert.AreEqual("red", r.zones.Single().name);
+        }
+
         private static bool RecolorRunning()
             => JsonUtility.FromJson<IrocaAutomation.InspectResult>(IrocaAutomation.Inspect(null)).recolorRunning;
 

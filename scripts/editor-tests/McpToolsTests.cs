@@ -194,6 +194,31 @@ namespace Iroca.EditorTests {
             Assert.IsTrue(File.Exists(Token(json, "data.output")), json);
         }
 
+        [UnityTest]
+        public IEnumerator Recolor_StatusWithOtherArguments_DoesNotTakeAnotherCallsResult() {
+            // サーバーは、同じ引数に action=status を足して問い合わせ直す。別の引数の問い合わせ(読み直しで消えた前の依頼の
+            // 問い合わせなど)は、今の依頼の結果を取らない。
+            string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
+            string args = "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"changes\":[{\"name\":\"red\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]}";
+            string other = "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"changes\":[{\"name\":\"blue\",\"from\":\"#C81E1E\",\"to\":\"#FFAA00\"}]}";
+            string json = Call("IrocaRecolorTool", args);
+            if (Token(json, "_mcp_status") != "pending") {
+                Assert.Inconclusive("解析が 1 回目の呼び出しの中で終わった(待ちが無い)");
+            }
+            string refused = Call("IrocaRecolorTool", AddAction(other));
+            Assert.AreEqual("False", Token(refused, "success"), refused);
+            StringAssert.Contains("not in progress", Token(refused, "error"), refused);
+
+            double deadline = UnityEditor.EditorApplication.timeSinceStartup + 120;
+            while (Token(json, "_mcp_status") == "pending") {
+                Assert.Less(UnityEditor.EditorApplication.timeSinceStartup, deadline, json);
+                yield return null;
+                json = Call("IrocaRecolorTool", AddAction(args));
+            }
+            Assert.AreEqual("True", Token(json, "success"), json);
+            Assert.AreEqual("red", Token(json, "data.zones[0].name"), json);
+        }
+
         private string AddAction(string argsJson)
             => argsJson.Substring(0, argsJson.Length - 1) + ",\"action\":\"status\"}";
 

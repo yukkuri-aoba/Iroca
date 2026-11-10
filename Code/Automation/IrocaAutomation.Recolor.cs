@@ -154,7 +154,7 @@ namespace Iroca {
                     CancelRecolorJob();
                 }
             }
-            var job = new RecolorJob { lastPolled = EditorApplication.timeSinceStartup };
+            var job = new RecolorJob { lastPolled = EditorApplication.timeSinceStartup, requestKey = RequestKey(requestJson) };
             if (unreceived != null) {
                 job.r.warnings.Add(unreceived);
             }
@@ -218,6 +218,36 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// <see cref="RecolorStatus()"/> に、どの依頼の問い合わせかの確かめを足したもの。<paramref name="requestJson"/> は
+        /// <see cref="Recolor"/> に渡したのと同じ依頼(MCP のサーバーは、同じ引数に action="status" を足して問い合わせ直す)。
+        /// 今の依頼と違えば断る。以前は、スクリプトの読み直しで依頼が消えた後に別の依頼が始まると、前の依頼の問い合わせ
+        /// (サーバーは止めない)が新しい依頼の結果を取った。比べるのは JsonUtility で読み直して書いた形なので、欄の順・空白・
+        /// 知らない欄(action)の違いは同じとみなす。
+        /// </summary>
+        public static string RecolorStatus(string requestJson) {
+            var job = s_job;
+            if (job != null && requestJson != null && RequestKey(requestJson) != job.requestKey) {
+                return FinishRecolor(new RecolorTextureResult(),
+                    "the iroca_recolor call this status is for is not in progress any more (Unity reloaded its scripts, or "
+                    + $"another call (texture {job.r.texture}) is running now), so its result cannot be returned. Call iroca_recolor again.");
+            }
+            return RecolorStatus();
+        }
+
+        // 依頼を見分ける形(JsonUtility で読み直して書いた形)。読めなければ元の文字列。
+        private static string RequestKey(string requestJson) {
+            try {
+                var req = JsonUtility.FromJson<RecolorRequest>(requestJson ?? "");
+                if (req != null) {
+                    return JsonUtility.ToJson(req);
+                }
+            } catch (Exception) {
+                // 読めない依頼は Recolor が断る。元の文字列のまま比べる。
+            }
+            return requestJson ?? "";
+        }
+
         // 終わっていたのに結果が受け取られなかった依頼の結末(次の依頼の warnings に出す)。
         private static string DescribeUnreceived(RecolorJob job) {
             RecolorTextureResult last = null;
@@ -246,6 +276,8 @@ namespace Iroca {
             public RecolorRequest req;
             // 依頼か問い合わせを最後に受けた時刻(EditorApplication.timeSinceStartup)
             public double lastPolled;
+            // 依頼を見分ける形(RecolorStatus(string) が問い合わせの依頼と比べる)
+            public string requestKey;
             public readonly RecolorTextureResult r = new RecolorTextureResult();
             public Texture2D tex;
             // 作業解像度の原本(ヒープの外。参照を 1 つ持ち、仕上げ・取り消しで返す。背景の仕上げは自分の参照を足す)。
