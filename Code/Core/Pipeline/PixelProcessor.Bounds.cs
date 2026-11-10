@@ -21,22 +21,30 @@ namespace Iroca {
             Parallel.For(0, h, po,
                 () => (minX: w, maxX: -1, minY: h, maxY: -1),
                 (y, _, loc) => {
+                    // 行の左端から最初の該当まで、右端から最後の該当までだけ読む(間は範囲に影響しない)。
                     int rb = y * w;
-                    for (int x = 0; x < w; x++) {
-                        if (strength[rb + x] > thr && px[rb + x].a >= OpaqueAlphaMin) {
-                            if (x < loc.minX) {
-                                loc.minX = x;
-                            }
-                            if (x > loc.maxX) {
-                                loc.maxX = x;
-                            }
-                            if (y < loc.minY) {
-                                loc.minY = y;
-                            }
-                            if (y > loc.maxY) {
-                                loc.maxY = y;
-                            }
-                        }
+                    int x0 = 0;
+                    while (x0 < w && !(strength[rb + x0] > thr && px[rb + x0].a >= OpaqueAlphaMin)) {
+                        x0++;
+                    }
+                    if (x0 == w) {
+                        return loc;
+                    }
+                    int x1 = w - 1;
+                    while (!(strength[rb + x1] > thr && px[rb + x1].a >= OpaqueAlphaMin)) {
+                        x1--;
+                    }
+                    if (x0 < loc.minX) {
+                        loc.minX = x0;
+                    }
+                    if (x1 > loc.maxX) {
+                        loc.maxX = x1;
+                    }
+                    if (y < loc.minY) {
+                        loc.minY = y;
+                    }
+                    if (y > loc.maxY) {
+                        loc.maxY = y;
                     }
                     return loc;
                 },
@@ -75,14 +83,17 @@ namespace Iroca {
             Parallel.For(0, h, po,
                 () => (minX: w, maxX: -1, minY: h, maxY: -1),
                 (y, _, loc) => {
+                    // 行の左端から最初の該当まで、右端から最後の該当までだけ読む(間は範囲に影響しない)。
                     int rb = y * w;
-                    int rowMinX = -1, rowMaxX = -1;
-                    for (int x = 0; x < w; x++) {
-                        if (strength[rb + x] > thr) {
-                            if (rowMinX < 0) {
-                                rowMinX = x;
-                            }
-                            rowMaxX = x;
+                    int rowMinX = 0;
+                    while (rowMinX < w && !(strength[rb + rowMinX] > thr)) {
+                        rowMinX++;
+                    }
+                    int rowMaxX = -1;
+                    if (rowMinX < w) {
+                        rowMaxX = w - 1;
+                        while (!(strength[rb + rowMaxX] > thr)) {
+                            rowMaxX--;
                         }
                     }
                     if (rowMaxX >= 0) {
