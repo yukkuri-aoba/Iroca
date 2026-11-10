@@ -18,8 +18,44 @@ namespace Iroca {
         private readonly Dictionary<IrocaRecipe, RecipeSummaryCache> _summaries =
             new Dictionary<IrocaRecipe, RecipeSummaryCache>();
 
+        // 範囲(子の全 Renderer の素材)を数えた結果の控え(元テクスチャごと)。インスペクタはイベントごと(マウスが動くたび)に
+        // 描かれるので、毎回子の全 Renderer を走査していた。数え直すのは Layout のときだけで、シーンの Renderer の顔ぶれが
+        // 変わったか(SceneRendererChanges)、前に数えてから ScopeRefreshSeconds 経ったとき(素材の中身の変化は版に出ないので、
+        // その分だけ遅れて見える)。Layout でだけ捨てるので、同じフレームの Layout と Repaint で行の数が食い違わない。
+        private readonly Dictionary<Texture2D, ScopeInfo> _scopes = new Dictionary<Texture2D, ScopeInfo>();
+        private int _scopesVersion = -1;
+        private double _scopesAt;
+        private const double ScopeRefreshSeconds = 0.5;
+
+        private sealed class ScopeInfo {
+            public int materials;
+            public int renderers;
+            public readonly List<KeyValuePair<string, int>> inner = new List<KeyValuePair<string, int>>();
+            public readonly List<Material> shadowMaterials = new List<Material>();
+        }
+
+        private void ForgetScopesOnLayout() {
+            if (Event.current == null || Event.current.type != EventType.Layout) {
+                return;
+            }
+            double now = EditorApplication.timeSinceStartup;
+            if (_scopesVersion != SceneRendererChanges.Version || now - _scopesAt >= ScopeRefreshSeconds) {
+                _scopes.Clear();
+                _scopesVersion = SceneRendererChanges.Version;
+                _scopesAt = now;
+            }
+        }
+
+        private ScopeInfo Scope(IrocaRecolor component, Texture2D source) {
+            if (!_scopes.TryGetValue(source, out var info)) {
+                _scopes[source] = info = CountScope(component, source);
+            }
+            return info;
+        }
+
         public override void OnInspectorGUI() {
             var component = (IrocaRecolor)target;
+            ForgetScopesOnLayout();
             EditorGUILayout.HelpBox(Localization.RecolorInspectorHelp, MessageType.None);
 #if !IROCA_NDMF_PRESENT
             EditorGUILayout.HelpBox(Localization.NdmfUnavailable(NdmfSupport.State), MessageType.Warning);
@@ -104,8 +140,9 @@ namespace Iroca {
                 // 色替えを外している状態(ビルドでは NDMF Console に出さないので、ここで知らせる)。
                 EditorGUILayout.HelpBox(Localization.RecolorNoEnabledZones, MessageType.Info);
             } else {
-                DrawScope(component, source);
-                DrawShadowMatch(component, source, Summary(recipe).Get(recipe));
+                var scope = Scope(component, source);
+                DrawScope(scope, source);
+                DrawShadowMatch(component, source, scope, Summary(recipe).Get(recipe));
             }
 
             using (new EditorGUI.DisabledScope(source == null)) {
@@ -117,16 +154,8 @@ namespace Iroca {
 
         // 範囲で元テクスチャをメインに使う、影のあるマテリアルごとの「影の色を合わせる」。設定はこのコンポーネントが持ち、
         // マテリアルそのものは変えない。
-        private static void DrawShadowMatch(IrocaRecolor component, Texture2D source, IrocaSessionState state) {
-            var materials = new List<Material>();
-            foreach (var r in component.GetComponentsInChildren<Renderer>(true)) {
-                foreach (var m in r.sharedMaterials) {
-                    if (m != null && !materials.Contains(m) && MaterialShadowColors.IsEligible(m)
-                        && MaterialShadowColors.MainTextureIs(m, source)) {
-                        materials.Add(m);
-                    }
-                }
-            }
+        private static void DrawShadowMatch(IrocaRecolor component, Texture2D source, ScopeInfo scope, IrocaSessionState state) {
+            var materials = scope.shadowMaterials;
             if (materials.Count == 0) {
                 return;
             }
@@ -134,6 +163,9 @@ namespace Iroca {
 
             EditorGUILayout.LabelField(Localization.ShadowMatchHeader, EditorStyles.miniBoldLabel);
             foreach (var m in materials) {
+                if (m == null) {
+                    continue;   // 数えた後に消えた素材(次の Layout で数え直す)
+                }
                 bool on = component.shadowMatchMaterials != null && component.shadowMatchMaterials.Contains(m);
                 EditorGUILayout.BeginHorizontal();
                 bool next = EditorGUILayout.ToggleLeft(TempContent.Of(m.name, Localization.ShadowMatchToggleTooltip), on);
@@ -183,9 +215,23 @@ namespace Iroca {
             }
         }
 
-        private static void DrawScope(IrocaRecolor component, Texture2D source) {
+        private static void DrawScope(ScopeInfo scope, Texture2D source) {
+            if (scope.materials == 0 && scope.inner.Count == 0) {
+                EditorGUILayout.HelpBox(string.Format(Localization.RecolorNotUsedFormat, source.name), MessageType.Warning);
+            } else {
+                EditorGUILayout.LabelField(string.Format(Localization.RecolorScopeFormat, scope.materials, scope.renderers),
+                    EditorStyles.miniLabel);
+            }
+            foreach (var kv in scope.inner) {
+                EditorGUILayout.HelpBox(string.Format(Localization.RecolorInnerScopeFormat, kv.Key, kv.Value),
+                    MessageType.Info);
+            }
+        }
+
+        // 子の全 Renderer を 1 回だけ走査して、範囲の数(DrawScope)と影の色を合わせられる素材(DrawShadowMatch)を求める。
+        private static ScopeInfo CountScope(IrocaRecolor component, Texture2D source) {
+            var info = new ScopeInfo();
             var materials = new HashSet<Material>();
-            int renderers = 0;
             // 内側(深い)の「Iroca Recolor」が同じテクスチャのレシピを持つ所は、そちらが受け持つ(ビルドでもシーンの
             // プレビューでも深い方が勝ち、内側のゾーンがすべて無効ならそこは元の色のまま)。このコンポーネントの数から除く。
             var inner = new Dictionary<IrocaRecolor, HashSet<Material>>();
@@ -193,7 +239,15 @@ namespace Iroca {
                 var owner = InnerOwner(component, r.transform, source);
                 bool any = false;
                 foreach (var m in r.sharedMaterials) {
-                    if (m == null || !NonDestructiveApplier.References(m, source)) {
+                    if (m == null) {
+                        continue;
+                    }
+                    // 影の色を合わせる素材は、範囲の内外を問わず子の Renderer のメインテクスチャで選ぶ(以前の DrawShadowMatch と同じ)。
+                    if (!info.shadowMaterials.Contains(m) && MaterialShadowColors.IsEligible(m)
+                        && MaterialShadowColors.MainTextureIs(m, source)) {
+                        info.shadowMaterials.Add(m);
+                    }
+                    if (!NonDestructiveApplier.References(m, source)) {
                         continue;
                     }
                     if (owner != null) {
@@ -207,19 +261,14 @@ namespace Iroca {
                     }
                 }
                 if (any) {
-                    renderers++;
+                    info.renderers++;
                 }
             }
-            if (materials.Count == 0 && inner.Count == 0) {
-                EditorGUILayout.HelpBox(string.Format(Localization.RecolorNotUsedFormat, source.name), MessageType.Warning);
-            } else {
-                EditorGUILayout.LabelField(string.Format(Localization.RecolorScopeFormat, materials.Count, renderers),
-                    EditorStyles.miniLabel);
-            }
+            info.materials = materials.Count;
             foreach (var kv in inner) {
-                EditorGUILayout.HelpBox(string.Format(Localization.RecolorInnerScopeFormat, kv.Key.name, kv.Value.Count),
-                    MessageType.Info);
+                info.inner.Add(new KeyValuePair<string, int>(kv.Key.name, kv.Value.Count));
             }
+            return info;
         }
 
         // t から component の手前までの間で、source のレシピを持つ最も近い「Iroca Recolor」(無ければ null)。

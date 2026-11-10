@@ -21,16 +21,44 @@ namespace Iroca {
 
         [System.NonSerialized] private IrocaWindow _host;
 
+        // プリセットの一覧の控え。欄が開いている間、OnGUI のイベントごと(マウスが動くたび)にフォルダを列挙していた。
+        // 読み直すのは、保存・削除・取り込み・保存先の切り替えの直後と、Layout で前に読んでから ListRefreshSeconds 経ったとき
+        // (ほかの道具が置いたプリセットは、その分だけ遅れて見える)。Layout でだけ読み直すので、同じフレームの
+        // Layout と Repaint で一覧の行の数が食い違わない。
+        [System.NonSerialized] private string[] _listedFiles;
+        [System.NonSerialized] private string _listedFolder;
+        [System.NonSerialized] private double _listedAt;
+        private const double ListRefreshSeconds = 2.0;
+
         private string ActivePresetFolder
             => presetStorageProject ? PresetStore.ProjectPresetFolder : PresetStore.UserPresetFolder;
+
+        private void InvalidatePresetList() => _listedFiles = null;
+
+        private string[] PresetFiles() {
+            string folder = ActivePresetFolder;
+            double now = EditorApplication.timeSinceStartup;
+            bool stale = _listedFiles == null || _listedFolder != folder
+                || (Event.current != null && Event.current.type == EventType.Layout && now - _listedAt >= ListRefreshSeconds);
+            if (stale) {
+                _listedFiles = PresetStore.ListJson(folder);
+                _listedFolder = folder;
+                _listedAt = now;
+            }
+            return _listedFiles;
+        }
 
         public void Initialize(IrocaWindow host) {
             _host = host;
         }
 
         public void Draw() {
+            bool wasOpen = presetsFoldout;
             presetsFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(presetsFoldout,
                 TempContent.Of(Localization.Presets, Localization.PresetsTooltip));
+            if (presetsFoldout && !wasOpen) {
+                InvalidatePresetList();   // 閉じている間に増えた・消えたプリセットを、開いたときに読み直す
+            }
             if (!presetsFoldout) {
                 EditorGUILayout.EndFoldoutHeaderGroup();
                 return;
@@ -79,7 +107,7 @@ namespace Iroca {
                 }
             }
 
-            string[] files = PresetStore.ListJson(ActivePresetFolder);
+            string[] files = PresetFiles();
 
             if (files.Length == 0) {
                 EditorGUILayout.HelpBox(Localization.NoPresets, MessageType.None);
@@ -96,6 +124,7 @@ namespace Iroca {
                         if (EditorUtility.DisplayDialog(Localization.Confirm,
                             Localization.DeletePresetConfirm(pname), Localization.OK, Localization.Cancel)) {
                             bool ok = PresetStore.Delete(file);
+                            InvalidatePresetList();
                             Notify(ok ? Localization.PresetDeleted : $"{Localization.Error}: {Localization.PresetDeleteFailed}");
                         }
                     }
@@ -123,6 +152,7 @@ namespace Iroca {
             bool ok = presetStorageProject
                 ? PresetStore.SaveToProject(name, data)
                 : PresetStore.SaveToUser(name, data);
+            InvalidatePresetList();
             Notify(ok ? Localization.PresetSaved : $"{Localization.Error}: {Localization.PresetSaveFailed}");
         }
 
@@ -202,6 +232,7 @@ namespace Iroca {
             }
             var data = BuildPresetData(Path.GetFileNameWithoutExtension(path));
             bool ok = PresetStore.SaveToPath(path, data);
+            InvalidatePresetList();   // 書き出し先がプリセットのフォルダのこともある
             Notify(ok ? Localization.PresetSaved : $"{Localization.Error}: {Localization.PresetSaveFailed}");
         }
 

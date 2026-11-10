@@ -58,18 +58,27 @@ namespace Iroca {
         /// ために手動導入された Sentis を黙って差し替えてしまう。押す前に伝えるための判定。
         /// </summary>
         public static string VersionThatWouldBeReplaced() {
+            // 導入の欄は OnGUI のイベントごと(マウスが動くたび)に呼ぶ。パッケージが変わるとドメインがリロードされるので、
+            // 調べられた結果はドメインごとに 1 回だけ求めて覚える(OnnxImporterConflicts と同じ)。
+            if (s_replacedKnown) {
+                return s_replaced;
+            }
             // PackageInfo は UnityEditor 直下の同名(旧 AssetStore 用)と衝突するので完全修飾する。
             UnityEditor.PackageManager.PackageInfo found = null;
             try {
                 foreach (var p in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages()) {
                     if (p != null && p.name == SentisPackageId) { found = p; break; }
                 }
-            } catch { return null; }  // 情報が取れないだけで導入導線は塞がない
-            if (found == null || string.IsNullOrEmpty(found.version)) {
-                return null;
-            }
-            return found.version == SentisPackageVersion ? null : found.version;
+            } catch { return null; }  // 情報が取れないだけで導入導線は塞がない(覚えずに次の描画で調べ直す)
+            s_replaced = found == null || string.IsNullOrEmpty(found.version) || found.version == SentisPackageVersion
+                ? null
+                : found.version;
+            s_replacedKnown = true;
+            return s_replaced;
         }
+
+        static bool s_replacedKnown;
+        static string s_replaced;
 
         const string BarracudaPackageId = "com.unity.barracuda";
         static string[] s_onnxConflicts;
