@@ -227,8 +227,8 @@ namespace Iroca {
                 if (!selCached) {
                     int seedX = -1, seedY = -1;
                     if (zone.seedUV.x >= 0f) {
-                        seedX = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.x * (w - 1)), 0, w - 1);
-                        seedY = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (h - 1)), 0, h - 1);
+                        // スポイト・UI のクリックと同じ規約(floor + クランプ)で画素にする。
+                        PreviewCoords.UvToPixel(zone.seedUV.x, zone.seedUV.y, w, h, out seedX, out seedY);
                     }
                     // 別パーツの色相幅は有彩サンプルでだけ意味を持つ(グレーモードの色相は不定)。
                     float ffHueBand =
