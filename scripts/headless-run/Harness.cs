@@ -1351,6 +1351,10 @@ namespace Iroca {
             foreach (var (label, b, w, h) in cases) {
                 var m = NativeBitMask.FromBools(b, w, h);
                 Check(SameBits(m, MaskSnapshot.Pack(b)), "FromBools equals Pack: " + label);
+                // ヒープの外の版(自動調整の証拠。大きいマスクは語の区間ごとに並列に詰める)も同じ語の並び。
+                var nb = NativeBools.CopyOf(b, w, h);
+                Check(MaskSnapshot.Pack(nb).AsSpan().SequenceEqual(MaskSnapshot.Pack(b)), "Pack(NativeBools) equals Pack(bool[]): " + label);
+                nb.Release();
                 string viaBools = MaskRle.Encode(b, w, h);
                 Check(MaskRle.EncodeBits(m) == viaBools, "EncodeBits equals Encode: " + label);
                 Check(MaskRle.EncodeBitsIfAny(m) == MaskRle.EncodeIfAny(b, w, h), "EncodeBitsIfAny equals EncodeIfAny: " + label);

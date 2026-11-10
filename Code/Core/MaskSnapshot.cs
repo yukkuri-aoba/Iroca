@@ -67,7 +67,9 @@ namespace Iroca {
         /// </summary>
         internal static ulong[] NewBits(int len) => new ulong[(len + 63) >> 6];
 
-        /// <summary><see cref="Pack(bool[])"/> のヒープの外の版(自動調整の再現データ用。背景で呼ぶので並列にしない)。</summary>
+        /// <summary><see cref="Pack(bool[])"/> のヒープの外の版(自動調整の再現データ用)。</summary>
+        // 背景で呼ぶが、自動調整の解析の後に直列で走り、完了までの待ちに乗る(8K の証拠で 6,700 万画素)。
+        // bool[] 版と同じく、大きいマスクは語の範囲に分けて並列に詰める(どの語も同じ値になる)。
         public static ulong[] Pack(NativeBools mask) {
             if (mask == null) {
                 return null;
@@ -75,11 +77,19 @@ namespace Iroca {
             int len = mask.Length;
             var packed = NewBits(len);
             bool* p = mask.Ptr;
-            for (int i = 0; i < len; i++) {
-                if (p[i]) {
-                    packed[i >> 6] |= 1UL << (i & 63);
-                }
+            int words = packed.Length;
+            int dop = len >= PackParallelMinPixels ? PixelProcessor.GetMaxParallelism() : 1;
+            if (dop <= 1) {
+                PackWords(p, len, packed, 0, words);
+                return packed;
             }
+            int chunk = (words + dop - 1) / dop;
+            Parallel.For(0, dop, new ParallelOptions { MaxDegreeOfParallelism = dop }, k => {
+                int w0 = k * chunk, w1 = Math.Min(words, w0 + chunk);
+                if (w0 < w1) {
+                    PackWords(p, len, packed, w0, w1);
+                }
+            });
             return packed;
         }
 
@@ -114,6 +124,20 @@ namespace Iroca {
         // 語 [w0, w1) を詰める。語 wi は画素 wi*64 .. wi*64+63 で、画素 i は語の (i & 63) ビット目。
         private static void PackWords(bool[] mask, ulong[] packed, int w0, int w1) {
             int n = mask.Length;
+            for (int wi = w0; wi < w1; wi++) {
+                int i0 = wi << 6, i1 = Math.Min(n, i0 + 64);
+                ulong v = 0UL;
+                for (int i = i0; i < i1; i++) {
+                    if (mask[i]) {
+                        v |= 1UL << (i - i0);
+                    }
+                }
+                packed[wi] = v;
+            }
+        }
+
+        // PackWords のヒープの外の版(n 画素)。
+        private static void PackWords(bool* mask, int n, ulong[] packed, int w0, int w1) {
             for (int wi = w0; wi < w1; wi++) {
                 int i0 = wi << 6, i1 = Math.Min(n, i0 + 64);
                 ulong v = 0UL;
