@@ -69,10 +69,13 @@ namespace Iroca {
         public Vector2 sampleUV = new Vector2(-1f, -1f);
         public bool HasSampleUV => sampleUV.x >= 0f;
         public void ClearSampleUV() => sampleUV = new Vector2(-1f, -1f);
-        // スポイト位置が選択結果に効く状態か（包絡ゲートのどれかが有効な連続領域モード）。
-        // 位置だけを変えたときにプレビューを作り直すかどうかの判定に使う。
+        // スポイト位置が選択結果に効きうる状態か（スポイトの連続領域モード）。
+        // 位置だけを変えたときにプレビューを作り直すかどうかの判定に使う。包絡ゲートが無くても、位置は
+        // 離れた半透明の島を落とす段(PixelProcessor.DropDetachedTranslucent)の「残す起点」に使われるので、
+        // ゲートの有無では絞らない(以前は絞っていて、位置だけ変えたプレビューが書き出しと食い違った。点検 選-2)。
+        // 選択キャッシュの鍵(BuildSelectionKey)は元から位置を含む。
         internal bool SelectionUsesSampleUV =>
-            useFloodFill && (shadowValueFloor > 0f || partSatCeiling > 0f || partHueBand > 0f);
+            mode == SelectionMode.ColorPick && useFloodFill;
 
         public Color targetColor = Color.white;
         // ユーザーが変更先カラーを実際に指定したか（sampleColorSet と同じく、既定の白と「白を選んだ」を
