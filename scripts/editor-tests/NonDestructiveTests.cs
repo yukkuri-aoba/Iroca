@@ -292,6 +292,49 @@ namespace Iroca.EditorTests {
                 GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat), "色空間(sRGB)が取り込みと違う");
         }
 
+        // mipmap limit の設定(「Ignore Mipmap Limit」と Mipmap Limit Group)を元の取り込みから写す(利用者の画質設定の上限が
+        // 元と同じように効く)。非圧縮(形式の詰め替えで作り直す)・圧縮・キャッシュからの 3 通り。Unity 6 では既定の作り方だと
+        // 上限を無視するテクスチャになる(2022.3 は無視しない)ので、両方の版で回す。
+        [TestCase(false, null)]
+        [TestCase(true, null)]
+        [TestCase(false, "IrocaTestLimitGroup")]
+        public void Build_CopiesTheMipmapLimitSettingsFromTheSource(bool ignore, string group) {
+            foreach (var compressed in new[] { false, true }) {
+                string path = _assets.WritePng(compressed ? "compressed" : "uncompressed", Bands(), W, H);
+                var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+                imp.textureCompression = compressed ? TextureImporterCompression.Compressed : TextureImporterCompression.Uncompressed;
+                imp.alphaSource = TextureImporterAlphaSource.None;   // 非圧縮なら RGB24(形式の詰め替えで作り直す経路)
+                imp.ignoreMipmapLimit = ignore;
+                imp.mipmapLimitGroupName = group ?? "";
+                imp.SaveAndReimport();
+                var src = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                Assert.Greater(src.mipmapCount, 1, "元にミップが無い(テストの前提)");
+                Assert.AreEqual(ignore, src.ignoreMipmapLimit, "取り込み設定が効いていない(テストの前提)");
+                string expectedGroup = src.mipmapLimitGroup;
+                if (group != null) {
+                    Assert.AreEqual(group, expectedGroup, "取り込み設定のグループが効いていない(テストの前提)");
+                }
+
+                var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
+                string cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
+                try {
+                    DeleteCache(cacheFile);
+                    for (int i = 0; i < 2; i++) {
+                        string label = (compressed ? "圧縮 " : $"非圧縮({src.format}) ") + (i == 0 ? "作りたて" : "キャッシュから");
+                        var tex = Track(RecipeTextureBuilder.Build(recipe, out var failure));
+                        Assert.IsNotNull(tex, failure.ToString());
+                        Assert.AreEqual(src.format, tex.format, label + ": 形式(テストの前提)");
+                        Assert.AreEqual(ignore, tex.ignoreMipmapLimit, label + ": Ignore Mipmap Limit が元と違う");
+                        Assert.AreEqual(expectedGroup ?? "", tex.mipmapLimitGroup ?? "", label + ": Mipmap Limit Group が元と違う");
+                        RecipeTextureBuilder.WaitForCacheWrites();
+                        Assert.IsTrue(File.Exists(cacheFile), label + ": キャッシュが書かれていない(2 回目がキャッシュから読まない)");
+                    }
+                } finally {
+                    DeleteCache(cacheFile);
+                }
+            }
+        }
+
         [Test]
         public void ResizeArea_AveragesBlocksForIntegerRatios() {
             var src = new Color32[4 * 4];

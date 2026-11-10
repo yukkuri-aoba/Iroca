@@ -106,6 +106,7 @@ Unity を入れなくても、DLL だけで確かめられる。
 | IMGUI | 廃止予定は見つからず、7.0 でも警告なし。UI Toolkit が推奨されているだけ | 移行しない |
 | Inference Engine | Unity 6 では 2.4.1 に固定（`MaskSuggestInstall`）。最新は 2.6.1 で、2.5 以降に CoreCLR 対応が入っている。2022.3 の Sentis 2.1.3 は最新のまま | Unity の版を上げるとき。モデルの動作も確かめ直す |
 | NDMF の `WithData` | 1.13 で非推奨だが、下限の 1.8.0 にはこれしか無いので警告を抑止している（`IrocaPreviewFilter`） | 下限を 1.13 以上に上げるとき |
+| 作ったテクスチャの mipmap limit（2026-11-10 に対処済み） | 6000.0 では `new Texture2D(w, h, format, mipChain, linear)` が既定の `MipmapLimitDescriptor`（useMipmapLimit = false）を渡すので、作ったテクスチャが `ignoreMipmapLimit = true`（画質設定の上限を無視する）になる。2022.3 は false。いろかは非破壊ビルドとシーンのプレビューのテクスチャを `RecipeTextureBuilder.NewLike` で作り、元の取り込みの「Ignore Mipmap Limit」と Mipmap Limit Group を写す（6000 は Descriptor の口、2022.3 は 8 引数の口。8 引数の口は 6000 で `[Obsolete]`）。2022.3 では形式を変える `Reinitialize` と `CompressTexture` が「Ignore Mipmap Limit」を既定へ戻す（グループは残る）ので写し直している。`NonDestructiveTests.Build_CopiesTheMipmapLimitSettingsFromTheSource` を両方の版で回す | テクスチャを作るコードを足すとき（`NewLike` を使う） |
 | CI | `ci.yml` は 2022.3.22f1 だけを見ていて、新しい版での退行に気づけない | 新しい版に対応した後 |
 
 ## 6. 確かめていないこと

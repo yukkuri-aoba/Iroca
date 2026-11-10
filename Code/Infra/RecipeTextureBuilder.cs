@@ -462,7 +462,7 @@ namespace Iroca {
             int dw = like.width, dh = like.height;
             bool linear = !GraphicsFormatUtility.IsSRGBFormat(like.graphicsFormat);
             bool mips = like.mipmapCount > 1;
-            var tex = new Texture2D(dw, dh, TextureFormat.RGBA32, mips, linear);
+            var tex = NewLike(dw, dh, TextureFormat.RGBA32, mips ? -1 : 1, linear, like);
             try {
                 var top = (Color32*)NativeArrayUnsafeUtility.GetUnsafePtr(tex.GetPixelData<Color32>(0));
                 if (dw == width && dh == height) {
@@ -479,8 +479,37 @@ namespace Iroca {
             return tex;
         }
 
+        /// <summary>
+        /// 差し替え用のテクスチャを作る。mipmap limit の設定(「Ignore Mipmap Limit」と Mipmap Limit Group)を
+        /// <paramref name="like"/> から写す(利用者の画質設定の上限が元と同じように効く)。作るときにしか渡せない
+        /// (グループは後から変えられない)ので、ここで作る。Unity 6 では既定の作り方だと上限を無視する
+        /// (ignoreMipmapLimit = true)テクスチャになるので、写さないと低画質の設定が効かない(2022.3 は無視しない)。
+        /// 画素は変わらないので、キャッシュの鍵には入れない。
+        /// </summary>
+        internal static Texture2D NewLike(int width, int height, TextureFormat format, int mipCount, bool linear,
+            Texture2D like) {
+#if UNITY_6000_0_OR_NEWER
+            return new Texture2D(width, height, format, mipCount, linear, false,
+                new MipmapLimitDescriptor(!like.ignoreMipmapLimit, like.mipmapLimitGroup));
+#else
+            return new Texture2D(width, height, format, mipCount, linear, false, like.ignoreMipmapLimit,
+                like.mipmapLimitGroup);
+#endif
+        }
+
         // 取り込み時の形式へそろえる(アルファを取り込み設定どおりにしてから、圧縮形式なら圧縮、非圧縮なら同じ形式へ詰め替え)。
+        // 形式を変える Reinitialize と CompressTexture は、2022.3 で「Ignore Mipmap Limit」を既定へ戻す(グループは残る。
+        // NewLike で写したもの)ので、終わったら写し直す。
         private static void Compress(Texture2D tex, Texture2D like) {
+            bool ignoreMipmapLimit = tex.ignoreMipmapLimit;
+            try {
+                ConvertFormat(tex, like);
+            } finally {
+                tex.ignoreMipmapLimit = ignoreMipmapLimit;
+            }
+        }
+
+        private static void ConvertFormat(Texture2D tex, Texture2D like) {
             var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) as TextureImporter;
             ApplyAlphaSource(tex, importer);
             var target = like.format;
@@ -805,7 +834,7 @@ namespace Iroca {
                     if (w != like.width || h != like.height || mipCount != like.mipmapCount) {
                         throw new InvalidDataException($"cache size {w}x{h} (mips {mipCount}) != texture {like.width}x{like.height} (mips {like.mipmapCount})");
                     }
-                    tex = new Texture2D(w, h, (TextureFormat)fmt, mipCount, linear);
+                    tex = NewLike(w, h, (TextureFormat)fmt, mipCount, linear, like);
                     var raw = tex.GetRawTextureData<byte>();
                     if (raw.Length != len) {
                         throw new InvalidDataException($"cache size {len} != texture data size {raw.Length}");
