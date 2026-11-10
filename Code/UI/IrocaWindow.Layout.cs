@@ -905,13 +905,14 @@ namespace Iroca {
                 return;
             }
 
+            // スライダーの範囲は Core が範囲の外の値を丸める範囲と同じ定数(RecolorValueRanges。点検 A-8)。
             edgeFeather = UndoHelper.Slider(UndoTarget,
                 TempContent.Of(Localization.EdgeFeather, Localization.EdgeFeatherTooltip),
-                edgeFeather, 0f, 5f);
+                edgeFeather, RecolorValueRanges.EdgeFeatherMin, RecolorValueRanges.EdgeFeatherMax);
 
             antiAliasCleanup = UndoHelper.IntSlider(UndoTarget,
                 TempContent.Of(Localization.AntiAliasCleanup, Localization.AntiAliasCleanupTooltip),
-                antiAliasCleanup, 0, 5);
+                antiAliasCleanup, RecolorValueRanges.AntiAliasCleanupMin, RecolorValueRanges.AntiAliasCleanupMax);
 
             useDecontamination = UndoHelper.Toggle(UndoTarget,
                 TempContent.Of(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
@@ -930,10 +931,10 @@ namespace Iroca {
                 using (new EditorGUI.IndentLevelScope()) {
                     holeFillPasses = UndoHelper.IntSlider(UndoTarget,
                         TempContent.Of(Localization.HoleFillPasses, Localization.HoleFillPassesTooltip),
-                        holeFillPasses, 0, 10);
+                        holeFillPasses, RecolorValueRanges.HoleFillPassesMin, RecolorValueRanges.HoleFillPassesMax);
                     holeFillMinNeighbors = UndoHelper.IntSlider(UndoTarget,
                         TempContent.Of(Localization.HoleFillMinNeighbors, Localization.HoleFillMinNeighborsTooltip),
-                        holeFillMinNeighbors, 1, 8);
+                        holeFillMinNeighbors, RecolorValueRanges.HoleFillMinNeighborsMin, RecolorValueRanges.HoleFillMinNeighborsMax);
                     relaxedSatMin = UndoHelper.Slider(UndoTarget,
                         TempContent.Of(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
                         relaxedSatMin, 0f, 0.2f);
@@ -943,7 +944,7 @@ namespace Iroca {
                         decontaminationRadius = UndoHelper.IntSlider(UndoTarget,
                             TempContent.Of(Localization.DecontaminationRadius, Localization.DecontaminationRadiusTooltip),
                             decontaminationRadius,
-                            RecolorSettings.MinDecontaminationRadius, RecolorSettings.MaxDecontaminationRadius);
+                            RecolorValueRanges.DecontaminationRadiusMin, RecolorValueRanges.DecontaminationRadiusMax);
                     }
                 }
             }
