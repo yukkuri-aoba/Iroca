@@ -123,6 +123,11 @@ namespace Iroca {
                     if (colorKey) {
                         return null;
                     }
+                    // 見出しの寸法が、残りのデータから展開できる量を超えていれば壊れている(画素を確保する前に断る。寸法だけを
+                    // 信じると、数十バイトのファイルでも最大約 2GB を確保していた)。正しいファイルは落とさない。
+                    if (InflatedBytes(width, height, bitDepth, colorType) > MaxDeflateRatio * (file.Length - file.Position)) {
+                        return null;
+                    }
                     supportedHeader = true;
                     if (headerOnly) {
                         return null;
@@ -200,6 +205,16 @@ namespace Iroca {
             }
         }
 
+        // deflate の展開で 1 バイトから戻せる量の上限(長さ 258 の一致を最も短い符号で並べたとき約 1032 倍。zlib の資料の値)。
+        private const long MaxDeflateRatio = 1032;
+
+        private static int Channels(int colorType) =>
+            colorType == ColorRgba ? 4 : colorType == ColorRgb ? 3 : colorType == ColorGrayAlpha ? 2 : 1;
+
+        // 展開した IDAT の大きさ(行ごとにフィルタの 1 バイトが付く)。
+        private static long InflatedBytes(int width, int height, int bitDepth, int colorType) =>
+            (long)height * (((long)width * Channels(colorType) * bitDepth + 7) / 8 + 1);
+
         private static NativePixels DecodeImage(Stream idat, int width, int height, int bitDepth, int colorType, Color32[] palette,
             CancellationToken cancel) {
             // zlib の先頭 2 バイト。辞書付きは PNG では使えない。
@@ -209,7 +224,7 @@ namespace Iroca {
                 return null;
             }
 
-            int channels = colorType == ColorRgba ? 4 : colorType == ColorRgb ? 3 : colorType == ColorGrayAlpha ? 2 : 1;
+            int channels = Channels(colorType);
             int pixelBytes = Math.Max(1, channels * bitDepth / 8);
             long rowBytesLong = ((long)width * channels * bitDepth + 7) / 8;
             if (rowBytesLong + 1 > int.MaxValue / 2) {

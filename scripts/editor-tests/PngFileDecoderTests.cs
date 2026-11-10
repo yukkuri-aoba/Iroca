@@ -117,14 +117,15 @@ namespace Iroca.EditorTests {
             WriteBigEndian(s, Crc(name, data));
         }
 
+        // claimedWidth・claimedHeight: 見出し(IHDR)に書く寸法(既定は W と行の数。画素のデータはいつも rows)。
         private string WritePng(string name, int depth, int colorType, byte[][] rows, int bpp, byte[] plte = null, byte[] trns = null,
-            int interlace = 0, bool splitIdat = false) {
+            int interlace = 0, bool splitIdat = false, uint claimedWidth = W, uint claimedHeight = 0) {
             string path = Path.Combine(_dir, name + ".png");
             using (var f = File.Create(path)) {
                 f.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, 0, 8);
                 using (var ihdr = new MemoryStream()) {
-                    WriteBigEndian(ihdr, W);
-                    WriteBigEndian(ihdr, (uint)rows.Length);
+                    WriteBigEndian(ihdr, claimedWidth);
+                    WriteBigEndian(ihdr, claimedHeight != 0 ? claimedHeight : (uint)rows.Length);
                     ihdr.WriteByte((byte)depth); ihdr.WriteByte((byte)colorType);
                     ihdr.WriteByte(0); ihdr.WriteByte(0); ihdr.WriteByte((byte)interlace);
                     CrcChunk(f, "IHDR", ihdr.ToArray());
@@ -289,6 +290,18 @@ namespace Iroca.EditorTests {
             try {
                 Assert.IsNull(TextureIO.DecodeSourceFile(path, null), "LoadImage でも読めない");
             } finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
+        }
+
+        // 見出しの寸法が、データの量からあり得ないほど大きい(deflate は約 1032 倍より縮まない)。画素を確保する前に null を返す
+        // (16384×16384 の RGBA を名乗ると 1GB を確保していた)。
+        [Test]
+        public void HugeClaimedSize_WithLittleData_IsRejectedBeforeAllocating() {
+            string path = WritePng("huge", 8, 6, Rows(W * 4), 4, claimedWidth: 16384, claimedHeight: 16384);
+            IrocaNativeMemory.ResetPeaks();
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels);
+            Assert.IsNull(PngFileDecoder.TryDecode(path));
+            Assert.Less(IrocaNativeMemory.PeakBytesOf(NativeUsage.Pixels) - before, 1L << 20, "画素を確保した");
+            Assert.IsFalse(PngFileDecoder.CanDecode(path), "別スレッドで読める PNG と答えた");
         }
 
         [Test]
