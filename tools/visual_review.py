@@ -711,6 +711,14 @@ def main() -> None:
 
     cmd = sys.argv[1]
     engine = _parse_engine(sys.argv[2:])
+    if cmd in ("snapshot", "compare") and os.environ.get("IROCA_HARNESS_DLL") \
+            and "--allow-external-dll" not in sys.argv[2:]:
+        # ビルドしない外の DLL は、どのソースから作ったか分からない(点検 B-5)。見るだけなら --allow-external-dll。
+        # その比較結果は承認できない(workflow_review.validate_review が dll_source を見て断る)。
+        print(f"[{cmd}] IROCA_HARNESS_DLL={os.environ['IROCA_HARNESS_DLL']} が立っています。出荷ゲートは来歴の分かる"
+              "DLL(このツールがビルドしたもの)で測ります。外して回すか、見るだけなら --allow-external-dll を付けてください"
+              "(その結果は承認できません)。")
+        sys.exit(1)
     if cmd == "snapshot":
         cmd_snapshot(engine)
     elif cmd == "compare":

@@ -142,6 +142,7 @@ Iroca 本体リポジトリ（公開）
 ├─ scripts/hooks/pre-commit     出荷ゲート（下記）
 └─ tools/visual_review.py       視覚レビュー（snapshot / compare / approve）
     tools/check_visual_review.py  pre-commit から呼ばれる承認鮮度・較正チェック
+    tools/harness_build.py        ハーネスのビルドの口（ロック・来歴・古い DLL の作り直し・index やコミットからのビルド）
 
 dev_safe/（別リポジトリ・プライベート: yukkuri-aoba/Iroca_dev_safe。本体からは gitignore）
 ├─ Tests/regression/            pytest 本体（IoU 回帰・品質ゲート・synth・autotune・parity 等）
@@ -350,15 +351,18 @@ $env:IROCA_NATIVE_GUARD = "1"; $env:IROCA_POOL_POISON = "1"
 | PNG のデコードキャッシュ | `fixtures._load_rgba`（テクスチャ・GT・評価領域の読み込み口）のデコード結果を、ファイルの中身と Pillow の版の SHA-256 をキーに `_harness_cache/decoded/` へ `.npy` で保存（2026-10-17）。4096² で 1 枚 0.1〜0.4 秒 → 0.02 秒。1 枚 64MB なので被写体の画像 1 組で数 GB 使う | `IROCA_DECODED_CACHE=0` |
 | SAM 提案の結果キャッシュ | `sam_proposal.proposal_for_click_full`（提案マスク + 診断）と `measure_sam_e2e.one_case`（e2e の 1 ケース）の結果を、AI 提案の純計算だけのダイジェスト（`fixtures.samops_digest`。下の段落）・ONNX・埋め込み / 凍結 logits・テクスチャ・GT・クリック・粒度と関与する Python ソースの SHA-256 をキーに `_harness_cache/results/` へ保存（2026-10-17）。どちらも 1 回に dotnet を 6〜10 回起動していた。共通部品は `fixtures.result_key / result_load / result_store`。ズーム再推論のクロップの埋め込みは、実 C# が作ったエンコーダ入力の中身・エンコーダ・onnxruntime の版をキーに `_harness_cache/cropemb/` へ置く（2026-10-20。以前は矩形だけをキーに作業ディレクトリへ置き、samops の入力画像 raw も「あれば使う」だったので、テクスチャ・C# の前処理・エンコーダを変えても古い物を使いえた。入力画像 raw はいま内容ハッシュ名） | `IROCA_RESULT_CACHE=0` |
 | バッチ実行 | 同じテクスチャの複数ケース（通常 5 色）を Harness `--batch` で 1 プロセスにまとめ、dotnet 起動と 64MB の入力書き出しを 1 回にする。`run_harness_many` は `shareSelection` を立て、選択の結果をケース間で使い回す（2026-11-09。製品のプレビューと同じ規則で、設定の中で同じ位置のゾーンを同じゾーンとみなす。使えるかは選択の鍵の一致で決まる。5 色は変更先とゾーン名だけが違うので選択は 1 回で済む）。単発実行とのビット一致は `test_harness_batch_parity` が見る。性能計測などケースごとに選択から測りたい呼び出しは立てない | 使い回しだけ止めるなら `IROCA_SHARE_SELECTION=0`（2026-11-10〜。キャッシュの鍵に `noshare` が付き、使い回した側の出力とは混ざらない） |
-| ワーカー分離 | `dev_safe/_iou_csharp_work/<worker>/` に分けて並列実行の書き込み衝突を防ぐ。ハーネスのビルドはプロセス跨ぎのロックで直列化 | — |
+| ワーカー分離 | `dev_safe/_iou_csharp_work/<worker>-<実行の印>/` に分けて並列実行の書き込み衝突を防ぐ（`fixtures.worker_id`。印は xdist の実行の id、無ければプロセス ID。2026-11-10 までは `gw0` などのワーカー名だけで、同じ作業ツリーで別のセッションが回す pytest と名前が重なった）。通った実行の作業ディレクトリは終わりに消す（`Tests/conftest.py` の `pytest_sessionfinish`。落ちた実行の分は調べるために残し、`cache_gc.py` が 3 日で消す）。ハーネスのビルドはプロセス跨ぎのロックで直列化 | — |
 
 **キャッシュキーには DLL のダイジェストが入っている**ので、`Code/` を変更して再ビルドした
 時点で全エントリが自動的に無効化される（古い出力で緑になることはない）。
 例外は AI 提案の結果（`sam_proposal`・`measure_sam_e2e`）で、DLL 全体ではなく `fixtures.samops_digest` を鍵にする（2026-11-09）。
 `scripts/headless-run/SamOpsFingerprint/SamOpsFingerprint.csproj` が `Code/MaskSuggest/Ops` とそれが使う Core のファイルだけを
 コンパイルした DLL（鍵を作るためだけで実行しない）と `Harness.cs` のダイジェストで、選択や再着色だけを変えても提案（コールド 1 周で
-約 50 件、1 件 1.2〜2.5 秒）を作り直さない。一覧から依存が漏れるとこの DLL がコンパイルできず、警告を出して DLL 全体の
-ダイジェストに戻る（遅くなるだけで古い結果は使わない）。`IROCA_HARNESS_DLL` で別の DLL を渡したときも DLL 全体に戻る。容量は既定 150GB 上限（2026-11-08 に 24GB から。無効になった DLL の分は下の掃除が早く消すので、
+約 50 件、1 件 1.2〜2.5 秒）を作り直さない。この DLL はハーネスのすぐ後に同じロックの中でビルドし、鍵はその場で計算して
+ハーネスの来歴に入れる（2026-11-10、点検 B-6。以前は最初に提案を計算するとき、数分後に別にビルドしていて、その間に Ops を
+編集すると、古い Ops で計算した提案が新しい鍵で保存されえた）。一覧から依存が漏れるとこの DLL がコンパイルできず、警告を出して DLL 全体の
+ダイジェストに戻る（遅くなるだけで古い結果は使わない）。来歴の無い DLL（`IROCA_HARNESS_DLL`・スクリプトが自分で差し替えた DLL）も
+DLL 全体に戻る。容量は既定 150GB 上限（2026-11-08 に 24GB から。無効になった DLL の分は下の掃除が早く消すので、
 上限は有効な分を溜める大きさでよい）で古い順に捨てる（`IROCA_HARNESS_CACHE_GB` で変更、`IROCA_HARNESS_CACHE_DIR` で移動）。
 **上限は「スイート 1 周分が全部入る」大きさでないと意味が無い。** 2026-09-14 の計測では 1 周の
 作業集合が旧上限 8GB を超えており（4096² 出力 64MB × 300 件弱）、毎回古い順に捨てて次の周で
@@ -403,6 +407,8 @@ Unity の確認用ホスト）を見直すよう 1 行出す。これらは掃�
 フォルダ。`builds/<sha>/`・`gtless_probe/<名前>/` など）は、ファイル単位でなく 1 つのまとまりとして扱う。中のどれかが
 日数以内に更新されていれば丸ごと残し、全部古ければ丸ごと消す（2026-11-09）。dotnet build が写す `UnityEngine.*.dll` は
 元の日時のままなので、ファイル単位ではビルドした直後でも消され、ハーネスが起動しなくなっていた。
+測るときの DLL の写し（`dllsnap/`）と index・コミットから書き出したビルドの残り（`srcbuild/`）は、キャッシュの 30 日でなく
+DLL の印と同じ `IROCA_CACHE_GC_DLL_DAYS`（既定 1 日）使われなければ消す（2026-11-10。ソースを変えるたびに増え、実行の間しか要らない）。
 `tools/visual_review.py compare --engine csharp` の固定 104 ケースも同じ `run_harness_many`
 （キャッシュ + `--batch`）を通るので、直前に回帰スイートを回していれば dotnet を起動せずに
 同じ DLL の出力が返る（以前は 1 件ずつ単発起動で約 15 分かかっていた）。
@@ -412,6 +418,26 @@ Unity の確認用ホスト）を見直すよう 1 行出す。これらは掃�
 コミット SHA を埋め込み、それが CoreCompile の入力だったので、**ドキュメントだけのコミットでも次の
 ビルドで DLL が書き換わり、実行キャッシュが丸ごと無効化されていた**（コミットごとにコールドラン）。
 空コミットを挟んで再ビルドしても SHA-256 が変わらないことを確認済み。
+2026-11-10 からビルドしたディレクトリにも左右されない（`PathMap`）。ただし改行が違えば DLL も違う（PDB が文書のチェックサムを持つ）。
+index やコミットから書き出したファイルは CRLF になるので、作業ツリーで LF のまま編集したファイルがあると、同じ中身でも DLL が
+違い、実行キャッシュに当たらない（出力は同じ）。
+
+**ハーネスのビルドと、測る DLL の固定**（2026-11-10、点検 B-7②・B-6・D-5）。ビルドは `tools/harness_build.py` に一本化し、
+dev_safe の `fixtures.ensure_harness` と `scripts/golden/golden_lib.build_harness` の両方がそれを使う。
+- ビルドはプロセスをまたぐロックの中で行い、前後でコンパイルするソースの中身（git の blob の id。`git hash-object` で
+  autocrlf の変換をかけて数える）を取る。食い違ったら作り直し、DLL がどのソースから作られたかを来歴（`sources`）として返す。
+- ソースの中身が前回のビルドと違うのに DLL が同じなら、MSBuild が CoreCompile を飛ばした（mtime を保ったままのコピー・unzip）と
+  みなして `--no-incremental` で作り直す（記録は `scripts/headless-run/obj/iroca_build_record.json`）。
+- dev_safe 側は、作った DLL のフォルダを `_harness_cache/dllsnap/<DLL の sha256 の先頭 16 桁>/` へ写し（約 2MB。xml と exe は
+  写さない）、来歴（`provenance.json`）を添えて、**写した DLL を測る**。pytest では親プロセス（`Tests/conftest.py` の
+  `pytest_configure`）が 1 回ビルドし、`IROCA_HARNESS_PINNED` に来歴のパスを入れて全ワーカーに同じ DLL を渡す（ヘッダに
+  `[iroca] ハーネス <sha16>(…)を全ワーカーで使う` と出る）。それまでは各ワーカーが `bin/Release` の DLL をその場で使っていて、
+  同じ作業ツリーで別のセッションが作り直すと、1 回の pytest が複数のコードの結果を混ぜて「全パス」と出しえた。DLL のダイジェストを
+  (パス, mtime, 大きさ) でメモしていたので、鍵を計算した後に作り直されると、新しい DLL の出力が古い鍵でキャッシュに入り、残った。
+- `IROCA_HARNESS_DLL`（ビルドせずに外の DLL を測る）は、使うたびに RuntimeWarning を出し、pytest のヘッダにも出す。来歴が無いので、
+  出荷ゲート（`visual_review.py` の snapshot / compare）は `--allow-external-dll` が無ければ断り、付けても承認はできない。
+- 写しは使われなくなって 1 日（`IROCA_CACHE_GC_DLL_DAYS`）で `cache_gc.py` が丸ごと消す。使っている間は fixtures が 30 分ごとに
+  mtime を進める。
 
 **`measure_evidence_autotune.run_case` の結果キャッシュ**（2026-09-14、`_harness_cache/rows/`、
 `IROCA_ROW_CACHE=0` で無効化）: 追加操作後 14 件・証拠つき自動調整 14+7 件・プリセット比較・

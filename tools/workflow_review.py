@@ -33,6 +33,7 @@ def state() -> dict:
         "scripts/headless-run/Harness.cs", "scripts/headless-run/Harness.csproj",
         "scripts/headless-run/HarnessSources.props",
         "tools/workflow_review.py", "tools/workflow_contract.py", "tools/visual_review.py",
+        "tools/harness_build.py",
         "dev_safe/scripts/measure_evidence_autotune.py", "dev_safe/scripts/sam_proposal.py",
         "dev_safe/scripts/freeze_sam_fixtures.py", "dev_safe/measure_residual.py",
         "dev_safe/scripts/measure_sam_e2e.py", "dev_safe/scripts/measure_operating_curve.py",
@@ -53,6 +54,9 @@ def validate_review() -> dict:
     doc = json.loads((REVIEW / "review.json").read_text(encoding="utf-8"))
     if doc.get("schema") != 1 or doc.get("state") != state():
         raise ValueError("ワークフローの比較結果が古い: workflow_review.py compare を実行")
+    if doc.get("dll_source") != "built":
+        raise ValueError("比較結果が、ビルドした来歴の分かる DLL で測ったものではありません"
+                         f"(dll_source={doc.get('dll_source')!r}。IROCA_HARNESS_DLL を外して compare をやり直す)")
     if set(doc.get("cases", {})) != expected_cases():
         raise ValueError(f"ワンショット/追加操作後の{len(expected_cases())}ケースが揃っていません")
     for cid, row in doc["cases"].items():
@@ -197,6 +201,8 @@ def generate(snapshot: bool = False) -> None:
             raise ValueError("計測中にコード/入力が変更されました。compare を再実行してください")
         doc = {"schema": 1, "generated_at": datetime.now().isoformat(),
                "dll_sha256": sha256(Path(dll)), "state": initial_state,
+               # 来歴の分かる DLL(fixtures がビルドして写したもの)か、IROCA_HARNESS_DLL の外の DLL か(点検 B-5)
+               "dll_source": "built" if fx.harness_info() is not None else "external",
                "assets": assets, "cases": cases}
         (REVIEW / "review.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
         validate_review()

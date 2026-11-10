@@ -21,8 +21,7 @@ import os
 import re
 import struct
 import subprocess
-import tempfile
-import time
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -36,15 +35,14 @@ BUILD_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_BUILD_TIMEOUT", "600"))
 RUN_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_RUN_TIMEOUT", "600"))
 PROBE_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_PROBE_TIMEOUT", "60"))
 
-# ハーネスのビルドはプロセス跨ぎで排他する。pytest の既定（-n 4）では golden の各モジュールと
-# dev_safe の回帰が別ワーカーで同じ csproj を同時にビルドし得て、中間ファイルや出力へコピーする
-# Unity DLL を奪い合うと偽のビルド失敗になる。ロックファイル・待ち上限・「取れなければ進む」規則は
-# dev_safe/Tests/regression/fixtures.py と同じにして、同じロックを共有する。
-_BUILD_LOCK = Path(tempfile.gettempdir()) / "iroca_harness_build.lock"
-_BUILD_LOCK_WAIT_S = 900
-
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
+# ハーネスのビルドは tools/harness_build.py に一本化する（dev_safe の fixtures と同じロック・同じ規則。
+# CoreCompile が飛んだ古い DLL を作り直す・ビルド中の編集で作り直す）。pytest の既定（-n 4）では golden の
+# 各モジュールと dev_safe の回帰が別ワーカーで同じ csproj を同時にビルドしうるので、プロセスをまたいで排他する。
+sys.path.insert(0, str(REPO / "tools"))
+import harness_build as HB  # noqa: E402
+
 HARNESS_CSPROJ = REPO / "scripts" / "headless-run" / "Harness.csproj"
 HARNESS_DLL = REPO / "scripts" / "headless-run" / "bin" / "Release" / "IrocaHeadless.dll"
 GOLDEN_FILE = HERE / "golden_hashes.json"
@@ -202,33 +200,15 @@ def require_toolchain() -> None:
 
 
 def build_harness() -> tuple[bool, subprocess.CompletedProcess]:
-    """dotnet build をプロセス跨ぎのロック下で行う（並列実行時の同時ビルド回避）。
+    """ハーネスを作業ツリーのソースでビルドする（tools/harness_build.build_worktree。ロックと古い DLL の作り直しはそちら）。
 
-    ロックが取れないまま上限を過ぎたら、取り残しとみなして進む（異常終了したプロセスの
-    ロックでスイート全体が止まる方が害が大きい）。
+    戻り値の CompletedProcess は失敗の出力を見せるためのもの（成功時は空）。
     """
-    deadline = time.time() + _BUILD_LOCK_WAIT_S
-    acquired = False
-    while time.time() < deadline:
-        try:
-            fd = os.open(str(_BUILD_LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.close(fd)
-            acquired = True
-            break
-        except FileExistsError:
-            time.sleep(0.5)
     try:
-        r = subprocess.run(
-            ["dotnet", "build", str(HARNESS_CSPROJ), "-c", "Release", "-nologo", "-v", "quiet"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=BUILD_TIMEOUT_S)
-    finally:
-        if acquired:
-            try:
-                _BUILD_LOCK.unlink()
-            except OSError:
-                pass
-    return (r.returncode == 0 and HARNESS_DLL.exists()), r
+        HB.build_worktree(with_samops=False)
+    except HB.BuildFailed as e:
+        return False, subprocess.CompletedProcess([], 1, stdout=f"{e}\n{e.output}", stderr="")
+    return HARNESS_DLL.exists(), subprocess.CompletedProcess([], 0, stdout="", stderr="")
 
 
 def build_harness_or_fail() -> None:
