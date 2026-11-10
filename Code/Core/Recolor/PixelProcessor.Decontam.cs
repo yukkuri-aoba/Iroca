@@ -492,6 +492,9 @@ namespace Iroca {
                             if (strength[i] > 1e-4f) {
                                 continue;            // マッチ済みは既存処理が担当
                             }
+                            if (originalPixels[i].a == 0) {
+                                continue;            // 透明画素の RGB は触らない(切り抜きの縁の補間・mipmap に効く)
+                            }
                             if (maskExcluded != null && maskExcluded[i]) {
                                 continue; // 除外マスクは不可侵
                             }
