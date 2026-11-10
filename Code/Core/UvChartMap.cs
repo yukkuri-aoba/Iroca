@@ -69,9 +69,11 @@ namespace Iroca {
                     int len = Width * Height;
                     _distance = new NativeBuffer((long)len * sizeof(int), NativeUsage.Other);
                     int* owner = Owner, dist = (int*)_distance.Ptr;
-                    for (int i = 0; i < len; i++) {
-                        dist[i] = owner[i] >= 0 ? 0 : int.MaxValue;
-                    }
+                    ForRanges(len, (i0, i1) => {
+                        for (int i = i0; i < i1; i++) {
+                            dist[i] = owner[i] >= 0 ? 0 : int.MaxValue;
+                        }
+                    });
                 }
                 return _distance != null ? (int*)_distance.Ptr : null;
             }
@@ -115,14 +117,26 @@ namespace Iroca {
             var mem = new NativeBuffer((long)w * h * sizeof(int), NativeUsage.Other);
             try {
                 int* raster = (int*)mem.Ptr;
-                new System.Span<int>(raster, w * h).Fill(-1);
+                ForRanges(w * h, (i0, i1) => new System.Span<int>(raster + i0, i1 - i0).Fill(-1));
+                // チャート分けはメッシュごとに独立(UV と三角形だけで決まる)なので、先に全メッシュの分を並列に求める。
+                // 描くのは元の順のまま(後の source・後の三角形が勝つ)。
+                var charts = new int[sources.Count][];
+                var chartCounts = new int[sources.Count];
+                Parallel.For(0, sources.Count, new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() }, s => {
+                    var src = sources[s];
+                    if (src?.uv == null || src.triangles == null || src.triangles.Length < 3) {
+                        return;
+                    }
+                    charts[s] = ComputeCharts(src.uv, src.triangles, out chartCounts[s]);
+                });
                 var chartSource = new List<int>();
                 for (int s = 0; s < sources.Count; s++) {
                     var src = sources[s];
-                    if (src?.uv == null || src.triangles == null || src.triangles.Length < 3) {
+                    int[] local = charts[s];
+                    if (local == null) {
                         continue;
                     }
-                    int[] local = ComputeCharts(src.uv, src.triangles, out int n);
+                    int n = chartCounts[s];
                     int baseId = chartSource.Count;
                     for (int c = 0; c < n; c++) {
                         chartSource.Add(s);
@@ -265,11 +279,13 @@ namespace Iroca {
             try {
                 int* dist = (int*)distMem.Ptr;
                 ComputePadding(Raster, (int*)ownerMem.Ptr, dist, Width, Height, token);
-                for (int i = 0; i < len; i++) {
-                    if (dist[i] >= PaddingInf) {
-                        dist[i] = int.MaxValue;
+                ForRanges(len, (i0, i1) => {
+                    for (int i = i0; i < i1; i++) {
+                        if (dist[i] >= PaddingInf) {
+                            dist[i] = int.MaxValue;
+                        }
                     }
-                }
+                }, token);
             } catch {
                 distMem.Release();
                 ownerMem.Release();
@@ -299,11 +315,13 @@ namespace Iroca {
             using (var distMem = new NativeBuffer((long)len * sizeof(int), NativeUsage.Work)) {
                 int* dist = (int*)distMem.Ptr;
                 ComputePadding(raster, raster, dist, Width, Height, default);
-                for (int i = 0; i < len; i++) {
-                    if (dist[i] > maxPadding) {
-                        raster[i] = -1;
+                ForRanges(len, (i0, i1) => {
+                    for (int i = i0; i < i1; i++) {
+                        if (dist[i] > maxPadding) {
+                            raster[i] = -1;
+                        }
                     }
-                }
+                });
             }
             _owner?.Release();
             _distance?.Release();
@@ -415,11 +433,35 @@ namespace Iroca {
             var mask = NativeBools.AllocateUninitialized(Width, Height);
             bool* m = mask.Ptr;
             int len = Width * Height;
-            for (int i = 0; i < len; i++) {
-                int c = owner[i];
-                m[i] = c >= 0 && (dist != null ? dist[i] <= maxPadding : ownedWithin) && chosen[c];
-            }
+            ForRanges(len, (i0, i1) => {
+                for (int i = i0; i < i1; i++) {
+                    int c = owner[i];
+                    m[i] = c >= 0 && (dist != null ? dist[i] <= maxPadding : ownedWithin) && chosen[c];
+                }
+            });
             return mask;
+        }
+
+        // [0, len) を区間に分けて並列に body(i0, i1) を呼ぶ(画素ごとに独立なループ用。どう分けても結果は同じ)。
+        // 区間は 256K 画素以上にする(小さい地図は 1 本のまま)。地図は背景でも右クリックの待ちの中でも作るので、
+        // 全画素の逐次ループ(4K で 1,677 万・8K で 6,700 万画素)を 1 本で回さない。
+        private static void ForRanges(int len, System.Action<int, int> body, CancellationToken token = default) {
+            const int Chunk = 1 << 18;
+            int chunks = (len + Chunk - 1) / Chunk;
+            if (chunks <= 1) {
+                if (len > 0) {
+                    body(0, len);
+                }
+                return;
+            }
+            var po = new ParallelOptions {
+                CancellationToken = token,
+                MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(),
+            };
+            Parallel.For(0, chunks, po, c => {
+                int i0 = c * Chunk;
+                body(i0, System.Math.Min(len, i0 + Chunk));
+            });
         }
 
         private void RequireRadius(int maxPadding) {
