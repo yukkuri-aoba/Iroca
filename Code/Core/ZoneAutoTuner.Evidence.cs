@@ -269,13 +269,34 @@ namespace Iroca {
             bool canAnalyze = pixels != null
                 && width >= MinTextureDim && height >= MinTextureDim
                 && evidence != null && evW > 0 && evH > 0;
-            if (!canAnalyze) {
-                return AnalyzeCore(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
+            string fallbackDiag = null;
+            if (canAnalyze && TryAnalyzeWithEvidenceInner(pixels, width, height, zone, session,
+                    evidence, evW, evH, excluded, maskW, maskH, ct, report,
+                    out var result, out fallbackDiag)) {
+                return result;
             }
+            // 証拠を使えないときは従来の導出へ落ちる。証拠の段の HSV 格子と作業配列は、上の関数を出たところで
+            // 返してある(従来はこの解析が自分の格子を作る間も持ち続け、8K で約 400MB を二重に持っていた。点検 自-6)。
+            var fallback = AnalyzeCore(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
+            if (fallbackDiag != null) {
+                fallback.evidenceDiag = fallbackDiag;
+            }
+            return fallback;
+        }
 
+        /// <summary>
+        /// 証拠つきの解析の証拠の段。証拠で導けたら true と結果を返す。使えなければ false で、fallbackDiag に
+        /// 従来の導出へ落ちた理由(診断。null なら書かない)を返す。HSV 格子と作業配列はこの関数の中で持ち、出るときに返す。
+        /// </summary>
+        private static bool TryAnalyzeWithEvidenceInner(Color32* pixels, int width, int height,
+            ColorZone zone, SessionInput session,
+            bool* evidence, int evW, int evH,
+            bool* excluded, int maskW, int maskH, CancellationToken ct,
+            System.Action<float> report, out TuneResult result, out string fallbackDiag) {
+            fallbackDiag = null;
             void Progress(float v) { report?.Invoke(v); }
 
-            var result = BuildHeuristicDefault(zone);
+            result = BuildHeuristicDefault(zone);
             using var hsv = BuildHsvGrid(pixels, width, height, ct);
             Progress(0.25f);
 
@@ -291,7 +312,7 @@ namespace Iroca {
                 core = evidence;
             }
             if (coreList.Count < MinNearSampleCount) {
-                return AnalyzeCore(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
+                return false;
             }
             Progress(0.40f);
 
@@ -375,13 +396,11 @@ namespace Iroca {
             aZone.sampleColor = rep;
 
             if (domain.Count < EvMinDomainPixels || contaminated) {
-                // ドメインが標本として足りない / 汚染セグメント(無彩: 0.80、有彩: 裾 1/10) → 従来導出へ。
-                var fallback = AnalyzeCore(pixels, width, height, zone, session, excluded, maskW, maskH,
-                    ct, report);
-                fallback.evidenceDiag = (contaminated ? "fallback contaminated" : "fallback no-domain")
+                // ドメインが標本として足りない / 汚染セグメント(無彩: 0.80、有彩: 裾 1/10) → 従来導出へ(呼び出し側)。
+                fallbackDiag = (contaminated ? "fallback contaminated" : "fallback no-domain")
                     + $" materialFrac={materialFrac:F3}"
                     + $" core={coreList.Count} domain={domain.Count} sheen={sheenCount}" + retryDiag;
-                return fallback;
+                return false;
             }
             Progress(0.50f);
 
@@ -501,7 +520,7 @@ namespace Iroca {
 
             DecideGlobals(width, height, session, ref result);
             CollectOverwrittenSettings(zone, session, ref result);
-            return result;
+            return true;
         }
 
         // 証拠ドメインの統計から後段のゲートを導出する(AnalyzeWithEvidence の手順 4〜5c)。
