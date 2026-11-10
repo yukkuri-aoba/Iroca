@@ -18,7 +18,7 @@ import sys
 
 import review_state as rs
 from workflow_contract import (SUBJECTS, WORKFLOWS, SELECTION_METRICS, load_baseline,
-                               selection_violations, sha256)
+                               selection_violations, sha256, sha256_many)
 
 ROOT = Path(__file__).resolve().parents[1]
 REVIEW = ROOT / "dev_safe/Tests/workflow_review"
@@ -64,11 +64,14 @@ def validate_review(check_current: bool = True) -> dict:
             raise ValueError(f"{cid}: 回帰 {row['regressions']}")
         if row["workflow"]["id"] != cid.split("/")[0]:
             raise ValueError(f"{cid}: 評価条件が不一致")
-        panel = REVIEW / "compare" / row["panel"]
-        if sha256(panel) != row["panel_sha256"]:
+    # パネルと入力資産は毎回すべて読み直す(承認は中身に結び付く)。読むのはスレッドで並べる(試-4)。
+    panels = {cid: REVIEW / "compare" / row["panel"] for cid, row in doc["cases"].items()}
+    digests = sha256_many(list(panels.values()) + [Path(p) for p in doc["assets"]])
+    for cid, row in doc["cases"].items():
+        if digests[str(panels[cid])] != row["panel_sha256"]:
             raise ValueError(f"{cid}: パネルが欠落/変更されています")
     for path, digest in doc["assets"].items():
-        if sha256(Path(path)) != digest:
+        if digests[str(Path(path))] != digest:
             raise ValueError(f"入力資産が変更されています: {path}")
     return doc
 
@@ -158,15 +161,18 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     cases, assets = {}, {}
     overrides = gtt.load_overrides()
-    for o in overrides:   # 上書きマスクの内容も結果に結びつける
-        assets[str(o["mask_path"])] = sha256(o["mask_path"])
+    # 結果に結びつける入力資産(上書きマスク・各被写体のテクスチャ・GT・評価領域・ONNX・埋め込み)は、最初に
+    # まとめてスレッドで読む(試-4。以前は被写体ごとに 1 つずつ直列に読んでいた)。並びは以前と同じ。
+    asset_paths = [o["mask_path"] for o in overrides]
     for sid in SUBJECTS:
         subject = registry[sid]
-        for path in (subject.texture_path, subject.fixtures_json, subject.gt_mask_path,
-                     subject.eval_region_path, DECODER, ENCODER,
-                     FIXTURE_DIR / f"{texture_key(subject)}_embedding.bin"):
-            if path is not None and str(path) not in assets:
-                assets[str(path)] = sha256(path)
+        asset_paths += [path for path in (subject.texture_path, subject.fixtures_json, subject.gt_mask_path,
+                                          subject.eval_region_path, DECODER, ENCODER,
+                                          FIXTURE_DIR / f"{texture_key(subject)}_embedding.bin")
+                        if path is not None]
+    assets.update(sha256_many(asset_paths))
+    for sid in SUBJECTS:
+        subject = registry[sid]
         r = mea.run_case(dll, subject, "p50", include=True, conventional=False, return_outputs=True)
         rgba, gt = fx.load_subject_inputs(subject)
         region = fx.load_eval_region(subject)
@@ -249,7 +255,8 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
     if not snapshot:
         # 測り始めてから(固定設定の分を含む)測るものが変わっていないか(点検 B-7①。時刻ではなく中身で見る)
         changed = rs.diff(state(measured["source"]), initial_state)
-        changed += [p for p, h in assets.items() if sha256(Path(p)) != h]
+        now = sha256_many(Path(p) for p in assets)
+        changed += [p for p, h in assets.items() if now[str(Path(p))] != h]
         if changed:
             raise ValueError(f"計測中にコード/入力が変更されました: {', '.join(changed[:6])}。compare を再実行してください")
         info = fx.harness_info()

@@ -100,3 +100,15 @@ def selection_violations(actual: dict, baseline: dict) -> list[str]:
 def sha256(path: Path) -> str:
     with path.open("rb") as f:
         return hashlib.file_digest(f, "sha256").hexdigest()
+
+
+def sha256_many(paths) -> dict[str, str]:
+    """パスの並び → {str(パス): sha256}。資産(テクスチャ・GT・ONNX・埋め込み)とパネルを 1 つずつ直列に読んでいたので、
+    スレッドで並べる(ハッシュの計算とファイルの読みは GIL を放す)。毎回すべて読む(結果を覚えない)のは同じ。
+    読めないファイルがあれば、その例外をそのまま投げる。"""
+    from concurrent.futures import ThreadPoolExecutor
+    keys = list(dict.fromkeys(str(p) for p in paths))
+    if not keys:
+        return {}
+    with ThreadPoolExecutor(max_workers=min(8, len(keys))) as pool:
+        return dict(zip(keys, pool.map(lambda k: sha256(Path(k)), keys)))
