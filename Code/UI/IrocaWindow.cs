@@ -574,6 +574,7 @@ namespace Iroca {
 
         // Undo/Redo でテクスチャが戻ったとき、文書の外にあるテクスチャごとの状態を合わせる。
         private void AfterTextureRestoredByUndo() {
+            ForgetAutoTuneRecords();
             // 読めなかった印は戻す前のテクスチャのもの。残したままだと、読めなかったファイルを空の保存で削除する。
             RecheckSessionFile(adoptMissed: false);
             _maskView?.RecheckMaskFile();
@@ -717,6 +718,7 @@ namespace Iroca {
         /// </summary>
         private void LoadPersistedSessionForCurrentTexture() {
             AbortAutoTuneForEditChange();
+            ForgetAutoTuneRecords();
             _sessionLoadFailed = false;
             // 非破壊のレシピがあればそれが正(マスクも含めてレシピから読む)。
             if (TryLoadSessionFromRecipe()) {
@@ -765,6 +767,7 @@ namespace Iroca {
         /// </summary>
         private void ResetCurrentSession() {
             Editing.RecordMaskEdit("Reset Iroca Session");
+            ForgetAutoTuneRecords();
 
             Session = IrocaSessionState.CreateDefault();
             _maskView?.ClearBuffersOnTextureChange();

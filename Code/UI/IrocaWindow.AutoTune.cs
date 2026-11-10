@@ -40,12 +40,18 @@ namespace Iroca {
         // セッションに無いゾーン(削除した・別のテクスチャに切り替えた)の入力を捨てる。プレビュー生成ごとに
         // 選択キャッシュと同じ id の集合で刈る。削除を Undo で戻したゾーンは入力が無い状態になり、
         // ドメインリロードの後と同じく、再現データに載らず次の自動調整では上書きの確認が出る(安全側)。
+        // 由来(_autoTuneProvenance)も同じ id の集合で刈る(以前は一度も刈らず、別のテクスチャのゾーンの由来が残った。点検 自-8)。
         internal void RetainAutoTuneInputs(ICollection<string> liveZoneIds) {
-            if (_autoTuneInputs == null || _autoTuneInputs.Count == 0) {
+            PruneByLiveIds(_autoTuneInputs, liveZoneIds);
+            PruneByLiveIds(_autoTuneProvenance, liveZoneIds);
+        }
+
+        private static void PruneByLiveIds<T>(Dictionary<string, T> records, ICollection<string> liveZoneIds) {
+            if (records == null || records.Count == 0) {
                 return;
             }
             List<string> gone = null;
-            foreach (var id in _autoTuneInputs.Keys) {
+            foreach (var id in records.Keys) {
                 if (!liveZoneIds.Contains(id)) {
                     (gone ??= new List<string>()).Add(id);
                 }
@@ -54,8 +60,15 @@ namespace Iroca {
                 return;
             }
             foreach (var id in gone) {
-                _autoTuneInputs.Remove(id);
+                records.Remove(id);
             }
+        }
+
+        // 自動調整の入力と由来はテクスチャ固有。テクスチャの読み込み・リセット・Undo でのテクスチャの復元で空にする
+        // (プリセットやレシピの複製では別のテクスチャも同じ id のゾーンを持つので、id の刈り込みでは落ちない)。
+        private void ForgetAutoTuneRecords() {
+            _autoTuneInputs?.Clear();
+            _autoTuneProvenance?.Clear();
         }
 
         // 「パーツをユーザーが粗く囲った」情報を tolerance 導出に活用する。

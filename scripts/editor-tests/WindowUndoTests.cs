@@ -646,6 +646,45 @@ namespace Iroca.EditorTests {
             CleanOther(other);
         }
 
+        // 自動調整の入力と由来はテクスチャ固有。テクスチャを切り替えたら捨てる(プリセットやレシピの複製では別のテクスチャも
+        // 同じ id のゾーンを持ち、前のテクスチャの入力が「自動調整済み」の判定と再現データに残っていた。点検 2026-11-09 自-8)。
+        // プレビューのたびの刈り込みでは、由来も刈る。
+        [UnityTest]
+        public IEnumerator AutoTuneRecords_AreForgottenOnTextureSwitch_AndPrunedWithTheZones() {
+            AddZones("服");
+            var zone = _win.Session.zones[0];
+            string id = zone.id;
+            _win.RunAutoTune(zone);
+            Assert.IsTrue(_win.IsJobBlockingUI, "テストの前提: 自動調整が走っている");
+            for (int i = 0; i < 600 && _win.IsJobBlockingUI; i++) {
+                yield return null;
+            }
+            Assert.IsFalse(_win.IsJobBlockingUI, "自動調整が終わらない");
+            Assert.IsTrue(_win.TryGetAutoTuneInput(id, out _), "テストの前提: 入力が残る");
+            Assert.IsNotEmpty(_win.AutoTuneProvenance(id), "テストの前提: 由来が残る");
+
+            // 刈り込み: 生きているゾーンに無い id は、入力も由来も捨てる。
+            _win.RetainAutoTuneInputs(new HashSet<string>());
+            Assert.IsFalse(_win.TryGetAutoTuneInput(id, out _));
+            Assert.IsEmpty(_win.AutoTuneProvenance(id), "刈り込みで由来が残った");
+
+            // 切り替え: 別のテクスチャへ移ったら(同じ id のゾーンがあっても)捨てる。
+            // 1 つ目のゾーンは調整済みの値を持ち、入力が無いと上書きの確認(バッチモードでは出せない)が出るので、新しいゾーンで走らせる。
+            AddZones("服2");
+            var second = _win.Session.zones[1];
+            id = second.id;
+            _win.RunAutoTune(second);
+            for (int i = 0; i < 600 && _win.IsJobBlockingUI; i++) {
+                yield return null;
+            }
+            Assert.IsTrue(_win.TryGetAutoTuneInput(id, out _), "テストの前提: 入力が残る");
+            string other = _assets.WritePng("records-other", TestAssets.Solid(W, H, new Color32(50, 200, 50, 255)), W, H);
+            _win.SwitchSourceTexture(AssetDatabase.LoadAssetAtPath<Texture2D>(other));
+            Assert.IsFalse(_win.TryGetAutoTuneInput(id, out _), "別のテクスチャへ切り替えても入力が残った");
+            Assert.IsEmpty(_win.AutoTuneProvenance(id), "別のテクスチャへ切り替えても由来が残った");
+            CleanOther(other);
+        }
+
         private static void CleanOther(string otherTexturePath) {
             string guid = AssetDatabase.AssetPathToGUID(otherTexturePath);
             foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
