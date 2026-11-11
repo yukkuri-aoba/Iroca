@@ -341,6 +341,9 @@ LAN にテスト用の PC があるときは、テストをそちらで回して
 - 実測（2026-11-11、相手は i5-1340P・16GB・Wi-Fi 越し）: 初回の setup 19 分（データ 13.7GB を約 21MB/s）。
   以後の準備は数秒。回帰 FULL（`IROCA_CSHARP_GATE_FULL=1`・`IROCA_AUTOTUNE_GATE_FULL=1`）はキャッシュ空で
   15 分 30 秒、温まった後は golden・source_checks・unit-run 込みの 1645 件で 4 分 18 秒（空きメモリで 3 並列に下がる）。
+  同日にプロファイル（`tools/pytest_profile.py`）で見つけた無駄を省き、ワーカーの見積もりを 1.0GB にした後（dev_safe 1be270a）:
+  温まった状態 3 分 20 秒（4 並列）、C# を変えた直後の状態（実行キャッシュだけ空）14 分 19 秒（2 並列）→ 7 分 15 秒（4 並列）。
+  残りの約半分はハーネスの待ち（1 周で約 1000 回起動。1 回の起動の固定費は約 0.14 秒）。
 
 **リモートで回さないもの**: 視覚レビュー（`visual_review.py` の snapshot・compare・approve）は承認を手元の
 作業ツリーと索引の中身に結び付けるので手元で回す。Unity 実機の EditMode テスト・abcheck も手元。
