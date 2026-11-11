@@ -366,17 +366,32 @@ def cmd_run(argv: list[str]) -> int:
             env["UnityManaged"] = str(UNITY_DIR)
         t1 = time.monotonic()
         child = subprocess.Popen([str(venv_py), *req["argv"]], cwd=str(MAIN), env=env, stdin=subprocess.DEVNULL)
-        if req.get("watch_stdin"):
-            # 呼び手は標準入力を開いたまま待つ。呼び手(ssh)が切れると EOF になるので、置き去りの実行(排他を持ったまま
-            # 20 分走り続ける)を止める。止めるのはここで起動したプロセスとその子だけ。
-            def _watch() -> None:
+        heartbeat = float(req.get("heartbeat_s") or 0)
+        if heartbeat > 0:
+            # 呼び手は標準入力へ heartbeat 秒ごとに 1 行送る。途絶えたら呼び手(ssh)が切れたとみなし、置き去りの実行
+            # (排他を持ったまま 20 分走り続ける)を止める。止めるのはここで起動したプロセスとその子だけ。
+            # EOF は当てにしない: Windows の OpenSSH では、切れても子のプロセスが標準入力の書き口を持っていて EOF が届かなかった。
+            seen = {"t": time.monotonic(), "eof": False}
+
+            def _read() -> None:
+                # sys.stdin.buffer.read() は使わない: 読んでいる間は BufferedReader のロックを持つので、終わりの後片付けで
+                # 「could not acquire lock for <stdin>」になってプロセスが落ち、終了コードが壊れた(2026-11-11)
                 try:
-                    sys.stdin.buffer.read()
-                except (OSError, ValueError):
+                    while os.read(0, 4096):
+                        seen["t"] = time.monotonic()
+                except OSError:
                     pass
-                if child.poll() is None:
-                    log("呼び手との接続が切れたので、実行を止めます")
-                    subprocess.run(["taskkill", "/T", "/F", "/PID", str(child.pid)], capture_output=True)
+                seen["eof"] = True
+
+            def _watch() -> None:
+                while child.poll() is None:
+                    if seen["eof"] or time.monotonic() - seen["t"] > heartbeat * 6:
+                        log("呼び手との接続が切れたので、実行を止めます")
+                        subprocess.run(["taskkill", "/T", "/F", "/PID", str(child.pid)], capture_output=True)
+                        return
+                    time.sleep(2)
+
+            threading.Thread(target=_read, daemon=True).start()
             threading.Thread(target=_watch, daemon=True).start()
         rc = child.wait()
         log(f"終了コード {rc}・{time.monotonic() - t1:.1f} 秒")

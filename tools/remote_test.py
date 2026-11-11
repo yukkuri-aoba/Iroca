@@ -39,6 +39,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -51,6 +52,7 @@ DEFAULT_HOST = "iroca-remote"
 # git では届かない（無視されている）が、テストが入力として読むデータの置き場（dev_safe からの相対）
 DATA_DIRS = ("texture_sample", "Tests/Baselines")
 SYNC_FAILED = 97  # remote_test_agent.py と合わせる（相手で同期に失敗し、何も実行していない）
+HEARTBEAT_S = 10  # 実行中に相手へ送る生存の合図の間隔。6 回分途絶えると相手は実行を止める
 SNAP_REF = "refs/remote-test/snap"
 SENT_REF = "refs/remote-test/sent"
 _ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]|^\\\\")
@@ -333,33 +335,53 @@ def run_remote(t: Transport, argv: list[str], fetch: list[str], env_extra: list[
         except (RuntimeError, OSError, subprocess.SubprocessError) as e:
             # まだ何も実行していないので、auto なら手元でやり直してよい
             raise Unavailable(f"送る途中で失敗: {e}") from e
-        # 標準入力は開いたまま待つ(こちらが落ちる・止められると相手に EOF が届き、相手は実行を止める)
+        # 実行中は HEARTBEAT_S 秒ごとに 1 行送る。こちらが落ちる・止められると途絶え、相手は実行を止める
         p = t.popen_agent("run", run_id, stdin=subprocess.PIPE)
+
+        def _beat() -> None:
+            while p.poll() is None:
+                try:
+                    p.stdin.write(b".\n")
+                    p.stdin.flush()
+                except OSError:
+                    return
+                time.sleep(HEARTBEAT_S)
+
+        threading.Thread(target=_beat, daemon=True).start()
         try:
             rc = p.wait()
         except KeyboardInterrupt:
             p.terminate()
             raise
-        finally:
-            try:
-                p.stdin.close()
-            except OSError:
-                pass
         if rc == SYNC_FAILED:
             raise Unavailable("相手で作業ツリーをそろえられなかった（テストは走っていない）")
         if rc == 255 and not isinstance(t, LoopbackTransport):
             log("ssh の接続が切れた可能性があります（終了コード 255）。結果は信用せず回し直してください")
         if fetch:
+            # いったん一時フォルダへ展開し、持ち帰ったパスごとに手元を丸ごと入れ替える(前の実行の残りが混ざらないように。
+            # 2026-11-11 に、ワーカー数が違う実行のプロファイルへ前の実行の gw3 が残って混ざった)
             pf = t.popen_agent("cat", run_id, "fetch.tar", stdout=subprocess.PIPE)
+            got = tmpdir / "fetched"
             n = 0
             try:
                 with tarfile.open(fileobj=pf.stdout, mode="r|") as tf:
                     for member in tf:
-                        tf.extract(member, REPO, filter="data")
+                        tf.extract(member, got, filter="data")
                         n += 1
             except tarfile.ReadError:
                 pass
             pf.wait()
+            for rel in fetch:
+                src = got / rel
+                dst = REPO / rel
+                if not src.exists():
+                    continue
+                if dst.is_dir():
+                    shutil.rmtree(dst)
+                elif dst.exists():
+                    dst.unlink()
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dst))
             log(f"持ち帰り {n} 個")
         return rc
     finally:
@@ -400,7 +422,7 @@ def _prepare(t: Transport, run_id: str, argv: list[str], fetch: list[str], env_e
         "argv": argv,
         "fetch": fetch,
         "git_config": {"main": git_config_to_mirror(REPO), "dev_safe": git_config_to_mirror(DEV_SAFE)},
-        "watch_stdin": True,
+        "heartbeat_s": HEARTBEAT_S,
     }
     _upload(t, run_id, "request.json", json.dumps(request, ensure_ascii=False).encode("utf-8"))
     log(f"準備 {time.monotonic() - t0:.1f} 秒。{info.get('computer') or 'リモート'} で実行します")
