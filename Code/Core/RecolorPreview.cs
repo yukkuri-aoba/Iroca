@@ -66,28 +66,53 @@ namespace Iroca {
             var changed = NativeBitMask.Allocate(w, h);
             try {
                 ulong* bits = changed.Bits;
-                int minX = w, minY = h, maxX = -1, maxY = -1, cnt = 0;
-                for (int y = 0; y < h; y++) {
-                    int row = y * w;
-                    for (int x = 0; x < w; x++) {
-                        int i = row + x;
-                        if (!Changed(before[i], after[i])) {
-                            continue;
+                // 変化の印・数・外接矩形を、64 画素の語の区間ごとに並列に求めてから合わせる(区間の境目が語の境目なので、
+                // 2 本のスレッドが同じ語を書かない。数は整数の和、矩形は最小・最大なので、結果は 1 本で回したのと同じ)。
+                int len = w * h;
+                int words = (len + 63) >> 6;
+                int chunks = (words + MetricsWordsPerChunk - 1) / MetricsWordsPerChunk;
+                var parts = new MetricsPart[chunks];
+                Action<int> scan = c => {
+                    int i0 = c * MetricsWordsPerChunk * 64;
+                    int i1 = Math.Min(len, i0 + MetricsWordsPerChunk * 64);
+                    var part = new MetricsPart { minX = w, minY = h, maxX = -1, maxY = -1 };
+                    int y = i0 / w, x = i0 - y * w;
+                    for (int i = i0; i < i1; i++) {
+                        if (Changed(before[i], after[i])) {
+                            bits[i >> 6] |= 1UL << (i & 63); part.cnt++;
+                            if (x < part.minX) {
+                                part.minX = x;
+                            }
+                            if (x > part.maxX) {
+                                part.maxX = x;
+                            }
+                            if (y < part.minY) {
+                                part.minY = y;
+                            }
+                            if (y > part.maxY) {
+                                part.maxY = y;
+                            }
                         }
-                        bits[i >> 6] |= 1UL << (i & 63); cnt++;
-                        if (x < minX) {
-                            minX = x;
-                        }
-                        if (x > maxX) {
-                            maxX = x;
-                        }
-                        if (y < minY) {
-                            minY = y;
-                        }
-                        if (y > maxY) {
-                            maxY = y;
+                        if (++x == w) {
+                            x = 0;
+                            y++;
                         }
                     }
+                    parts[c] = part;
+                };
+                if (chunks <= 1) {
+                    scan(0);
+                } else {
+                    System.Threading.Tasks.Parallel.For(0, chunks,
+                        new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, scan);
+                }
+                int minX = w, minY = h, maxX = -1, maxY = -1, cnt = 0;
+                foreach (var part in parts) {
+                    cnt += part.cnt;
+                    minX = Math.Min(minX, part.minX);
+                    minY = Math.Min(minY, part.minY);
+                    maxX = Math.Max(maxX, part.maxX);
+                    maxY = Math.Max(maxY, part.maxY);
                 }
 
                 m.changedPixels = cnt;
@@ -103,15 +128,36 @@ namespace Iroca {
             } finally { changed.Release(); }
         }
 
+        // ComputeMetrics の並列の 1 区間の語の数(256K 画素)と、区間ごとの結果。
+        private const int MetricsWordsPerChunk = 4096;
+
+        private struct MetricsPart {
+            public int cnt, minX, minY, maxX, maxY;
+        }
+
         // 4-連結成分の最大サイズと個数を求める。走査中に changed を消費(visited 兼用)するので破壊的。
         // スタックは changed 画素数で上限が付く(各画素は高々 1 回 push される)。
+        // 始点は画素の番号の小さい順に探すが、印の無い語(64 画素)はまとめて飛ばす(変化が少なくても全画素を
+        // 1 つずつ見ていた)。探す順は同じなので、数と大きさは変わらない。
         private static void LargestComponent(ulong* changed, int w, int h, int changedCount,
             out int largest, out int componentCount) {
             largest = 0; componentCount = 0;
             using var stackMem = new NativeBuffer((long)changedCount * sizeof(int), NativeUsage.Other);
             int* stack = (int*)stackMem.Ptr;
             int n = w * h;
+            int words = (n + 63) >> 6;
             for (int start = 0; start < n; start++) {
+                if ((start & 63) == 0) {
+                    // 語の頭で、その語に印が 1 つも無ければ次の語の頭へ(ループの start++ で 64 進む)
+                    int wi = start >> 6;
+                    while (wi < words && changed[wi] == 0UL) {
+                        wi++;
+                    }
+                    if (wi >= words) {
+                        break;
+                    }
+                    start = wi << 6;
+                }
                 if (!Take(changed, start)) {
                     continue;
                 }
@@ -215,7 +261,7 @@ namespace Iroca {
         // src(w×h)を tw×th へボックス平均で縮小する。等倍(tw==w,th==h)なら実質コピー。
         private static Color32[] DownscaleBox(Color32* src, int w, int h, int tw, int th) {
             var dst = new Color32[tw * th];
-            for (int dy = 0; dy < th; dy++) {
+            ForRows(th, dy => {
                 int sy0 = (int)((long)dy * h / th);
                 int sy1 = (int)((long)(dy + 1) * h / th);
                 if (sy1 <= sy0) {
@@ -239,8 +285,15 @@ namespace Iroca {
                         ? new Color32((byte)(r / n), (byte)(g / n), (byte)(b / n), (byte)(a / n))
                         : new Color32(0, 0, 0, 255);
                 }
-            }
+            });
             return dst;
+        }
+
+        // タイルの行 [0, th) を並列に処理する(行ごとに書く先が別で、どう分けても結果は同じ)。比較は背景で走るが、
+        // 4K の入力を縮小のために 3 回(変換前・変換後・変化マップ)全画素読むので、1 本では待ちが長い。
+        private static void ForRows(int th, Action<int> row) {
+            System.Threading.Tasks.Parallel.For(0, th,
+                new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, row);
         }
 
         // 変化マップタイル。縮小ブロック内に 1 つでも変化画素があればマゼンタ(=変化を潰さない max プーリング)、
@@ -248,7 +301,7 @@ namespace Iroca {
         private static Color32[] BuildChangeTile(Color32* before, Color32* after, int w, int h, int tw, int th) {
             var dst = new Color32[tw * th];
             var hot = new Color32(255, 0, 255, 255);
-            for (int dy = 0; dy < th; dy++) {
+            ForRows(th, dy => {
                 int sy0 = (int)((long)dy * h / th);
                 int sy1 = (int)((long)(dy + 1) * h / th);
                 if (sy1 <= sy0) {
@@ -280,7 +333,7 @@ namespace Iroca {
                         dst[dy * tw + dx] = new Color32(g, g, g, 255);
                     }
                 }
-            }
+            });
             return dst;
         }
 
