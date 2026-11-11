@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import threading
 import time
 from pathlib import Path
 
@@ -98,6 +99,17 @@ def _dotnet_version() -> str | None:
     return r.stdout.decode(errors="replace").strip() if r.returncode == 0 else None
 
 
+def _smart_app_control() -> int | None:
+    """Windows の Smart App Control の状態(0=切・1=有効・2=評価中)。有効だと、自前でビルドした署名の無いハーネスの DLL を
+    読めない(0x800711C7。2026-11-11 にテスト用 PC で評価中から有効へ自動で切り替わり、ハーネスの全件が落ちた)。"""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\CI\Policy") as k:
+            return int(winreg.QueryValueEx(k, "VerifiedAndReputablePolicyState")[0])
+    except OSError:
+        return None
+
+
 def _models_dir() -> Path | None:
     root = os.environ.get("LOCALAPPDATA")
     return Path(root) / "Iroca" / "Models" if root else None
@@ -137,6 +149,7 @@ def cmd_info(argv: list[str]) -> int:
         "models": bool(models and models.is_dir() and any(models.glob("*.onnx"))),
         "repos": {"main": _rev(MAIN, LAST_REF), "dev_safe": _rev(DEV_SAFE, LAST_REF)},
         "busy": _lock_busy(),
+        "smart_app_control": _smart_app_control(),
         "cpu_count": os.cpu_count(),
         "disk_free_gb": round(shutil.disk_usage(BASE).free / 1e9, 1),
     }
@@ -352,7 +365,20 @@ def cmd_run(argv: list[str]) -> int:
         if "UnityManaged" not in req.get("env", {}) and (UNITY_DIR / "UnityEngine").is_dir():
             env["UnityManaged"] = str(UNITY_DIR)
         t1 = time.monotonic()
-        rc = subprocess.run([str(venv_py), *req["argv"]], cwd=str(MAIN), env=env).returncode
+        child = subprocess.Popen([str(venv_py), *req["argv"]], cwd=str(MAIN), env=env, stdin=subprocess.DEVNULL)
+        if req.get("watch_stdin"):
+            # 呼び手は標準入力を開いたまま待つ。呼び手(ssh)が切れると EOF になるので、置き去りの実行(排他を持ったまま
+            # 20 分走り続ける)を止める。止めるのはここで起動したプロセスとその子だけ。
+            def _watch() -> None:
+                try:
+                    sys.stdin.buffer.read()
+                except (OSError, ValueError):
+                    pass
+                if child.poll() is None:
+                    log("呼び手との接続が切れたので、実行を止めます")
+                    subprocess.run(["taskkill", "/T", "/F", "/PID", str(child.pid)], capture_output=True)
+            threading.Thread(target=_watch, daemon=True).start()
+        rc = child.wait()
         log(f"終了コード {rc}・{time.monotonic() - t1:.1f} 秒")
         if req.get("fetch"):
             _pack_fetch(run_dir, req["fetch"])

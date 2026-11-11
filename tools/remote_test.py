@@ -189,6 +189,8 @@ def check_ready(info: dict) -> list[str]:
         missing.append(".NET SDK")
     if not info.get("unity"):
         missing.append("Unity の DLL（setup で送る）")
+    if info.get("smart_app_control") == 1:
+        missing.append("Smart App Control が有効で、ビルドしたハーネスの DLL を読めない（相手の PC で切る）")
     return missing
 
 
@@ -331,12 +333,18 @@ def run_remote(t: Transport, argv: list[str], fetch: list[str], env_extra: list[
         except (RuntimeError, OSError, subprocess.SubprocessError) as e:
             # まだ何も実行していないので、auto なら手元でやり直してよい
             raise Unavailable(f"送る途中で失敗: {e}") from e
-        p = t.popen_agent("run", run_id)
+        # 標準入力は開いたまま待つ(こちらが落ちる・止められると相手に EOF が届き、相手は実行を止める)
+        p = t.popen_agent("run", run_id, stdin=subprocess.PIPE)
         try:
             rc = p.wait()
         except KeyboardInterrupt:
             p.terminate()
             raise
+        finally:
+            try:
+                p.stdin.close()
+            except OSError:
+                pass
         if rc == SYNC_FAILED:
             raise Unavailable("相手で作業ツリーをそろえられなかった（テストは走っていない）")
         if rc == 255 and not isinstance(t, LoopbackTransport):
@@ -392,6 +400,7 @@ def _prepare(t: Transport, run_id: str, argv: list[str], fetch: list[str], env_e
         "argv": argv,
         "fetch": fetch,
         "git_config": {"main": git_config_to_mirror(REPO), "dev_safe": git_config_to_mirror(DEV_SAFE)},
+        "watch_stdin": True,
     }
     _upload(t, run_id, "request.json", json.dumps(request, ensure_ascii=False).encode("utf-8"))
     log(f"準備 {time.monotonic() - t0:.1f} 秒。{info.get('computer') or 'リモート'} で実行します")
