@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -134,44 +135,22 @@ def _backend():
     return mea, mcp, fx, gtt
 
 
-def generate(snapshot: bool = False, measured: dict | None = None) -> None:
-    """ワンショットと追加操作後のパネルを作る(visual_review.py の snapshot / compare から呼ぶ)。
-
-    measured は測るものの来歴 {"source": worktree/index/rev:<rev>, "state": 測り始めの中身, "run_id": 比較の実行,
-    "snapshot": 変更前の来歴(compare のとき)}。DLL は呼ぶ側が fixtures に固定してある(fixtures.pin_harness)。
-    """
-    if measured is None:
-        raise ValueError("workflow_review.generate は visual_review.py の snapshot / compare から呼ぶ")
+def _measure_subjects(sids, snapshot: bool) -> dict:
+    """被写体の並び sids について、ワンショットと追加操作後を測ってパネルを書き、ケースの行を返す(snapshot なら出力を
+    保存するだけで空)。generate が直列で、または子のプロセス(_shard)が自分の分だけ呼ぶ。DLL は呼ぶ側が
+    fixtures に固定してある。"""
     import numpy as np
     from PIL import Image
     import visual_review as vr
     mea, mcp, fx, gtt = _backend()
-    from freeze_sam_fixtures import DECODER, ENCODER, FIXTURE_DIR, texture_key
-
-    # 失敗した再生成のあと、以前の比較/承認が残って通ることを防ぐ。
-    REVIEW.mkdir(parents=True, exist_ok=True)
-    if not snapshot:
-        (REVIEW / "approved.json").unlink(missing_ok=True)
-        (REVIEW / "review.json").unlink(missing_ok=True)
     baselines = {"oneshot": load_baseline(mea.BASELINE_PATH),
                  "assisted_include": load_baseline(mea.ASSISTED_BASELINE_PATH)}
-    initial_state = measured["state"]
     dll, registry = fx.ensure_harness(), mcp._subject_registry()
     folder = REVIEW / ("snapshot" if snapshot else "compare")
     folder.mkdir(parents=True, exist_ok=True)
-    cases, assets = {}, {}
     overrides = gtt.load_overrides()
-    # 結果に結びつける入力資産(上書きマスク・各被写体のテクスチャ・GT・評価領域・ONNX・埋め込み)は、最初に
-    # まとめてスレッドで読む(試-4。以前は被写体ごとに 1 つずつ直列に読んでいた)。並びは以前と同じ。
-    asset_paths = [o["mask_path"] for o in overrides]
-    for sid in SUBJECTS:
-        subject = registry[sid]
-        asset_paths += [path for path in (subject.texture_path, subject.fixtures_json, subject.gt_mask_path,
-                                          subject.eval_region_path, DECODER, ENCODER,
-                                          FIXTURE_DIR / f"{texture_key(subject)}_embedding.bin")
-                        if path is not None]
-    assets.update(sha256_many(asset_paths))
-    for sid in SUBJECTS:
+    cases = {}
+    for sid in sids:
         subject = registry[sid]
         r = mea.run_case(dll, subject, "p50", include=True, conventional=False, return_outputs=True)
         rgba, gt = fx.load_subject_inputs(subject)
@@ -252,6 +231,118 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
                   f"{metrics['precision_design']:.3f}, 許容 {metrics['tolerated_frac']*100:.0f}%)", flush=True)
         fx._mem_cache.clear()
         del r, rgba, output
+    return cases
+
+
+# 被写体の行の並び(直列で測ったときと同じ: 被写体の順に、ワンショット → 追加操作後)。
+_MODES = ("oneshot", "assisted_include")
+
+
+def _jobs() -> int:
+    """子のプロセスの数。IROCA_WORKFLOW_JOBS で決められる(1 で直列)。無ければ汎化レポートと同じ決め方
+    (空きメモリと CPU から、上限 3。1 本あたり AI 提案の鎖と 4K の入出力で約 3GB)。"""
+    v = os.environ.get("IROCA_WORKFLOW_JOBS")
+    if v:
+        return max(1, int(v))
+    try:
+        import generalization_report as gr
+        return gr.auto_jobs()
+    except Exception:
+        return 1
+
+
+def _measure_in_children(jobs: int, snapshot: bool) -> dict:
+    """被写体を jobs 個の子のプロセスに配って測る(試-3。以前は 33 被写体を 1 つずつ直列に)。配り方は汎化レポートと
+    同じ(画素数の大きい順に軽い分割へ)。子は親と同じ来歴の DLL を固定し(BuildInfo を渡す。キャッシュの鍵も同じ)、
+    ハーネスのスレッド数は「CPU ÷ 本数」。結果は親が被写体の順に並べ直すので、直列と同じ行・同じ並びになる。"""
+    mea, mcp, fx, gtt = _backend()
+    import generalization_report as gr
+    work = REVIEW / "_shards"
+    work.mkdir(parents=True, exist_ok=True)
+    info = fx.harness_info()
+    info_path = work / "harness_info.json"
+    if info is not None:
+        info.save(info_path)
+    threads = str(max(2, (os.cpu_count() or 4) // jobs))
+    parts = [work / f"shard{i}.json" for i in range(jobs)]
+    procs = []
+    for i in range(jobs):
+        sids = gr.shard_subjects(list(SUBJECTS), i, jobs)
+        cmd = [sys.executable, str(Path(__file__).resolve()), "_shard", "--out", str(parts[i]), "--subjects", *sids]
+        if snapshot:
+            cmd.append("--snapshot")
+        if info is not None:
+            cmd += ["--info", str(info_path)]
+        env = dict(os.environ, PYTEST_XDIST_WORKER=f"wf{i}", IROCA_HARNESS_THREADS=threads, PYTHONIOENCODING="utf-8")
+        procs.append(subprocess.Popen(cmd, env=env, cwd=str(ROOT)))
+    codes = [p.wait() for p in procs]
+    if any(codes):
+        raise RuntimeError(f"ワークフローの審査の子のプロセスが失敗しました: {codes}")
+    cases = {}
+    for part in parts:
+        cases.update(json.loads(part.read_text(encoding="utf-8")))
+        part.unlink()
+    info_path.unlink(missing_ok=True)
+    return cases
+
+
+def _shard_main(argv) -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("cmd")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--subjects", nargs="*", default=[])
+    ap.add_argument("--snapshot", action="store_true")
+    ap.add_argument("--info", default=None)
+    a = ap.parse_args(argv)
+    if os.name == "nt":
+        import ctypes   # 親(visual_review)と同じく低い優先度で
+        ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x00004000)
+    mea, mcp, fx, gtt = _backend()
+    if a.info:
+        import harness_build as hb
+        fx.pin_harness(hb.BuildInfo.load(Path(a.info)))
+    cases = _measure_subjects(a.subjects, a.snapshot)
+    Path(a.out).write_text(json.dumps(cases, ensure_ascii=False), encoding="utf-8")
+    return 0
+
+
+def generate(snapshot: bool = False, measured: dict | None = None) -> None:
+    """ワンショットと追加操作後のパネルを作る(visual_review.py の snapshot / compare から呼ぶ)。
+
+    measured は測るものの来歴 {"source": worktree/index/rev:<rev>, "state": 測り始めの中身, "run_id": 比較の実行,
+    "snapshot": 変更前の来歴(compare のとき)}。DLL は呼ぶ側が fixtures に固定してある(fixtures.pin_harness)。
+    """
+    if measured is None:
+        raise ValueError("workflow_review.generate は visual_review.py の snapshot / compare から呼ぶ")
+    mea, mcp, fx, gtt = _backend()
+    from freeze_sam_fixtures import DECODER, ENCODER, FIXTURE_DIR, texture_key
+
+    # 失敗した再生成のあと、以前の比較/承認が残って通ることを防ぐ。
+    REVIEW.mkdir(parents=True, exist_ok=True)
+    if not snapshot:
+        (REVIEW / "approved.json").unlink(missing_ok=True)
+        (REVIEW / "review.json").unlink(missing_ok=True)
+    initial_state = measured["state"]
+    dll, registry = fx.ensure_harness(), mcp._subject_registry()
+    folder = REVIEW / ("snapshot" if snapshot else "compare")
+    folder.mkdir(parents=True, exist_ok=True)
+    assets = {}
+    overrides = gtt.load_overrides()
+    # 結果に結びつける入力資産(上書きマスク・各被写体のテクスチャ・GT・評価領域・ONNX・埋め込み)は、最初に
+    # まとめてスレッドで読む(試-4。以前は被写体ごとに 1 つずつ直列に読んでいた)。並びは以前と同じ。
+    asset_paths = [o["mask_path"] for o in overrides]
+    for sid in SUBJECTS:
+        subject = registry[sid]
+        asset_paths += [path for path in (subject.texture_path, subject.fixtures_json, subject.gt_mask_path,
+                                          subject.eval_region_path, DECODER, ENCODER,
+                                          FIXTURE_DIR / f"{texture_key(subject)}_embedding.bin")
+                        if path is not None]
+    assets.update(sha256_many(asset_paths))
+    jobs = _jobs() if len(SUBJECTS) > 1 else 1
+    found = (_measure_subjects(list(SUBJECTS), snapshot) if jobs <= 1
+             else _measure_in_children(jobs, snapshot))
+    cases = {f"{mode}/{sid}/p50": found[f"{mode}/{sid}/p50"]
+             for sid in SUBJECTS for mode in _MODES if f"{mode}/{sid}/p50" in found}
     if not snapshot:
         # 測り始めてから(固定設定の分を含む)測るものが変わっていないか(点検 B-7①。時刻ではなく中身で見る)
         changed = rs.diff(state(measured["source"]), initial_state)
@@ -285,6 +376,8 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "_shard":
+        sys.exit(_shard_main(sys.argv[1:]))
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=("check",),
                         help="承認が有効か、今の中身をコミットしてもフックを通るかを確かめる")
