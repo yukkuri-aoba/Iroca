@@ -304,7 +304,98 @@ namespace Iroca {
             return zone;
         }
 
+        // ─── --serve: 常駐して依頼を続けて処理する(2026-11-11) ───
+        // テストは 1 周でハーネスを約 1000 回起動し、起動の固定費(16 画素の入力でも 1 回約 0.14 秒)が積み上がっていた。
+        // 標準入力から 1 行 1 件の依頼 {"args": [...]} を読み、同じプロセスの Main(args) にそのまま流して、
+        // 1 行の応答 {"rc": 終了コード, "out": 標準出力, "err": 標準エラー, "fatal": 続けられないか} を標準出力へ返す。
+        // 依頼ごとに、単発の起動に近い状態へ戻す:
+        //   - Console の出力はその依頼の分だけを集める(依頼の外の書き込みは捨てる)。
+        //   - 依頼が書き換えうる大域の設定(並列度の上書き・色の表を使わない)を依頼の前の値へ戻す。
+        //   - 作業配列のプールと色の表のキャッシュを空にする(ReleaseWorkBuffers。単発の起動はどちらも空で始まる)。
+        // 例外で終わった依頼は、単発の起動の「処理されない例外」と同じ終了コード(0xE0434352)と文を返し、状態が
+        // 壊れているかもしれないので、そこでプロセスを終える(呼び手は次の依頼で起動し直す)。
+        // 自己検査のモード(--nativememselftest など)は、ヒープの外の確保の数を起動からの絶対値で確かめるので受けない
+        // (呼び手は単発で起動する。ここでは 64 を返す)。出力が単発の起動とビット一致することは dev_safe の
+        // test_harness_server が見る。呼び手は dev_safe の headless_io.run(pytest の中で IROCA_HARNESS_SERVER=1 のとき)。
+        private static readonly HashSet<string> s_unservedModes = new HashSet<string> {
+            "--serve", "--selkey-audit", "--previewselftest", "--previewdump",
+            "--nativememselftest", "--maskcodecselftest", "--bitmaskselftest",
+        };
+
+        private const int UnservedExitCode = 64;
+        private const int UnhandledExceptionExitCode = unchecked((int)0xE0434352);
+
+        private static int RunServe() {
+            var utf8 = new System.Text.UTF8Encoding(false);
+            var protocolOut = new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true, NewLine = "\n" };
+            var input = new StreamReader(Console.OpenStandardInput(), utf8);
+            // 依頼の外で書かれたもの(後片付けのスレッドなど)が応答の行に混ざらないよう、ふだんは捨てる
+            Console.SetOut(TextWriter.Null);
+            Console.SetError(TextWriter.Null);
+            string line;
+            while ((line = input.ReadLine()) != null) {
+                if (line.Length == 0) {
+                    continue;
+                }
+                string[] reqArgs;
+                using (var doc = JsonDocument.Parse(line)) {
+                    var list = new List<string>();
+                    foreach (var a in doc.RootElement.GetProperty("args").EnumerateArray()) {
+                        list.Add(a.GetString());
+                    }
+                    reqArgs = list.ToArray();
+                }
+                if (reqArgs.Length >= 1 && s_unservedModes.Contains(reqArgs[0])) {
+                    protocolOut.WriteLine(JsonSerializer.Serialize(new {
+                        rc = UnservedExitCode, @out = "", err = "not served: " + reqArgs[0], fatal = false,
+                    }));
+                    continue;
+                }
+                var outBuf = new StringWriter();
+                var errBuf = new StringWriter();
+                int parallelism = DebugCaptureHooks.ParallelismOverride;
+                bool disablePalette = DebugCaptureHooks.DisablePalette;
+                Console.SetOut(TextWriter.Synchronized(outBuf));
+                Console.SetError(TextWriter.Synchronized(errBuf));
+                int rc;
+                bool fatal = false;
+                try {
+                    rc = Main(reqArgs);
+                } catch (Exception ex) {
+                    rc = UnhandledExceptionExitCode;
+                    Console.Error.WriteLine("Unhandled exception. " + ex);
+                    fatal = true;
+                } finally {
+                    Console.Out.Flush();
+                    Console.Error.Flush();
+                    Console.SetOut(TextWriter.Null);
+                    Console.SetError(TextWriter.Null);
+                    DebugCaptureHooks.ParallelismOverride = parallelism;
+                    DebugCaptureHooks.DisablePalette = disablePalette;
+                }
+                if (!fatal) {
+                    PixelProcessor.ReleaseWorkBuffers();
+                    // 依頼の間に大きい配列(4096² で 64MB 級)を持ち越さない(常駐の分だけワーカーのメモリが増えないように)
+                    System.Runtime.GCSettings.LargeObjectHeapCompactionMode =
+                        System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                    GC.Collect();
+                }
+                protocolOut.WriteLine(JsonSerializer.Serialize(new {
+                    rc, @out = outBuf.ToString(), err = errBuf.ToString(), fatal,
+                }));
+                if (fatal) {
+                    return 1;
+                }
+            }
+            return 0;
+        }
+
         public static int Main(string[] args) {
+            // --serve: 1 行 1 件の依頼を同じプロセスで続けて処理する(テストの起動の固定費を省く。RunServe の説明)。
+            if (args.Length == 1 && args[0] == "--serve") {
+                return RunServe();
+            }
+
             // --selkey-audit: 入力画像不要の特別モード(選択キャッシュキーの網羅性監査)。
             if (args.Length >= 1 && args[0] == "--selkey-audit") {
                 return RunSelectionKeyAudit();
