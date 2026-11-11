@@ -316,6 +316,11 @@ namespace Iroca {
                 return RunPreviewSelfTest();
             }
 
+            // --previewdump: 入力画像不要。RecolorPreview の指標と比較パネルの要約を大きめの合成入力で出す(基準との突き合わせ用)。
+            if (args.Length >= 1 && args[0] == "--previewdump") {
+                return RunPreviewDump();
+            }
+
             // --nativememselftest: 入力画像不要。Mono のヒープの外に置いた作業配列・色の表が、処理の後に
             // ReleaseWorkBuffers で全部解放されるか(参照の数え漏れ・返し忘れが無いか)を確かめる。
             if (args.Length >= 1 && args[0] == "--nativememselftest") {
@@ -904,6 +909,66 @@ namespace Iroca {
         // 既知の不変量(変化画素数・連結成分・パネル寸法・マゼンタ着色)を検証する。
         // 自動化(IrocaAutomation)は UnityEditor 依存で headless 実行できないため、Unity 非依存の
         // 診断ロジック本体をここで直接測る。1 件でも不変量に反したら非 0 を返す。
+        // ─── RecolorPreview の出力の要約(入力画像不要) ───
+        // 大きめの合成 before/after(64 の倍数でない寸法・疎な変化・塊・変化なし・1 行)で、変化の指標と比較パネルの
+        // 中身(画素の FNV-1a)を 1 行ずつ出す。--previewselftest は 64x48 だけで並列の経路を通らないので、
+        // 書き方を変えるときは基準と新の DLL でこの出力を突き合わせる(abcheck の checks/previewdump)。
+        private static int RunPreviewDump() {
+            var cases = new (string name, int w, int h, int seed, int density)[] {
+                ("sparse-1500x1100", 1500, 1100, 11, 997),
+                ("blobs-2048x1537", 2048, 1537, 23, 0),
+                ("dense-777x513", 777, 513, 37, 3),
+                ("none-1024x700", 1024, 700, 41, -1),
+                ("row-4100x1", 4100, 1, 53, 5),
+                ("col-1x3000", 1, 3000, 59, 7),
+            };
+            foreach (var (name, w, h, seed, density) in cases) {
+                var before = new Color32[w * h];
+                uint s = (uint)seed * 2654435761u;
+                for (int i = 0; i < before.Length; i++) {
+                    s = s * 1664525u + 1013904223u;
+                    before[i] = new Color32((byte)(s >> 24), (byte)(s >> 16), (byte)(s >> 8), (byte)(200 + (s & 55)));
+                }
+                var after = (Color32[])before.Clone();
+                if (density > 0) {
+                    // ほぼ density 画素に 1 つ、ばらばらに変える
+                    for (int i = 0; i < after.Length; i++) {
+                        s = s * 1664525u + 1013904223u;
+                        if ((s >> 8) % (uint)density == 0) {
+                            after[i] = new Color32((byte)(after[i].r ^ 0x40), after[i].g, after[i].b, after[i].a);
+                        }
+                    }
+                } else if (density == 0) {
+                    // 大小の矩形の塊(重なり・端に触れるものを含む)
+                    for (int k = 0; k < 40; k++) {
+                        s = s * 1664525u + 1013904223u;
+                        int x0 = (int)(s % (uint)w), y0 = (int)((s >> 11) % (uint)h);
+                        int bw = 1 + (int)((s >> 3) % 300u), bh = 1 + (int)((s >> 17) % 200u);
+                        for (int y = y0; y < Math.Min(h, y0 + bh); y++) {
+                            for (int x = x0; x < Math.Min(w, x0 + bw); x++) {
+                                int i = y * w + x;
+                                after[i] = new Color32(after[i].r, (byte)(after[i].g ^ 0x21), after[i].b, after[i].a);
+                            }
+                        }
+                    }
+                }
+                var m = RecolorPreview.ComputeMetrics(before, after, w, h);
+                var panel = RecolorPreview.BuildComparisonPanel(before, after, w, h, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
+                ulong hash = 14695981039346656037UL;
+                foreach (var c in panel) {
+                    hash = (hash ^ c.r) * 1099511628211UL;
+                    hash = (hash ^ c.g) * 1099511628211UL;
+                    hash = (hash ^ c.b) * 1099511628211UL;
+                    hash = (hash ^ c.a) * 1099511628211UL;
+                }
+                Console.WriteLine(
+                    FormattableString.Invariant($"PREVIEWDUMP {name} total={m.totalPixels} changed={m.changedPixels} frac={m.changedFraction:R} ") +
+                    FormattableString.Invariant($"bbox={m.bboxX},{m.bboxY},{m.bboxW},{m.bboxH} comps={m.componentCount} largest={m.largestComponentFraction:R} ") +
+                    FormattableString.Invariant($"panel={pw}x{ph} hash={hash:x16}"));
+            }
+            return 0;
+        }
+
         private static int RunPreviewSelfTest() {
             int fails = 0;
             void Check(bool cond, string label) {
