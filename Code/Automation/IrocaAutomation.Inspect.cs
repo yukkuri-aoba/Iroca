@@ -263,7 +263,7 @@ namespace Iroca {
             if (state != null) {
                 AddZoneInfos(info.zones, state, null, out info.commonExcludedFraction);
             }
-            AddMeshes(r, info, tex);
+            var meshes = AddMeshes(r, info, tex);
 
             string abs = PhysicalPath(info.path);
             if (abs == null) { r.warnings.Add("texture file not found; colors are not available."); return; }
@@ -288,7 +288,7 @@ namespace Iroca {
                 }
                 info.thumbnail = WriteInspectThumbnail(pixels, entries, info.path, r.warnings);
                 if ((pointsUv != null && pointsUv.Length > 0) || coverage) {
-                    AnalyzeCurrentRecolor(r, info, tex, pixels, state, pointsUv);
+                    AnalyzeCurrentRecolor(r, info, tex, pixels, state, pointsUv, meshes);
                 }
             } finally {
                 pixels.Release();

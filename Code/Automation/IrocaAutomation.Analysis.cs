@@ -52,7 +52,9 @@ namespace Iroca {
                 }
             }
             if (recipe == null) {
-                var recipes = RecipeStore.FindForTexture(source).ToList();
+                // このテクスチャのレシピは NewTextureInfo が探して info.recipes に入れてある(同じ元テクスチャで探した
+                // 同じ並び)。プロジェクトのレシピ探しをもう 1 回しない。
+                var recipes = info.recipes.Select(AssetDatabase.LoadAssetAtPath<IrocaRecipe>).Where(x => x != null).ToList();
                 if (recipes.Count > 1) {
                     r.warnings.Add("this texture has several recipes, so 'zones' is empty. Pass a recipe path from 'recipes' as target to see its zones.");
                     return null;
@@ -84,10 +86,11 @@ namespace Iroca {
             return state;
         }
 
-        private static void AddMeshes(InspectResult r, TextureInfo info, Texture2D tex) {
+        // 見つけたメッシュを返す(聞かれた場所の島を引くときに使い回す。探索は全 Renderer の UV の読み出しなので 1 回だけ)。
+        private static MeshUvLocator.Result AddMeshes(InspectResult r, TextureInfo info, Texture2D tex) {
             var found = MeshUvLocator.FindForTexture(MeshUvLocator.EditableSourceOf(tex) ?? tex);
             if (found == null) {
-                return;
+                return null;
             }
             foreach (var f in found.found) {
                 if (!info.meshes.Contains(f.source.name)) {
@@ -98,12 +101,13 @@ namespace Iroca {
                 r.warnings.Add($"{found.unreadable} mesh part(s) use this texture but cannot be read, so by:'island' is not available "
                     + "(enable Read/Write on the model).");
             }
+            return found;
         }
 
         // 今の色替えを 1 回走らせて、各ゾーンの選択を読み、割合と聞かれた場所の様子を結果へ書く。
         // 出力は色替えと同じ(選択の控えを取るだけ。プレビューも同じ控えで作っている)。
         private static unsafe void AnalyzeCurrentRecolor(InspectResult r, TextureInfo info, Texture2D tex, NativePixels work,
-            IrocaSessionState state, float[] pointsUv) {
+            IrocaSessionState state, float[] pointsUv, MeshUvLocator.Result found) {
             int w = work.Width, h = work.Height;
             int pointCount = pointsUv != null ? pointsUv.Length / 2 : 0;
             var input = state != null ? RecolorInput.FromSaved(state) : null;
@@ -131,7 +135,7 @@ namespace Iroca {
                 }
 
                 if (pointCount > 0) {
-                    var found = MeshUvLocator.FindForTexture(MeshUvLocator.EditableSourceOf(tex) ?? tex);
+                    // メッシュは AddMeshes が探したもの(同じ元テクスチャで探した同じ結果)を使う。
                     if (found != null && found.found.Count > 0) {
                         chart = UvChartMap.Build(w, h, found.Sources());
                         chart.AssignPaddingBaked(chart.DefaultPaddingRadius);
