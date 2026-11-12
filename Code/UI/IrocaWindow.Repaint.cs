@@ -77,6 +77,7 @@ namespace Iroca {
                 _exportShownPct = exportPct;
                 Repaint();
             }
+            TickZoneExpandWait();
             // 予約はプレビューの計算・拡大表示の見回りと待ちの明けなので、プレビューを描いている窓だけを描く。
             if (_repaintDueAt > 0 && EditorApplication.timeSinceStartup >= _repaintDueAt) {
                 _repaintDueAt = 0;

@@ -190,9 +190,15 @@ namespace Iroca {
             }
             bool first = _zoneOrderHash == 0;
             _zoneOrderHash = hash;
+            ForgetGoneZoneCardHeights();
             if (first) {
                 return;
             }
+            ReleaseZoneFieldsNow();
+        }
+
+        // 名前欄の入力のフォーカスと、この窓の色の欄から開いた色の窓を手放す(並びが変わった・別のカードを押して開くカードが替わる)。
+        private void ReleaseZoneFieldsNow() {
             // 入力のフォーカスはエディタ全体で 1 つ。この窓に無いとき(AI が裏でゾーンを足した・ほかの窓で作業している間の Undo)は、
             // ほかの窓で打っている途中の欄を手放させない(この窓の名前欄は、フォーカスが無ければ打ちかけではない)。
             if (focusedWindow == this) {
@@ -205,6 +211,43 @@ namespace Iroca {
                 if (w.GetType().Name == ColorPickerTypeName && ColorPickerMayBelongTo(w, this)) {
                     w.Close();
                 }
+            }
+        }
+
+        /// <summary>
+        /// この窓のゾーンの欄が使用中か: ボタン・スライダーを押している途中、名前欄に打っている途中、この窓の色の欄から開いた
+        /// 色の窓が出ている。使用中に開くカードを替えると、コントロールの番号がずれて、押したボタンが効かない・打ちかけの名前や
+        /// 選びかけの色が別のゾーンに入る。
+        /// </summary>
+        private bool ZoneFieldsInUse() {
+            if (GUIUtility.hotControl != 0) {
+                return true;
+            }
+            if (focusedWindow == this && EditorGUIUtility.editingTextField) {
+                return true;
+            }
+            foreach (var w in Resources.FindObjectsOfTypeAll<EditorWindow>()) {
+                if (w.GetType().Name == ColorPickerTypeName && ColorPickerMayBelongTo(w, this)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // 欄が使用中なので、開くカードの切り替えを待っているか。空いたら描き直す(TickZoneExpandWait)。
+        [System.NonSerialized] private bool _zoneExpandWaiting;
+        [System.NonSerialized] private double _zoneExpandCheckAt;
+        private const double ZoneExpandCheckSeconds = 0.25;
+
+        // EditorApplication.update から(TickRepaintWatch)。待っている間は描き直しを繰り返さず、欄が空いたかを時々見る。
+        private void TickZoneExpandWait() {
+            if (!_zoneExpandWaiting || EditorApplication.timeSinceStartup < _zoneExpandCheckAt) {
+                return;
+            }
+            _zoneExpandCheckAt = EditorApplication.timeSinceStartup + ZoneExpandCheckSeconds;
+            if (!ZoneFieldsInUse()) {
+                _zoneExpandWaiting = false;
+                Repaint();
             }
         }
 
@@ -368,8 +411,20 @@ namespace Iroca {
             // ドラッグ中は変えない。☰ を押すとカードを押したことにもなり、たたんだカードなら次の Layout で開く。
             // ドラッグの途中で並びが変わると、ドラッグ用の control ID(HandleZoneReorderDrag)が押したときと
             // ずれて、離してもドラッグが終わらなかった。開くのは離した後の Layout。
+            // 欄を使っている間も変えない(ZoneFieldsInUse)。見えている高さが変わっただけ(窓の大きさ・案内の出入り)でも開く
+            // カードは替わるので、使用中に番号がずれると、押したボタンが効かない・打ちかけの名前や色が別のゾーンに入る。
+            // 欄が空いたら替える(TickZoneExpandWait が描き直す)。
             if (ev.type == EventType.Layout && _dragZoneIndex < 0) {
-                _expandedZoneIndex = ZoneToExpand();
+                ForgetZoneCardHeightsOnLanguageChange();
+                int want = ZoneToExpand();
+                if (want == _expandedZoneIndex) {
+                    _zoneExpandWaiting = false;
+                } else if (ZoneFieldsInUse()) {
+                    _zoneExpandWaiting = true;
+                } else {
+                    _expandedZoneIndex = want;
+                    _zoneExpandWaiting = false;
+                }
             }
             if (ev.type == EventType.MouseDown && _zoneCardRects != null && MouseInSettingsScroll()) {
                 for (int i = 0; i < _zoneCardRects.Count && i < zones.Count; i++) {
@@ -380,6 +435,12 @@ namespace Iroca {
                     // なっていた(A を直している途中に B を消すと C に替わる)。
                     if (!OnZoneRemoveButton(i, ev.mousePosition)) {
                         SetCurrentZoneIndex(i);
+                        // 別のカードを押して開くカードが替わるなら、前のカードの名前欄・色の窓はここで手放す(押した人は次へ移った)。
+                        // 手放さないと、使用中として切り替えを待ち、押したカードが開かない。番号がずれるのは次の Layout なので、
+                        // いま押した先のボタン・欄はそのまま効く。
+                        if (ZoneToExpand() != _expandedZoneIndex) {
+                            ReleaseZoneFieldsNow();
+                        }
                     }
                     break;
                 }
@@ -408,7 +469,8 @@ namespace Iroca {
                 _zoneRemoveRects = removeRects;
                 // 測った高さで畳む/開くが変わるなら、もう 1 回描く(エディタウィンドウは頼まないと描き直さない)。
                 // 見積もりは開いたときの高さだけで決まり、畳んだ結果には左右されないので繰り返さない。
-                if (_dragZoneIndex < 0 && ZoneToExpand() != _expandedZoneIndex) {
+                // 欄の使用中で待っている間は頼まない(毎フレーム描き直し続けることになる。空いたら TickZoneExpandWait が頼む)。
+                if (_dragZoneIndex < 0 && !_zoneExpandWaiting && ZoneToExpand() != _expandedZoneIndex) {
                     Repaint();
                 }
             }
@@ -495,6 +557,46 @@ namespace Iroca {
 
         // 詳細設定を閉じたカードで測った、その行の下端からカードの下端までの高さ(枠の内側の余白)。-1 = まだ測っていない。
         [System.NonSerialized] private float _zoneCardTailBelowDetail = -1f;
+
+        // いまのゾーンに無い id の高さを忘れる(消したゾーン・前のテクスチャ)。残すと、まだ測っていないカードの見積もり
+        // (測ったものの最大)に効いて、畳みすぎる。
+        private void ForgetGoneZoneCardHeights() {
+            if (_zoneCardOpenHeights.Count == 0) {
+                return;
+            }
+            List<string> gone = null;
+            foreach (var id in _zoneCardOpenHeights.Keys) {
+                bool alive = false;
+                foreach (var z in zones) {
+                    if (z != null && z.id == id) {
+                        alive = true;
+                        break;
+                    }
+                }
+                if (!alive) {
+                    (gone ??= new List<string>()).Add(id);
+                }
+            }
+            if (gone == null) {
+                return;
+            }
+            foreach (var id in gone) {
+                _zoneCardOpenHeights.Remove(id);
+            }
+        }
+
+        // 高さを測ったときの表示言語。言語を替えると行の折り返しが変わるので、測り直す。
+        [System.NonSerialized] private bool _zoneHeightsEnglish;
+
+        private void ForgetZoneCardHeightsOnLanguageChange() {
+            bool english = !Localization.IsJapanese;
+            if (english == _zoneHeightsEnglish) {
+                return;
+            }
+            _zoneHeightsEnglish = english;
+            _zoneCardOpenHeights.Clear();
+            _zoneCardTailBelowDetail = -1f;
+        }
 
         /// <summary>
         /// 開いて描いたカードの高さを、詳細設定を閉じたときの高さで覚える(畳むかどうかの見積もり。ZoneToExpand)。
