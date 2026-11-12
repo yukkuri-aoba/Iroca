@@ -231,18 +231,15 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// テクスチャ切り替え時にバッファを破棄する。
+        /// テクスチャの切り替え・リセットのときに、マスクと重ね表示(全体用・拡大表示用)を捨てる。
+        /// <para>
+        /// 以前は全体用の重ね表示だけを捨てていた。拡大表示用のジョブ・届いた結果・当てた範囲の覚えが残るので、前のテクスチャの
+        /// 拡大用の重ね表示が後から届くと、同じ寸法・同じ範囲のときに新しいテクスチャの上へ数フレーム出ていた。
+        /// </para>
         /// </summary>
         public void ClearBuffersOnTextureChange() {
-            _overlayJob.Cancel();
-            _pendingOverlayResult?.Release();
-            _pendingOverlayResult = null;
+            ReleaseOverlayState();
             Workspace.Clear();
-            isPainting = false;
-            _maskStrokeStarted = false;
-            lastPaintUV = NoLastPaintUV;
-            TextureSlot.Release(ref maskOverlayTexture);
-            TextureSlot.Release(ref zoneMaskOverlayTexture);
             overlayBuiltW = overlayBuiltH = 0;
             maskDirty = true;
         }

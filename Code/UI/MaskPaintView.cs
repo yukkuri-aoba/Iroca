@@ -1049,6 +1049,17 @@ namespace Iroca {
         }
 
         public void SuspendTransientState() {
+            ReleaseOverlayState();
+            // メッシュの UV のチャート地図(ヒープの外。4K で 64MB・8K で 256MB)も、リロード・閉じる前に返す(メモリの決まり:
+            // リロードの前は全部返す。返さないと、アンロードのファイナライザまで残る)。メッシュの探索結果は残すので、
+            // 次に描かれた時点で背景で作り直す(MeshPartController.StartMapBuild)。作っている途中の背景の地図は、
+            // 作り終わってから手放される。
+            _meshParts?.ReleaseMap();
+        }
+
+        // 重ね表示の一時の状態(全体用と拡大表示用のジョブ・届いた結果・テクスチャ・当てた範囲の覚え)と、塗りかけの状態を捨てる。
+        // マスクそのものと UV のチャート地図には触らない。
+        private void ReleaseOverlayState() {
             _overlayJob.Cancel();
             _detailOverlayJob.Cancel();
             ClearPendingOverlays();
@@ -1063,10 +1074,6 @@ namespace Iroca {
             lastPaintUV = NoLastPaintUV;
             TextureSlot.Release(ref maskOverlayTexture);
             TextureSlot.Release(ref zoneMaskOverlayTexture);
-            // メッシュの UV のチャート地図(ヒープの外。4K で 64MB・8K で 256MB)も、リロード・閉じる前に返す(メモリの決まり:
-            // リロードの前は全部返す。返さないと、アンロードのファイナライザまで残る)。メッシュの探索結果は残すので、
-            // 次に要るとき(右クリック)に作り直す。作っている途中の背景の地図は、作り終わってから手放される。
-            _meshParts?.ReleaseMap();
         }
 
     }
