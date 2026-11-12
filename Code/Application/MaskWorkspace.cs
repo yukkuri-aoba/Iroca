@@ -20,7 +20,8 @@ namespace Iroca {
     /// <para>
     /// 層のほかに、範囲の操作(右クリックの「ここも塗る」など)が 1 回ごとに塗った画素の記録(<see cref="MaskPatch"/>)を持つ。
     /// 「ここのマスクを消す」が入れたときの範囲をそっくり消すのに使い(<see cref="ClearMaskAt"/>)、層と一緒に Undo の履歴と
-    /// 保存形式へ載る。色替えの結果には関わらない。
+    /// 保存形式へ載る。色替えの結果には関わらない。記録は、いまも層に立っている画素だけにしておく(<see cref="TrimPatches"/>。
+    /// 範囲の操作・「消す」の中と、ブラシなどで層を直接書いた後の版の確定で呼ぶ)。
     /// </para>
     /// </summary>
     internal sealed unsafe class MaskWorkspace {
@@ -219,6 +220,31 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// 記録を、層にいまも立っている画素だけにする(1 つも残っていない記録は外す)。層を書き換えた後に呼ぶ。
+        /// 消された画素を記録に残すと、同じ所を記録なしで塗り直した(ブラシなど)ときに、「ここのマスクを消す」が古い記録の形だけを
+        /// 消す。記録どうしは重ならなくなる(新しい記録は、それまで立っていなかった画素だけを持つ)ので、量も層と同じ程度で止まる。
+        /// </summary>
+        public void TrimPatches() {
+            for (int i = _patches.Count - 1; i >= 0; i--) {
+                var p = _patches[i];
+                var kept = p.TrimmedTo(LayerOf(p));
+                if (ReferenceEquals(kept, p)) {
+                    continue;
+                }
+                p.Release();
+                if (kept == null) {
+                    _patches.RemoveAt(i);
+                } else {
+                    _patches[i] = kept;
+                }
+            }
+        }
+
+        // 記録が指す層(無ければ null)。
+        private NativeBitMask LayerOf(MaskPatch p)
+            => p.ZoneId == null ? (p.Include ? null : _common) : Layer(p.Include, p.ZoneId);
+
         // 層の画素 pixel を塗った記録のうち、いちばん新しいもの(無ければ null)。
         private MaskPatch NewestPatchAt(string zoneId, bool include, int pixel) {
             for (int i = _patches.Count - 1; i >= 0; i--) {
@@ -352,6 +378,7 @@ namespace Iroca {
                 result = MaskRegionEdit.Apply(op, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
                 if (result.changed > 0) {
                     RecordPatch(zoneId, paintsInclude, target, before);
+                    TrimPatches();   // 「ここも塗る」は除外を、「塗らない」は含めるを消す。消えた画素を前の記録から外す
                 }
             } finally {
                 before?.Release();
@@ -376,6 +403,7 @@ namespace Iroca {
             int crumbs = EraseCrumbs(region, BitsOf(exclude), BitsOf(include));
             result = MaskRegionEdit.Apply(MaskRegionOp.ClearHere, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
             result.changed += crumbs;
+            TrimPatches();
             return true;
         }
 
@@ -436,6 +464,7 @@ namespace Iroca {
             var work = new List<int>();
             ErasePaintedOrPiece(exclude, paintedExclude, cx, cy, nearest, common, work, ref result);
             ErasePaintedOrPiece(include, paintedInclude, cx, cy, nearest, common, work, ref result);
+            TrimPatches();   // つながったかたまりで消したときは、ほかの記録の画素も消えていることがある
             return true;
         }
 
@@ -483,14 +512,14 @@ namespace Iroca {
             ms.zoneIncludes.Clear();
             AppendEntries(ms.zoneIncludes, _includes);
 
-            // 範囲の操作が塗った画素の記録。塗った画素がもう 1 つも残っていない記録は書かない。
+            // 範囲の操作が塗った画素の記録。塗った画素がもう 1 つも残っていない記録は書かない(ふだんは TrimPatches が外している。
+            // 層を直接書いた後、版の確定より前に保存が走ったときの守り)。
             if (ms.patches == null) {
                 ms.patches = new List<MaskPatchEntry>();
             }
             ms.patches.Clear();
             foreach (var p in _patches) {
-                var layer = p.ZoneId == null ? (p.Include ? null : _common) : Layer(p.Include, p.ZoneId);
-                if (p.AnyIn(layer)) {
+                if (p.AnyIn(LayerOf(p))) {
                     ms.patches.Add(new MaskPatchEntry { zoneId = p.ZoneId ?? "", include = p.Include, maskBase64 = p.Text });
                 }
             }
@@ -557,6 +586,7 @@ namespace Iroca {
                 dropped += ReadEntries(ms.zones, _excludes, sameSize ? oldExcludes : null, include: false);
                 dropped += ReadEntries(ms.zoneIncludes, _includes, sameSize ? oldIncludes : null, include: true);
                 ReadPatches(ms.patches);
+                TrimPatches();   // 削る前の版(0.4.0 の開発中)や手で書いた保存の記録を、層に合わせる
                 return true;
             } finally {
                 // 使い回さなかった前の層を手放す(使い回した層は新しい持ち主へ移っている)。

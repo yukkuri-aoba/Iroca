@@ -96,6 +96,8 @@ namespace Iroca {
 
         /// <summary>今のマスクを新しい版にして、文書の番号を進める。読み込みなど、マスクを置き換えたときも呼ぶ。</summary>
         internal void CommitMaskEdit() {
+            // ブラシ・クリアのボタンなどは層を直接書く。消された画素を、塗った範囲の記録からも外してから版にする。
+            Masks.TrimPatches();
             _appliedMaskRevision = MaskHistory.Capture(Masks, Document.maskRevision);
             Document.maskRevision = _appliedMaskRevision;
             _masksNewerThanDocument = false;

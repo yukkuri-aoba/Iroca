@@ -13,8 +13,9 @@ namespace Iroca {
     /// </para>
     /// <para>
     /// 中身は RLE(<see cref="MaskRle.EncodeBitsNative"/> の形。ヒープの外)で、作った後は変えない。持ち主は
-    /// <see cref="MaskWorkspace"/>(編集中のマスクと一緒に Undo の履歴・レシピへ載る)。後の操作やブラシで消された画素も
-    /// 入ったままなので、使うときはいまの層と重なる所だけを見る。
+    /// <see cref="MaskWorkspace"/>(編集中のマスクと一緒に Undo の履歴・レシピへ載る)。後の操作やブラシで層から消された
+    /// 画素は、持ち主が記録からも外す(<see cref="TrimmedTo"/> で作り直す)。記録は「いまも層に立っている、その操作が
+    /// 塗った画素」で、同じ層の記録どうしは重ならない。
     /// </para>
     /// </summary>
     internal sealed unsafe class MaskPatch {
@@ -82,6 +83,79 @@ namespace Iroca {
                 pos = end;
             }
             return false;
+        }
+
+        /// <summary>
+        /// 記録を、層にいまも立っている画素だけにしたもの。全部立っていれば自分自身、1 つも無ければ null、一部だけなら
+        /// 新しい記録(参照 1)を返す。層が無い・寸法が違うなら null。一部だけのときに限り、全面へ展開して重なりを取る。
+        /// <para>
+        /// 消された画素を記録に残すと、同じ所を塗り直したとき(ブラシなど、記録を作らない塗り方)に「ここのマスクを消す」が
+        /// 古い記録の形だけを消してしまう。保存では <see cref="AnyIn"/> で外すので、開き直すと振る舞いが変わってもいた。
+        /// </para>
+        /// </summary>
+        public MaskPatch TrimmedTo(NativeBitMask layer) {
+            if (layer == null || layer.Width != Width || layer.Height != Height) {
+                return null;
+            }
+            byte* b = (byte*)Rle.Ptr;
+            bool cur = b[8] != 0;
+            uint* run = (uint*)(b + 9);
+            long runs = (Rle.Bytes - 9) / 4;
+            ulong* bits = layer.Bits;
+            int pos = 0;
+            bool any = false, all = true;
+            for (long i = 0; i < runs && (all || !any); i++, cur = !cur) {
+                int end = pos + (int)run[i];
+                if (cur) {
+                    if (AllBitsInRange(bits, pos, end)) {
+                        any = true;
+                    } else {
+                        all = false;
+                        any |= AnyBitInRange(bits, pos, end);
+                    }
+                }
+                pos = end;
+            }
+            if (!any) {
+                return null;
+            }
+            if (all) {
+                return this;
+            }
+            var kept = Decode();
+            try {
+                ulong* d = kept.Bits;
+                for (int k = 0, words = kept.Words; k < words; k++) {
+                    d[k] &= bits[k];
+                }
+                var rle = MaskRle.EncodeBitsNative(kept);
+                return rle == null ? null : new MaskPatch(ZoneId, Include, rle);
+            } finally {
+                kept.Release();
+            }
+        }
+
+        // 画素 [start, end) が全部立っているか(空の範囲は true)。
+        private static bool AllBitsInRange(ulong* bits, int start, int end) {
+            if (end <= start) {
+                return true;
+            }
+            int w0 = start >> 6, w1 = (end - 1) >> 6;
+            ulong head = ~0UL << (start & 63);
+            ulong tail = ~0UL >> (63 - ((end - 1) & 63));
+            if (w0 == w1) {
+                ulong m = head & tail;
+                return (bits[w0] & m) == m;
+            }
+            if ((bits[w0] & head) != head || (bits[w1] & tail) != tail) {
+                return false;
+            }
+            for (int k = w0 + 1; k < w1; k++) {
+                if (bits[k] != ~0UL) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         // 画素 [start, end) に立っているビットがあるか(語の途中は覆いで、まるごとの語は 0 との比較で)。

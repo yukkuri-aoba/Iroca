@@ -281,7 +281,7 @@ namespace Iroca.EditorTests {
             Apply(ws, "z", MaskRegionOp.ClearHere, 31);                  // 消す操作も記録しない
 
             Assert.AreEqual(4, ws.Patches.Count);
-            CollectionAssert.AreEqual(new[] { 0, 1, 20 }, On(ws.Patches[0]));
+            CollectionAssert.AreEqual(new[] { 0, 1 }, On(ws.Patches[0]), "含めるに塗って除外から消えた 20 は、記録からも外れる");
             CollectionAssert.AreEqual(new[] { 2 }, On(ws.Patches[1]), "新しく立てた画素だけ");
             Assert.IsTrue(ws.Patches[2].Include && ws.Patches[2].ZoneId == "z");
             CollectionAssert.AreEqual(new[] { 20, 21 }, On(ws.Patches[2]));
@@ -474,6 +474,60 @@ namespace Iroca.EditorTests {
             Assert.IsNull(MaskPatch.FromText("z", false, "R:###", PW, PH), "Base64 として読めない");
             Assert.IsNull(MaskPatch.FromText("z", false, "", PW, PH));
             patch.Release();
+        }
+
+        [Test]
+        public void Patches_KeepOnlyThePixelsStillOnTheirLayer() {
+            var ws = Empty();
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 0, 1, 20);         // 記録 A
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 30, 31);           // 記録 B(離れた所)
+            var before = ws.Patches[1];
+
+            // ブラシで消したのと同じ(層を直接書く)。版の確定で呼ばれる TrimPatches が記録を層に合わせる。
+            var layer = ws.WritableLayer(false, "z");
+            layer.Set(1, false);
+            ws.TrimPatches();
+            CollectionAssert.AreEqual(new[] { 0, 20 }, On(ws.Patches[0]), "消した画素は記録から外れる");
+            Assert.AreSame(before, ws.Patches[1], "変わらない記録は作り直さない");
+
+            // 記録 A を全部消してから、同じ所を記録なしで塗り直す(ブラシ)。
+            layer = ws.WritableLayer(false, "z");
+            layer.Set(0, false);
+            layer.Set(20, false);
+            ws.TrimPatches();
+            Assert.AreEqual(1, ws.Patches.Count, "1 つも残っていない記録は外す");
+            layer = ws.WritableLayer(false, "z");
+            foreach (int i in new[] { 0, 1, 2, 20 }) {
+                layer.Set(i, true);
+            }
+            ws.TrimPatches();
+            Assert.AreEqual(3, Clear(ws, "z", 0), "古い記録の形(0・20)ではなく、つながったかたまり(0・1・2)が消える");
+            CollectionAssert.AreEqual(new[] { 20, 30, 31 }, On(ws.Layer(false, "z")));
+            Assert.AreEqual(2, Clear(ws, "z", 30), "残った記録は、入れたときの範囲で消える");
+            ws.Clear();
+        }
+
+        [Test]
+        public void Patches_AreTrimmedByRegionClear_AndWhenRead() {
+            var ws = Empty();
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 0, 5, 20);
+            Apply(ws, "z", MaskRegionOp.ClearHere, 5, 20);                // 範囲で消す(0 は離れているので切れ端にならない)
+            Assert.AreEqual(1, ws.Patches.Count);
+            CollectionAssert.AreEqual(new[] { 0 }, On(ws.Patches[0]));
+
+            // 一部が消された記録を保存すると、残っている画素だけが書かれる。
+            var ms = new MaskState();
+            ws.EncodeTo(ms);
+            Assert.AreEqual(RleText(PW, PH, true, 1, (uint)(PW * PH - 1)), ms.patches[0].maskBase64);
+
+            // 削る前の版が書いた記録(層に無い画素を含む)は、読むときに層へ合わせる。
+            ms.patches[0].maskBase64 = RleText(PW, PH, true, 2, 18, 1, 11);
+            var loaded = new MaskWorkspace();
+            Assert.IsTrue(loaded.DecodeFrom(ms));
+            Assert.AreEqual(1, loaded.Patches.Count);
+            CollectionAssert.AreEqual(new[] { 0 }, On(loaded.Patches[0]));
+            ws.Clear();
+            loaded.Clear();
         }
 
         [Test]
