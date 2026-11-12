@@ -896,7 +896,7 @@ namespace Iroca {
             // 合成は「除外が勝つ」ので、消さないと含めるを塗っても効かず、重ね表示も 2 色が混ざる(2026-10-06)。
             var opposite = value ? OppositeZoneLayer() : null;
             MaskRegionEdit.StampDisk(target.Bits, BitsOf(opposite), maskWidth, maskHeight, cx, cy, radiusPx, value,
-                                     out int x0, out int y0, out int x1, out int y1);
+                                     out int x0, out _, out int x1, out _);
             if (x1 <= x0) {
                 return;
             }

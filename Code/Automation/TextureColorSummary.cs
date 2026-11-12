@@ -176,7 +176,7 @@ namespace Iroca {
                     d2[j] = best;
                     sum += best;
                 }
-                int pick = 0;
+                int pick;
                 if (sum > 0) {
                     double t = rng.NextDouble() * sum;
                     for (pick = 0; pick < n - 1; pick++) {

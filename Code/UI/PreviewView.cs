@@ -619,10 +619,10 @@ namespace Iroca {
                 DetailView.OnViewMoved();
             }
 
-            Rect activePreviewRect = default;
+            Rect activePreviewRect;
             // Ctrl+スクロールズームの判定領域。比較モードでは Before/After 両パネルを
             // またぐ矩形にし、どちらのパネル上でもズームできるようにする。
-            Rect zoomHitRect = default;
+            Rect zoomHitRect;
             // 前後比較の変更前の画像の矩形。ツールは載らないので、どのモードでも左ドラッグでパンできる。
             Rect beforePanRect = default;
 
