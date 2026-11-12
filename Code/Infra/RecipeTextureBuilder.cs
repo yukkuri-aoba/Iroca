@@ -516,7 +516,16 @@ namespace Iroca {
 #endif
             Texture2D tex;
             try {
-                tex = TextureGenerator.GenerateTexture(settings, input).texture as Texture2D;
+                var output = TextureGenerator.GenerateTexture(settings, input);
+                tex = output.texture as Texture2D;
+                // 使うのは texture だけ。ほかに作られたもの(サムネイル、Texture2D でなかった texture)は、受け取った側が捨てないと
+                // 次のスクリプトの読み直しまで残る。
+                if (output.thumbNail != null) {
+                    UnityEngine.Object.DestroyImmediate(output.thumbNail);
+                }
+                if (tex == null && output.texture != null) {
+                    UnityEngine.Object.DestroyImmediate(output.texture);
+                }
             } finally {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 AtomicSafetyHandle.Release(safety);
