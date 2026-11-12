@@ -356,6 +356,7 @@ namespace Iroca {
                 slot.stagingSpare = slot.staging;
             }
             slot.staging = new Texture2D(slot.width, slot.height, TextureFormat.RGBA32, false, !srgb) {
+                name = TextureSlot.OwnedName("live preview staging"),
                 hideFlags = HideFlags.HideAndDontSave,
                 filterMode = FilterMode.Bilinear,
                 wrapMode = TextureWrapMode.Clamp,

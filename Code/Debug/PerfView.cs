@@ -500,6 +500,8 @@ namespace Iroca.DebugTools {
             internal bool HasProcess;                     // false = プロセスの値が取れない(Windows 以外など)
             internal long Private, PeakPrivate, WorkingSet;
             internal int GcCount;
+            internal long IrocaTextures;                  // いろかが作って持つテクスチャ(名前に Iroca を含み、保存しない印のもの)
+            internal int IrocaTextureCount;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -547,6 +549,9 @@ namespace Iroca.DebugTools {
                 m.UsageFinalized[u] = IrocaNativeMemory.FinalizedCount((NativeUsage)u);
             }
             m.HasProcess = TryGetProcessMemory(out m.Private, out m.PeakPrivate, out m.WorkingSet);
+            SampleIrocaTextures(now);
+            m.IrocaTextures = s_irocaTextureBytes;
+            m.IrocaTextureCount = s_irocaTextureCount;
             s_memory = m;
             if (m.MonoUsed > s_monoUsedPeak) {
                 s_monoUsedPeak = m.MonoUsed;
@@ -557,6 +562,37 @@ namespace Iroca.DebugTools {
                 s_monoHeapGrewAt = now;
             }
             s_monoHeapLast = m.MonoHeap;
+        }
+
+        // いろかのテクスチャはエディタの全テクスチャを並べて探すので、ほかの値より間引く(秒)。
+        private const double TextureSampleInterval = 2.0;
+        private static double s_texturesSampledAt = double.NegativeInfinity;
+        private static long s_irocaTextureBytes;
+        private static int s_irocaTextureCount;
+
+        /// <summary>
+        /// いろかが作って持つテクスチャの量。いろかのテクスチャは名前に「Iroca」を含め(TextureSlot.OwnedName・
+        /// ライブプレビューの「(Iroca preview)」)、保存しない印(DontSave)を付けているので、その両方を満たすものを数える
+        /// (利用者のアセットに Iroca という名前があっても、保存されるものなので入らない)。
+        /// 大きさは Unity が数えるそのテクスチャのメモリ(GPU 側と、読み書きできるものは CPU 側の写しを含む)。
+        /// </summary>
+        private static void SampleIrocaTextures(double now) {
+            if (now - s_texturesSampledAt < TextureSampleInterval) {
+                return;
+            }
+            s_texturesSampledAt = now;
+            long bytes = 0;
+            int count = 0;
+            foreach (var t in Resources.FindObjectsOfTypeAll<Texture>()) {
+                if (t == null || (t.hideFlags & HideFlags.DontSave) == 0
+                    || t.name == null || t.name.IndexOf("Iroca", StringComparison.Ordinal) < 0) {
+                    continue;
+                }
+                bytes += Profiler.GetRuntimeMemorySizeLong(t);
+                count++;
+            }
+            s_irocaTextureBytes = bytes;
+            s_irocaTextureCount = count;
         }
 
         // Mono ヒープの観測値(このウィンドウが読んだ範囲。読んでいない間のピークは拾えない)。
@@ -598,16 +634,60 @@ namespace Iroca.DebugTools {
 
         private static string Mb(long bytes) => (bytes / (1024.0 * 1024.0)).ToString("N0");
 
+        // いろかの分(上)とエディタ全体(下、参考)に分けて出す。以前はエディタ全体の値が先に並び、いろかの分は
+        // ネイティブの 1 行だけだったので、結局いろかがどれだけ使っているのか分からなかった(2026-11-12 ユーザー指摘)。
         private static void DrawMemory() {
-            EditorGUILayout.LabelField(
-                new GUIContent("メモリ",
-                    "Unity エディタのプロセス全体の値です(いろか以外のウィンドウやアセットも含みます)。\n" +
-                    $"このウィンドウを描き直したときに読み直します({MemorySampleInterval:0.0#} 秒おき。放置中は止まります)。"),
-                EditorStyles.boldLabel);
-
             var m = s_memory;
+            EditorGUILayout.LabelField(
+                new GUIContent("メモリ(いろか)",
+                    "いろかが持っている量です。いろかのネイティブの領域と、いろかが作ったテクスチャの合計です。\n" +
+                    "Mono ヒープ(C# のマネージドメモリ)の中のいろかの分は数えられません(どのオブジェクトがいろかのものか" +
+                    "分けられず、Mono は一度広げたヒープを返しません)。画素・マスクなどの大きなものはヒープの外に置いているので、" +
+                    "持ち続ける分はほぼこの合計に入ります。計算の途中だけの一時配列は入りません。\n" +
+                    $"このウィンドウを描き直したときに読み直します({MemorySampleInterval:0.0#} 秒おき。テクスチャは " +
+                    $"{TextureSampleInterval:0.#} 秒おき。放置中は止まります)。"),
+                EditorStyles.boldLabel);
+            DrawValueRow("合計(推定)", $"{Mb(m.IrocaNative + m.IrocaTextures)} MB",
+                "下の「ネイティブ」と「テクスチャ」の合計。Mono ヒープの中のいろかの分は含みません(見出しのツールチップ)。",
+                MemoryLabelWidth);
+            DrawValueRow("　ネイティブ", $"{Mb(m.IrocaNative)} MB",
+                "いろかが Mono ヒープの外に置いている量(画素・選択キャッシュ・作業配列など。内訳は下)。\n" +
+                "Mono ヒープと違い、手放すとすぐ OS へ戻ります(テクスチャを替えたとき・ウィンドウを閉じたときなど)。",
+                MemoryLabelWidth);
+            if (m.UsageLive != null) {
+                for (int u = 0; u < UsageCount; u++) {
+                    string text = $"{Mb(m.UsageLive[u])} MB (最大 {Mb(m.UsagePeak[u])} MB)";
+                    if ((NativeUsage)u == NativeUsage.Work) {
+                        text += $"　貸し出し中 {Mb(m.PoolRented)} / 空き {Mb(m.PoolFree)} MB";
+                    }
+                    if (m.UsageFinalized[u] > 0) {
+                        text += $"　返し忘れ {m.UsageFinalized[u]} 個";
+                    }
+                    DrawValueRow("　　" + UsageLabels[u], text, UsageTooltips[u], MemoryLabelWidth);
+                }
+                using (new EditorGUILayout.HorizontalScope()) {
+                    var reset = new GUIContent("最大をリセット",
+                        "用途ごとの「最大」を今の量に戻します(操作の前に押すと、その操作で一番多く使った量が分かります)。\n" +
+                        "作業配列のプールが手元に持つ量の上限(直近の最大の 1.5 倍)には影響しません。");
+                    if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.Width(MemoryLabelWidth))) {
+                        IrocaNativeMemory.ResetPeaks();
+                    }
+                }
+            }
+            DrawValueRow("　テクスチャ", $"{Mb(m.IrocaTextures)} MB ({m.IrocaTextureCount} 枚)",
+                "いろかが作って持っているテクスチャ(プレビュー・マスクの重ね表示・シーンのライブプレビューなど)。\n" +
+                "Unity が数えるそのテクスチャのメモリで、GPU 側と、読み書きできるものは CPU 側の写しを含みます。\n" +
+                "非破壊のビルド・アップロードで作るテクスチャは入りません。",
+                MemoryLabelWidth);
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField(
+                new GUIContent("メモリ(エディタ全体・参考)",
+                    "Unity エディタのプロセス全体の値です(いろか以外のウィンドウやアセットも含みます)。\n" +
+                    "いろかを閉じる前と後で比べると、いろかの影響の大きさの目安になります。"),
+                EditorStyles.boldLabel);
             DrawValueRow("Mono ヒープ", $"使用 {Mb(m.MonoUsed)} / 確保 {Mb(m.MonoHeap)} MB",
-                "C# のマネージドメモリ。いろかの画素配列・作業配列などはここに入ります。\n" +
+                "C# のマネージドメモリ(エディタ全体)。いろかの分は、計算の途中だけの一時配列などがここに入ります。\n" +
                 "使用: 生きているオブジェクトと、まだ回収されていないゴミの合計。\n" +
                 "確保: ヒープ全体の大きさ。Unity の Mono は一度広げたヒープを OS に返さないので、" +
                 "処理中のピークに引きずられて増え、編集をやめても減りません。",
@@ -648,30 +728,6 @@ namespace Iroca.DebugTools {
                 "プレビューやシーンに映すテクスチャはここに入ります。\n" +
                 "使用: Unity の内部アロケータが使っている量。確保: 予約している量。",
                 MemoryLabelWidth);
-            DrawValueRow("いろかのネイティブ", $"{Mb(m.IrocaNative)} MB",
-                "いろかが Mono ヒープの外に置いている量(選択キャッシュなど)。\n" +
-                "Mono ヒープと違い、手放すとすぐ OS へ戻ります(テクスチャを替えたとき・ウィンドウを閉じたときなど)。",
-                MemoryLabelWidth);
-            if (m.UsageLive != null) {
-                for (int u = 0; u < UsageCount; u++) {
-                    string text = $"{Mb(m.UsageLive[u])} MB (最大 {Mb(m.UsagePeak[u])} MB)";
-                    if ((NativeUsage)u == NativeUsage.Work) {
-                        text += $"　貸し出し中 {Mb(m.PoolRented)} / 空き {Mb(m.PoolFree)} MB";
-                    }
-                    if (m.UsageFinalized[u] > 0) {
-                        text += $"　返し忘れ {m.UsageFinalized[u]} 個";
-                    }
-                    DrawValueRow("　" + UsageLabels[u], text, UsageTooltips[u], MemoryLabelWidth);
-                }
-                using (new EditorGUILayout.HorizontalScope()) {
-                    var reset = new GUIContent("最大をリセット",
-                        "用途ごとの「最大」を今の量に戻します(操作の前に押すと、その操作で一番多く使った量が分かります)。\n" +
-                        "作業配列のプールが手元に持つ量の上限(直近の最大の 1.5 倍)には影響しません。");
-                    if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.Width(MemoryLabelWidth))) {
-                        IrocaNativeMemory.ResetPeaks();
-                    }
-                }
-            }
             if (m.HasProcess) {
                 DrawValueRow("プロセス", $"{Mb(m.Private)} MB (最大 {Mb(m.PeakPrivate)} MB)",
                     "Unity エディタのプロセスがコミットしているメモリ(Private Bytes)。Mono ヒープとネイティブの両方を含みます。\n" +

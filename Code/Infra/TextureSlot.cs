@@ -32,11 +32,18 @@ namespace Iroca {
             }
             DestroyNow(ref tex);
             tex = new Texture2D(w, h, TextureFormat.RGBA32, false) {
+                name = OwnedName("preview"),
                 hideFlags = HideFlags.HideAndDontSave,
                 filterMode = filter,
                 wrapMode = TextureWrapMode.Clamp,
             };
         }
+
+        /// <summary>
+        /// いろかが作って持つテクスチャの名前。頭を「Iroca 」にそろえ、開発用のメモリ表示(PerfView)と Unity の Profiler で
+        /// いろかの分を見分けられるようにする(名前は表示にしか使わない)。
+        /// </summary>
+        internal static string OwnedName(string purpose) => "Iroca " + purpose;
 
         /// <summary>
         /// テクスチャが存在すれば即時破棄して null にする。

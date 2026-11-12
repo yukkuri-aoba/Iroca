@@ -196,6 +196,7 @@ namespace Iroca {
             var c = IrocaColors.SceneHighlight;
             var on = new Color32((byte)(c.r * 255f), (byte)(c.g * 255f), (byte)(c.b * 255f), 255);
             _sceneFillTexture = new Texture2D(w, hgt, TextureFormat.RGBA32, false) {
+                name = TextureSlot.OwnedName("scene highlight"),
                 hideFlags = HideFlags.HideAndDontSave,
                 wrapMode = TextureWrapMode.Clamp,
                 filterMode = FilterMode.Bilinear,

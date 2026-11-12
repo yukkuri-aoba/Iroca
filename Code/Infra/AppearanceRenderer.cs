@@ -347,6 +347,7 @@ namespace Iroca {
             }
             ReleaseScratch();
             _scratch = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default) {
+                name = TextureSlot.OwnedName("appearance"),
                 hideFlags = HideFlags.HideAndDontSave,
                 filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Clamp,
