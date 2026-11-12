@@ -124,13 +124,15 @@ namespace Iroca {
                 return;
             }
 
-            EditorGUILayout.HelpBox(MaterialColorNoticeText(r, _previewView != null && _previewView.appearanceMode,
-                out bool warn), warn ? MessageType.Warning : MessageType.Info);
-
             // テクスチャ欄は変更の検出(プレビューの作り直し)に囲まれているので、ここの操作では立てない
             // (「アバターの色」は表示用の画像だけを作り直す)。
             bool changed = GUI.changed;
-            EditorGUILayout.BeginHorizontal();
+            string text = MaterialColorNoticeText(r, _previewView != null && _previewView.appearanceMode, out bool warn);
+            if (NoticeWithButtons(text, warn ? MessageType.Warning : MessageType.Info,
+                    TempContent.Of(Localization.LargeSourceDismiss, Localization.MaterialColorDismissTooltip)) == 0) {
+                SessionState.SetBool(key, true);
+            }
+            // どのマテリアルの設定で見るかは、組が 2 つ以上あるときだけ本文の下に出す。
             if (groups.Count > 1) {
                 var labels = new GUIContent[groups.Count];
                 for (int i = 0; i < groups.Count; i++) {
@@ -149,12 +151,6 @@ namespace Iroca {
                     RequestRepaint();
                 }
             }
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button(TempContent.Of(Localization.LargeSourceDismiss, Localization.MaterialColorDismissTooltip),
-                    GUILayout.ExpandWidth(false))) {
-                SessionState.SetBool(key, true);
-            }
-            EditorGUILayout.EndHorizontal();
             GUI.changed = changed;
         }
 
@@ -238,25 +234,27 @@ namespace Iroca {
                 return;
             }
 
+            // 2 つの案内は 1 つの枠にまとめる(枠ごとに余白と絵の高さを使うため)。
+            string text = null;
             if (mismatch) {
-                EditorGUILayout.HelpBox(string.Format(Localization.ShadowColorNoticeFormat, materials[0].name), MessageType.Info);
+                text = string.Format(Localization.ShadowColorNoticeFormat, materials[0].name);
             }
             // 影色テクスチャが別に描かれていると、影の色を合わせても影の部分はそのテクスチャの色のまま。
             if (separate) {
-                EditorGUILayout.HelpBox(string.Format(Localization.ShadowColorTextureNoticeFormat, textures[0].material.name,
-                    textures[0].texture.name), MessageType.Info);
+                string more = string.Format(Localization.ShadowColorTextureNoticeFormat, textures[0].material.name,
+                    textures[0].texture.name);
+                text = text == null ? more : text + "\n" + more;
             }
             bool changed = GUI.changed;
-            EditorGUILayout.BeginHorizontal();
-            GUILayout.FlexibleSpace();
-            bool match = mismatch && GUILayout.Button(
-                TempContent.Of(Localization.ShadowColorMatchButton, Localization.ShadowColorMatchButtonTooltip),
-                GUILayout.ExpandWidth(false));
-            if (GUILayout.Button(TempContent.Of(Localization.LargeSourceDismiss, Localization.ShadowColorDismissTooltip),
-                    GUILayout.ExpandWidth(false))) {
+            var dismiss = TempContent.Of(Localization.LargeSourceDismiss, Localization.ShadowColorDismissTooltip);
+            int pressed = mismatch
+                ? NoticeWithButtons(text, MessageType.Info,
+                    TempContent.Of(Localization.ShadowColorMatchButton, Localization.ShadowColorMatchButtonTooltip), dismiss)
+                : NoticeWithButtons(text, MessageType.Info, dismiss);
+            bool match = mismatch && pressed == 0;
+            if (pressed == (mismatch ? 1 : 0)) {
                 SessionState.SetBool(key, true);
             }
-            EditorGUILayout.EndHorizontal();
             GUI.changed = changed;
             // 確認画面を出すことがあるので、描画の途中で開かない。
             if (match) {
