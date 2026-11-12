@@ -1049,6 +1049,10 @@ namespace Iroca {
             lastPaintUV = NoLastPaintUV;
             TextureSlot.Release(ref maskOverlayTexture);
             TextureSlot.Release(ref zoneMaskOverlayTexture);
+            // メッシュの UV のチャート地図(ヒープの外。4K で 64MB・8K で 256MB)も、リロード・閉じる前に返す(メモリの決まり:
+            // リロードの前は全部返す。返さないと、アンロードのファイナライザまで残る)。メッシュの探索結果は残すので、
+            // 次に要るとき(右クリック)に作り直す。作っている途中の背景の地図は、作り終わってから手放される。
+            _meshParts?.ReleaseMap();
         }
 
     }
