@@ -48,6 +48,47 @@ namespace Iroca {
             ("NOTICE", "MobileSAM-NOTICE.txt", "15d6804f44d7e362c17ecdfc48875fffd1a98f64d255ad7537003c0d0b72c009", 1426L),
         };
 
+        // 上の 2 つと同じ中身の写しを、パッケージにも同梱している(パッケージのルートからの相対。中身が同じことは
+        // scripts/source_checks/test_model_notices_bundled.py が sha256 で見る)。
+        const string BundledNoticesFolder = "Code/MaskSuggest/Licenses";
+        static bool s_bundledNoticesPlaced;
+
+        /// <summary>
+        /// モデルの置き場にライセンス表示(<see cref="NoticeFiles"/>)が無ければ、パッケージに同梱した写しを置く(通信しない)。
+        /// モデルが置き場に揃っているときに呼ぶ。ダウンロードのときに置く分は、0.3.x 以前にモデルを入れた人・旧フォルダから
+        /// 引き継いだ人・手で置いた人には届かない(モデルがあると、ダウンロードの操作が出ない)。
+        /// ドメインごとに 1 回だけ確かめる。置けなくても(フォルダが読み取り専用など)AI は止めない。
+        /// </summary>
+        public static void PlaceBundledNoticesIfMissing() {
+            if (s_bundledNoticesPlaced || InProgress) {
+                return;   // ダウンロード中は、ダウンロードが置く
+            }
+            s_bundledNoticesPlaced = true;
+            try {
+                string dir = MaskSuggestBridge.ModelsDirectory;
+                string packageRoot = null;
+                foreach (var (_, file, _, _) in NoticeFiles) {
+                    string dst = Path.Combine(dir, file);
+                    if (File.Exists(dst)) {
+                        continue;
+                    }
+                    if (packageRoot == null) {
+                        var pkg = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(MaskSuggestModelDownload).Assembly);
+                        if (pkg == null || string.IsNullOrEmpty(pkg.resolvedPath)) {
+                            return;   // パッケージとして入っていない(同梱の置き場が分からない)
+                        }
+                        packageRoot = pkg.resolvedPath;
+                    }
+                    string src = Path.Combine(packageRoot, BundledNoticesFolder, file);
+                    if (File.Exists(src)) {
+                        File.Copy(src, dst, overwrite: false);
+                    }
+                }
+            } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) {
+                // 置けないだけ。次に Unity を開いたときにもう一度試す。
+            }
+        }
+
         // 実際に取る順。小さいライセンス表示を先に取り、通信できないときは大きいモデルを落とす前に止める。
         static readonly (string url, string file, string sha256, long size)[] Downloads = BuildDownloads();
 

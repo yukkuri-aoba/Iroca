@@ -243,6 +243,8 @@ namespace Iroca.SentisIntegration {
                 }
                 return false;
             }
+            // モデルのライセンス表示が置き場に無ければ、同梱の写しを置く(前の版で入れたモデル・手で置いたモデル)。
+            MaskSuggestModelDownload.PlaceBundledNoticesIfMissing();
             // 初回は ONNX→.sentis 変換込みで数秒かかる(2 回目以降はキャッシュで高速)。
             // ここは同期処理でエディタが止まるため、無反応に見えないよう進捗バーを出す。
             SetPhase(MaskSuggestPhase.LoadingModel);
@@ -285,7 +287,11 @@ namespace Iroca.SentisIntegration {
                 return;
             }
             MaskSuggestBridge.MigrateLegacyModelsIfNeeded();
-            var next = SentisModelRepository.ModelsPresent() ? MaskSuggestPhase.NotLoaded : MaskSuggestPhase.NoModel;
+            bool present = SentisModelRepository.ModelsPresent();
+            if (present) {
+                MaskSuggestModelDownload.PlaceBundledNoticesIfMissing();
+            }
+            var next = present ? MaskSuggestPhase.NotLoaded : MaskSuggestPhase.NoModel;
             if (_phase != next) {
                 SetPhase(next);
             }

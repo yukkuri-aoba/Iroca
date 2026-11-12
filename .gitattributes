@@ -1,3 +1,7 @@
 # Git for Windows の sh は CRLF のフックスクリプトを正しく実行できないことがあるため LF を強制
 scripts/hooks/* text eol=lf
 *.sh text eol=lf
+
+# モデルのライセンス表示は、ダウンロードするものと 1 バイトも違わない形で持つ(改行を変えると sha256 が合わなくなる。
+# scripts/source_checks/test_model_notices_bundled.py が突き合わせる)
+Code/MaskSuggest/Licenses/*.txt -text

@@ -1,0 +1,30 @@
+NOTICE — MobileSAM ONNX models for Iroca "AI Mask Suggestion"
+
+The files in this distribution:
+
+  mobile_sam_encoder.onnx  (sha256 25fb1f619027c2e81a7e54425c148e16e99990c8f0d83eefd29a0f4495a75865)
+  mobile_sam_decoder.onnx  (sha256 2196a2a4b153528d00383c7c6a363dd765725c10097bb06233917b171d8ceda4)
+
+are derived works of MobileSAM:
+
+  MobileSAM — Faster Segment Anything
+  https://github.com/ChaoningZhang/MobileSAM
+  Copyright (c) the MobileSAM authors
+  Licensed under the Apache License, Version 2.0
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Modifications (by the Iroca project):
+  - The original PyTorch checkpoint (mobile_sam.pt, ViT-T variant) was exported to
+    ONNX (opset 17) and split into two graphs:
+      * encoder: the image encoder as-is (input: preprocessed 1x3x1024x1024 image)
+      * decoder: prompt encoder + mask decoder as a fully static graph
+        (fixed single click + padding point; dynamic resize postprocessing removed)
+  - No weights were retrained or fine-tuned.
+
+MobileSAM itself builds upon Segment Anything (Meta AI Research,
+https://github.com/facebookresearch/segment-anything, Apache-2.0).
+
+These model files are distributed under the same Apache License, Version 2.0.
+They are provided on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied. See the License for the specific language
+governing permissions and limitations under the License.

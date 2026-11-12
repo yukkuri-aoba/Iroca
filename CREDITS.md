@@ -290,7 +290,7 @@ Birdie Time
 ### サードパーティ
 
 - **VPMPackageAutoInstaller**（`Iroca_Installer.unitypackage` に同梱）: Copyright (c) 2022 anatawa12 — MIT License（[全文](https://github.com/anatawa12/VPMPackageAutoInstaller/blob/master/LICENSE)）
-- **MobileSAM**（AI マスク提案のモデル。いろか本体には含まれず、初回にダウンロード）: Apache License 2.0 — 変換済みモデルと NOTICE は [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models)
+- **MobileSAM**（AI マスク提案のモデル。いろか本体には含まれず、初回にダウンロード）: Apache License 2.0 — 変換済みモデルと NOTICE は [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models)。ライセンスの全文と NOTICE の写しは、いろか本体にも入っています（`Code/MaskSuggest/Licenses/`。モデルと同じフォルダへ置くため）
 - **Noto Sans JP**（オンラインマニュアルの書体。マニュアルに出る字だけに絞って使用。いろか本体には含まれません）: Copyright 2014-2021 Adobe — SIL Open Font License 1.1（[全文](docs/manual/fonts/OFL.txt)）
 
 ### 連絡先
@@ -332,7 +332,7 @@ The list of creators and products is kept in one place, in the [Japanese section
 ### Third-party
 
 - **VPMPackageAutoInstaller** (bundled in `Iroca_Installer.unitypackage`): Copyright (c) 2022 anatawa12 — MIT License ([full text](https://github.com/anatawa12/VPMPackageAutoInstaller/blob/master/LICENSE))
-- **MobileSAM** (the AI mask suggestion model; not included in Iroca itself, downloaded on first use): Apache License 2.0 — the converted model and NOTICE are in [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models)
+- **MobileSAM** (the AI mask suggestion model; not included in Iroca itself, downloaded on first use): Apache License 2.0 — the converted model and NOTICE are in [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models). Copies of the license text and the NOTICE are also included in Iroca itself (`Code/MaskSuggest/Licenses/`, to place them next to the model)
 - **Noto Sans JP** (the typeface of the online manual, limited to the characters used in the manual; not included in Iroca itself): Copyright 2014-2021 Adobe — SIL Open Font License 1.1 ([full text](docs/manual/fonts/OFL.txt))
 
 ### Contact
