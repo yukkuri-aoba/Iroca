@@ -438,11 +438,12 @@ namespace Iroca {
             if (!MaskRegionEdit.RegionBounds(region, Width, Height, out int x0, out int y0, out int x1, out int y1)) {
                 return 0;
             }
-            // 印の置き場(1 画素 1 バイト)。書くのは範囲の周りの窓の中だけなので、中身は初期化しない。
-            var near = NativeBools.AllocateUninitialized(Width, Height);
+            int reach = MaskRegionEdit.CrumbReach(Width, Height);
+            MaskRegionEdit.CrumbWindow(Width, Height, x0, y0, x1, y1, reach, out int wx0, out int wy0, out int wx1, out int wy1);
+            // 印の置き場(1 画素 1 バイト)は、範囲の周りの窓の大きさだけ。MarkNear が全部を書くので、中身は初期化しない。
+            var near = NativeBools.AllocateUninitialized(wx1 - wx0, wy1 - wy0);
             try {
-                MaskRegionEdit.MarkNear(region, Width, Height, x0, y0, x1, y1, MaskRegionEdit.CrumbReach(Width, Height),
-                    (byte*)near.Ptr, out int wx0, out int wy0, out int wx1, out int wy1);
+                MaskRegionEdit.MarkNear(region, Width, reach, (byte*)near.Ptr, wx0, wy0, wx1, wy1);
                 var work = new List<int>();
                 return MaskRegionEdit.EraseCrumbs(region, first, Width, Height, (byte*)near.Ptr, wx0, wy0, wx1, wy1, 0, work)
                      + MaskRegionEdit.EraseCrumbs(region, second, Width, Height, (byte*)near.Ptr, wx0, wy0, wx1, wy1, 1, work);

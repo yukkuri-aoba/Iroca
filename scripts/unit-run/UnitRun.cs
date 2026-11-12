@@ -1185,17 +1185,20 @@ namespace Iroca.UnitRun {
             for (int i = 0; i < w * h; i++) {
                 region[i] = Bit(regionBits, i);
             }
-            var near = new byte[w * h];
-            for (int i = 0; i < near.Length; i++) {
-                near[i] = 0xEE;   // 窓の外は読まれないこと(初期化しないで渡す)
-            }
             fixed (bool* g = region)
-            fixed (byte* n = near)
             fixed (ulong* b = layer) {
                 int crumbs = 0;
                 if (MaskRegionEdit.RegionBounds(g, w, h, out int x0, out int y0, out int x1, out int y1)) {
-                    MaskRegionEdit.MarkNear(g, w, h, x0, y0, x1, y1, reach, n, out int wx0, out int wy0, out int wx1, out int wy1);
-                    crumbs = MaskRegionEdit.EraseCrumbs(g, b, w, h, n, wx0, wy0, wx1, wy1, 0, new List<int>());
+                    MaskRegionEdit.CrumbWindow(w, h, x0, y0, x1, y1, reach, out int wx0, out int wy0, out int wx1, out int wy1);
+                    // 印の置き場は窓の大きさだけ。前の中身に頼らないこと(初期化しないで渡す)を、ごみを入れて確かめる。
+                    var near = new byte[(wx1 - wx0) * (wy1 - wy0)];
+                    for (int i = 0; i < near.Length; i++) {
+                        near[i] = 0xEE;
+                    }
+                    fixed (byte* n = near) {
+                        MaskRegionEdit.MarkNear(g, w, reach, n, wx0, wy0, wx1, wy1);
+                        crumbs = MaskRegionEdit.EraseCrumbs(g, b, w, h, n, wx0, wy0, wx1, wy1, 0, new List<int>());
+                    }
                 }
                 return crumbs + MaskRegionEdit.Apply(MaskRegionOp.ClearHere, g, w * h, b, null, null).changed;
             }

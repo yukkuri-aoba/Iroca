@@ -490,27 +490,35 @@ namespace Iroca {
         private const byte NearSeen = 3;     // 調べ終えた(これ以降の値は層ごとに 1 つずつ使う)
 
         /// <summary>
-        /// 範囲から縦横とも reach 画素以内の画素に印を付ける(<see cref="EraseCrumbs"/> の下ごしらえ)。印を付けるのは、範囲の
-        /// 外接矩形 [x0, x1) × [y0, y1) を reach + 1 だけ広げた窓の中だけで、窓を [wx0, wx1) × [wy0, wy1) に返す。
-        /// near は w * h バイト(中身は問わない。窓の中だけを書く)。
+        /// 切れ端を探す窓 [wx0, wx1) × [wy0, wy1)。範囲の外接矩形 [x0, x1) × [y0, y1) を reach + 1 だけ広げて、画像で切ったもの。
+        /// 印の置き場(near)はこの窓の大きさだけあればよい(以前は画像全体の大きさを確保していた。8K で 64MiB)。
         /// </summary>
-        public static void MarkNear(bool* region, int w, int h, int x0, int y0, int x1, int y1, int reach, byte* near,
-                                    out int wx0, out int wy0, out int wx1, out int wy1) {
+        public static void CrumbWindow(int w, int h, int x0, int y0, int x1, int y1, int reach,
+                                       out int wx0, out int wy0, out int wx1, out int wy1) {
             wx0 = System.Math.Max(0, x0 - reach - 1);
             wy0 = System.Math.Max(0, y0 - reach - 1);
             wx1 = System.Math.Min(w, x1 + reach + 1);
             wy1 = System.Math.Min(h, y1 + reach + 1);
+        }
+
+        /// <summary>
+        /// 範囲から縦横とも reach 画素以内の画素に印を付ける(<see cref="EraseCrumbs"/> の下ごしらえ)。印を付けるのは
+        /// 窓(<see cref="CrumbWindow"/>)の中だけ。near は窓の大きさ((wx1 - wx0) × (wy1 - wy0) バイト。行ごとに窓の幅で並ぶ)で、
+        /// 中身は問わない(全部を書く)。w は範囲(region)の 1 行の画素数。
+        /// </summary>
+        public static void MarkNear(bool* region, int w, int reach, byte* near, int wx0, int wy0, int wx1, int wy1) {
+            int ww = wx1 - wx0;
             // 横: 行ごとに、左からと右からの 2 回なぞる(範囲の画素を見たら残りを reach + 1 に戻し、残りがある間は印)。
             for (int y = wy0; y < wy1; y++) {
-                byte* n = near + (long)y * w;
-                bool* g = region + (long)y * w;
+                byte* n = near + (long)(y - wy0) * ww;
+                bool* g = region + (long)y * w + wx0;
                 int left = 0;
-                for (int x = wx0; x < wx1; x++) {
+                for (int x = 0; x < ww; x++) {
                     left = g[x] ? reach + 1 : left - 1;
                     n[x] = left > 0 ? NearRow : NearNo;
                 }
                 left = 0;
-                for (int x = wx1 - 1; x >= wx0; x--) {
+                for (int x = ww - 1; x >= 0; x--) {
                     left = g[x] ? reach + 1 : left - 1;
                     if (left > 0) {
                         n[x] = NearRow;
@@ -518,18 +526,19 @@ namespace Iroca {
                 }
             }
             // 縦: 列ごとに同じことを、横の印(NearRow)を起点にして行う。足した印は NearColumn にして、起点と区別する。
-            for (int x = wx0; x < wx1; x++) {
+            int wh = wy1 - wy0;
+            for (int x = 0; x < ww; x++) {
                 int left = 0;
-                for (int y = wy0; y < wy1; y++) {
-                    byte* n = near + (long)y * w + x;
+                for (int y = 0; y < wh; y++) {
+                    byte* n = near + (long)y * ww + x;
                     left = *n == NearRow ? reach + 1 : left - 1;
                     if (left > 0 && *n == NearNo) {
                         *n = NearColumn;
                     }
                 }
                 left = 0;
-                for (int y = wy1 - 1; y >= wy0; y--) {
-                    byte* n = near + (long)y * w + x;
+                for (int y = wh - 1; y >= 0; y--) {
+                    byte* n = near + (long)y * ww + x;
                     left = *n == NearRow ? reach + 1 : left - 1;
                     if (left > 0 && *n == NearNo) {
                         *n = NearColumn;
@@ -547,8 +556,8 @@ namespace Iroca {
         /// </para>
         /// 切れ端とするのは、範囲の外に残るマスクのかたまり(8 方向)のうち、(1) これから消す画素に接していて、
         /// (2) 全体が範囲の近く(<see cref="MarkNear"/> の印の中)に収まるもの。隣の部分のマスクは範囲から遠くまで
-        /// 続くので残る。消した画素数を返す。near は <see cref="MarkNear"/> が書いたもの、layer は何番目の層か(0 から。
-        /// 同じ near を層ごとに使い回すため)、work は作業用。
+        /// 続くので残る。消した画素数を返す。near は <see cref="MarkNear"/> が書いたもの(窓の大きさ)、layer は何番目の層か
+        /// (0 から。同じ near を層ごとに使い回すため)、work は作業用。
         /// </summary>
         public static int EraseCrumbs(bool* region, ulong* bits, int w, int h, byte* near,
                                       int wx0, int wy0, int wx1, int wy1, int layer,
@@ -557,17 +566,19 @@ namespace Iroca {
                 return 0;
             }
             byte seen = (byte)(NearSeen + layer);
+            int ww = wx1 - wx0;
             int erased = 0;
             for (int y = wy0; y < wy1; y++) {
                 for (int x = wx0; x < wx1; x++) {
                     int start = y * w + x;
-                    if (near[start] == NearNo || near[start] == seen || region[start] || !Bit(bits, start)) {
+                    byte* nearStart = near + (long)(y - wy0) * ww + (x - wx0);
+                    if (*nearStart == NearNo || *nearStart == seen || region[start] || !Bit(bits, start)) {
                         continue;
                     }
                     // 範囲の近くにある残りを、近くの中だけでたどる。遠くへ続いていたら(escaped)切れ端ではない。
                     work.Clear();
                     work.Add(start);
-                    near[start] = seen;
+                    *nearStart = seen;
                     bool escaped = false, touchesCleared = false;
                     for (int head = 0; head < work.Count; head++) {
                         int i = work[head];
@@ -578,13 +589,20 @@ namespace Iroca {
                                 if (j == i || !Bit(bits, j)) {
                                     continue;
                                 }
-                                bool inWindow = nx >= wx0 && nx < wx1 && ny >= wy0 && ny < wy1;
                                 if (region[j]) {
                                     touchesCleared = true;   // 範囲の中のマスク = これから消す画素
-                                } else if (!inWindow || near[j] == NearNo) {
+                                    continue;
+                                }
+                                // 印(near)があるのは窓の中だけ。窓の外は「遠い」。
+                                if (nx < wx0 || nx >= wx1 || ny < wy0 || ny >= wy1) {
                                     escaped = true;
-                                } else if (near[j] != seen) {
-                                    near[j] = seen;
+                                    continue;
+                                }
+                                byte* nearJ = near + (long)(ny - wy0) * ww + (nx - wx0);
+                                if (*nearJ == NearNo) {
+                                    escaped = true;
+                                } else if (*nearJ != seen) {
+                                    *nearJ = seen;
                                     work.Add(j);
                                 }
                             }
