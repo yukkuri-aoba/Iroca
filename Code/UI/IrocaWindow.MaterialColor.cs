@@ -180,7 +180,8 @@ namespace Iroca {
             if (!MaterialShadowColors.TryGetColors(Session?.zones, out var sample, out var target)) {
                 return;
             }
-            var components = Object.FindObjectsByType<IrocaRecolor>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            // シーンの「Iroca Recolor」は、影の色がずれているマテリアルが見つかってから探す(ほとんどのマテリアルは、ずれていない)。
+            IrocaRecolor[] components = null;
             foreach (var g in groups) {
                 foreach (var r in g) {
                     var m = r.material;
@@ -190,7 +191,11 @@ namespace Iroca {
                     foreach (var t in MaterialShadowColors.SeparateShadowTextures(m, source)) {
                         (_shadowTextures ??= new List<(Material, Texture)>()).Add((m, t));
                     }
-                    if (!MaterialShadowColors.NeedsMatch(m, sample, target) || IsShadowMatched(components, m, source)) {
+                    if (!MaterialShadowColors.NeedsMatch(m, sample, target)) {
+                        continue;
+                    }
+                    components ??= Object.FindObjectsByType<IrocaRecolor>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                    if (IsShadowMatched(components, m, source)) {
                         continue;
                     }
                     (_shadowMismatch ??= new List<Material>()).Add(m);
@@ -218,15 +223,16 @@ namespace Iroca {
         /// ボタンで Iroca Recolor に設定を足す(マテリアルそのものは変えない)。閉じると、そのテクスチャでは Unity を閉じるまで出さない。
         /// </summary>
         private void DrawShadowColorNotice() {
+            // 閉じてある案内のためには読み直さない(読み直しはシーンの「Iroca Recolor」の全探索を含み、0.5 秒ごとに走る)。
+            if (SourceTexture == null || TextureNoticeDismissed(IrocaPrefs.ShadowColorDismissedPrefix)) {
+                return;
+            }
             RefreshShadowMismatch();
             var materials = _shadowMismatch;
             var textures = _shadowTextures;
             bool mismatch = materials != null && materials.Count > 0;
             bool separate = textures != null && textures.Count > 0;
-            if ((!mismatch && !separate) || SourceTexture == null) {
-                return;
-            }
-            if (TextureNoticeDismissed(IrocaPrefs.ShadowColorDismissedPrefix)) {
+            if (!mismatch && !separate) {
                 return;
             }
 
