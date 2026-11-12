@@ -470,8 +470,9 @@ namespace Iroca {
             return tex;
         }
 
-        // 以前の作り(面積平均で取り込み後の寸法へ・Apply の単純なフィルタでミップ・CompressTexture)。取り込み設定の無い
-        // 元テクスチャと、比べる計測(TextureGeneratorBenchTests)が使う。
+        // 以前の作り(面積平均で取り込み後の寸法へ・Apply の単純なフィルタでミップ・CompressTexture)。製品は呼ばない
+        // (取り込み設定の無い元テクスチャは、CreateMatching が同じ 2 段を自分で行う)。今の作りと比べる計測
+        // (TextureGeneratorBenchTests)だけが、名前で呼ぶ。
         private static Texture2D CreateMatchingByApply(NativePixels pixels, Texture2D like) {
             var tex = CreateUncompressed(pixels, like);
             Compress(tex, like);
@@ -722,7 +723,8 @@ namespace Iroca {
             tex.Apply(updateMipmaps: tex.mipmapCount > 1, makeNoLongerReadable: false);
         }
 
-        // 原本ファイルをそのまま読む形式か(LoadImage が読める PNG・JPG。ExportPipeline.ReadSourcePixels と同じ)。
+        // 原本ファイルをそのまま読む形式か(PNG・JPG。原本の読み込み = ExportPipeline.ReadWorkingPixelsNative が、取り込み済みの
+        // テクスチャでなくファイルを読む形式)。ここは拡張子で見るが、読む側は中身で見る(中身が PNG の .tga では食い違う)。
         private static bool ReadsSourceFile(string assetPath) {
             string ext = Path.GetExtension(assetPath).ToLowerInvariant();
             return ext == ".png" || ext == ".jpg" || ext == ".jpeg";
@@ -860,8 +862,9 @@ namespace Iroca {
 
         /// <summary>
         /// 入力の鍵: 元テクスチャの取り込み結果(ファイル内容と取り込み設定のハッシュ)・寸法・形式・ミップ・レシピの formatVersion・
-        /// 作業解像度の規則・レシピの中身(sessionJson)の SHA256。いろかのコードは入れない(コードが変わっても入力は同じと
-        /// 分かるように。D-1 の「古くなった」の判定に使う)。
+        /// 作業解像度の規則・レシピの中身(sessionJson)の SHA256。いろかのコードは入れない(コードの同一性とは分けて持つ。
+        /// 「前の版の仕上がりのままか」の判定は、いまは <see cref="RecipeOutputVersion"/> が版の番号で行い、この鍵は使っていない。
+        /// この鍵だけを読むのはテスト)。
         /// </summary>
         internal static string InputsKey(IrocaRecipe recipe, Texture2D like) => InputsMemo(recipe, like).inputsKey;
 
