@@ -528,7 +528,10 @@ namespace Iroca {
                         EditorStyles.toolbarButton, GUILayout.ExpandWidth(false))) {
                     if (EditorUtility.DisplayDialog(
                             Localization.Confirm, Localization.ResetSessionConfirm, Localization.OK, Localization.Cancel)) {
-                        ResetCurrentSession();
+                        // ゾーンの数が変わるので、追加・削除と同じく次の Layout で行う(ProcessPendingZoneChanges)。この場で
+                        // 行うと、同じイベントの残りが Layout と違う数のカードを描く。
+                        _pendingReset = true;
+                        Repaint();
                     }
                 }
             }

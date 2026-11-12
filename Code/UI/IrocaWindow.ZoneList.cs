@@ -15,6 +15,8 @@ namespace Iroca {
         // 変更を次の Layout イベント開始時まで遅延させる。
         private bool _pendingAddZone;
         private int _pendingRemoveZoneIndex = -1;
+        // ヘッダーの「リセット」(確認済み)。ゾーンが全部無くなるので、これも次の Layout で行う。
+        private bool _pendingReset;
 
         // 「スポイトで変えたい色を選ぶ / 別の色を追加」のクリックで作るゾーン（NewZoneEyedropperId 参照）。
         // プレビューの MouseDown で受け、ゾーンの追加と色の設定をその後で一緒に行う(RequestNewZoneFromSample)。
@@ -247,6 +249,13 @@ namespace Iroca {
         private void ProcessPendingZoneChanges() {
             if (Event.current.type != EventType.Layout) {
                 return;
+            }
+            if (_pendingReset) {
+                _pendingReset = false;
+                // 押してからここまでの間にテクスチャが外れた・ジョブが始まったなら、何もしない(ボタンを無効にする条件と同じ)。
+                if (SourceTexture != null && !IsJobBlockingUI) {
+                    ResetCurrentSession();
+                }
             }
             ReleaseZoneFields();
 
