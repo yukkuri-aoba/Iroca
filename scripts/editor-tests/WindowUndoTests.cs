@@ -737,22 +737,24 @@ namespace Iroca.EditorTests {
         public void ClearHere_RemovesOnlyTheRegion_AndUndoBringsItBack() {
             AddZones("服");
             string id = _win.Session.zones[0].id;
-            ApplyToMask(id, MaskRegionOp.PaintHere, 0, 1);
-            ApplyToMask(id, MaskRegionOp.DontPaintHere, 4, 5);
+            // 範囲の外に残す画素は、消す画素と接しない所に置く(接していて範囲のすぐそばに収まる残りは、縁の切れ端として
+            // 一緒に消える。ClearHere_ByRegion_TakesTheEdgeLeftoversToo)。
+            ApplyToMask(id, MaskRegionOp.PaintHere, 0, 2);
+            ApplyToMask(id, MaskRegionOp.DontPaintHere, 8, 10);
 
-            ApplyToMask(id, MaskRegionOp.ClearHere, 1, 5);
+            ApplyToMask(id, MaskRegionOp.ClearHere, 2, 10);
             Assert.IsTrue(_win.Editing.Masks.Layer(true, id).Get(0), "範囲の外の含めるは残る");
-            Assert.IsFalse(_win.Editing.Masks.Layer(true, id).Get(1), "範囲の中の含めるは消える");
-            Assert.IsTrue(_win.Editing.Masks.Layer(false, id).Get(4), "範囲の外の除外は残る");
-            Assert.IsFalse(_win.Editing.Masks.Layer(false, id).Get(5), "範囲の中の除外は消える");
+            Assert.IsFalse(_win.Editing.Masks.Layer(true, id).Get(2), "範囲の中の含めるは消える");
+            Assert.IsTrue(_win.Editing.Masks.Layer(false, id).Get(8), "範囲の外の除外は残る");
+            Assert.IsFalse(_win.Editing.Masks.Layer(false, id).Get(10), "範囲の中の除外は消える");
 
             Undo.PerformUndo();
-            Assert.IsTrue(_win.Editing.Masks.Layer(true, id).Get(1), "Undo で含めるが戻る");
-            Assert.IsTrue(_win.Editing.Masks.Layer(false, id).Get(5), "Undo で除外が戻る");
+            Assert.IsTrue(_win.Editing.Masks.Layer(true, id).Get(2), "Undo で含めるが戻る");
+            Assert.IsTrue(_win.Editing.Masks.Layer(false, id).Get(10), "Undo で除外が戻る");
 
             Undo.PerformRedo();
-            Assert.IsFalse(_win.Editing.Masks.Layer(true, id).Get(1), "やり直すと含めるがまた消える");
-            Assert.IsFalse(_win.Editing.Masks.Layer(false, id).Get(5), "やり直すと除外がまた消える");
+            Assert.IsFalse(_win.Editing.Masks.Layer(true, id).Get(2), "やり直すと含めるがまた消える");
+            Assert.IsFalse(_win.Editing.Masks.Layer(false, id).Get(10), "やり直すと除外がまた消える");
         }
 
         [Test]
@@ -792,13 +794,97 @@ namespace Iroca.EditorTests {
         public void ClearHere_ToCommon_ClearsOnlyTheCommonMask() {
             AddZones("服");
             string id = _win.Session.zones[0].id;
-            ApplyToMask(null, MaskRegionOp.DontPaintHere, 3, 7);
+            ApplyToMask(null, MaskRegionOp.DontPaintHere, 3, 11);   // (3, 0) と、接しない (3, 2)
             ApplyToMask(id, MaskRegionOp.DontPaintHere, 3);
 
             ApplyToMask(null, MaskRegionOp.ClearHere, 3);
             Assert.IsFalse(_win.Editing.Masks.Common.Get(3), "範囲の中の共通の除外は消える");
-            Assert.IsTrue(_win.Editing.Masks.Common.Get(7), "範囲の外の共通の除外は残る");
+            Assert.IsTrue(_win.Editing.Masks.Common.Get(11), "範囲の外の共通の除外は残る");
             Assert.IsTrue(_win.Editing.Masks.Layer(false, id).Get(3), "ゾーンの除外は触らない");
+        }
+
+        // 画素 (x, y) の中心の UV。
+        private static Vector2 UvOf(int x, int y) => new Vector2((x + 0.5f) / W, (y + 0.5f) / H);
+
+        [Test]
+        public void ClearPiece_RemovesTheWholeConnectedPiece_AndUndoBringsItBack() {
+            AddZones("服");
+            string id = _win.Session.zones[0].id;
+            // 除外: 下の行の (0,0)(1,0) と、斜めにつながる (2,1)。離れた (3,3) は別のかたまり。
+            ApplyToMask(id, MaskRegionOp.DontPaintHere, 0, 1, 1 * W + 2, 3 * W + 3);
+            ApplyToMask(id, MaskRegionOp.PaintHere, 3 * W + 0);
+
+            Undo.IncrementCurrentGroup();
+            Assert.IsTrue(_win._maskView.ClearPieceAt(UvOf(0, 0), id, 0, out var result));
+            Undo.IncrementCurrentGroup();
+            Assert.AreEqual(3, result.changed, "つながっている 3 画素");
+            var exclude = _win.Editing.Masks.Layer(false, id);
+            Assert.IsFalse(exclude.Get(0) || exclude.Get(1) || exclude.Get(1 * W + 2), "かたまりは全部消える");
+            Assert.IsTrue(exclude.Get(3 * W + 3), "離れたかたまりは残る");
+            Assert.IsTrue(_win.Editing.Masks.Layer(true, id).Get(3 * W + 0), "含めるは触らない");
+
+            Undo.PerformUndo();
+            exclude = _win.Editing.Masks.Layer(false, id);
+            Assert.IsTrue(exclude.Get(0) && exclude.Get(1) && exclude.Get(1 * W + 2), "Undo でかたまりが戻る");
+
+            Undo.PerformRedo();
+            Assert.IsFalse(_win.Editing.Masks.Layer(false, id).Get(1), "やり直すとまた消える");
+        }
+
+        [Test]
+        public void ClearPiece_WithNothingHere_LeavesNoUndoStep_AndSaysSo() {
+            AddZones("服");
+            string id = _win.Session.zones[0].id;
+            ApplyToMask(id, MaskRegionOp.DontPaintHere, 0);
+            long revision = _win.Editing.Document.maskRevision;
+
+            Assert.IsTrue(_win._maskView.ClearPieceAt(UvOf(3, 3), id, 1, out var result));
+            Assert.AreEqual(0, result.changed, "消す物が無い");
+            Assert.AreEqual(revision, _win.Editing.Document.maskRevision, "マスクの版が進まない");
+            var dest = new MaskPaintView.MaskDestination(id, MaskRegionOp.ClearHere);
+            StringAssert.Contains(Localization.NotifyClearHereNothing, _win._maskView.DescribeRegionEdit(dest, true, result));
+
+            Undo.PerformUndo();
+            var exclude = _win.Editing.Masks.Layer(false, id);
+            Assert.IsFalse(exclude != null && exclude.Get(0), "次の Ctrl+Z は、その前の操作を戻す");
+        }
+
+        [Test]
+        public void ClearPiece_NearTheClick_TakesTheNearerLayerOnly() {
+            AddZones("服");
+            string id = _win.Session.zones[0].id;
+            ApplyToMask(id, MaskRegionOp.DontPaintHere, 0 * W + 0);   // クリック (1, 0) から距離 1
+            ApplyToMask(id, MaskRegionOp.PaintHere, 0 * W + 3);       // 距離 2
+
+            Assert.IsTrue(_win._maskView.ClearPieceAt(UvOf(1, 0), id, 2, out var result));
+            Assert.AreEqual(1, result.changed);
+            Assert.IsFalse(_win.Editing.Masks.Layer(false, id).Get(0), "近いほう(除外)が消える");
+            Assert.IsTrue(_win.Editing.Masks.Layer(true, id).Get(3), "遠いほう(含める)は残る");
+        }
+
+        [Test]
+        public void ClearPiece_ToCommon_ClearsOnlyTheCommonPiece() {
+            AddZones("服");
+            string id = _win.Session.zones[0].id;
+            ApplyToMask(null, MaskRegionOp.DontPaintHere, 3, 2 * W + 0);
+            ApplyToMask(id, MaskRegionOp.DontPaintHere, 3);
+
+            Assert.IsTrue(_win._maskView.ClearPieceAt(UvOf(3, 0), null, 0, out var result));
+            Assert.AreEqual(1, result.changed);
+            Assert.IsFalse(_win.Editing.Masks.Common.Get(3), "クリックした所の共通の除外は消える");
+            Assert.IsTrue(_win.Editing.Masks.Common.Get(2 * W + 0), "離れた共通の除外は残る");
+            Assert.IsTrue(_win.Editing.Masks.Layer(false, id).Get(3), "ゾーンの除外は触らない");
+        }
+
+        [Test]
+        public void ClearHere_ByRegion_TakesTheEdgeLeftoversToo() {
+            AddZones("服");
+            string id = _win.Session.zones[0].id;
+            // 塗ったときの範囲は下の行の 3 画素。消すときの範囲は 1 画素ずれている(AI が見分け直したときのずれ)。
+            ApplyToMask(id, MaskRegionOp.DontPaintHere, 0, 1, 2);
+            ApplyToMask(id, MaskRegionOp.ClearHere, 1, 2, 3);
+            var exclude = _win.Editing.Masks.Layer(false, id);
+            Assert.IsFalse(exclude.Get(0) || exclude.Get(1) || exclude.Get(2), "縁に残る 1 画素も消える");
         }
 
         [Test]

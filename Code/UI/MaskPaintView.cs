@@ -555,7 +555,8 @@ namespace Iroca {
         /// <see cref="MaskRegionEdit.PickClearTarget"/>)。無効のゾーンと、ソロ表示で見えていないゾーンは見ない。
         /// どのゾーンにもマスクが無ければ <paramref name="defaultZoneId"/>(ほかの操作と同じ宛先。ふつうは塗っているゾーン)。
         /// </summary>
-        public unsafe string ClearTargetZoneIdAt(Vector2 uv, string activeZoneId, string defaultZoneId) {
+        public unsafe string ClearTargetZoneIdAt(Vector2 uv, string activeZoneId, string defaultZoneId,
+                                                 int radius = MaskRegionEdit.ClearProbeRadius) {
             var zones = _host.Session?.zones;
             int w = maskWidth, h = maskHeight;
             if (zones == null || w <= 0 || h <= 0) {
@@ -579,8 +580,8 @@ namespace Iroca {
                 if (!z.enabled || (solo != null && z != solo)) {
                     continue;
                 }
-                hasMask[k] = MaskRegionEdit.AnyBitNear(BitsOf(Workspace.Layer(true, z.id)), w, h, cx, cy, MaskRegionEdit.ClearProbeRadius)
-                    || MaskRegionEdit.AnyBitNear(BitsOf(Workspace.Layer(false, z.id)), w, h, cx, cy, MaskRegionEdit.ClearProbeRadius);
+                hasMask[k] = MaskRegionEdit.AnyBitNear(BitsOf(Workspace.Layer(true, z.id)), w, h, cx, cy, radius)
+                    || MaskRegionEdit.AnyBitNear(BitsOf(Workspace.Layer(false, z.id)), w, h, cx, cy, radius);
             }
             int pick = MaskRegionEdit.PickClearTarget(hasMask, painting, active);
             return pick >= 0 ? zones[pick].id : defaultZoneId;
@@ -621,8 +622,36 @@ namespace Iroca {
 
         // 範囲(マスクと同じ寸法)を当てる本体。
         private unsafe bool ApplyRegion(bool* region, MaskDestination d, out MaskRegionEditResult result) {
+            MaskRegionEditResult r = default;
+            bool ok = EditAsOneStroke(d.zoneId, beforeWrite => Workspace.ApplyRegion(region, d.zoneId, d.op, beforeWrite, out r));
+            result = r;
+            return ok;
+        }
+
+        /// <summary>
+        /// 右クリックの「ここのマスクを消す」: クリックした所(<paramref name="uv"/>)にある、ゾーン <paramref name="zoneId"/>
+        /// (null = 全ゾーン共通)のマスクの、つながっているひとかたまりを消す。1 つの Undo ストロークになる。
+        /// AI もメッシュも使わない(規則は <see cref="MaskWorkspace.ClearPieceAt"/>)。<paramref name="radius"/> は
+        /// クリックの狙いの外れを許す幅(マスクの画素)。消す物が無ければ何も書かず、result.changed は 0。
+        /// 宛先のゾーンが消えていれば false。
+        /// </summary>
+        public bool ClearPieceAt(Vector2 uv, string zoneId, int radius, out MaskRegionEditResult result) {
             result = default;
-            if (d.zoneId != null && FindZone(d.zoneId) == null) {
+            EnsureMasks();
+            if (maskWidth <= 0 || maskHeight <= 0) {
+                return false;
+            }
+            PreviewCoords.UvToPixel(uv.x, uv.y, maskWidth, maskHeight, out int cx, out int cy);
+            MaskRegionEditResult r = default;
+            bool ok = EditAsOneStroke(zoneId, beforeWrite => Workspace.ClearPieceAt(zoneId, cx, cy, radius, beforeWrite, out r));
+            result = r;
+            return ok;
+        }
+
+        // マスクを書き換える操作 1 つを、1 つの Undo ストロークにする。edit には「書く直前に呼ぶ物」を渡す
+        // (呼ばれなければ何も書いていない)。宛先のゾーンが消えていれば false。
+        private bool EditAsOneStroke(string zoneId, System.Func<System.Action, bool> edit) {
+            if (zoneId != null && FindZone(zoneId) == null) {
                 return false;
             }
             // ブラシで塗っている途中に届いた AI 提案(推論を待ってから届く)は、塗りの前半と同じ「元に戻す」にまとめない(1 提案 = 1 Undo)。
@@ -632,7 +661,7 @@ namespace Iroca {
             }
             // 消す物が無かった「消す」は何も書かない(Undo にも空の手を積まない)。
             bool wrote = false;
-            bool ok = Workspace.ApplyRegion(region, d.zoneId, d.op, () => { wrote = true; BeginStroke(); }, out result);
+            bool ok = edit(() => { wrote = true; BeginStroke(); });
             if (!ok) {
                 return false;
             }

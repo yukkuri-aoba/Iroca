@@ -167,7 +167,7 @@ namespace Iroca {
                         + "今のゾーンとマスク。pointsUv（u, v の並び）で指定した場所の色・塗っているゾーン・マスク・UV の島。coverage でゾーンごとのおおよその割合）",
                     "Recolor(requestJson) -> { ok, texture, apply, avatar, recipe, output, preview, zones, maskEdits, warnings } か "
                         + "{ pending:true }（依頼 JSON: texture, changes:[{name, at:[u,v] | from, to}], "
-                        + "masks:[{op=paint|dont_paint|only|clear, at:[u,v], zone, common, by=ai|island|other_meshes, size=auto|fine|coarse}], "
+                        + "masks:[{op=paint|dont_paint|only|clear, at:[u,v], zone, common, by=ai|island|other_meshes|mask, size=auto|fine|coarse}], "
                         + "remove, reset, preset, apply=avatar|png|preview, avatar, output, overwrite, autoTune）",
                     "RecolorStatus() -> pending を返した Recolor の続き（終わるまで pending、終われば Recolor と同じ形）",
                     "RecolorStatus(requestJson) -> RecolorStatus() と同じ。Recolor に渡したのと同じ依頼 JSON を渡すと、その依頼の続きか"

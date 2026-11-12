@@ -71,8 +71,9 @@ namespace Iroca {
 
         // 「ここのマスクを消す」の宛先と項目の文字。宛先はマスクがあるゾーン(MaskPaintView.ClearTargetZoneIdAt)で、
         // 見出しのゾーンと違うときは項目にゾーンの名前を出す。マスクが 1 枚も無ければ項目を出さない
-        // (選んでも、AI の結果を待った末に「消すマスクはありません」となるだけ)。
-        private (string zoneId, string label) ClearItem(MaskPaintView maskView, Vector2 uv, string activeZoneId, string zoneId) {
+        // (選んでも「消すマスクはありません」となるだけ)。radius = クリックの狙いの外れを許す幅(マスクの画素)。
+        private (string zoneId, string label) ClearItem(MaskPaintView maskView, Vector2 uv, string activeZoneId, string zoneId,
+                                                        int radius) {
             var workspace = maskView.Workspace;
             if (zoneId == null) {
                 return (null, workspace.Common != null ? Localization.CtxClearHereCommon : null);
@@ -80,7 +81,7 @@ namespace Iroca {
             if (!workspace.HasLayers) {
                 return (zoneId, null);
             }
-            string target = maskView.ClearTargetZoneIdAt(uv, activeZoneId, zoneId);
+            string target = maskView.ClearTargetZoneIdAt(uv, activeZoneId, zoneId, radius);
             if (target == zoneId) {
                 return (zoneId, Localization.CtxClearHere);
             }
@@ -121,7 +122,10 @@ namespace Iroca {
             if (byPainting) {
                 zoneId = painting.id;
             }
-            var (clearZoneId, clearLabel) = ClearItem(maskView, uv, activeZoneId, zoneId);
+            // 縮小表示では画面の 1 画素がマスクの何画素にもなるので、マスクを探す範囲は表示の倍率から決める。
+            int clearRadius = MaskRegionEdit.ClearProbeRadiusFor(
+                previewRect.width > 0f ? maskView.maskWidth / previewRect.width : 0f);
+            var (clearZoneId, clearLabel) = ClearItem(maskView, uv, activeZoneId, zoneId, clearRadius);
             var ops = ContextOps(zoneId != null, clearLabel);
             string targetZoneId = zoneId;
             MaskPaintView.MaskDestination Dest(MaskRegionOp op) =>
@@ -139,9 +143,10 @@ namespace Iroca {
 
             // AI が判定した部分に当てる。推論は非同期で、結果は選んだ時点の宛先へ入る。
             var ai = maskView.SuggestController;
+            bool aiReady = ai != null && MaskSuggestSection.ToolReady;
             if (ai == null) {
                 menu.AddDisabledItem(new GUIContent(Localization.CtxAiNoSentis));
-            } else if (!MaskSuggestSection.ToolReady) {
+            } else if (!aiReady) {
                 menu.AddDisabledItem(new GUIContent(Localization.CtxAiNoModel));
             } else {
                 // メニューを読んでいる間に画像の解析を先行させる(準備済みなら no-op)。
@@ -149,9 +154,20 @@ namespace Iroca {
                     ai.PrepareSource(TrueSource, TrueSourceCacheKey());
                 }
                 foreach (var (op, label) in ops) {
+                    if (op == MaskRegionOp.ClearHere) {
+                        continue;   // 消すのは下の項目(AI を使わない)
+                    }
                     var dest = Dest(op);
                     menu.AddItem(new GUIContent(label), false, () => RequestAiSuggest(ai, uv, dest, null));
                 }
+            }
+            // ここのマスクを消す: クリックした所のマスクの、つながっているひとかたまりを消す。AI には見分けさせない
+            // (2026-11-12。消したい物はマスクそのものなので、その形を使う。AI に見分け直させると、塗ったときの範囲と
+            // 合わずに縁が残った)。AI が無くても使える。かたまりの一部だけを消すのは、下のサブメニュー(AI の部分・メッシュの島)。
+            if (clearLabel != null) {
+                menu.AddItem(new GUIContent(clearLabel), false, () => ClearMaskPiece(maskView, uv, clearZoneId, clearRadius));
+            }
+            if (aiReady) {
                 // この 1 回だけ大きさを変える。黒い服の上のファスナーのような描き込みは「自動」だと
                 // 服全体が取れるので、マスク編集の粒度を切り替えに行かずにここから選べるようにする(2026-10-15)。
                 foreach (var (gran, root) in GranularitySubmenus()) {
@@ -304,6 +320,13 @@ namespace Iroca {
                 _host.ShowNotification(new GUIContent(Localization.NotifyAiNotStarted));
             }
             _host.RequestRepaint();
+        }
+
+        // クリックした所のマスクの、つながっているひとかたまりを消す(その場で終わる。1 回の Undo で戻る)。
+        private void ClearMaskPiece(MaskPaintView maskView, Vector2 uv, string zoneId, int radius) {
+            bool ok = maskView.ClearPieceAt(uv, zoneId, radius, out var result);
+            var dest = new MaskPaintView.MaskDestination(zoneId, MaskRegionOp.ClearHere);
+            _host.ShowNotification(new GUIContent(maskView.DescribeRegionEdit(dest, ok, result)));
         }
 
         // メッシュの島(またはクリックしたメッシュ以外)に宛先の操作を当てる。1 回の Undo で戻る。

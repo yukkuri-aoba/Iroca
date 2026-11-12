@@ -130,11 +130,36 @@ namespace Iroca.EditorTests {
 
         [Test]
         public void Operations_AreAppliedInOrder_ClearUndoesTheEarlierOne() {
+            // 「消す」は AI に見分け直させない(提案は「塗らない」の 1 回だけ)。その場所のマスクのかたまりを消す。
             var r = RunOk(Request(AllRed(), RedZone,
                     "[{\"op\":\"dont_paint\",\"at\":[0.25,0.5]},{\"op\":\"clear\",\"at\":[0.25,0.5]}]"),
-                Half(left: true), Half(left: true));
+                Half(left: true));
             Assert.AreEqual(1f, r.changedFraction, 1e-4f);
             Assert.AreEqual(2, r.maskEdits.Count);
+            Assert.AreEqual("mask", r.maskEdits[1].by, "消すの既定はマスクのかたまり");
+            Assert.AreEqual(W * H / 2, r.maskEdits[1].changedPixels);
+            Assert.AreEqual(0.5f, r.maskEdits[1].regionFraction, 1e-4f);
+        }
+
+        [Test]
+        public void Clear_WhereThereIsNoMask_ChangesNothingAndSaysSo() {
+            var r = RunOk(Request(AllRed(), RedZone,
+                    "[{\"op\":\"dont_paint\",\"at\":[0.25,0.5]},{\"op\":\"clear\",\"at\":[0.75,0.5]}]"),
+                Half(left: true));
+            Assert.AreEqual(0.5f, r.changedFraction, 1e-4f, "左の「塗らない」は残る");
+            Assert.AreEqual(0, r.maskEdits[1].changedPixels);
+            Assert.IsTrue(r.warnings.Any(w => w.Contains("changed nothing")), string.Join(" | ", r.warnings));
+        }
+
+        [Test]
+        public void Clear_ByAi_ClearsOnlyInsideThePart() {
+            // 全体を「塗らない」にしてから、AI の部分(左半分)だけ消す。右半分の「塗らない」は残る。
+            var all = new MaskSuggestProposal { mask = NativeBools.CopyOf(Enumerable.Repeat(true, W * H).ToArray(), W, H), width = W, height = H };
+            var r = RunOk(Request(AllRed(), RedZone,
+                    "[{\"op\":\"dont_paint\",\"at\":[0.25,0.5]},{\"op\":\"clear\",\"at\":[0.25,0.5],\"by\":\"ai\"}]"),
+                all, Half(left: true));
+            Assert.AreEqual(0.5f, r.changedFraction, 1e-4f);
+            Assert.AreEqual("ai", r.maskEdits[1].by);
         }
 
         [Test]
@@ -209,6 +234,7 @@ namespace Iroca.EditorTests {
         [TestCase("[{\"op\":\"only\",\"at\":[0.5,0.5],\"common\":true}]", "common:true works only")]
         [TestCase("[{\"op\":\"clear\",\"at\":[0.5,0.5],\"common\":true,\"zone\":\"red\"}]", "not both")]
         [TestCase("[{\"op\":\"paint\",\"at\":[0.5,0.5],\"by\":\"other_meshes\"}]", "other_meshes")]
+        [TestCase("[{\"op\":\"dont_paint\",\"at\":[0.5,0.5],\"by\":\"mask\"}]", "by:'mask' works only")]
         [TestCase("[{\"op\":\"only\",\"at\":[0.5,0.5],\"by\":\"nope\"}]", "unknown mask 'by'")]
         [TestCase("[{\"op\":\"only\",\"at\":[0.5,0.5],\"size\":\"nope\"}]", "unknown mask size")]
         public void BadRequests_AreRefused(string masks, string expected) {

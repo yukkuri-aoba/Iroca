@@ -61,7 +61,8 @@ namespace Iroca {
             public string zone = "";
             // true なら全ゾーン共通(zone の代わり。dont_paint と clear だけ)
             public bool common;
-            // 範囲の決め方: "ai"(既定。AI が判定した部分) | "island"(メッシュの UV の島) | "other_meshes"(そのメッシュ以外の全部。dont_paint だけ)
+            // 範囲の決め方: "ai"(AI が判定した部分) | "island"(メッシュの UV の島) | "other_meshes"(そのメッシュ以外の全部。dont_paint だけ)
+            // | "mask"(その場所のマスクのつながったかたまり。clear だけ)。既定は clear なら "mask"、ほかは "ai"
             public string by = "";
             // by=ai の部分の大きさ: "auto"(既定) | "fine"(小さめ) | "coarse"(大きめ)
             public string size = "";
@@ -664,16 +665,22 @@ namespace Iroca {
                 return $"mask op '{opName}': 'at' must be [u, v] within 0..1 (bottom-left origin).";
             }
 
-            string byName = string.IsNullOrWhiteSpace(m.by) ? "ai" : m.by.Trim().ToLowerInvariant();
+            // 「消す」の既定は右クリックと同じ: その場所のマスクのつながったかたまり(AI に見分け直させない)。
+            string byName = !string.IsNullOrWhiteSpace(m.by) ? m.by.Trim().ToLowerInvariant()
+                : op == MaskRegionOp.ClearHere ? "mask" : "ai";
             AutomationMaskEdits.By by;
             switch (byName) {
                 case "ai": by = AutomationMaskEdits.By.Ai; break;
                 case "island": by = AutomationMaskEdits.By.Island; break;
                 case "other_meshes": by = AutomationMaskEdits.By.OtherMeshes; break;
-                default: return $"unknown mask 'by' '{m.by}' (use 'ai', 'island' or 'other_meshes').";
+                case "mask": by = AutomationMaskEdits.By.Mask; break;
+                default: return $"unknown mask 'by' '{m.by}' (use 'ai', 'island', 'other_meshes' or 'mask').";
             }
             if (by == AutomationMaskEdits.By.OtherMeshes && op != MaskRegionOp.DontPaintHere) {
                 return "by:'other_meshes' works only with op:'dont_paint'.";
+            }
+            if (by == AutomationMaskEdits.By.Mask && op != MaskRegionOp.ClearHere) {
+                return "by:'mask' works only with op:'clear'.";
             }
 
             string sizeName = string.IsNullOrWhiteSpace(m.size) ? "auto" : m.size.Trim().ToLowerInvariant();

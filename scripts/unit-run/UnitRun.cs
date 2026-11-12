@@ -9,6 +9,7 @@
 //   FAIL <名前>: <理由>
 // 終了コードは失敗件数。pytest(test_unit_run.py) はこの出力を件ごとに読む。
 using System;
+using System.Collections.Generic;
 using Color = UnityEngine.Color;
 using Mathf = UnityEngine.Mathf;
 using System.IO;
@@ -949,6 +950,314 @@ namespace Iroca.UnitRun {
             Check.Equal(false, AnyBitNear(bits, w, h, 0, 0, 2), "半径の外");
             Check.Equal(false, AnyBitNear(bits, w, h, 7, 7, 2), "画像の端をまたいでも外へ読まない");
             Check.Equal(false, AnyBitNear(null, w, h, 3, 3, 2), "層が無い");
+        }
+
+        // ─── ここのマスクを消す: つながったかたまり(AI を使わない) ───
+
+        // 文字の絵からマスクを作る(1 行目が画像の上。'#' が立っている画素)。行 0 = 画像の下端にそろえて返す。
+        private static ulong[] Art(out int w, out int h, params string[] rows) {
+            h = rows.Length;
+            w = rows[0].Length;
+            var b = new ulong[(w * h + 63) >> 6];
+            for (int y = 0; y < h; y++) {
+                string row = rows[h - 1 - y];
+                for (int x = 0; x < w; x++) {
+                    if (row[x] == '#') {
+                        int i = y * w + x;
+                        b[i >> 6] |= 1UL << (i & 63);
+                    }
+                }
+            }
+            return b;
+        }
+
+        private static string[] ArtOf(ulong[] b, int w, int h) {
+            var rows = new string[h];
+            for (int y = 0; y < h; y++) {
+                var c = new char[w];
+                for (int x = 0; x < w; x++) {
+                    c[x] = Bit(b, y * w + x) ? '#' : '.';
+                }
+                rows[h - 1 - y] = new string(c);
+            }
+            return rows;
+        }
+
+        private static void CheckArt(ulong[] b, int w, int h, string what, params string[] expected)
+            => Check.Equal(string.Join("/", expected), string.Join("/", ArtOf(b, w, h)), what);
+
+        // (x, yFromTop) の場所のかたまりを消す(yFromTop は絵の上からの行)。
+        private static unsafe MaskRegionEditResult ErasePiece(ulong[] bits, int w, int h, int x, int yFromTop, int radius,
+                                                              ulong[] common = null) {
+            var r = new MaskRegionEditResult();
+            int cy = h - 1 - yFromTop;
+            fixed (ulong* b = bits, c = common) {
+                int d = MaskRegionEdit.NearestBitDistance(b, w, h, x, cy, radius);
+                MaskRegionEdit.ErasePieceAt(b, w, h, x, cy, d, c, new List<int>(), ref r);
+            }
+            return r;
+        }
+
+        public static void MaskPiece_ErasesTheWholeConnectedPiece_AndNothingElse() {
+            var bits = Art(out int w, out int h,
+                "##....##",
+                "#.#...##",
+                "...#....",
+                "....#.#.",
+                "......#.");
+            var r = ErasePiece(bits, w, h, 0, 0, 0);
+            CheckArt(bits, w, h, "斜めにつながる所まで消え、離れたかたまりは残る",
+                "......##",
+                "......##",
+                "........",
+                "......#.",
+                "......#.");
+            Check.Equal(6, r.changed, "消した画素数");
+        }
+
+        public static void MaskPiece_FollowsBendsBackAndForth() {
+            // 行をまたいで戻る形(渦)でも取りこぼさない。
+            var bits = Art(out int w, out int h,
+                "#######",
+                "......#",
+                "#####.#",
+                "#...#.#",
+                "#.###.#",
+                "#.....#",
+                "#######");
+            int total = CountBits(bits, w * h);
+            var r = ErasePiece(bits, w, h, 2, 4, 0);
+            Check.Equal(0, CountBits(bits, w * h), "全部つながっているので全部消える");
+            Check.Equal(total, r.changed, "消した画素数");
+        }
+
+        public static void MaskPiece_NothingUnderTheClick_ErasesNothing() {
+            var bits = Art(out int w, out int h,
+                "#....",
+                ".....",
+                "....#");
+            var r = ErasePiece(bits, w, h, 2, 1, 1);
+            Check.Equal(2, CountBits(bits, w * h), "半径 1 の中に無ければ消さない");
+            Check.Equal(0, r.changed, "changed");
+        }
+
+        public static void MaskPiece_NearestPieceWins_WhenTwoAreInReach() {
+            var bits = Art(out int w, out int h,
+                "#.....#",
+                "#.....#");
+            // x = 2 から左は距離 2、右は距離 4。
+            var r = ErasePiece(bits, w, h, 2, 0, 4);
+            CheckArt(bits, w, h, "近いかたまりだけ消える", "......#", "......#");
+            Check.Equal(2, r.changed, "changed");
+        }
+
+        public static void MaskPiece_CountsCommonOverlap() {
+            var bits = Art(out int w, out int h, "###..#");
+            var common = Art(out _, out _, ".##..#");
+            var r = ErasePiece(bits, w, h, 0, 0, 0, common);
+            Check.Equal(3, r.changed, "changed");
+            Check.Equal(2, r.commonOverlap, "消したかたまりに重なる共通の除外だけ数える");
+            CheckArt(common, w, h, "共通の除外は消さない", ".##..#");
+        }
+
+        public static void MaskPiece_MatchesFloodFillReference() {
+            // 乱数のマスクで、素朴な塗りつぶしと画素単位で一致する(語の境目・画像の端をまたぐ)。
+            const int w = 131, h = 67;
+            var rng = new Random(20261112);
+            int compared = 0;
+            for (int trial = 0; trial < 60; trial++) {
+                var bits = new ulong[(w * h + 63) >> 6];
+                double density = 0.35 + 0.3 * rng.NextDouble();
+                for (int i = 0; i < w * h; i++) {
+                    if (rng.NextDouble() < density) {
+                        bits[i >> 6] |= 1UL << (i & 63);
+                    }
+                }
+                int cx = rng.Next(w), cy = rng.Next(h);
+                if (!Bit(bits, cy * w + cx)) {
+                    continue;
+                }
+                compared++;
+                var expected = (ulong[])bits.Clone();
+                int count = 0;
+                var queue = new Queue<int>();
+                queue.Enqueue(cy * w + cx);
+                expected[(cy * w + cx) >> 6] &= ~(1UL << ((cy * w + cx) & 63));
+                while (queue.Count > 0) {
+                    int i = queue.Dequeue();
+                    count++;
+                    int py = i / w, px = i % w;
+                    for (int ny = Math.Max(0, py - 1); ny <= Math.Min(h - 1, py + 1); ny++) {
+                        for (int nx = Math.Max(0, px - 1); nx <= Math.Min(w - 1, px + 1); nx++) {
+                            int j = ny * w + nx;
+                            if (Bit(expected, j)) {
+                                expected[j >> 6] &= ~(1UL << (j & 63));
+                                queue.Enqueue(j);
+                            }
+                        }
+                    }
+                }
+                var r = ErasePiece(bits, w, h, cx, h - 1 - cy, 0);
+                Check.Equal(count, r.changed, $"trial {trial}: 画素数");
+                Check.True(bits.SequenceEqual(expected), $"trial {trial}: 残りが素朴な塗りつぶしと同じ");
+            }
+            Check.True(compared >= 10, $"比べた回数が少ない({compared})");
+        }
+
+        private static unsafe int Nearest(ulong[] bits, int w, int h, int cx, int cy, int radius) {
+            fixed (ulong* b = bits) {
+                return MaskRegionEdit.NearestBitDistance(b, w, h, cx, cy, radius);
+            }
+        }
+
+        public static void MaskPiece_NearestBitDistance() {
+            const int w = 9, h = 9;
+            var bits = PackBits(w * h, 4 * w + 7);   // (7, 4)
+            Check.Equal(0, Nearest(bits, w, h, 7, 4, 3), "真上");
+            Check.Equal(3, Nearest(bits, w, h, 4, 4, 3), "横に 3");
+            Check.Equal(3, Nearest(bits, w, h, 4, 2, 3), "横 3・縦 2 は 3(大きいほう)");
+            Check.Equal(-1, Nearest(bits, w, h, 3, 4, 3), "半径の外");
+            Check.Equal(1, Nearest(bits, w, h, 8, 5, 5), "画像の端をまたいでも外へ読まない");
+            Check.Equal(-1, Nearest(null, w, h, 4, 4, 3), "層が無い");
+        }
+
+        public static void MaskPiece_ProbeRadiusFollowsTheZoom() {
+            Check.Equal(MaskRegionEdit.ClearProbeRadius, MaskRegionEdit.ClearProbeRadiusFor(0.25f), "拡大表示では下限");
+            Check.Equal(3, MaskRegionEdit.ClearProbeRadiusFor(1f), "等倍は画面の 3 画素");
+            Check.Equal(21, MaskRegionEdit.ClearProbeRadiusFor(6.83f), "4K を 600 画素で見ているとき");
+            Check.Equal(64, MaskRegionEdit.ClearProbeRadiusFor(100f), "上限");
+            Check.Equal(MaskRegionEdit.ClearProbeRadius, MaskRegionEdit.ClearProbeRadiusFor(0f), "倍率が分からない");
+            Check.Equal(MaskRegionEdit.ClearProbeRadius, MaskRegionEdit.ClearProbeRadiusFor(float.NaN), "NaN");
+        }
+
+        // ─── 範囲で消すときの、縁の切れ端 ───
+
+        // 範囲(region)で layer を消す。切れ端の掃除 → 範囲の中、の順(MaskWorkspace.ClearRegion と同じ)。消した画素数を返す。
+        private static unsafe int ClearWithCrumbs(ulong[] layer, ulong[] regionBits, int w, int h, int reach) {
+            var region = new bool[w * h];
+            for (int i = 0; i < w * h; i++) {
+                region[i] = Bit(regionBits, i);
+            }
+            var near = new byte[w * h];
+            for (int i = 0; i < near.Length; i++) {
+                near[i] = 0xEE;   // 窓の外は読まれないこと(初期化しないで渡す)
+            }
+            fixed (bool* g = region)
+            fixed (byte* n = near)
+            fixed (ulong* b = layer) {
+                int crumbs = 0;
+                if (MaskRegionEdit.RegionBounds(g, w, h, out int x0, out int y0, out int x1, out int y1)) {
+                    MaskRegionEdit.MarkNear(g, w, h, x0, y0, x1, y1, reach, n, out int wx0, out int wy0, out int wx1, out int wy1);
+                    crumbs = MaskRegionEdit.EraseCrumbs(g, b, w, h, n, wx0, wy0, wx1, wy1, 0, new List<int>());
+                }
+                return crumbs + MaskRegionEdit.Apply(MaskRegionOp.ClearHere, g, w * h, b, null, null).changed;
+            }
+        }
+
+        public static void MaskCrumbs_EdgeLeftoversGoWithTheRegion() {
+            // 塗ったときの範囲(layer)と、消すときの範囲(region)が 1〜2 画素ずれている。
+            var layer = Art(out int w, out int h,
+                "............",
+                ".########...",
+                ".########...",
+                ".########...",
+                ".########...",
+                "............",
+                "............");
+            var region = Art(out _, out _,
+                "............",
+                "............",
+                "...#######..",
+                "...#######..",
+                "...#######..",
+                "...#######..",
+                "............");
+            int n = ClearWithCrumbs(layer, region, w, h, 2);
+            Check.Equal(0, CountBits(layer, w * h), "縁に残る切れ端も消える");
+            Check.Equal(32, n, "消した画素数(マスクの全部)");
+        }
+
+        public static void MaskCrumbs_KeepsTheNeighbourPartsMask() {
+            // 左の広いマスク(隣の部分)は、範囲に接していても遠くまで続くので残る。上の出っ張りは切れ端。
+            var layer = Art(out int w, out int h,
+                "..........##..",
+                "#######.###...",
+                "#######.###...",
+                "#######.###...",
+                "##########....");
+            var region = Art(out _, out _,
+                "..............",
+                "........###...",
+                "........###...",
+                "........###...",
+                "........##....");
+            ClearWithCrumbs(layer, region, w, h, 2);
+            CheckArt(layer, w, h, "隣の部分のマスクは残り、切れ端だけ消える",
+                "..............",
+                "#######.......",
+                "#######.......",
+                "#######.......",
+                "########......");
+        }
+
+        public static void MaskCrumbs_KeepsNearbyMasksThatDoNotTouchWhatIsCleared() {
+            // 範囲のすぐそばにあっても、消す画素に接していない小さなマスク(別に塗った点)は残す。
+            var layer = Art(out int w, out int h,
+                "#........",
+                "..###....",
+                "..###...#",
+                ".........");
+            var region = Art(out _, out _,
+                ".........",
+                "..###....",
+                "..###....",
+                ".........");
+            ClearWithCrumbs(layer, region, w, h, 3);
+            CheckArt(layer, w, h, "接していない点は残る",
+                "#........",
+                ".........",
+                "........#",
+                ".........");
+        }
+
+        public static void MaskCrumbs_KeepsMasksTouchingARegionThatClearsNothingThere() {
+            // 範囲に接していても、その範囲がマスクを 1 画素も消さないなら切れ端ではない。
+            var layer = Art(out int w, out int h,
+                "##.....",
+                ".......",
+                ".......");
+            var region = Art(out _, out _,
+                ".......",
+                ".###...",
+                ".###...");
+            int n = ClearWithCrumbs(layer, region, w, h, 2);
+            Check.Equal(2, CountBits(layer, w * h), "残る");
+            Check.Equal(0, n, "何も消していない");
+        }
+
+        public static void MaskCrumbs_ReachFollowsTheImageSize() {
+            Check.Equal(16, MaskRegionEdit.CrumbReach(4096, 4096), "4K");
+            Check.Equal(8, MaskRegionEdit.CrumbReach(2048, 1024), "長辺で決める");
+            Check.Equal(32, MaskRegionEdit.CrumbReach(8192, 8192), "8K");
+            Check.Equal(5, MaskRegionEdit.CrumbReach(1025, 512), "端数は切り上げ");
+            Check.Equal(1, MaskRegionEdit.CrumbReach(64, 64), "小さい画像でも 1 画素");
+        }
+
+        private static unsafe bool Bounds(bool[] region, int w, int h, out int x0, out int y0, out int x1, out int y1) {
+            fixed (bool* g = region) {
+                return MaskRegionEdit.RegionBounds(g, w, h, out x0, out y0, out x1, out y1);
+            }
+        }
+
+        public static void MaskCrumbs_RegionBounds() {
+            const int w = 21, h = 5;   // 8 画素ずつ読む所と端数の両方を通る幅
+            var region = new bool[w * h];
+            Check.Equal(false, Bounds(region, w, h, out _, out _, out _, out _), "空");
+            region[1 * w + 3] = true;
+            region[3 * w + 19] = true;
+            region[2 * w + 9] = true;
+            Check.Equal(true, Bounds(region, w, h, out int x0, out int y0, out int x1, out int y1), "ある");
+            Check.Equal("3,1,20,4", $"{x0},{y0},{x1},{y1}", "外接矩形 [x0, x1) × [y0, y1)");
         }
 
         public static void MaskEdit_ClearHere_AllowsMissingLayers() {
