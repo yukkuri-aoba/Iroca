@@ -53,6 +53,7 @@ PREFS_KEYS = {
     # SessionState（エディタを閉じるまで）
     "Iroca.UpdateCheck.Tried",
     "Iroca.WindowEnabled.",              # + ウィンドウの InstanceID
+    "Iroca.MaskHistory.Swept",
     "Iroca.RecipeSynced.",               # + レシピの GUID
     "Iroca.RecipeOpened.",               # + レシピの GUID
     "Iroca.MaterialColor.Dismissed:",    # + テクスチャのパス

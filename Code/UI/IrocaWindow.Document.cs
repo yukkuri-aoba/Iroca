@@ -81,8 +81,22 @@ namespace Iroca {
         // ヒープの外の履歴は再読み込みで消えるが、Unity 6 では文書の Undo の記録は残るので(2022.3 は捨てる。UndoReloadScenario)、
         // 再読み込みの前にファイルへ退避して読み戻す。読めなければマスクはファイルの最新のままで、前の版へ Undo したときに知らせる。
 
-        private string MaskHistorySpillPath =>
-            Path.Combine(Path.GetDirectoryName(Application.dataPath), "Library", "Iroca", "MaskHistory", GetInstanceID() + ".bin");
+        private static string MaskHistorySpillDirectory =>
+            Path.Combine(Path.GetDirectoryName(Application.dataPath), "Library", "Iroca", "MaskHistory");
+
+        private string MaskHistorySpillPath => Path.Combine(MaskHistorySpillDirectory, GetInstanceID() + ".bin");
+
+        // エディタを起動してから最初に有効になった窓が、前の起動の残りを掃除する。退避のファイルの名前は窓の instanceID で、
+        // 起動のたびに変わる。再読み込みの途中でエディタが落ちると、次の起動では自分のファイルとして見つけられず、
+        // 誰も消さなかった(1 つ最大 256MB)。
+        private static void SweepStaleSpillsOnce() {
+            if (UnityEditor.SessionState.GetBool(IrocaPrefs.MaskHistorySwept, false)) {
+                return;
+            }
+            UnityEditor.SessionState.SetBool(IrocaPrefs.MaskHistorySwept, true);
+            var editorStartedUtc = System.DateTime.UtcNow.AddSeconds(-UnityEditor.EditorApplication.timeSinceStartup);
+            MaskHistory.DeleteSpillsOlderThan(MaskHistorySpillDirectory, editorStartedUtc);
+        }
 
         private void SpillMaskHistoryBeforeReload() {
             if (_editing == null) {
@@ -97,6 +111,7 @@ namespace Iroca {
 
         // 退避のファイルは読んだら消す。エディタの起動後の最初の有効化なら、落ちたときの残りなので読まない。
         private void RestoreMaskHistoryAfterReload(bool firstSinceEditorStart) {
+            SweepStaleSpillsOnce();
             string path = MaskHistorySpillPath;
             if (!File.Exists(path)) {
                 return;

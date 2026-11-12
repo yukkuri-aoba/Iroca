@@ -34,6 +34,30 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(_liveBefore, IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask), "マスクのメモリが残っている");
         }
 
+        // エディタの起動より古い退避のファイルだけを消す(再読み込みの途中で落ちたときの残り)。新しいものと、ほかのファイルは残す。
+        [Test]
+        public void DeleteSpillsOlderThan_RemovesOnlyOldSpillFiles() {
+            string dir = Path.Combine(Path.GetTempPath(), "iroca-spill-test-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try {
+                string old = Path.Combine(dir, "111.bin"), fresh = Path.Combine(dir, "222.bin"), other = Path.Combine(dir, "note.txt");
+                File.WriteAllText(old, "old");
+                File.WriteAllText(fresh, "fresh");
+                File.WriteAllText(other, "other");
+                var cutoff = DateTime.UtcNow.AddMinutes(-10);
+                File.SetLastWriteTimeUtc(old, cutoff.AddHours(-1));
+                File.SetLastWriteTimeUtc(other, cutoff.AddHours(-1));
+
+                Assert.AreEqual(1, MaskHistory.DeleteSpillsOlderThan(dir, cutoff));
+                Assert.IsFalse(File.Exists(old), "起動より古い退避が残っている");
+                Assert.IsTrue(File.Exists(fresh), "今の起動の退避を消した");
+                Assert.IsTrue(File.Exists(other), "退避でないファイルを消した");
+                Assert.AreEqual(0, MaskHistory.DeleteSpillsOlderThan(Path.Combine(dir, "missing"), cutoff), "置き場が無いときは何もしない");
+            } finally {
+                Directory.Delete(dir, true);
+            }
+        }
+
         private static List<int> Pixels(NativeBitMask m) {
             var got = new List<int>();
             if (m == null) {

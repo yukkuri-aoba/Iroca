@@ -43,6 +43,7 @@ namespace Iroca {
         // ── SessionState(エディタを閉じるまで) ──
         internal const string UpdateCheckTried = "Iroca.UpdateCheck.Tried";
         internal const string WindowEnabledPrefix = "Iroca.WindowEnabled.";               // + ウィンドウの InstanceID
+        internal const string MaskHistorySwept = "Iroca.MaskHistory.Swept";
         internal const string RecipeSyncedPrefix = "Iroca.RecipeSynced.";                 // + レシピの GUID
         internal const string RecipeOpenedPrefix = "Iroca.RecipeOpened.";                 // + レシピの GUID
         internal const string MaterialColorDismissedPrefix = "Iroca.MaterialColor.Dismissed:"; // + テクスチャのパス

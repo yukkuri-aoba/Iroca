@@ -185,6 +185,29 @@ namespace Iroca {
         // ─────────────── 再読み込みをまたぐ ───────────────
 
         /// <summary>
+        /// 退避の置き場(<paramref name="directory"/>)から、<paramref name="olderThanUtc"/> より前に書かれた退避のファイル(*.bin)を
+        /// 消す。消した数を返す。置き場が無ければ何もしない。退避のファイルは読んだ窓が消すが、再読み込みの途中でエディタが
+        /// 落ちると誰も消さない(1 つ最大で履歴の上限まで)。エディタの起動後に、起動より古いものを掃除するのに使う。
+        /// </summary>
+        internal static int DeleteSpillsOlderThan(string directory, System.DateTime olderThanUtc) {
+            int deleted = 0;
+            try {
+                if (!Directory.Exists(directory)) {
+                    return 0;
+                }
+                foreach (var file in Directory.GetFiles(directory, "*.bin")) {
+                    try {
+                        if (File.GetLastWriteTimeUtc(file) < olderThanUtc) {
+                            File.Delete(file);
+                            deleted++;
+                        }
+                    } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) { }
+                }
+            } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) { }
+            return deleted;
+        }
+
+        /// <summary>
         /// 履歴をファイルへ書く(再読み込みの直前)。共有している塊は 1 回だけ書く。書けなければ投げる(呼び出し側がファイルを消す)。
         /// </summary>
         public unsafe void SaveTo(string path) {
