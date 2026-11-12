@@ -429,6 +429,52 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
+        public void ReimportingASource_RebuildsOnlyTheNodesThatUseIt() {
+            // 元テクスチャの取り込み直しで作り直すのは、そのテクスチャを借りているノードだけ。どれか 1 枚の取り込み直しで全部の
+            // ノードを作り直すと、同じ Renderer に掛かる後段のツールのプレビューまで作り直しが連鎖する。
+            var (srcA, matA) = SourceAndMaterial();
+            string pathB = _assets.WritePng("srcB", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
+            var srcB = AssetDatabase.LoadAssetAtPath<Texture2D>(pathB);
+            var matB = Track(new Material(Shader.Find("Standard")) { mainTexture = srcB });
+            var avatar = AvatarRoot();
+            var meshA = Mesh("a", matA, avatar);
+            var meshB = Mesh("b", matB, avatar);
+            var recolor = avatar.AddComponent<IrocaRecolor>();
+            recolor.recipes.Add(RedToGreen(srcA));
+            recolor.recipes.Add(RedToGreen(srcB));
+
+            int watchedBefore = IrocaPreviewFilter.WatchedSourceCount;
+            var filter = new IrocaPreviewFilter();
+            var groups = filter.FindTargets(new ComputeContext("test"));
+            var groupA = GroupOf(groups, meshA);
+            var groupB = GroupOf(groups, meshB);
+            Assert.IsNotNull(groupA);
+            Assert.IsNotNull(groupB);
+            var contextA = new ComputeContext("nodeA");
+            var contextB = new ComputeContext("nodeB");
+            var nodeA = TestAssets.Wait(filter.Instantiate(groupA,
+                new List<(Renderer, Renderer)> { (meshA, ProxyOf(meshA)) }, contextA));
+            var nodeB = TestAssets.Wait(filter.Instantiate(groupB,
+                new List<(Renderer, Renderer)> { (meshB, ProxyOf(meshB)) }, contextB));
+            try {
+                Assert.AreEqual(watchedBefore + 2, IrocaPreviewFilter.WatchedSourceCount, "借りた元テクスチャを見張っていない");
+                IrocaPreviewFilter.OnAssetsImported(new[] { "Assets/NoSuchFolder/unrelated.png" });
+                ComputeContext.FlushInvalidates();
+                Assert.IsFalse(contextA.IsInvalidated, "関係ないアセットの取り込みでノードを作り直させた");
+                Assert.IsFalse(contextB.IsInvalidated, "関係ないアセットの取り込みでノードを作り直させた");
+
+                IrocaPreviewFilter.OnAssetsImported(new[] { pathB });
+                ComputeContext.FlushInvalidates();
+                Assert.IsTrue(contextB.IsInvalidated, "元テクスチャが取り込み直されたのに、ノードを作り直させない");
+                Assert.IsFalse(contextA.IsInvalidated, "別のテクスチャの取り込み直しで、このノードまで作り直させた");
+            } finally {
+                nodeA.Dispose();
+                nodeB.Dispose();
+            }
+            Assert.AreEqual(watchedBefore, IrocaPreviewFilter.WatchedSourceCount, "ノードを捨てた後も元テクスチャを見張り続けている");
+        }
+
+        [Test]
         public void ChangingWhatTheWindowEdits_InvalidatesThePreview() {
             var (src, mat) = SourceAndMaterial();
             Mesh("mesh", mat);

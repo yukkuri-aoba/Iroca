@@ -55,18 +55,57 @@ namespace Iroca.NdmfIntegration {
         private static readonly PublishedValue<LivePreview.Target> Live =
             new PublishedValue<LivePreview.Target>(null, "Iroca/LiveTarget");
 
-        // 借りたレシピの元テクスチャのパスと、それらが取り込み直された回数。取り込み直しはテクスチャのオブジェクトが変わらないので、
-        // NDMF の監視では気づけない。回数を見ているノードは作り直され、レシピのキャッシュの鍵(取り込みのハッシュを含む)も変わる。
-        private static readonly HashSet<string> WatchedSources = new HashSet<string>();
+        // 借りたレシピの元テクスチャのパスごとに、借りているノードの数と、取り込み直された回数。取り込み直しはテクスチャの
+        // オブジェクトが変わらないので、NDMF の監視では気づけない。自分の元テクスチャの回数が変わったノードは作り直され、
+        // レシピのキャッシュの鍵(取り込みのハッシュを含む)も変わる。回数はパスごとに持つ(全体で 1 つだと、どれか 1 枚の
+        // 取り込み直しで全部のノードが作り直され、同じ Renderer に掛かる後段のツールのプレビューまで連鎖した)。
+        // 借りるノードが無くなったパスは外す(以前は増えるだけで、もう映していないテクスチャでも作り直しを起こした)。
+        private sealed class SourceWatch {
+            public int users;
+            public int imports;
+        }
+        private static readonly Dictionary<string, SourceWatch> WatchedSources = new Dictionary<string, SourceWatch>();
+        // どれかのパスの回数が変わった知らせ(値そのものは使わない。各ノードは自分のパスの回数を読んで比べる)。
         private static readonly PublishedValue<int> SourceImports = new PublishedValue<int>(0, "Iroca/SourceImports");
 
-        /// <summary>アセットが取り込まれたときに呼ぶ。監視中の元テクスチャが含まれていればノードを作り直させる。</summary>
+        /// <summary>監視している元テクスチャの数(テスト用)。</summary>
+        internal static int WatchedSourceCount => WatchedSources.Count;
+
+        /// <summary>アセットが取り込まれたときに呼ぶ。監視中の元テクスチャが含まれていれば、それを借りているノードを作り直させる。</summary>
         internal static void OnAssetsImported(string[] importedAssets) {
+            bool any = false;
             foreach (var path in importedAssets) {
-                if (WatchedSources.Contains(path)) {
-                    SourceImports.Value++;
-                    return;
+                if (WatchedSources.TryGetValue(path, out var watch)) {
+                    watch.imports++;
+                    any = true;
                 }
+            }
+            if (any) {
+                SourceImports.Value++;
+            }
+        }
+
+        // paths の元テクスチャが取り込み直された回数の合計(ノードが自分の分だけを見る)。
+        private static int ImportsOf(List<string> paths) {
+            int sum = 0;
+            foreach (var path in paths) {
+                if (WatchedSources.TryGetValue(path, out var watch)) {
+                    sum += watch.imports;
+                }
+            }
+            return sum;
+        }
+
+        private static void WatchSource(string path) {
+            if (!WatchedSources.TryGetValue(path, out var watch)) {
+                WatchedSources[path] = watch = new SourceWatch();
+            }
+            watch.users++;
+        }
+
+        private static void UnwatchSource(string path) {
+            if (WatchedSources.TryGetValue(path, out var watch) && --watch.users <= 0) {
+                WatchedSources.Remove(path);
             }
         }
 
@@ -398,6 +437,8 @@ namespace Iroca.NdmfIntegration {
             private readonly List<string> _recipeKeys = new List<string>();
             // 借りたレシピ(中身が変わったら作り直す)。
             private readonly List<IrocaRecipe> _recipes = new List<IrocaRecipe>();
+            // 取り込み直しを見張っている元テクスチャのパス(最初の ObserveInputs で決め、Dispose で外す)。
+            private List<string> _watchedSources;
             // 元の Renderer と、作ったときの素材の並び・各素材のテクスチャ欄(変わったら作り直す)。
             private readonly List<(Renderer renderer, Material[] materials, Texture[][] textures)> _originals =
                 new List<(Renderer, Material[], Texture[][])>();
@@ -493,12 +534,19 @@ namespace Iroca.NdmfIntegration {
                 foreach (var recipe in _recipes) {
                     context.Observe(recipe, r => r.sessionJson);
                 }
-                context.Observe(SourceImports, v => v, (a, b) => a == b);
-                foreach (var s in _slots) {
-                    if (s.source != null) {
-                        WatchedSources.Add(UnityEditor.AssetDatabase.GetAssetPath(s.source));
+                // 自分の元テクスチャの取り込み直しだけを見る。使い回し(Refresh)でもう一度呼ばれても、見張りは 1 回だけ足す。
+                if (_watchedSources == null) {
+                    _watchedSources = new List<string>();
+                    foreach (var s in _slots) {
+                        string path = s.source != null ? UnityEditor.AssetDatabase.GetAssetPath(s.source) : null;
+                        if (!string.IsNullOrEmpty(path) && !_watchedSources.Contains(path)) {
+                            _watchedSources.Add(path);
+                            WatchSource(path);
+                        }
                     }
                 }
+                var watchedSources = _watchedSources;
+                context.Observe(SourceImports, _ => ImportsOf(watchedSources), (a, b) => a == b);
                 // ウィンドウがこのレシピを編集し始めた・やめた(ライブとレシピが入れ替わる)。差し替え先が変わるので
                 // NDMF はグループを作り直すが、作りかけを待つのをやめるきっかけにもする(StopWaiting)。
                 var watched = new HashSet<IrocaRecipe>();
@@ -698,6 +746,12 @@ namespace Iroca.NdmfIntegration {
                 _recipeKeys.Clear();
                 _recipes.Clear();
                 _originals.Clear();
+                if (_watchedSources != null) {
+                    foreach (var path in _watchedSources) {
+                        UnwatchSource(path);
+                    }
+                    _watchedSources = null;
+                }
             }
         }
     }
