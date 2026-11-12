@@ -83,6 +83,10 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "クリック位置の周りの小さな窓(半径 PaintingProbeRadius)",
     ("Code/Infra/PngFileDecoder.cs", "new byte[stride * _rowsPerBlock]"):
         "展開した行の束。行数は BlockBytes(64KB) ÷ 1 行のバイト数(1 行より大きくはしない)なので、高さに依らず 64KB か 1 行分",
+    ("Code/UI/PresetsView.cs", "new bool[files.Length]"):
+        "プリセットの一覧のファイルの数(このテクスチャで作ったかの印)",
+    ("Code/UI/PresetsView.cs", "new int[files.Length]"):
+        "プリセットの一覧のファイルの数(並べ替えの順番)",
 }
 
 
