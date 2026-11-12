@@ -194,11 +194,13 @@ namespace Iroca {
             int bestSubmesh = -1;
             int[] bestTris = null;
             for (int s = 0; s < mesh.subMeshCount; s++) {
-                if (mesh.GetTopology(s) != MeshTopology.Triangles) {
-                    continue;
+                var kind = MeshReading.ReadTriangles(mesh, s, out int[] tris);
+                if (kind == MeshReading.Triangles.Unreadable) {
+                    break;   // 読めないメッシュは、ほかのサブメッシュも読めない
                 }
-                int[] tris;
-                try { tris = mesh.GetTriangles(s); } catch (System.Exception) { break; }
+                if (kind != MeshReading.Triangles.Ok) {
+                    continue;   // 線・点のサブメッシュ、三角形の無いサブメッシュ
+                }
                 var faces = FacesOf(s < mats.Length ? mats[s] : null);
                 if (!MeshRaycast.Intersect(origin, dir, vertices, tris, found ? bestHit.t : maxDistance, faces, out var h)) {
                     continue;
@@ -212,12 +214,9 @@ namespace Iroca {
                 return null;
             }
 
-            var uvList = new List<Vector2>();
-            try { mesh.GetUVs(0, uvList); } catch (System.Exception) { return null; }
-            if (uvList.Count != mesh.vertexCount) {
+            if (!MeshReading.TryReadUv0(mesh, out var uv) || uv.Length != mesh.vertexCount) {
                 return null;
             }
-            var uv = uvList.ToArray();
             return new Hit {
                 renderer = r,
                 material = bestSubmesh < mats.Length ? mats[bestSubmesh] : null,

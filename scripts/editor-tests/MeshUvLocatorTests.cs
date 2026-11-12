@@ -274,6 +274,25 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // 線・点のサブメッシュは色を塗る面ではない。以前は三角形として読もうとして Unity が Console にエラーを出し、
+        // 「読めないメッシュ(Read/Write)」と数えて案内を出していた。
+        [Test]
+        public void LineSubmesh_IsSkippedWithoutErrorOrUnreadableCount() {
+            var tex = Tex("tex");
+            var mesh = TwoQuads();
+            mesh.subMeshCount = 2;
+            mesh.SetIndices(new[] { 0, 1, 2, 0, 2, 3 }, MeshTopology.Triangles, 0);
+            mesh.SetIndices(new[] { 4, 5, 5, 6 }, MeshTopology.Lines, 1);
+            var mat = MaterialWith(tex, "mat");
+            var go = SceneObject(mesh, mat);
+            go.GetComponent<MeshRenderer>().sharedMaterials = new[] { mat, mat };
+
+            var r = MeshUvLocator.FindForTexture(tex);   // Console にエラーが出ると、このテストは落ちる
+            Assert.IsNotNull(r);
+            Assert.AreEqual(1, r.found.Count, "三角形のサブメッシュだけを見つける");
+            Assert.AreEqual(0, r.unreadable, "線のサブメッシュを「読めない」と数えた");
+        }
+
         [Test]
         public void NonReadableMeshDoesNotThrow() {
             // Read/Write 無効のメッシュ: Editor で読めるなら見つかり、読めなければ unreadable に数える。どちらでも落ちない

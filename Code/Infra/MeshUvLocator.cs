@@ -294,7 +294,8 @@ namespace Iroca {
             public Vector2[] UvOf(Mesh mesh) {
                 int id = mesh.GetInstanceID();
                 if (!uv.TryGetValue(id, out var arr)) {
-                    uv.Add(id, arr = ReadUv(mesh));
+                    MeshReading.TryReadUv0(mesh, out arr);
+                    uv.Add(id, arr);
                 }
                 return arr;
             }
@@ -324,7 +325,11 @@ namespace Iroca {
                     }
                     continue;
                 }
-                var src = Read(mesh, s, reads);
+                var src = Read(mesh, s, reads, out bool notTriangles);
+                // 線・点のサブメッシュは色を塗る面ではない。見つけた物にも、読めなかった数にも入れない。
+                if (notTriangles) {
+                    continue;
+                }
                 seen.Add(key, src != null);
                 if (src == null) { result.unreadable++; continue; }
                 src.name = r.name + (mesh.subMeshCount > 1 ? "[" + s + "]" : "");
@@ -425,35 +430,19 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// UV0 と三角形を読む。読めなければ null(Read/Write 無効の扱いは Unity の版で違うので例外で判定する)。
+        /// UV0 と三角形を読む(<see cref="MeshReading"/>)。読めなければ null。三角形でないサブメッシュ(線・点)は
+        /// notTriangles = true で null(読めなかったのではない)。
         /// UV0 はメッシュで 1 つなので reads で 1 回だけ読み、同じメッシュのサブメッシュで同じ並びを共有する
         /// (UvChartSource の UV は読むだけ)。
         /// </summary>
-        private static UvChartSource Read(Mesh mesh, int submesh, MeshReads reads) {
+        private static UvChartSource Read(Mesh mesh, int submesh, MeshReads reads, out bool notTriangles) {
+            var kind = MeshReading.ReadTriangles(mesh, submesh, out var tris);
+            notTriangles = kind == MeshReading.Triangles.NotTriangles;
+            if (kind != MeshReading.Triangles.Ok) {
+                return null;
+            }
             var uv = reads.UvOf(mesh);
-            if (uv == null) {
-                return null;
-            }
-            try {
-                var tris = mesh.GetTriangles(submesh);
-                if (tris == null || tris.Length < 3) {
-                    return null;
-                }
-                return new UvChartSource { uv = uv, triangles = tris };
-            } catch (System.Exception) {
-                return null;
-            }
-        }
-
-        // UV0(読めない・空なら null)。
-        private static Vector2[] ReadUv(Mesh mesh) {
-            try {
-                var uv = new List<Vector2>();
-                mesh.GetUVs(0, uv);
-                return uv.Count == 0 ? null : uv.ToArray();
-            } catch (System.Exception) {
-                return null;
-            }
+            return uv != null ? new UvChartSource { uv = uv, triangles = tris } : null;
         }
 
         /// <summary>同じメッシュ・同じサブメッシュが複数の Renderer から見つかったら 1 つにする(UV は同じ)。</summary>
