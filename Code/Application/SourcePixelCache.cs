@@ -46,6 +46,12 @@ namespace Iroca {
         // 元ファイルを読み始める前に見たファイルの印(大きさと更新時刻)。書き出し・自動化が、同じ中身のファイルを
         // 読み直さずにこの画素を使えるかの判断に使う(ShareIfCurrent)。取り込み済みテクスチャの画素なら default。
         private FileStamp _stamp;
+        // 元ファイルを開けなかった(ほかのアプリが一時的につかんでいた)テクスチャ。取り込み済みテクスチャの画素で代えているか、
+        // 画素を取れていない。開けるようになったら読み直す(LockedFileIsOpenableNow)。
+        private Texture2D _fileLockedFor;
+        private double _fileRetryAt;
+        // 開けるようになったかを確かめる間隔(秒)。描くたびには開かない。internal はテストが 0 にするため。
+        internal static double LockedFileRetrySeconds = 2.0;
 
         // 別スレッドで読んでいる途中のもの。別スレッドとは lock(load) の中の値だけで受け渡す。
         private sealed class PendingLoad {
@@ -252,6 +258,13 @@ namespace Iroca {
                     }
                 } catch (System.Exception ex) {
                     Debug.LogWarning($"[Iroca] Source file load failed, falling back to imported texture: {ex.Message}");
+                    // 開けない・読めないのは、ほかのアプリ(同期のツール・ウイルス対策・画像の編集ソフト)が一時的につかんでいる
+                    // ことが多い。覚えておいて、開けるようになったら読み直す。以前は、取り込み済みテクスチャの画素(縮小・圧縮済み)に
+                    // 切り替わったまま、テクスチャを開き直すまで戻らなかった。
+                    if (ex is System.IO.IOException || ex is UnauthorizedAccessException) {
+                        _fileLockedFor = tex;
+                        _fileRetryAt = EditorApplication.timeSinceStartup + LockedFileRetrySeconds;
+                    }
                 }
             }
 
@@ -276,6 +289,41 @@ namespace Iroca {
             _basisH = tex.height;
             _fromFile = fromFile;
             _stamp = fromFile ? stamp : default;
+            // 元ファイルから読めたなら、開けなかった覚えは要らない。別のテクスチャに替わったときも同じ。
+            if (fromFile || _fileLockedFor != tex) {
+                _fileLockedFor = null;
+            }
+        }
+
+        /// <summary>
+        /// <paramref name="tex"/> の元ファイルを前は開けず、いまは開けるようになったか。なっていれば覚えを消して true
+        /// (呼んだ側が、持っている画素と、そこから導いた状態を捨てて読み直す)。確かめるのは
+        /// <see cref="LockedFileRetrySeconds"/> ごとで、開けなかったことの無いテクスチャでは何もしない。
+        /// </summary>
+        internal bool LockedFileIsOpenableNow(Texture2D tex) {
+            if (ReferenceEquals(_fileLockedFor, null) || _fileLockedFor != tex) {
+                return false;
+            }
+            double now = EditorApplication.timeSinceStartup;
+            if (now < _fileRetryAt) {
+                return false;
+            }
+            _fileRetryAt = now + LockedFileRetrySeconds;
+            string path = AssetDatabase.GetAssetPath(tex);
+            if (string.IsNullOrEmpty(path)) {
+                _fileLockedFor = null;
+                return false;
+            }
+            try {
+                using (new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read, 1)) { }
+            } catch (Exception e) when (e is System.IO.IOException || e is UnauthorizedAccessException) {
+                return false;
+            }
+            _fileLockedFor = null;
+            if (_failedFor == tex) {
+                _failedFor = null;   // 画素を取れていなかったなら、取り直せるようにする
+            }
+            return true;
         }
 
         /// <summary>
@@ -339,6 +387,7 @@ namespace Iroca {
             _for = null;
             Release();
             _failedFor = null;
+            _fileLockedFor = null;
         }
 
         /// <summary>

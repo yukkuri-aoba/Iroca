@@ -386,6 +386,12 @@ namespace Iroca {
 
         // 持っている画素で足りるか(Ready)、取れないと分かっているか(Unavailable)、読む必要があるか(Loading)。
         private SourceState CheckHeldSource(Texture2D tex, SourcePixelCache sources) {
+            // 元ファイルを開けずに取り込み済みテクスチャの画素で代えていた(か、画素を取れていなかった)なら、開けるように
+            // なった所で読み直す(描くたびにここを通る。確かめるのは数秒ごと)。
+            if (sources.LockedFileIsOpenableNow(tex)) {
+                InvalidateSourceCache();
+                MarkDirty();
+            }
             if (sources.Texture == tex && sources.Pixels != null) {
                 if (sources.BasisWidth == tex.width && sources.BasisHeight == tex.height) {
                     return SourceState.Ready;

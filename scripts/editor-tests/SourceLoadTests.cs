@@ -310,6 +310,37 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // 元ファイルをほかのアプリが一時的につかんでいて開けなかったときは、取り込み済みテクスチャの画素で代える。開けるように
+        // なったら、元ファイルから読み直せると知らせる(以前は、テクスチャを開き直すまで縮小・圧縮済みの画素のままだった)。
+        [Test]
+        public void LockedSourceFile_FallsBack_ThenIsRereadOnceItOpens() {
+            var expected = Noise(SmallSide, 16);
+            string path = _assets.WritePng("locked", expected, SmallSide, SmallSide, readable: true);
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            var sources = new SourcePixelCache();
+            double retry = SourcePixelCache.LockedFileRetrySeconds;
+            SourcePixelCache.LockedFileRetrySeconds = 0;
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;   // 「読めなかったので取り込み済みで代える」の警告
+            try {
+                Assert.IsFalse(sources.LockedFileIsOpenableNow(tex), "開けなかったことの無いテクスチャで、読み直せと言った");
+                using (new FileStream(TestAssets.Abs(path), FileMode.Open, FileAccess.Read, FileShare.None)) {
+                    Assert.IsTrue(sources.Load(tex), "取り込み済みテクスチャの画素で代えていない");
+                    Assert.IsFalse(sources.FromFile, "開けないファイルから読めたことになっている");
+                    Assert.IsFalse(sources.LockedFileIsOpenableNow(tex), "つかまれている間に、開けると言った");
+                }
+                Assert.IsTrue(sources.LockedFileIsOpenableNow(tex), "開けるようになったのに気づかない");
+                Assert.IsFalse(sources.LockedFileIsOpenableNow(tex), "知らせは 1 回だけ");
+                sources.Clear();   // 呼んだ側(PreviewPipeline)は、持っている画素と導いた状態を捨てて読み直す
+                Assert.IsTrue(sources.Load(tex));
+                Assert.IsTrue(sources.FromFile, "読み直しても元ファイルの画素になっていない");
+                CollectionAssert.AreEqual(expected, sources.Pixels.ToArray());
+            } finally {
+                UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false;
+                SourcePixelCache.LockedFileRetrySeconds = retry;
+                sources.Clear();
+            }
+        }
+
         // テクスチャを切り替えたら、読んでいた分は捨てて新しいほうを読む。
         [Test]
         public void Window_SwitchedWhileLoading_ShowsTheNewTexture() {
