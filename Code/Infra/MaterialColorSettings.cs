@@ -141,21 +141,46 @@ namespace Iroca {
             return Family.Generic;
         }
 
+        // メインテクスチャ・メインカラーの欄の、標準の名前(lilToon・標準 / URP / HDRP)。
+        private static readonly string[] StandardMainTextureNames = { "_MainTex", "_BaseMap", "_BaseColorMap" };
+        private static readonly string[] StandardMainColorNames = { "_Color", "_BaseColor" };
+
         /// <summary>
         /// メインテクスチャのプロパティ名。シェーダーが [MainTexture] を付けていればそれ、無ければ
         /// _MainTex・_BaseMap・_BaseColorMap(標準・URP・HDRP)の順。無ければ null。
         /// </summary>
         internal static string MainTextureProperty(Material mat)
-            => FlaggedProperty(mat.shader, ShaderPropertyFlags.MainTexture, ShaderPropertyType.Texture)
-               ?? FirstExisting(mat, "_MainTex", "_BaseMap", "_BaseColorMap");
+            => FlaggedMain(mat.shader).texture ?? FirstExisting(mat, StandardMainTextureNames);
+
+        /// <summary>
+        /// メインテクスチャかもしれない欄を、確からしい順に <paramref name="into"/> へ入れる: シェーダーが [MainTexture] を付けた欄、
+        /// 続いて標準の名前のうちシェーダーにあるもの。メッシュ探し(<see cref="MeshUvLocator"/>)はこの全部を見る
+        /// (_MainTex が空で _BaseMap に差してあるマテリアルも拾う)。色の設定の読み取りは先頭の 1 つ
+        /// (<see cref="MainTextureProperty"/>)だけを見る。欄の決め方をここに 1 つにまとめてある(以前はメッシュ探しが
+        /// 標準の名前だけを別に持っていて、[MainTexture] を付けたシェーダーのメッシュを見つけなかった)。
+        /// </summary>
+        internal static void MainTextureCandidates(Material mat, List<string> into) {
+            into.Clear();
+            if (mat == null || mat.shader == null) {
+                return;
+            }
+            string flagged = FlaggedMain(mat.shader).texture;
+            if (flagged != null) {
+                into.Add(flagged);
+            }
+            foreach (var name in StandardMainTextureNames) {
+                if (name != flagged && mat.HasProperty(name)) {
+                    into.Add(name);
+                }
+            }
+        }
 
         /// <summary>
         /// メインカラー(テクスチャに掛ける色)。シェーダーが [MainColor] を付けていればそれ、無ければ
         /// _Color・_BaseColor の順(Unity の Material.color と同じ決め方に URP の名前を足したもの)。無ければ白。
         /// </summary>
         internal static Color MainColor(Material mat) {
-            string p = FlaggedProperty(mat.shader, ShaderPropertyFlags.MainColor, ShaderPropertyType.Color)
-                       ?? FirstExisting(mat, "_Color", "_BaseColor");
+            string p = FlaggedMain(mat.shader).color ?? FirstExisting(mat, StandardMainColorNames);
             return p != null ? mat.GetColor(p) : Color.white;
         }
 
@@ -380,17 +405,34 @@ namespace Iroca {
         private static bool IsWhite(Color c)
             => Mathf.Abs(c.r - 1f) <= WhiteEpsilon && Mathf.Abs(c.g - 1f) <= WhiteEpsilon && Mathf.Abs(c.b - 1f) <= WhiteEpsilon;
 
-        private static string FlaggedProperty(Shader shader, ShaderPropertyFlags flag, ShaderPropertyType type) {
+        // シェーダーごとの、[MainTexture]・[MainColor] を付けた欄(無ければ null)。欄を 1 つずつ調べるので(シェーダーによっては
+        // 数千個)、シェーダーごとに 1 回だけ調べて覚える。欄の数が変わっていたら(シェーダーを書き換えた)調べ直す。
+        private static readonly Dictionary<int, (int count, string texture, string color)> s_flaggedMain
+            = new Dictionary<int, (int, string, string)>();
+
+        private static (string texture, string color) FlaggedMain(Shader shader) {
+            int id = shader.GetInstanceID();
             int n = shader.GetPropertyCount();
-            for (int i = 0; i < n; i++) {
-                if ((shader.GetPropertyFlags(i) & flag) != 0 && shader.GetPropertyType(i) == type) {
-                    return shader.GetPropertyName(i);
+            if (s_flaggedMain.TryGetValue(id, out var known) && known.count == n) {
+                return (known.texture, known.color);
+            }
+            string texture = null, color = null;
+            for (int i = 0; i < n && (texture == null || color == null); i++) {
+                var flags = shader.GetPropertyFlags(i);
+                if (texture == null && (flags & ShaderPropertyFlags.MainTexture) != 0
+                    && shader.GetPropertyType(i) == ShaderPropertyType.Texture) {
+                    texture = shader.GetPropertyName(i);
+                }
+                if (color == null && (flags & ShaderPropertyFlags.MainColor) != 0
+                    && shader.GetPropertyType(i) == ShaderPropertyType.Color) {
+                    color = shader.GetPropertyName(i);
                 }
             }
-            return null;
+            s_flaggedMain[id] = (n, texture, color);
+            return (texture, color);
         }
 
-        private static string FirstExisting(Material mat, params string[] names) {
+        private static string FirstExisting(Material mat, string[] names) {
             foreach (var n in names) {
                 if (mat.HasProperty(n)) {
                     return n;

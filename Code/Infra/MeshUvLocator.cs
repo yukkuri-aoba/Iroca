@@ -20,8 +20,8 @@ namespace Iroca {
     /// たどれないとき(FBX の既定マテリアルのまま等)は <see cref="FromObject"/> で手動指定する。
     /// </summary>
     internal static class MeshUvLocator {
-        /// <summary>メインテクスチャとして見るプロパティ(lilToon / 標準 / URP / HDRP)。</summary>
-        private static readonly string[] MainTextureProperties = { "_MainTex", "_BaseMap", "_BaseColorMap" };
+        // メインテクスチャかもしれない欄の置き場(MaterialColorSettings.MainTextureCandidates が入れる。メインスレッドだけで使う)。
+        private static readonly List<string> s_mainTextureCandidates = new List<string>();
 
         internal sealed class Found {
             public UvChartSource source;
@@ -346,15 +346,16 @@ namespace Iroca {
         internal static bool UsesTexture(Material mat, HashSet<Texture> targets, out string property)
             => MainTextureOf(mat, targets, null, out property);
 
-        /// <summary>マテリアルのメインテクスチャ(<see cref="MainTextureProperties"/> の最初に見つかったもの)。無ければ null。</summary>
+        /// <summary>
+        /// マテリアルのメインテクスチャ(<see cref="MaterialColorSettings.MainTextureCandidates"/> の欄のうち、最初に
+        /// テクスチャが差してあるもの)。無ければ null。
+        /// </summary>
         internal static Texture MainTexture(Material mat) {
             if (mat == null) {
                 return null;
             }
-            foreach (var p in MainTextureProperties) {
-                if (!mat.HasProperty(p)) {
-                    continue;
-                }
+            MaterialColorSettings.MainTextureCandidates(mat, s_mainTextureCandidates);
+            foreach (var p in s_mainTextureCandidates) {
                 var t = mat.GetTexture(p);
                 if (t != null) {
                     return t;
@@ -409,10 +410,8 @@ namespace Iroca {
             if (mat == null) {
                 return false;
             }
-            foreach (var p in MainTextureProperties) {
-                if (!mat.HasProperty(p)) {
-                    continue;
-                }
+            MaterialColorSettings.MainTextureCandidates(mat, s_mainTextureCandidates);
+            foreach (var p in s_mainTextureCandidates) {
                 var t = mat.GetTexture(p);
                 if (t == null) {
                     continue;

@@ -206,6 +206,74 @@ namespace Iroca.EditorTests {
             Assert.IsFalse(r.found[0].matchedTexture);
         }
 
+        // テスト用のシェーダー(欄だけを持つ)。使った後は消す。
+        private static Shader ShaderWith(string name, string properties)
+            => ShaderUtil.CreateShaderAsset(
+                "Shader \"Hidden/IrocaTest/" + name + "\" { Properties { " + properties + " } SubShader { Pass { } } }", false);
+
+        // シェーダーが [MainTexture] を付けた欄(名前が標準でない)も、メインテクスチャとして見つける。色の設定の読み取りと同じ欄。
+        // 以前はメッシュ探しが標準の名前だけを別に持っていて、こういうシェーダーのメッシュを見つけなかった。
+        [Test]
+        public void MainTextureAttribute_IsFoundByBothTheMeshSearchAndTheColorSettings() {
+            var shader = ShaderWith("AlbedoMain", "[MainTexture] _Albedo (\"Albedo\", 2D) = \"white\" {}");
+            var mat = new Material(shader);
+            try {
+                var tex = Tex("albedo");
+                mat.SetTexture("_Albedo", tex);
+                SceneObject(TwoQuads(), mat);
+
+                Assert.AreEqual("_Albedo", MaterialColorSettings.MainTextureProperty(mat), "色の設定の読み取りが見る欄");
+                Assert.AreSame(tex, MeshUvLocator.MainTexture(mat), "メッシュ探しのメインテクスチャ");
+                var targets = new System.Collections.Generic.HashSet<Texture> { tex };
+                Assert.IsTrue(MeshUvLocator.UsesTexture(mat, targets, out string prop), "メッシュ探しが [MainTexture] の欄を見ていない");
+                Assert.AreEqual("_Albedo", prop);
+                var found = MeshUvLocator.FindForTexture(tex);
+                Assert.IsNotNull(found, "[MainTexture] の欄に差したテクスチャのメッシュを見つけない");
+                Assert.AreEqual(1, found.found.Count);
+            } finally {
+                Object.DestroyImmediate(mat);
+                Object.DestroyImmediate(shader);
+            }
+        }
+
+        // _MainTex が空で、別の標準の欄(_BaseMap)に差してあるマテリアルも、今までどおり見つける。
+        [Test]
+        public void EmptyMainTex_FallsBackToTheOtherStandardSlots() {
+            var shader = ShaderWith("TwoSlots", "_MainTex (\"Main\", 2D) = \"white\" {} _BaseMap (\"Base\", 2D) = \"white\" {}");
+            var mat = new Material(shader);
+            try {
+                var tex = Tex("base");
+                mat.SetTexture("_BaseMap", tex);
+                Assert.AreSame(tex, MeshUvLocator.MainTexture(mat));
+                var targets = new System.Collections.Generic.HashSet<Texture> { tex };
+                Assert.IsTrue(MeshUvLocator.UsesTexture(mat, targets, out string prop));
+                Assert.AreEqual("_BaseMap", prop);
+            } finally {
+                Object.DestroyImmediate(mat);
+                Object.DestroyImmediate(shader);
+            }
+        }
+
+        // マテリアルのテクスチャの欄は、メイン以外も全部見る(非破壊ビルドと登録が同じ調べ方を使う)。
+        [Test]
+        public void MaterialTextureSlots_SeeEverySlot() {
+            var main = Tex("main");
+            var emission = Tex("emission");
+            var unused = Tex("unused");
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = main };
+            try {
+                mat.SetTexture("_EmissionMap", emission);
+                Assert.IsTrue(MaterialTextureSlots.References(mat, main));
+                Assert.IsTrue(MaterialTextureSlots.References(mat, emission), "メイン以外の欄を見ていない");
+                Assert.IsFalse(MaterialTextureSlots.References(mat, unused));
+                Assert.IsTrue(MaterialTextureSlots.ReferencesAny(mat, new System.Collections.Generic.HashSet<Texture> { unused, emission }));
+                Assert.IsFalse(MaterialTextureSlots.ReferencesAny(mat, new System.Collections.Generic.HashSet<Texture> { unused }));
+                Assert.IsFalse(MaterialTextureSlots.ReferencesAny(mat, new System.Collections.Generic.HashSet<Texture>()));
+            } finally {
+                Object.DestroyImmediate(mat);
+            }
+        }
+
         [Test]
         public void NonReadableMeshDoesNotThrow() {
             // Read/Write 無効のメッシュ: Editor で読めるなら見つかり、読めなければ unreadable に数える。どちらでも落ちない

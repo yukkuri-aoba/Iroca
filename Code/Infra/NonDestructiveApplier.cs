@@ -288,7 +288,7 @@ namespace Iroca {
                     return known;
                 }
                 Material clone = null;
-                if (References(original, source)) {
+                if (MaterialTextureSlots.References(original, source)) {
                     state.used.Add(key);
                     if (recolored == null) {
                         recolored = host.BuildTexture(recipe, out var failure);
@@ -394,16 +394,6 @@ namespace Iroca {
                 state.used.Add(key);
                 return replaced;
             }
-        }
-
-        /// <summary>マテリアルがいずれかのテクスチャ枠で <paramref name="texture"/> を参照しているか。</summary>
-        internal static bool References(Material material, Texture texture) {
-            foreach (int id in material.GetTexturePropertyNameIDs()) {
-                if (material.GetTexture(id) == texture) {
-                    return true;
-                }
-            }
-            return false;
         }
 
         private static void ReplaceTexture(Material material, Texture from, Texture to) {

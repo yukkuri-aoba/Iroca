@@ -30,7 +30,7 @@ namespace Iroca {
                     continue;
                 }
                 foreach (var m in r.sharedMaterials) {
-                    if (m != null && (NonDestructiveApplier.References(m, texture) || UsesAny(m, exports))) {
+                    if (m != null && (MaterialTextureSlots.References(m, texture) || MaterialTextureSlots.ReferencesAny(m, exports))) {
                         users.Add(r.transform);
                         break;
                     }
@@ -384,7 +384,7 @@ namespace Iroca {
             }
             foreach (var r in scope.GetComponentsInChildren<Renderer>(true)) {
                 foreach (var m in r.sharedMaterials) {
-                    if (m != null && !found.Contains(m) && UsesAny(m, exports)) {
+                    if (m != null && !found.Contains(m) && MaterialTextureSlots.ReferencesAny(m, exports)) {
                         found.Add(m);
                     }
                 }
@@ -440,7 +440,7 @@ namespace Iroca {
                     continue;
                 }
                 foreach (var m in r.sharedMaterials) {
-                    if (m != null && UsesAny(m, exports)) {
+                    if (m != null && MaterialTextureSlots.ReferencesAny(m, exports)) {
                         found.Add(m);
                     }
                 }
@@ -484,19 +484,6 @@ namespace Iroca {
                 switched++;
             }
             return switched;
-        }
-
-        private static bool UsesAny(Material m, HashSet<Texture> textures) {
-            if (textures.Count == 0) {
-                return false;
-            }
-            foreach (int id in m.GetTexturePropertyNameIDs()) {
-                var t = m.GetTexture(id);
-                if (t != null && textures.Contains(t)) {
-                    return true;
-                }
-            }
-            return false;
         }
 
         internal static bool IsSceneObject(GameObject go)

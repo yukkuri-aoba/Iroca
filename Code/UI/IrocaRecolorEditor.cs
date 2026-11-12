@@ -247,7 +247,7 @@ namespace Iroca {
                         && MaterialShadowColors.MainTextureIs(m, source)) {
                         info.shadowMaterials.Add(m);
                     }
-                    if (!NonDestructiveApplier.References(m, source)) {
+                    if (!MaterialTextureSlots.References(m, source)) {
                         continue;
                     }
                     if (owner != null) {
