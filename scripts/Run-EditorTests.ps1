@@ -22,6 +22,11 @@
     Unity.exe のパス。既定は UNITY_EDITOR_PATH（...\Editor\Data\Managed）から導出し、
     無ければ Unity Hub の既定インストール先（2022.3.22f1）。
 
+.PARAMETER BuildTarget
+    Unity をこのビルド対象で起動する（-buildTarget。例: Android、StandaloneWindows64）。プラットフォームごとの
+    取り込み（Quest 向けの ASTC など）を確かめるとき用。ホストのビルド対象はそのまま残るので、終わったら
+    StandaloneWindows64 で一度回して戻す（どちらも取り込み直しで時間がかかる）。
+
 .PARAMETER PerfCases
     性能計測（PerfBenchTests、Category "Perf"）だけを回す。値は計測ケースの JSON
     （python dev_safe/scripts/perf_bench.py unity-cases が作る）。結果は出力フォルダの perf.jsonl。
@@ -96,6 +101,7 @@
 param(
     [string]$HostProject = (Join-Path $env:USERPROFILE 'Documents\Avatar_Projects\Iroca_Dev'),
     [string]$UnityExe,
+    [string]$BuildTarget,
     [string]$PerfCases,
     [string]$MemCases,
     [string]$HiResCases,
@@ -256,6 +262,7 @@ if ($SdkBuild -or $SdkUpload) {
 
 $unityArgs = @('-batchmode')
 if (-not $Graphics) { $unityArgs += '-nographics' }
+if ($BuildTarget) { $unityArgs += @('-buildTarget', $BuildTarget) }
 $unityArgs += @(
     '-projectPath', "`"$HostProject`"",
     '-runTests', '-testPlatform', 'EditMode',
