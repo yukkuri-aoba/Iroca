@@ -359,12 +359,17 @@ namespace Iroca {
                 return;   // 窓が閉じられた
             }
             var recipe = BoundRecipe;
-            if (recipe == null || !SessionPersistence.RecipeChangedOutside(recipe)) {
+            if (recipe == null) {
                 return;
             }
-            // 書き出し・自動調整の途中やマスクを塗っている途中は、終わってから読み直す。
+            // 書き出し・自動調整の途中やマスクを塗っている途中は、終わってから見る。待つ間はエディタの更新のたびにここへ戻るので、
+            // 外で変わったかの確かめ(レシピの JSON 全文のハッシュ。数 MB)より先に見る。以前は確かめが先で、待つ間ずっと
+            // 更新のたびにハッシュを取っていた。
             if (IsJobBlockingUI || (_maskView != null && _maskView.isPainting)) {
                 ScheduleRecipeReload();
+                return;
+            }
+            if (!SessionPersistence.RecipeChangedOutside(recipe)) {
                 return;
             }
             // 読めない(新しい版のいろかで作られた・壊れた)なら読み直さない。保存もしない(覚えた中身と違うので)。
