@@ -379,7 +379,7 @@ namespace Iroca {
             if (!Application.isBatchMode) {
                 return;
             }
-            bool ok = false;
+            bool ok;
             try { ok = JsonUtility.FromJson<RecolorResult>(resultJson)?.ok ?? false; } catch { ok = false; }
             EditorApplication.Exit(ok ? 0 : 1);
         }
