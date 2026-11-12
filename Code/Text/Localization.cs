@@ -721,23 +721,8 @@ namespace Iroca {
             ? "今のテクスチャのゾーン・色・加工設定・マスクをすべて消して、最初の状態に戻します。よろしいですか？\n（Ctrl+Z で戻せます）"
             : "This clears all zones, colors, processing settings and masks for the current texture. Continue?\n(You can undo this.)";
 
-        public static string BatchApply => IsJapanese ? "一括適用" : "Batch Apply";
-        public static string BatchHint => IsJapanese
-            ? "現在のゾーン設定を複数のテクスチャに一括適用します。出力は各ファイル名に _recolored を付与します。"
-            : "Apply the current zone settings to several textures at once. Output files get a _recolored suffix.";
-        public static string AddBatchTexture => IsJapanese ? "+ テクスチャ追加" : "+ Add Texture";
-        public static string RemoveBatchTextureTooltip => IsJapanese
-            ? "このテクスチャを一括リストから外します"
-            : "Remove this texture from the batch list";
-        public static string BatchApplyAndSave => IsJapanese ? "一括適用して保存" : "Batch Apply & Save";
-        public static string BatchProgress => IsJapanese ? "一括適用中…" : "Batch processing...";
-        public static string BatchComplete(int count) => IsJapanese
-            ? $"{count} 件のテクスチャを処理しました"
-            : $"Processed {count} texture(s)";
-        // 一括適用の書き出し先が重なるので止めた。{0} = 重なりの一覧(1 行ずつ)。
-        public static string BatchOutputConflictsFormat => IsJapanese
-            ? "書き出し先が重なるので、一括適用を止めました（何も書き出していません）。一覧から外すか、ファイルの名前を変えてから、もう一度押してください。\n\n{0}"
-            : "Batch apply was stopped because output files would collide (nothing was written). Remove items from the list or rename the files, then try again.\n\n{0}";
+        // 一括書き出しの計画(ExportPipeline.PlanBatch)が見つけた、書き出し先の重なりの 1 行ずつ(ExportPipeline.DescribeConflicts)。
+        // 一括適用の画面は外してあり、いまは使う画面が無い。
         public static string BatchSharedOutput(string sources, string output) => IsJapanese
             ? $"・{sources} は、どれも {output} に書き出します"
             : $"- {sources} would all be written to {output}";
@@ -1030,12 +1015,6 @@ namespace Iroca {
         public static string InheritImportSettingsTooltip => IsJapanese
             ? "ON: 元テクスチャのインポート設定（テクスチャタイプ・圧縮・ミップマップなど）を出力ファイルに引き継ぎます\nOFF: Unity の既定のインポート設定を使います"
             : "ON: Copy import settings (texture type, compression, mipmaps, etc.) from the source texture to the output file\nOFF: Use Unity's default import settings";
-        public static string AddBatchTextureTooltip => IsJapanese
-            ? "一括適用リストにテクスチャを追加します"
-            : "Add a texture to the batch apply list";
-        public static string BatchApplyAndSaveTooltip => IsJapanese
-            ? "リスト内のすべてのテクスチャに現在のゾーン設定を一括適用して保存します\n出力ファイル名は元のファイル名に _recolored を付与"
-            : "Apply current zone settings to all textures in the list and save\nOutput files get a _recolored suffix";
 
         public static string ComparisonModeTooltip => IsJapanese
             ? "変更前と変更後を横並びで比較表示します。拡大しているときも、両方とも同じ解像度（既定はインポート設定の Max Size の大きさ。「元の解像度」がオンなら元の解像度）で細部まで表示します"

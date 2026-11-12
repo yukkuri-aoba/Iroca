@@ -9,10 +9,11 @@ using UnityEngine.Experimental.Rendering;
 
 namespace Iroca {
     /// <summary>
-    /// 「適用して保存」（単体）と「一括適用」が共有する書き出しの手順。
+    /// 「適用して保存」と自動化 API が共有する書き出しの手順。
     /// 原本の読み込み → （呼び出し側で ProcessPixelsArray）→ PNG 化 → 書き込み → 取り込み、の
-    /// 各段をここに集める。以前は単体と一括が別々に書いており、一括だけ書き込みがアトミックで
-    /// なかった（途中で落ちると既存の _recolored.png を壊す）。
+    /// 各段をここに集める。
+    /// 複数のテクスチャへの一括適用の画面は外した(当面出さないまま残っていた。2026-11-13)。出力先の重なりを見つける計画
+    /// (<see cref="PlanBatch{T}"/>)は、次に一括の入口を作るときのために残してある(いま呼ぶのはテストだけ)。
     /// UI（ダイアログ・進捗・通知）は持たないので、EditMode テスト（scripts/editor-tests）から直接呼べる。
     /// </summary>
     internal static class ExportPipeline {
@@ -133,6 +134,18 @@ namespace Iroca {
                 }
             }
             return plan;
+        }
+
+        /// <summary>計画が見つけた書き出し先の重なりを、1 行ずつの文にする(止めた理由として見せる)。</summary>
+        internal static string DescribeConflicts<T>(BatchPlan<T> plan) where T : class {
+            var lines = new List<string>();
+            foreach (var (output, sources) in plan.SharedOutputs) {
+                lines.Add(Localization.BatchSharedOutput(string.Join(", ", sources), output));
+            }
+            foreach (var (source, output) in plan.OverwritesASource) {
+                lines.Add(Localization.BatchOutputIsSource(source, output));
+            }
+            return string.Join("\n", lines);
         }
 
         // 同じファイルかを比べる鍵(フルパス。'/' と '\' の違いを消す)。フルパスにできないパスは区切りだけそろえる。

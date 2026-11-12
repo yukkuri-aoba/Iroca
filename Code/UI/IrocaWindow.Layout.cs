@@ -361,8 +361,6 @@ namespace Iroca {
 
             EditorGUILayout.EndHorizontal();
 
-            // 一括適用は実装継続中のため当面 UI から非表示。
-            // _exportView.DrawBatchSection();
             _exportView.DrawExportSection();
         }
 
@@ -415,8 +413,6 @@ namespace Iroca {
             EditorGUILayout.EndScrollView();
             RecordSettingsScrollRect();
 
-            // 一括適用は実装継続中のため当面 UI から非表示。
-            // _exportView.DrawBatchSection();
             _exportView.DrawExportSection();
         }
 

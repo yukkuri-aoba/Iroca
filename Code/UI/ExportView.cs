@@ -8,21 +8,17 @@ using UnityEngine;
 
 namespace Iroca {
     /// <summary>
-    /// 単体出力 / 一括適用の UI 描画と PNG 書き出しを担当する。
+    /// 書き出し(「適用して保存」)の UI 描画と PNG 書き出しを担当する。
     /// プレビュー生成・プリセット管理・マスク編集には関与しない。
     /// </summary>
     [System.Serializable]
     internal class ExportView {
-        public bool batchFoldout;
-        public List<Texture2D> batchTextures = new List<Texture2D>();
-
         public bool saveAsNewFile = true;
         public string newFileName = "";
         public bool inheritImportSettings = true;
         // NDMF があるときの「テクスチャとして書き出す」の開閉。主は非破壊の登録なので既定は閉じる。
         public bool textureExportFoldout;
 
-        [System.NonSerialized] private Vector2 _batchScrollPos;
         [System.NonSerialized] private IrocaWindow _host;
 
         // シーンで「このテクスチャを書き出した画像」を使っているマテリアルの数(非破壊へ移る案内に使う)。
@@ -638,184 +634,6 @@ namespace Iroca {
             if (IrocaWindow.DrawJobProgressRow(pct, label)) {
                 _exportJob.Cancel();
             }
-        }
-
-        public void DrawBatchSection() {
-            batchFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(batchFoldout, Localization.BatchApply);
-            if (!batchFoldout) {
-                EditorGUILayout.EndFoldoutHeaderGroup();
-                return;
-            }
-
-            EditorGUILayout.HelpBox(Localization.BatchHint, MessageType.Info);
-
-            _batchScrollPos = EditorGUILayout.BeginScrollView(_batchScrollPos, GUILayout.MaxHeight(120));
-            int removeIdx = -1;
-            for (int i = 0; i < batchTextures.Count; i++) {
-                EditorGUILayout.BeginHorizontal();
-                batchTextures[i] = (Texture2D)EditorGUILayout.ObjectField(
-                    batchTextures[i], typeof(Texture2D), false);
-                if (GUILayout.Button(TempContent.Of("×", Localization.RemoveBatchTextureTooltip),
-                        GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth))) {
-                    removeIdx = i;
-                }
-                EditorGUILayout.EndHorizontal();
-            }
-            EditorGUILayout.EndScrollView();
-
-            if (removeIdx >= 0) {
-                batchTextures.RemoveAt(removeIdx);
-            }
-
-            if (GUILayout.Button(TempContent.Of(Localization.AddBatchTexture, Localization.AddBatchTextureTooltip))) {
-                batchTextures.Add(null);
-            }
-
-            var session = _host.Session;
-            EditorGUI.BeginDisabledGroup(batchTextures.Count == 0 || session.zones.Count == 0);
-            if (GUILayout.Button(TempContent.Of(Localization.BatchApplyAndSave, Localization.BatchApplyAndSaveTooltip), GUILayout.Height(28))) {
-                RunBatchApply();
-            }
-            EditorGUI.EndDisabledGroup();
-
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            EditorGUILayout.Space(4);
-        }
-
-        private void RunBatchApply() {
-            var session = _host.Session;
-            // 同じテクスチャの 2 つ目以降を落とし、出力先が重なる・ほかの項目の元を書き潰すものがあれば、何も書かずに止める。
-            var plan = ExportPipeline.PlanBatch(batchTextures.Where(t => t != null), AssetDatabase.GetAssetPath);
-            if (plan.HasConflicts) {
-                string message = string.Format(Localization.BatchOutputConflictsFormat, DescribeConflicts(plan));
-                Debug.LogWarning("[Iroca] " + message);
-                EditorUtility.DisplayDialog(Localization.Error, message, Localization.OK);
-                return;
-            }
-            var plannedOutputs = plan.Items.Select(t => ExportPipeline.BatchOutputPath(AssetDatabase.GetAssetPath(t))).ToList();
-
-            bool anyExists = plannedOutputs.Any(File.Exists);
-            if (anyExists) {
-                if (!EditorUtility.DisplayDialog(
-                        Localization.Confirm,
-                        Localization.OverwriteConfirm,
-                        Localization.Overwrite,
-                        Localization.Cancel)) {
-                    return;
-                }
-            }
-
-            int success = 0;
-            // 一括対象に現在プレビュー中のテクスチャの出力先が含まれると、ソース画素が書き換わる。
-            // 単体エクスポートと同じくキャッシュを捨てないと二重適用になるので、書き出し先を照合する。
-            string previewSrcPath = _host.SourceTexture != null
-                ? AssetDatabase.GetAssetPath(_host.SourceTexture) : null;
-            bool previewSourceOverwritten = false;
-            // マスクは編集中のもの 1 組をどのテクスチャにも当てる(ループの間に編集は変わらない)。1 枚ごとに作り直さず、
-            // 1 つ作って各テクスチャの入力が参照を 1 つずつ持つ。
-            bool anyZones = RecolorInput.CountEnabled(session.zones) > 0;
-            var masks = anyZones ? _host.BuildMaskSnapshot() : null;
-            // 書き出した寸法がどれも編集の作業解像度と同じなら、作業配列はプレビューが温めていたものと同じ大きさなので
-            // 手放さない(単体の書き出しと同じ規則。次の 1 手が作業配列を作り直さずに済む)。
-            int workW = 0, workH = 0;
-            bool haveWorkSize = _host?.Preview != null && _host.Preview.TryGetWorkingSize(out workW, out workH);
-            bool otherSize = false;
-            // 作業配列を借りる計算の区間(手を止めて 10 秒で空きを返す予約は、この区間が終わったときに入る)。
-            NativeMemoryLifecycle.WorkStarted();
-            try {
-                AssetDatabase.StartAssetEditing();
-                for (int i = 0; i < plan.Items.Count; i++) {
-                    var tex = plan.Items[i];
-                    if (tex == null) {
-                        continue;
-                    }
-
-                    if (EditorUtility.DisplayCancelableProgressBar(
-                            Localization.BatchProgress,
-                            tex.name,
-                            (float)i / Mathf.Max(1, plan.Items.Count))) {
-                        break;
-                    }
-
-                    // Read/Write は事前に要求しない。原本が PNG/JPG なら直接読めるので、
-                    // 1 枚ごとに「Undo できません」のモーダルを出す必要はなかった
-                    // （読めない形式は下のフォールバックが取り込み済みテクスチャを使う）。
-                    string srcPath = AssetDatabase.GetAssetPath(tex);
-                    if (string.IsNullOrEmpty(srcPath)) {
-                        continue;
-                    }
-
-                    NativePixels pixels = null;
-                    try {
-                        // 読み込み・PNG 化・書き込みは単体書き出しと同じ ExportService を通す
-                        // （以前は一括だけ書き込みがアトミックでなかった）。画素も PNG もヒープの外。
-                        var source = ExportService.ReadSource(srcPath, tex, out pixels);
-                        // 原本も取り込み側も読めない（PSD/TGA 等で Read/Write 無効・壊れた PNG/JPG）。
-                        if (!ExportPipeline.HasPixels(source)) {
-                            Debug.LogWarning($"[Iroca] Batch: skipped {tex.name}; the source file could not be read ({source}).");
-                            continue;
-                        }
-                        if (source == ExportPipeline.SourceKind.ImportedTexture) {
-                            // 取り込み済みテクスチャで代替する（縮小・圧縮の影響を受ける）。以前は黙って
-                            // スキップしていたので、完了件数だけを見たユーザーには理由が残らなかった。
-                            Debug.LogWarning($"[Iroca] Batch: source file could not be decoded for {tex.name}; "
-                                + $"using the imported texture ({pixels.Width}x{pixels.Height}).");
-                        }
-
-                        if (!haveWorkSize || pixels.Width != workW || pixels.Height != workH) {
-                            otherSize = true;
-                        }
-                        // リスト先頭のゾーンほど先に処理され、重なった領域を占有する(単体の書き出しと同じ組み立て)。
-                        if (anyZones) {
-                            var batchInput = RecolorInput.FromEditing(session, masks?.AddRef());
-                            try { ExportService.Recolor(pixels, batchInput); } finally { batchInput.ReleaseMasks(); }
-                        }
-
-                        string outPath = ExportPipeline.BatchOutputPath(srcPath);
-                        using (var png = ExportService.EncodePng(pixels)) {
-                            ExportService.WriteAndImport(outPath, png, srcPath, inheritImportSettings);
-                        }
-                        if (ExportPipeline.IsSameFile(outPath, previewSrcPath)) {
-                            previewSourceOverwritten = true;
-                        }
-                        success++;
-                    } catch (System.Exception ex) {
-                        Debug.LogWarning($"[Iroca] Batch apply failed for {tex.name}: {ex.Message}");
-                    } finally {
-                        pixels?.Release();
-                    }
-                }
-            } finally {
-                masks?.Release();
-                NativeMemoryLifecycle.WorkEnded();
-                AssetDatabase.StopAssetEditing();
-                EditorUtility.ClearProgressBar();
-            }
-
-            if (previewSourceOverwritten) {
-                _host?.InvalidateSourceAndRepaint();
-            }
-            // 書き出しは元の解像度で処理するので、作業解像度で編集しているとその解像度の作業配列が丸ごと残る
-            // (8K で約 3GB)。違う寸法を書き出したときは、使っていない分を OS へ返す(次のプレビューは新しく確保し直す)。
-            // 同じ寸法だけなら残す(10 秒手を止めれば、空きは NativeMemoryLifecycle が返す)。
-            if (otherSize) {
-                PixelProcessor.ReleaseWorkBuffersInBackground();
-            }
-
-            EditorUtility.DisplayDialog(Localization.Complete,
-                Localization.BatchComplete(success), Localization.OK);
-        }
-
-        // 一括適用を止めた理由(書き出し先の重なり)を 1 行ずつ。internal は ExportPipelineTests が文を確かめるため。
-        internal static string DescribeConflicts<T>(ExportPipeline.BatchPlan<T> plan) where T : class {
-            var lines = new List<string>();
-            foreach (var (output, sources) in plan.SharedOutputs) {
-                lines.Add(Localization.BatchSharedOutput(string.Join(", ", sources), output));
-            }
-            foreach (var (source, output) in plan.OverwritesASource) {
-                lines.Add(Localization.BatchOutputIsSource(source, output));
-            }
-            return string.Join("\n", lines);
         }
     }
 }

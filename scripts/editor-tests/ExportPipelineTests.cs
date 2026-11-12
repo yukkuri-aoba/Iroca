@@ -113,7 +113,7 @@ namespace Iroca.EditorTests {
             Assert.AreEqual("Assets/Tex/Body_recolored.png", Norm(plan.SharedOutputs[0].output));
             CollectionAssert.AreEqual(new[] { "Assets/Tex/Body.psd", "Assets/Tex/Body.png" }, plan.SharedOutputs[0].sources);
             CollectionAssert.IsEmpty(plan.OverwritesASource);
-            StringAssert.Contains("Body_recolored.png", ExportView.DescribeConflicts(plan));
+            StringAssert.Contains("Body_recolored.png", ExportPipeline.DescribeConflicts(plan));
         }
 
         // X.png と X_recolored.png を並べると、X.png の書き出しが X_recolored.png を書き換え、続く項目がそれを読んで二重に色替えする。
