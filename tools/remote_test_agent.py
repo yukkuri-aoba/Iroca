@@ -337,6 +337,115 @@ def _pack_fetch(run_dir: Path, paths: list[str]) -> None:
             tf.add(p, arcname=p.relative_to(root).as_posix())
 
 
+class _HighQosSweeper:
+    """実行したプロセスとその子孫を、Windows の低 QoS 扱い（E コアへ寄せる）から外し続ける（2026-11-12）。
+
+    ssh の先で起動したプロセスはウィンドウの無いセッションで動くので、Windows 11 は裏の処理とみなして QoS を下げ、
+    ハイブリッド CPU（P コアと E コア）では E コアへ寄せる。i5-1340P で、空いている P コアをほとんど使わずに
+    E コアだけが張り付いていた。プロセスごとに SetProcessInformation(ProcessPowerThrottling) で
+    「速さを絞らない」と指定すると P コアに乗る（忙しいスレッド 4 本で P コアの割合 50%→99%）。
+    この指定は子プロセスへ引き継がれないので、pytest のワーカー・ハーネス（dotnet）・ビルドなど子孫を
+    一定間隔で見つけて 1 回ずつ指定する。優先度（PriorityClass）は変えない。出力は変わらない。
+    """
+
+    INTERVAL_S = 0.25
+
+    def __init__(self, root_pid: int):
+        import ctypes
+        from ctypes import wintypes
+
+        class PROCESSENTRY32W(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                        ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                        ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                        ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", wintypes.LONG),
+                        ("dwFlags", wintypes.DWORD), ("szExeFile", wintypes.WCHAR * 260)]
+
+        class POWER_THROTTLING_STATE(ctypes.Structure):
+            _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG),
+                        ("StateMask", wintypes.ULONG)]
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        k32.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        self._ctypes = ctypes
+        self._k32 = k32
+        self._entry_t = PROCESSENTRY32W
+        # Version 1・ControlMask=EXECUTION_SPEED・StateMask=0: 速さを絞らない（常に通常の QoS）
+        self._state = POWER_THROTTLING_STATE(1, 1, 0)
+        self._known: set[int] = set()  # 自分の子孫として見つけた PID（終わったものも親の手がかりに残す）
+        self._pending = {root_pid}
+        self.applied = 0
+        self.failed = 0
+
+    def _snapshot(self) -> list[tuple[int, int]]:
+        k32 = self._k32
+        snap = k32.CreateToolhelp32Snapshot(0x00000002, 0)  # TH32CS_SNAPPROCESS
+        if not snap or snap == self._invalid_handle:
+            return []
+        try:
+            e = self._entry_t()
+            e.dwSize = self._ctypes.sizeof(e)
+            out = []
+            ok = k32.Process32FirstW(snap, self._ctypes.byref(e))
+            while ok:
+                out.append((e.th32ProcessID, e.th32ParentProcessID))
+                ok = k32.Process32NextW(snap, self._ctypes.byref(e))
+            return out
+        finally:
+            k32.CloseHandle(snap)
+
+    def _apply(self, pid: int) -> None:
+        h = self._k32.OpenProcess(0x0200, False, pid)  # PROCESS_SET_INFORMATION
+        if not h:
+            self.failed += 1
+            return
+        try:
+            if self._k32.SetProcessInformation(h, 4, self._ctypes.byref(self._state),  # ProcessPowerThrottling
+                                               self._ctypes.sizeof(self._state)):
+                self.applied += 1
+            else:
+                self.failed += 1
+        finally:
+            self._k32.CloseHandle(h)
+
+    @property
+    def _invalid_handle(self) -> int:
+        return self._ctypes.c_void_p(-1).value  # INVALID_HANDLE_VALUE
+
+    def sweep(self) -> None:
+        procs = self._snapshot()
+        alive = {pid for pid, _ in procs}
+        for pid in list(self._pending):
+            if pid in alive:
+                self._known.add(pid)
+                self._apply(pid)
+            self._pending.discard(pid)
+        # 親が既知なら自分の子孫。1 回の走査で孫まで拾えるよう、増えなくなるまで回す
+        grew = True
+        while grew:
+            grew = False
+            for pid, ppid in procs:
+                if ppid in self._known and pid not in self._known and pid != ppid:
+                    self._known.add(pid)
+                    self._apply(pid)
+                    grew = True
+
+    def run_until(self, proc: subprocess.Popen) -> None:
+        while proc.poll() is None:
+            try:
+                self.sweep()
+            except OSError:
+                pass
+            time.sleep(self.INTERVAL_S)
+
+
 def cmd_run(argv: list[str]) -> int:
     run_id = argv[0]
     run_dir = _run_dir(run_id)
@@ -366,6 +475,15 @@ def cmd_run(argv: list[str]) -> int:
             env["UnityManaged"] = str(UNITY_DIR)
         t1 = time.monotonic()
         child = subprocess.Popen([str(venv_py), *req["argv"]], cwd=str(MAIN), env=env, stdin=subprocess.DEVNULL)
+        qos = None
+        # IROCA_HIGH_QOS=0 で外さない（比べるとき用）
+        if os.name == "nt" and env.get("IROCA_HIGH_QOS", "1") != "0":
+            try:
+                qos = _HighQosSweeper(child.pid)
+                threading.Thread(target=qos.run_until, args=(child,), daemon=True).start()
+            except (OSError, AttributeError) as e:
+                log(f"低 QoS を外せない（E コアに寄ったまま回ります）: {e}")
+                qos = None
         heartbeat = float(req.get("heartbeat_s") or 0)
         if heartbeat > 0:
             # 呼び手は標準入力へ heartbeat 秒ごとに 1 行送る。途絶えたら呼び手(ssh)が切れたとみなし、置き去りの実行
@@ -394,7 +512,8 @@ def cmd_run(argv: list[str]) -> int:
             threading.Thread(target=_read, daemon=True).start()
             threading.Thread(target=_watch, daemon=True).start()
         rc = child.wait()
-        log(f"終了コード {rc}・{time.monotonic() - t1:.1f} 秒")
+        qos_note = f"・低 QoS を外したプロセス {qos.applied}（失敗 {qos.failed}）" if qos is not None else ""
+        log(f"終了コード {rc}・{time.monotonic() - t1:.1f} 秒{qos_note}")
         if req.get("fetch"):
             _pack_fetch(run_dir, req["fetch"])
         return rc
