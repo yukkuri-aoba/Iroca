@@ -45,12 +45,40 @@ namespace Iroca {
             return false;
         }
 
-        /// <summary><see cref="TryGetColors(IList{ColorZone}, out Color, out Color)"/> のレシピ版(読めないレシピは false)。</summary>
+        /// <summary>
+        /// <see cref="TryGetColors(IList{ColorZone}, out Color, out Color)"/> のレシピ版(読めないレシピは false)。
+        /// 非破壊ビルドは影を合わせる複製ごとに、シーンのプレビューは差し替えの枠ごとに呼ぶ。レシピの中身(マスク込みの JSON。
+        /// 4K で数 MB)は、中身が変わったときだけ読む(ゾーンだけ)。以前は呼ばれるたびに全部を解析していた。
+        /// </summary>
         public static bool TryGetColors(IrocaRecipe recipe, out Color sample, out Color target) {
             sample = target = default;
-            var state = recipe != null ? RecipeStore.Load(recipe) : null;
-            return state != null && TryGetColors(state.zones, out sample, out target);
+            string json = recipe != null ? recipe.sessionJson : null;
+            if (string.IsNullOrEmpty(json)) {
+                return false;
+            }
+            if (!s_recipeColors.TryGetValue(json, out var known) || known.formatVersion != recipe.formatVersion) {
+                var fresh = new RecipeColors { formatVersion = recipe.formatVersion };
+                var zones = RecipeStore.LoadZones(recipe);
+                fresh.has = zones != null && TryGetColors(zones, out fresh.sample, out fresh.target);
+                s_recipeColors.Remove(json);
+                s_recipeColors.Add(json, fresh);
+                known = fresh;
+            }
+            sample = known.sample;
+            target = known.target;
+            return known.has;
         }
+
+        // レシピの中身(sessionJson の文字列の参照)→ 合わせる色。同じ参照なら中身も同じ。弱い参照の表なので、レシピが文字列を
+        // 手放せば覚えた分も消える(RecipeTextureBuilder の鍵の覚えと同じ作り)。読めるかは形式の版でも変わるので、版も覚える。
+        private sealed class RecipeColors {
+            public int formatVersion;
+            public bool has;
+            public Color sample, target;
+        }
+
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<string, RecipeColors> s_recipeColors =
+            new System.Runtime.CompilerServices.ConditionalWeakTable<string, RecipeColors>();
 
         // 1〜3 影の影色テクスチャ(Properties と同じ並び)。lilToon の影の色は lerp(メインの色, 影色テクスチャ, その α) × 影の色。
         private static readonly string[] TextureProperties = { "_ShadowColorTex", "_Shadow2ndColorTex", "_Shadow3rdColorTex" };

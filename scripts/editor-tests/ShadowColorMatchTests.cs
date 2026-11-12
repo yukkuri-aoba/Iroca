@@ -217,6 +217,39 @@ namespace Iroca.EditorTests {
             AssertColor(BlueShadow, mesh.GetComponent<Renderer>().sharedMaterial.GetColor("_ShadowColor"), "重ね描きの層の色替えで変えた");
         }
 
+        // レシピから合わせる色を読む(非破壊ビルドとシーンのプレビューが、複製・枠ごとに呼ぶ)。中身が同じ間は読み直さず、
+        // 中身か形式の版が変われば読み直す。
+        [Test]
+        public void TryGetColors_FromRecipe_FollowsTheRecipeContent() {
+            var src = Tex("src");
+            var recipe = Recipe(src);
+            Assert.IsTrue(MaterialShadowColors.TryGetColors(recipe, out var sample, out var target));
+            AssertColor(Sample, sample, "サンプルの色");
+            AssertColor(Target, target, "塗り先の色");
+            Assert.IsTrue(MaterialShadowColors.TryGetColors(recipe, out _, out target), "2 回目(覚えから)");
+            AssertColor(Target, target, "塗り先の色(2 回目)");
+
+            // 中身が変わったら、新しい色を読む。
+            var changed = RecipeStore.Load(recipe);
+            changed.zones[0].targetColor = Color.yellow;
+            RecipeStore.Save(recipe, changed);
+            Assert.IsTrue(MaterialShadowColors.TryGetColors(recipe, out _, out target));
+            AssertColor(Color.yellow, target, "レシピを書き換えた後の塗り先の色");
+
+            // 読めない形式の版になったら false(中身の文字列は同じ)。
+            int version = recipe.formatVersion;
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            try {
+                recipe.formatVersion = IrocaRecipe.CurrentFormatVersion + 1;
+                Assert.IsFalse(MaterialShadowColors.TryGetColors(recipe, out _, out _), "読めない版のレシピから色を返した");
+            } finally {
+                recipe.formatVersion = version;
+                UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false;
+            }
+            Assert.IsTrue(MaterialShadowColors.TryGetColors(recipe, out _, out _), "版を戻した後");
+            Assert.IsFalse(MaterialShadowColors.TryGetColors((IrocaRecipe)null, out _, out _));
+        }
+
         [Test]
         public void NeedsMatch_OnlyWhenTheShadowIsVisiblyOff() {
             var src = Tex("src");
