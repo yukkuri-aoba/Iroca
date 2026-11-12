@@ -573,6 +573,9 @@ namespace Iroca {
         public static string Error => IsJapanese ? "エラー" : "Error";
         public static string Confirm => IsJapanese ? "確認" : "Confirm";
         public static string Complete => IsJapanese ? "完了" : "Complete";
+        public static string ExportCompleteWithTime(string fileName, double seconds) => IsJapanese
+            ? $"完了: {fileName}（{seconds:F1} 秒）"
+            : $"Complete: {fileName} ({seconds:F1} s)";
         public static string OK => "OK";
         public static string Overwrite => IsJapanese ? "上書き" : "Overwrite";
         public static string Cancel => IsJapanese ? "キャンセル" : "Cancel";

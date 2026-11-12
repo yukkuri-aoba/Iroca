@@ -391,6 +391,8 @@ namespace Iroca {
             // 画素は Mono のヒープの外(ExportService)。ジョブの後始末(cleanup)で手放す。
             // PNG はジョブの中で読む(4K で 150〜320ms、8K で 560ms メインスレッドを止めない。元の解像度のまま)。
             // それ以外と扱わない PNG は LoadImage・GPU の展開が要るのでここで読む。
+            // 書き出しにかかった時間(押してから書き込みと取り込みが終わるまで)。完了の知らせに添える。
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
             ExportPipeline.SourceKind source = ExportPipeline.SourceKind.File;
             NativePixels pixels = null;
             // プレビューが同じ元ファイルを元の解像度のまま読んで持っていれば、読み直さずにそれを写して使う(ジョブの中で)。
@@ -523,9 +525,12 @@ namespace Iroca {
                         }
 
                         _exportProgress.Report(1.0f);
-                        Debug.Log($"[Iroca] Saved: {payload.outputPath}");
-                        // 非モーダル通知: ファイル名のみウィンドウ右下に短時間表示。詳細パスは Debug.Log。
-                        _host?.ShowNotification(new GUIContent($"{Localization.Complete}: {Path.GetFileName(payload.outputPath)}"));
+                        double seconds = elapsed.Elapsed.TotalSeconds;
+                        Debug.Log($"[Iroca] Saved: {payload.outputPath} ({seconds:F1} s)");
+                        // 非モーダル通知: ファイル名とかかった時間だけをウィンドウ右下に短時間表示。詳細パスは Debug.Log。
+                        // 時間は一般向けの唯一の計測の表示(プレビューの ms は開発用の PerfView にだけ出す)。
+                        _host?.ShowNotification(new GUIContent(
+                            Localization.ExportCompleteWithTime(Path.GetFileName(payload.outputPath), seconds)));
                     } catch (System.Exception ex) {
                         ReportExportFailure(ex);
                     } finally {
