@@ -570,6 +570,54 @@ namespace Iroca.EditorTests {
             Apply(ws, "other", MaskRegionOp.DontPaintHere, 199);
             Assert.AreEqual(64 + 1, ws.Patches.Count, "1 つの層について 64 個まで。ほかの層の記録は数えない");
             CollectionAssert.AreEqual(new[] { 12 }, On(ws.Patches[0]), "古いものから手放す");
+
+            // 読むときも同じ上限(手で書いた保存は、上限を超えて並べられる)。層には 70 画素とも立っている。
+            var ms = new MaskState();
+            ws.EncodeTo(ms);
+            for (int i = 0; i < 6; i++) {
+                int px = i * 2;
+                ms.patches.Add(new MaskPatchEntry {
+                    zoneId = "z", include = false,
+                    maskBase64 = px == 0 ? RleText(100, 2, true, 1, 199) : RleText(100, 2, false, (uint)px, 1, (uint)(199 - px)),
+                });
+            }
+            var loaded = new MaskWorkspace();
+            Assert.IsTrue(loaded.DecodeFrom(ms));
+            Assert.AreEqual(64 + 1, loaded.Patches.Count, "読んだ後も 1 つの層について 64 個まで");
+            CollectionAssert.AreEqual(new[] { 24 }, On(loaded.Patches[0]), "並びの古い側(先頭)から手放す");
+            ws.Clear();
+            loaded.Clear();
+        }
+
+        [Test]
+        public void Patches_AreCappedByTotalBytes() {
+            // 1 回の操作 = 80 行ぶんの 1 画素おき(ランが約 4 万本、RLE で約 164KB)。7 回で上限(1MiB)を超える。
+            const int w = 512, rows = 80, h = rows * 7;
+            var ws = new MaskWorkspace();
+            ws.Reset(w, h);
+            long one = 0;
+            for (int op = 0; op < 7; op++) {
+                var region = new bool[w * h];
+                for (int y = op * rows; y < (op + 1) * rows; y++) {
+                    for (int x = 0; x < w; x += 2) {
+                        region[y * w + x] = true;
+                    }
+                }
+                unsafe {
+                    fixed (bool* p = region) {
+                        Assert.IsTrue(ws.ApplyRegion(p, op % 2 == 0 ? "a" : "b", MaskRegionOp.DontPaintHere, null, out _));
+                    }
+                }
+                if (op == 0) {
+                    one = ws.Patches[0].Rle.Bytes;
+                    Assert.Greater(one * 7, MaskWorkspace.MaxPatchBytes, "この入力で上限を超えること");
+                    Assert.LessOrEqual(one * 6, MaskWorkspace.MaxPatchBytes);
+                }
+            }
+            Assert.AreEqual(6, ws.Patches.Count, "合計が上限を超えたら、層を問わず古いものから手放す");
+            Assert.IsFalse(ws.Patches[0].Contains(0), "いちばん古い操作(0 行目から)の記録は無い");
+            Assert.IsTrue(ws.Patches[0].Contains(rows * w), "2 回目の操作(80 行目から)の記録が先頭");
+            Assert.IsTrue(ws.Layer(false, "a").Get(0), "層は変わらない(記録だけ手放す)");
             ws.Clear();
         }
 

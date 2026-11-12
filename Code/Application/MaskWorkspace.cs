@@ -33,7 +33,14 @@ namespace Iroca {
 
         // 1 つの層について持つ記録の数の上限。超えたら古いものから手放す(手放した操作の範囲は、つながったかたまりで消すことになる)。
         // 記録 1 つは 4K の部分 1 つで 10〜40KB ほど。
-        private const int MaxPatchesPerLayer = 64;
+        internal const int MaxPatchesPerLayer = 64;
+
+        // 記録の RLE の合計の上限(バイト。全部の層の合計)。記録は git で管理するレシピ(.asset)にも入り(Base64 で 4/3 倍)、
+        // 自動保存・非破壊ビルド・シーンのプレビューのたびに読み書きされるので、件数だけでなく量でも止める。超えたら、層を問わず
+        // 古いものから手放す(いちばん新しい 1 件は大きさによらず残す)。
+        // 記録は層に立っている画素だけを持つので、ふつうは層の RLE と同じ程度で止まる。細かい模様を何十回も塗り分けたときの
+        // 守りで、値は「4K の部分 1 つで 10〜40KB」の 25〜100 回ぶん。
+        internal const long MaxPatchBytes = 1L << 20;
 
         /// <summary>マスクの土台の寸法(0 = まだ決まっていない)。</summary>
         public int Width { get; private set; }
@@ -211,12 +218,31 @@ namespace Iroca {
                 return;
             }
             _patches.Add(patch);
-            int kept = 0;
+            CapPatches();
+        }
+
+        // 記録を上限に収める(層ごとの件数と、全体のバイト数)。新しいものから数え、超えた分の古い記録を手放す。
+        private void CapPatches() {
+            if (_patches.Count <= 1) {
+                return;
+            }
+            var perLayer = new Dictionary<string, int>();
+            long bytes = 0;
+            bool overBytes = false;
             for (int i = _patches.Count - 1; i >= 0; i--) {
-                if (_patches[i].IsOf(zoneId, include) && ++kept > MaxPatchesPerLayer) {
-                    _patches[i].Release();
+                var p = _patches[i];
+                string key = (p.Include ? "+" : "-") + p.ZoneId;
+                perLayer.TryGetValue(key, out int count);
+                bool newest = i == _patches.Count - 1;
+                // バイト数は、超えた所から古い側を全部手放す(小さい古い記録だけが飛び飛びに残らないように)。
+                overBytes |= !newest && bytes + p.Rle.Bytes > MaxPatchBytes;
+                if (overBytes || count >= MaxPatchesPerLayer) {
+                    p.Release();
                     _patches.RemoveAt(i);
+                    continue;
                 }
+                perLayer[key] = count + 1;
+                bytes += p.Rle.Bytes;
             }
         }
 
@@ -587,6 +613,7 @@ namespace Iroca {
                 dropped += ReadEntries(ms.zoneIncludes, _includes, sameSize ? oldIncludes : null, include: true);
                 ReadPatches(ms.patches);
                 TrimPatches();   // 削る前の版(0.4.0 の開発中)や手で書いた保存の記録を、層に合わせる
+                CapPatches();    // 手で書いた保存は、上限を超えて並べられる
                 return true;
             } finally {
                 // 使い回さなかった前の層を手放す(使い回した層は新しい持ち主へ移っている)。
