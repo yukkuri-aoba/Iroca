@@ -38,7 +38,7 @@ PROBE_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_PROBE_TIMEOUT", "60"))
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 # ハーネスのビルドは tools/harness_build.py に一本化する（dev_safe の fixtures と同じロック・同じ規則。
-# CoreCompile が飛んだ古い DLL を作り直す・ビルド中の編集で作り直す）。pytest の既定（-n 4）では golden の
+# CoreCompile が飛んだ古い DLL を作り直す・ビルド中の編集で作り直す）。pytest の既定（-n 8）では golden の
 # 各モジュールと dev_safe の回帰が別ワーカーで同じ csproj を同時にビルドしうるので、プロセスをまたいで排他する。
 sys.path.insert(0, str(REPO / "tools"))
 import harness_build as HB  # noqa: E402
