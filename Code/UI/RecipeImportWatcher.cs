@@ -23,9 +23,14 @@ namespace Iroca {
             }
             bool anyAsset = ContainsRecipe(importedAssets);
             bool anyDeletedAsset = ContainsAssetFile(deletedAssets);
+            // いろかの書き出し物(名前_recolored*)が増えた・消えた・動いたかもしれない。元のテクスチャを動かしても、探すフォルダが替わる。
+            bool exportsMayHaveChanged = movedAssets.Length > 0 || MentionsExport(importedAssets) || MentionsExport(deletedAssets);
             foreach (var e in EditingSessionRegistry.Snapshot()) {
                 if (!(e is IrocaWindow w)) {
                     continue;
+                }
+                if (exportsMayHaveChanged) {
+                    w.MarkSourceTargetsStale();
                 }
                 if (anyAsset) {
                     w.OnRecipeAssetsImported();
@@ -35,6 +40,16 @@ namespace Iroca {
                 }
                 w.OnSourceAssetImported(importedAssets);
             }
+        }
+
+        // 名前に書き出しの接尾辞(_recolored)があるものを含むか。
+        private static bool MentionsExport(string[] paths) {
+            foreach (var path in paths) {
+                if (path.IndexOf(PathUtils.RecoloredSuffix, System.StringComparison.Ordinal) >= 0) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // 消えたものに .asset があるか(消えた後は型を引けないので、拡張子だけで見る)。

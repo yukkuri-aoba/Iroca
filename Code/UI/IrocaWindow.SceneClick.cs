@@ -156,7 +156,7 @@ namespace Iroca {
             if (SourceTexture == null || hit?.material == null) {
                 return false;
             }
-            var targets = MeshUvLocator.TargetTextures(SourceTexture);
+            var targets = SourceTargets();
             if (!MeshUvLocator.UsesTexture(hit.material, targets, out string prop)) {
                 return false;
             }

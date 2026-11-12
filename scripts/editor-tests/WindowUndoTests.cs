@@ -429,6 +429,31 @@ namespace Iroca.EditorTests {
             Assert.IsTrue(a != null);
         }
 
+        // 「このテクスチャを使うもの」を探す所が共有する組(元のテクスチャと、いろかで書き出したもの)。窓が 1 つ控えていて、
+        // 書き出し物が増えた・消えたときだけ顔ぶれが変わる。関係の無い取り込みでは同じ組のまま(使う側は参照で見る)。
+        [Test]
+        public void SourceTargets_FollowsExportsBesideTheTexture() {
+            var texture = _win.SourceTexture;
+            var first = _win.SourceTargets();
+            CollectionAssert.AreEquivalent(new Texture[] { texture }, first, "書き出し物が無ければ元のテクスチャだけ");
+            Assert.AreSame(first, _win.SourceTargets(), "読むたびに探し直している");
+
+            _assets.WritePng("unrelated", TestAssets.Solid(W, H, new Color32(0, 0, 255, 255)), W, H);
+            Assert.AreSame(first, _win.SourceTargets(), "関係の無い取り込みで組が替わった(案内とメッシュを探し直すことになる)");
+
+            string export = _assets.WritePng("tex_recolored", TestAssets.Solid(W, H, new Color32(0, 255, 0, 255)), W, H);
+            var withExport = _win.SourceTargets();
+            CollectionAssert.AreEquivalent(
+                new Texture[] { texture, AssetDatabase.LoadAssetAtPath<Texture2D>(export) }, withExport,
+                "書き出し物が増えたのに組に入らない(取り込みの知らせ)");
+
+            Assert.IsTrue(AssetDatabase.DeleteAsset(export));
+            CollectionAssert.AreEquivalent(new Texture[] { texture }, _win.SourceTargets(), "消えた書き出し物が組に残っている");
+
+            _win.SwitchSourceTexture(null);
+            Assert.IsNull(_win.SourceTargets(), "テクスチャを開いていないのに組がある");
+        }
+
         // 読めないまま空で開いた後、再読み込みの間に読めるようになっても、空の保存でファイルを消さない。
         [Test]
         public void SessionFileThatBecameReadable_IsNotDeletedByReload() {

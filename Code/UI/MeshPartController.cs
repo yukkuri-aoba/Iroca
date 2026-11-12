@@ -49,7 +49,10 @@ namespace Iroca {
             get {
                 ForgetIfOutdated();
                 if (!_searched && _searchedFor != null) {
-                    _found = MeshUvLocator.FindForTexture(_searchedFor);
+                    // 探すテクスチャの組は、窓が開いているテクスチャのものを控えている(IrocaWindow.SourceTargets)。
+                    var targets = _host != null && _host.SourceTexture == _searchedFor
+                        ? _host.SourceTargets() : MeshUvLocator.TargetTextures(_searchedFor);
+                    _found = MeshUvLocator.FindForTexture(_searchedFor, targets);
                     _sceneStamp = SceneStamp();
                     _searched = true;
                 }

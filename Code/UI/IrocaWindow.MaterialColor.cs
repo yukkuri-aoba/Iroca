@@ -31,6 +31,46 @@ namespace Iroca {
         /// <summary>プレビューの「アバターの色」に使う読み取り結果。マテリアルが見つからなければ null。</summary>
         internal MaterialColorSettings.Report AppearanceReport { get; private set; }
 
+        // ───────────── 開いているテクスチャと、その書き出し物 ─────────────
+        // 「このテクスチャを使うもの」を探す所(マテリアルの色の案内・メッシュの探索・Scene のクリック・書き出した画像を使う
+        // マテリアルの数)は、どれも元のテクスチャと、いろかで書き出したもの(名前_recolored*)の両方を見る。その組を探すのは
+        // アセットの検索なので、ここに 1 つ控えて共有する。以前は使う所がそれぞれ探していて、テクスチャを開くと 3 回、
+        // その後も 2 秒ごとと Scene のクリックのたびに検索していた。
+        [System.NonSerialized] private HashSet<Texture> _sourceTargets;
+        [System.NonSerialized] private Texture2D _sourceTargetsFor;
+        [System.NonSerialized] private bool _sourceTargetsStale;
+
+        /// <summary>
+        /// 開いているテクスチャと、その書き出し物の組(<see cref="MeshUvLocator.TargetTextures"/>)。テクスチャが無ければ null。
+        /// 探し直すのは、テクスチャを替えたときと、書き出し物が増えた・消えたかもしれないとき(<see cref="MarkSourceTargetsStale"/>)。
+        /// 探し直しても顔ぶれが同じなら同じ組を返す(使う側は、組が替わったかを参照で見てよい)。
+        /// </summary>
+        internal HashSet<Texture> SourceTargets() {
+            var tex = SourceTexture;
+            if (tex == null) {
+                _sourceTargets = null;
+                _sourceTargetsFor = null;
+                return null;
+            }
+            bool sameTexture = _sourceTargets != null && _sourceTargetsFor == tex;
+            if (sameTexture && !_sourceTargetsStale) {
+                return _sourceTargets;
+            }
+            var fresh = MeshUvLocator.TargetTextures(tex);
+            if (!sameTexture || !_sourceTargets.SetEquals(fresh)) {
+                _sourceTargets = fresh;
+            }
+            _sourceTargetsFor = tex;
+            _sourceTargetsStale = false;
+            return _sourceTargets;
+        }
+
+        /// <summary>
+        /// 書き出し物が増えた・消えたかもしれない(自分で書き出した・Project で取り込まれた・消された・動かされた)。
+        /// 次に <see cref="SourceTargets"/> を読むときに探し直す。
+        /// </summary>
+        internal void MarkSourceTargetsStale() => _sourceTargetsStale = true;
+
         /// <summary>
         /// 読み取り結果を必要なら作り直す。Layout のときだけ動く(同じフレームの Repaint と並ぶ要素をそろえる)。
         /// テクスチャか開いているシーンが替わったら探し直し、シーンで見つけていたら時々探し直す
@@ -52,7 +92,11 @@ namespace Iroca {
             }
             double now = EditorApplication.timeSinceStartup;
             int scene = MeshPartController.SceneStamp();
-            bool retarget = tex != _materialColorsFor || scene != _materialColorsScene;
+            // 書き出し物の顔ぶれが変わったときも探し直す。以前はテクスチャを替えたときにしか組を作り直さず、書き出した画像へ
+            // 差し替えたマテリアルが、案内と「アバターの色」の対象から外れたままになっていた。
+            var targets = SourceTargets();
+            bool retarget = tex != _materialColorsFor || scene != _materialColorsScene
+                            || !ReferenceEquals(targets, _materialColorTargets);
             // 時間で決まる探し直し・読み直しは、マウスを押していない(スライダーのドラッグ中でない)ときだけ。
             // シーンの走査と素材の読み直しがドラッグ中の 1 フレームを止める。素材の値はドラッグでは変わらない。
             bool idle = GUIUtility.hotControl == 0;
@@ -64,8 +108,8 @@ namespace Iroca {
                 _materialColorsSceneVersion = SceneRendererChanges.Version;
                 if (tex != _materialColorsFor) {
                     _materialColorChoice = 0;
-                    _materialColorTargets = MeshUvLocator.TargetTextures(tex);
                 }
+                _materialColorTargets = targets;
                 reports = MaterialColorSettings.FindForTexture(tex, _materialColorTargets, out _materialColorsInScene);
                 _materialColorsFor = tex;
                 _materialColorsScene = scene;

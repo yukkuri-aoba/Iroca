@@ -53,11 +53,17 @@ namespace Iroca {
         /// シーン → 同じ素材フォルダの Prefab の順に探す。使っているメッシュが無ければ null。
         /// あったが 1 つも読めなければ found が空で unreadable &gt; 0 の結果を返す(案内を出すため)。
         /// </summary>
-        public static Result FindForTexture(Texture2D texture) {
-            if (texture == null) {
+        public static Result FindForTexture(Texture2D texture)
+            => texture != null ? FindForTexture(texture, TargetTextures(texture)) : null;
+
+        /// <summary>
+        /// <see cref="FindForTexture(Texture2D)"/> の、探すテクスチャの組(<see cref="TargetTextures"/>)を呼び出し側が持つ版
+        /// (編集画面は開いているテクスチャの組を控えているので、同じアセットの検索を繰り返さない)。
+        /// </summary>
+        public static Result FindForTexture(Texture2D texture, HashSet<Texture> targets) {
+            if (texture == null || targets == null) {
                 return null;
             }
-            var targets = TargetTextures(texture);
 
             var reads = new MeshReads();
             var scene = new Result { via = "scene" };

@@ -22,9 +22,12 @@ namespace Iroca {
         [System.NonSerialized] private IrocaWindow _host;
 
         // シーンで「このテクスチャを書き出した画像」を使っているマテリアルの数(非破壊へ移る案内に使う)。
-        // シーン全体を毎フレーム探すと重いので、テクスチャが変わったときと 2 秒ごとに数え直す。
+        // 数えるのはシーンの全 Renderer の走査なので、テクスチャ・書き出し物の顔ぶれ・シーンの Renderer が変わったときと、
+        // 2 秒ごと(マテリアルの中身の差し替えは通知に出ないため)に数え直す。書き出し物が 1 つも無ければ数えない。
         // 数え直すのは Layout のときだけ(同じ描画の Layout と Repaint で表示が食い違うと GUILayout が崩れる)。
         [System.NonSerialized] private Texture2D _exportUsersFor;
+        [System.NonSerialized] private HashSet<Texture> _exportUsersTargets;
+        [System.NonSerialized] private int _exportUsersScene;
         [System.NonSerialized] private double _exportUsersAt;
         [System.NonSerialized] private int _exportUsersCount;
 
@@ -300,16 +303,30 @@ namespace Iroca {
             var source = _host != null ? _host.SourceTexture : null;
             var e = Event.current;
             bool layout = e == null || e.type == EventType.Layout;
-            double now = EditorApplication.timeSinceStartup;
-            // 時間で数え直すのは、マウスを押していない(スライダーのドラッグ中でない)ときだけ。数え直しはアセットの検索と
-            // シーンの全 Renderer の走査で、ドラッグ中の 1 フレームを止める。テクスチャが替わったときはすぐ数え直す。
-            bool due = now - _exportUsersAt > 2.0 && GUIUtility.hotControl == 0;
-            if (layout && (source != _exportUsersFor || due)) {
-                _exportUsersFor = source;
-                _exportUsersAt = now;
-                _exportUsersCount = source != null
-                    ? RecipeRegistration.CountSceneMaterialsUsing(RecipeRegistration.ExportsOf(source))
-                    : 0;
+            if (layout) {
+                // 書き出し物の組は窓が控えている(以前はここで 2 秒ごとにアセットを検索していた)。元のテクスチャだけなら
+                // 書き出し物は無く、使っているマテリアルも無いので、シーンを探さない。
+                var targets = source != null ? _host.SourceTargets() : null;
+                bool anyExports = targets != null && targets.Count > 1;
+                double now = EditorApplication.timeSinceStartup;
+                int scene = SceneRendererChanges.Version;
+                // シーンの変化と時間で数え直すのは、マウスを押していない(スライダーのドラッグ中でない)ときだけ。数え直しは
+                // シーンの全 Renderer の走査で、ドラッグ中の 1 フレームを止める。テクスチャが替わったときはすぐ数え直す。
+                bool due = anyExports && GUIUtility.hotControl == 0
+                           && (scene != _exportUsersScene || now - _exportUsersAt > 2.0);
+                if (source != _exportUsersFor || !ReferenceEquals(targets, _exportUsersTargets) || due) {
+                    _exportUsersFor = source;
+                    _exportUsersTargets = targets;
+                    _exportUsersScene = scene;
+                    _exportUsersAt = now;
+                    if (anyExports) {
+                        var exports = new HashSet<Texture>(targets);
+                        exports.Remove(source);
+                        _exportUsersCount = RecipeRegistration.CountSceneMaterialsUsing(exports);
+                    } else {
+                        _exportUsersCount = 0;
+                    }
+                }
             }
             return _exportUsersFor == source ? _exportUsersCount : 0;
         }
@@ -512,6 +529,8 @@ namespace Iroca {
                         // 「Project で表示」の対象。Assets/ の外へ書いた場合は null のまま
                         // （Unity のアセットではないので Project ウィンドウに出せない）。
                         _lastSavedAssetPath = relativePath;
+                        // 書き出し物が増えた(かもしれない)。「このテクスチャを使うもの」の組を探し直させる。
+                        _host?.MarkSourceTargetsStale();
 
                         // ソース自身を書き換えたなら、プレビューが握っている「ディスク原本の画素」は
                         // もう古い。捨てないと、次のエクスポートが再着色済みファイルを読み直して
