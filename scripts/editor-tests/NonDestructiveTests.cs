@@ -307,6 +307,18 @@ namespace Iroca.EditorTests {
             Assert.IsFalse(RecipeTextureBuilder.SameShape(otherFormat, like), "形式が違うのに同じとした");
             var noMips = Track(new Texture2D(like.width, like.height, like.format, like.mipmapCount <= 1));
             Assert.IsFalse(RecipeTextureBuilder.SameShape(noMips, like), "ミップの有無が違うのに同じとした");
+            // 色空間は TextureFormat に出ない(同じ形式で sRGB と Linear がある)。違うと、同じ画素でも明るさが違って映る。
+            // 違いが graphicsFormat に出るのは、プロジェクトの色空間が Linear のときだけ(Gamma のプロジェクトでは、どちらで
+            // 作っても同じ形式になり、映り方も変わらない)。
+            bool likeLinear = !GraphicsFormatUtility.IsSRGBFormat(like.graphicsFormat);
+            var otherColorSpace = Track(new Texture2D(like.width, like.height, like.format, like.mipmapCount > 1, !likeLinear));
+            Assert.AreEqual(like.format, otherColorSpace.format);
+            if (otherColorSpace.graphicsFormat != like.graphicsFormat) {
+                Assert.IsFalse(RecipeTextureBuilder.SameShape(otherColorSpace, like), "色空間(sRGB / Linear)が違うのに同じとした");
+            } else {
+                Assert.AreEqual(ColorSpace.Gamma, QualitySettings.activeColorSpace,
+                    "Linear のプロジェクトなのに、色空間の違いが形式に出ていない(この確かめが効いていない)");
+            }
         }
 
         // mipmap limit の設定(「Ignore Mipmap Limit」と Mipmap Limit Group)を元の取り込みから写す(利用者の画質設定の上限が

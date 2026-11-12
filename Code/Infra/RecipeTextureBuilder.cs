@@ -552,10 +552,13 @@ namespace Iroca {
             return tex;
         }
 
-        /// <summary>出来上がりが、取り込み済みのテクスチャと同じ寸法・形式・ミップ数か。</summary>
+        /// <summary>
+        /// 出来上がりが、取り込み済みのテクスチャと同じ寸法・形式・ミップ数・色空間か。色空間(sRGB か Linear か)は
+        /// <see cref="TextureFormat"/> に出ないので graphicsFormat で比べる(違うと、同じ画素でも明るさが違って映る)。
+        /// </summary>
         internal static bool SameShape(Texture2D tex, Texture2D like)
             => tex.width == like.width && tex.height == like.height && tex.format == like.format
-                && tex.mipmapCount == like.mipmapCount;
+                && tex.mipmapCount == like.mipmapCount && tex.graphicsFormat == like.graphicsFormat;
 
         // 同じテクスチャについては 1 回だけ知らせる(ビルド・プレビューのたびに出さない)。
         private static readonly HashSet<string> s_shapeMismatchWarned = new HashSet<string>();
@@ -566,8 +569,8 @@ namespace Iroca {
                 return;
             }
             Debug.LogWarning($"[Iroca] {path}: the recolored texture built with the import settings came out as "
-                + $"{tex.width}x{tex.height} {tex.format} (mips {tex.mipmapCount}), but the imported texture is "
-                + $"{like.width}x{like.height} {like.format} (mips {like.mipmapCount}). Built it to match the imported texture instead "
+                + $"{tex.width}x{tex.height} {tex.graphicsFormat} (mips {tex.mipmapCount}), but the imported texture is "
+                + $"{like.width}x{like.height} {like.graphicsFormat} (mips {like.mipmapCount}). Built it to match the imported texture instead "
                 + "(mipmap filter settings such as Kaiser are not applied). Asset Import Overrides in Build Settings can cause this.");
         }
 
@@ -979,9 +982,13 @@ namespace Iroca {
                     if (len < 0 || fs.Length - fs.Position < len) {
                         return null;   // 書きかけ
                     }
-                    // 計算の途中で元テクスチャの取り込み設定が変わると、前の設定の鍵で今の寸法の結果が入っていることがある。
-                    if (w != like.width || h != like.height || mipCount != like.mipmapCount) {
-                        throw new InvalidDataException($"cache size {w}x{h} (mips {mipCount}) != texture {like.width}x{like.height} (mips {like.mipmapCount})");
+                    // 計算の途中で元テクスチャの取り込み設定が変わる(ビルド対象の切り替えなど)と、前の設定の鍵で今の寸法・形式の
+                    // 結果が入っていることがある。寸法・ミップ数だけでなく、形式と色空間も取り込み済みと同じものだけを使う。
+                    bool likeLinear = !GraphicsFormatUtility.IsSRGBFormat(like.graphicsFormat);
+                    if (w != like.width || h != like.height || mipCount != like.mipmapCount
+                        || fmt != (int)like.format || linear != likeLinear) {
+                        throw new InvalidDataException($"cache {w}x{h} {(TextureFormat)fmt} (mips {mipCount}, linear {linear}) != "
+                            + $"texture {like.width}x{like.height} {like.format} (mips {like.mipmapCount}, linear {likeLinear})");
                     }
                     tex = NewLike(w, h, (TextureFormat)fmt, mipCount, linear, like);
                     var raw = tex.GetRawTextureData<byte>();
