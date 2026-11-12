@@ -7,10 +7,11 @@ using UnityEngine;
 
 namespace Iroca {
     /// <summary>
-    /// 書き出し(「適用して保存」・一括書き出し。0.4.0 の計画の 4-3、A3): 原本を元の解像度で読む → 色替え → PNG →
+    /// 書き出し(「適用して保存」と自動化 API。0.4.0 の計画の 4-3、A3): 原本を元の解像度で読む → 色替え → PNG →
     /// 書き込みと取り込み。画素も PNG も Mono のヒープの外に置く(以前は管理配列で、8K で原本 256MB と PNG が載った。
-    /// 広がった Mono のヒープは OS へ返らない)。読み方・PNG のバイト列・書き込み方は管理配列の経路
-    /// (<see cref="ExportPipeline"/>)と同じ(TextureIOTests・WindowOutputParityTests)。
+    /// 広がった Mono のヒープは OS へ返らない)。PNG のバイト列は、管理配列の版(<see cref="ExportPipeline.EncodePng"/>。
+    /// いまは比較画像などの小さい PNG に使う)と同じ(TextureIOTests・WindowOutputParityTests)。出力先などの決まりごとは
+    /// <see cref="ExportPipeline"/>。
     /// </summary>
     internal static unsafe class ExportService {
         /// <summary>

@@ -148,7 +148,7 @@ namespace Iroca {
             h[0] == 0x89 && h[1] == 0x50 && h[2] == 0x4E && h[3] == 0x47 && h[4] == 0x0D && h[5] == 0x0A && h[6] == 0x1A && h[7] == 0x0A;
 
         /// <summary>
-        /// 画素を PNG にする(UI の ExportPipeline.EncodePng と同じバイト列)。返す PNG はヒープの外にあり、
+        /// 画素を PNG にする(管理配列の版 ExportPipeline.EncodePng と同じバイト列)。返す PNG はヒープの外にあり、
         /// 呼び出し側が Dispose する。画素は返るまで呼び出し側が持つこと。どのスレッドから呼んでもよいか
         /// (<c>EncodeNativeArrayToPNG</c> がスレッドセーフか)は EditMode テストで確かめる(TextureIOTests)。
         /// </summary>
@@ -164,7 +164,7 @@ namespace Iroca {
                     if (png.IsCreated) {
                         png.Dispose();
                     }
-                    // 文言は呼び出し側(UI)が出す(Infra からは Localization を見ない)。
+                    // 利用者に見せる文言は、呼び出し側が出す。
                     throw new InvalidOperationException("EncodeNativeArrayToPNG returned no data");
                 }
                 return png;
