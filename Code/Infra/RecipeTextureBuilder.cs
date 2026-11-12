@@ -1002,7 +1002,11 @@ namespace Iroca {
                         CopyExactly(fs, dst, len);
                     }
                 }
-                tex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
+                // GPU へ上げるのは 1 回だけ。元テクスチャが読み書き不可なら、FinishLike が読み書き不可にしながら上げるので、ここでは
+                // 上げない(以前は続けて 2 回上げていた。4K の BC7 で 21MB を 2 回。再生のたび・プレビューの枠ごとに通る)。
+                if (like.isReadable) {
+                    tex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
+                }
                 File.SetLastWriteTimeUtc(path, DateTime.UtcNow);   // 使ったものを残す(古い順に消す)
                 FinishLike(tex, like);
                 return tex;
