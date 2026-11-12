@@ -82,7 +82,12 @@ namespace Iroca {
 
         public static string WindowTitle => "いろか";
 
-        public static string LangAuto => IsJapanese ? "自動（Auto）" : "Auto";
+        // かっこは半角: 中身が英字の語なので、表記ルール(文中のかっこは全角)の例外にした(2026-11-12 ユーザー決定)。
+        // 言語の切り替えボタンは両方の言語の文言で幅を決めるので(IrocaWindow.LanguageToolbarWidth)、
+        // 片方の言語でしか表示しない文言もここから読めるようにしておく。
+        public static string LangAutoJapanese => "自動 (Auto)";
+        public static string LangAutoEnglish => "Auto";
+        public static string LangAuto => IsJapanese ? LangAutoJapanese : LangAutoEnglish;
         public static string LangJapanese => "日本語";
         public static string LangEnglish => "English";
         public static string Credit => IsJapanese ? "クレジット" : "Credits";

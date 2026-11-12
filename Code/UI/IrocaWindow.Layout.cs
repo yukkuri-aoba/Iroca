@@ -507,7 +507,8 @@ namespace Iroca {
 
             EnsureZoneListCache();
             int current = (int)Localization.CurrentLanguage;
-            int next = GUILayout.Toolbar(current, s_languageLabels, EditorStyles.toolbarButton, GUILayout.ExpandWidth(false));
+            int next = GUILayout.Toolbar(current, s_languageLabels, EditorStyles.toolbarButton,
+                GUILayout.Width(LanguageToolbarWidth()));
             if (next != current) {
                 Localization.CurrentLanguage = (LanguageMode)next;
                 Localization.SaveLanguagePreference();
@@ -542,6 +543,31 @@ namespace Iroca {
             }
 
             EditorGUILayout.EndHorizontal();
+        }
+
+        private static float s_languageToolbarWidth;
+
+        /// <summary>
+        /// 言語の切り替えボタン(3 つ)の幅。GUILayout.Toolbar はボタンを「いちばん長い文言」の幅でそろえるので、
+        /// 表示中の言語の文言だけで測ると、日本語(「自動 (Auto)」が最長)と英語(「English」が最長)で
+        /// ボタンの大きさと右に並ぶボタンの位置が変わっていた。両方の言語の文言のうち最長のものでそろえる。
+        /// 書体は変わらないので 1 回だけ測る。OnGUI の中で呼ぶ。
+        /// </summary>
+        private static float LanguageToolbarWidth() {
+            if (s_languageToolbarWidth > 0f) {
+                return s_languageToolbarWidth;
+            }
+            var style = EditorStyles.toolbarButton;
+            float button = 0f;
+            foreach (var label in new[] {
+                         Localization.LangAutoJapanese, Localization.LangAutoEnglish,
+                         Localization.LangJapanese, Localization.LangEnglish }) {
+                button = Mathf.Max(button, Mathf.Ceil(style.CalcSize(TempContent.Of(label)).x));
+            }
+            // ボタンの間の余白は GUILayout.Toolbar の測り方と同じ(隣り合う余白の大きい方。最後は右の余白)。
+            float margins = Mathf.Max(style.margin.right, style.margin.left) * 2f + style.margin.right;
+            s_languageToolbarWidth = button * 3f + margins;
+            return s_languageToolbarWidth;
         }
 
         /// <summary>
