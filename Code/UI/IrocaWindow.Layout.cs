@@ -637,7 +637,6 @@ namespace Iroca {
         // どのイベントでも進む。Layout のときに決めて覚え、同じフレームのほかのイベントはそれで描く。
         [System.NonSerialized] private bool _showReadWriteError;
         [System.NonSerialized] private string _largeSourceNoticeText;
-        [System.NonSerialized] private string _largeSourceNoticeKey;
 
         /// <summary>
         /// マスクを戻せない版まで Undo して、ゾーンと設定だけが戻り、マスクは新しいままか(窓の帯で知らせる)。
@@ -888,25 +887,47 @@ namespace Iroca {
         private void DrawLargeSourceNotice() {
             // 出すかどうかと文面は Layout のときに決める(別スレッドの読み込みが Layout と Repaint の間に終わると、
             // 同じフレームでコントロールの数が食い違う)。ほかのイベントで出す・出さないが変わっていたら、描き直しを頼む。
-            string text = LargeSourceNoticeText(out string key);
+            string text = LargeSourceNoticeText();
             if (Event.current.type == EventType.Layout) {
                 _largeSourceNoticeText = text;
-                _largeSourceNoticeKey = key;
             } else if ((text == null) != (_largeSourceNoticeText == null)) {
                 Repaint();
             }
             if (_largeSourceNoticeText == null) {
                 return;
             }
-            if (NoticeBox.Draw(_largeSourceNoticeText, MessageType.Warning,
-                    TempContent.Of(Localization.LargeSourceDismiss, Localization.LargeSourceDismissTooltip)) == 0) {
-                SessionState.SetBool(_largeSourceNoticeKey, true);
-            }
+            DrawTextureNotice(LargeSourceDismissedKeyPrefix, _largeSourceNoticeText, MessageType.Warning,
+                Localization.LargeSourceDismissTooltip);
         }
 
-        // 辺が 8192 を超える元画像の案内の文面(出さないなら null)と、「閉じた」を覚える鍵。
-        private string LargeSourceNoticeText(out string key) {
-            key = null;
+        // ───────────── 「閉じる」付きの、テクスチャごとの案内 ─────────────
+        // 閉じると、そのテクスチャでは Unity を閉じるまで出さない(上部の高さを奪い続けないため)。覚えは SessionState で、
+        // 鍵は案内ごとの接頭辞 + テクスチャのパス。大きな画像・PNG のガンマ・マテリアルの色・影の色の 4 つが使う。
+
+        /// <summary>この案内を、いまのテクスチャで閉じてあるか。</summary>
+        private bool TextureNoticeDismissed(string keyPrefix)
+            => SessionState.GetBool(keyPrefix + CurrentTexturePath(SourceTexture), false);
+
+        /// <summary>
+        /// 「閉じる」付きの案内を描く(閉じてあるかは、呼ぶ側が <see cref="TextureNoticeDismissed"/> で先に見る)。
+        /// 「閉じる」を押したら覚える。追加のボタン(<paramref name="extra"/>)は「閉じる」の前に並べ、押されたらその番号を返す
+        /// (押されていない・「閉じる」を押したときは -1)。
+        /// </summary>
+        private int DrawTextureNotice(string keyPrefix, string text, MessageType type, string dismissTooltip,
+            params GUIContent[] extra) {
+            var buttons = new GUIContent[extra.Length + 1];
+            extra.CopyTo(buttons, 0);
+            buttons[extra.Length] = TempContent.Of(Localization.LargeSourceDismiss, dismissTooltip);
+            int pressed = NoticeBox.Draw(text, type, buttons);
+            if (pressed != extra.Length) {
+                return pressed;
+            }
+            SessionState.SetBool(keyPrefix + CurrentTexturePath(SourceTexture), true);
+            return -1;
+        }
+
+        // 辺が 8192 を超える元画像の案内の文面(出さないなら null)。
+        private string LargeSourceNoticeText() {
             if (SourceTexture == null || _previewView == null) {
                 return null;
             }
@@ -929,8 +950,7 @@ namespace Iroca {
             if (!WorkingResolution.ExceedsLimit(w, h)) {
                 return null;
             }
-            key = LargeSourceDismissedKeyPrefix + CurrentTexturePath(SourceTexture);
-            if (SessionState.GetBool(key, false)) {
+            if (TextureNoticeDismissed(LargeSourceDismissedKeyPrefix)) {
                 return null;
             }
 
@@ -977,14 +997,11 @@ namespace Iroca {
             if (!_gammaNotice) {
                 return;
             }
-            string key = IrocaPrefs.PngGammaDismissedPrefix + CurrentTexturePath(SourceTexture);
-            if (SessionState.GetBool(key, false)) {
+            if (TextureNoticeDismissed(IrocaPrefs.PngGammaDismissedPrefix)) {
                 return;
             }
-            if (NoticeBox.Draw(string.Format(Localization.PngGammaNoticeFormat, _gammaValue), MessageType.Warning,
-                    TempContent.Of(Localization.LargeSourceDismiss, Localization.PngGammaDismissTooltip)) == 0) {
-                SessionState.SetBool(key, true);
-            }
+            DrawTextureNotice(IrocaPrefs.PngGammaDismissedPrefix, string.Format(Localization.PngGammaNoticeFormat, _gammaValue),
+                MessageType.Warning, Localization.PngGammaDismissTooltip);
         }
 
         // 元ファイルの寸法の覚え(案内は OnGUI ごとに通るので、取り込み設定を引くのはテクスチャか

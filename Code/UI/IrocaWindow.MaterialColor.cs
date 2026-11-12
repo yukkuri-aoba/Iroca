@@ -119,8 +119,7 @@ namespace Iroca {
             if (!any) {
                 return;
             }
-            string key = MaterialColorDismissedKeyPrefix + CurrentTexturePath(SourceTexture);
-            if (SessionState.GetBool(key, false)) {
+            if (TextureNoticeDismissed(MaterialColorDismissedKeyPrefix)) {
                 return;
             }
 
@@ -128,10 +127,8 @@ namespace Iroca {
             // (「アバターの色」は表示用の画像だけを作り直す)。
             bool changed = GUI.changed;
             string text = MaterialColorNoticeText(r, _previewView != null && _previewView.appearanceMode, out bool warn);
-            if (NoticeBox.Draw(text, warn ? MessageType.Warning : MessageType.Info,
-                    TempContent.Of(Localization.LargeSourceDismiss, Localization.MaterialColorDismissTooltip)) == 0) {
-                SessionState.SetBool(key, true);
-            }
+            DrawTextureNotice(MaterialColorDismissedKeyPrefix, text, warn ? MessageType.Warning : MessageType.Info,
+                Localization.MaterialColorDismissTooltip);
             // どのマテリアルの設定で見るかは、組が 2 つ以上あるときだけ本文の下に出す。
             if (groups.Count > 1) {
                 var labels = new GUIContent[groups.Count];
@@ -229,8 +226,7 @@ namespace Iroca {
             if ((!mismatch && !separate) || SourceTexture == null) {
                 return;
             }
-            string key = IrocaPrefs.ShadowColorDismissedPrefix + CurrentTexturePath(SourceTexture);
-            if (SessionState.GetBool(key, false)) {
+            if (TextureNoticeDismissed(IrocaPrefs.ShadowColorDismissedPrefix)) {
                 return;
             }
 
@@ -245,17 +241,12 @@ namespace Iroca {
                     textures[0].texture.name);
                 text = text == null ? more : text + "\n" + more;
             }
-            bool changed = GUI.changed;
-            var dismiss = TempContent.Of(Localization.LargeSourceDismiss, Localization.ShadowColorDismissTooltip);
+            // 「影の色も合わせる」は、合わせられるマテリアルがあるときだけ「閉じる」の前に出す。
             int pressed = mismatch
-                ? NoticeBox.Draw(text, MessageType.Info,
-                    TempContent.Of(Localization.ShadowColorMatchButton, Localization.ShadowColorMatchButtonTooltip), dismiss)
-                : NoticeBox.Draw(text, MessageType.Info, dismiss);
+                ? DrawTextureNotice(IrocaPrefs.ShadowColorDismissedPrefix, text, MessageType.Info, Localization.ShadowColorDismissTooltip,
+                    TempContent.Of(Localization.ShadowColorMatchButton, Localization.ShadowColorMatchButtonTooltip))
+                : DrawTextureNotice(IrocaPrefs.ShadowColorDismissedPrefix, text, MessageType.Info, Localization.ShadowColorDismissTooltip);
             bool match = mismatch && pressed == 0;
-            if (pressed == (mismatch ? 1 : 0)) {
-                SessionState.SetBool(key, true);
-            }
-            GUI.changed = changed;
             // 確認画面を出すことがあるので、描画の途中で開かない。
             if (match) {
                 var chosen = new List<Material>(materials);
