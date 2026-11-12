@@ -90,7 +90,7 @@ namespace Iroca {
             if (needsSentis) {
                 DrawSentisSetup();
             } else {
-                DrawModelDownload(svc);
+                DrawModelDownload();
             }
         }
 
@@ -188,14 +188,14 @@ namespace Iroca {
                     break;
             }
 
-            DrawTargetAndWarnings(host, maskView, ctl);
+            DrawTargetAndWarnings(host, ctl);
         }
 
         /// <summary>
         /// AI モデル(2 ファイル・約 45MB)の取得導線。ユーザー共通フォルダへ 1 か所だけ置くので
         /// プロジェクトごとの再取得は要らない。Sentis 導入と対で「一度きりの有効化」に属する。
         /// </summary>
-        static void DrawModelDownload(IMaskSuggestService svc) {
+        static void DrawModelDownload() {
             // 何が足りないかの説明は呼び出し元のバナー（AiBannerModel）が出す。ここは操作だけ。
             if (MaskSuggestModelDownload.InProgress) {
                 DrawDownloadProgressRow();
@@ -429,7 +429,7 @@ namespace Iroca {
         /// 対象プルダウンと種類ボタンが現物として見えており、文字での言い直しは冗長なため
         /// (別ウィンドウに散っていた頃は取り違え防止に必要だった)。
         /// </summary>
-        static void DrawTargetAndWarnings(IrocaWindow host, MaskPaintView maskView, MaskSuggestController ctl) {
+        static void DrawTargetAndWarnings(IrocaWindow host, MaskSuggestController ctl) {
             var zones = host.Session?.zones;
 
             // マスクは色ゾーンの色替え範囲を制限する機能。有効な色ゾーンが無いと足しても
