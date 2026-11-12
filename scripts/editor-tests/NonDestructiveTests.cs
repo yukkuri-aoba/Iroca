@@ -435,6 +435,25 @@ namespace Iroca.EditorTests {
             Assert.AreNotEqual(current, RecipeTextureBuilder.CacheKey(recipe, src));
         }
 
+        // 書いている途中でエディタが落ちると残る一時ファイル(<鍵>.tex.tmp)だけを消す。出来上がり(.tex)とほかのファイルは残す。
+        [Test]
+        public void LeftoverCacheTempFiles_AreRemoved() {
+            string dir = Path.Combine(Path.GetTempPath(), "iroca-texcache-test-" + System.Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try {
+                string done = Path.Combine(dir, "aaa.tex"), leftover = Path.Combine(dir, "bbb.tex.tmp"), other = Path.Combine(dir, "note.txt");
+                File.WriteAllText(done, "x");
+                File.WriteAllText(leftover, "x");
+                File.WriteAllText(other, "x");
+                Assert.AreEqual(1, RecipeTextureBuilder.DeleteLeftoverTempFiles(dir));
+                Assert.IsFalse(File.Exists(leftover), "書きかけの残りが消えていない");
+                Assert.IsTrue(File.Exists(done), "出来上がりのキャッシュを消した");
+                Assert.IsTrue(File.Exists(other), "関係の無いファイルを消した");
+            } finally {
+                Directory.Delete(dir, true);
+            }
+        }
+
         // ───────────── 作業配列(ネイティブメモリ)の後始末 ─────────────
 
         // いろかのウィンドウを閉じた後に非破壊ビルド・シーンのプレビューが色替えを計算したら、終わった後に

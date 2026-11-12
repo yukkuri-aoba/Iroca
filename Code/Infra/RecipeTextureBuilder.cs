@@ -1149,9 +1149,26 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// 書きかけの一時ファイル(&lt;鍵&gt;.tex.tmp)を消す。書いている途中でエディタが落ちると残り(1 つ 21〜341MB)、合計の上限にも
+        /// 数えられないので、誰も消さなかった。書き込みは 1 本ずつ順に行い、ここへ来るのは 1 つを書き終えた直後なので、
+        /// このとき残っている一時ファイルはどれも前の残り。internal はテストが呼ぶため。
+        /// </summary>
+        internal static int DeleteLeftoverTempFiles(string dir) {
+            int deleted = 0;
+            foreach (var f in new DirectoryInfo(dir).GetFiles("*.tex.tmp")) {
+                try {
+                    f.Delete();
+                    deleted++;
+                } catch (Exception) { /* 使用中などは次回 */ }
+            }
+            return deleted;
+        }
+
         // 合計が上限を超えたら、最後に使った時刻が古いものから消す(背景の書き込みのスレッドで呼ぶ。
         // メインスレッドが同時に読んでいるファイルは消せずに残るか、読む側が読めなかったものとして作り直す)。
         private static void TrimCache(string dir) {
+            DeleteLeftoverTempFiles(dir);
             var files = new List<FileInfo>(new DirectoryInfo(dir).GetFiles("*.tex"));
             long total = 0;
             foreach (var f in files) {
