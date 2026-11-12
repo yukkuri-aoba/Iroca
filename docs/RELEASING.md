@@ -129,4 +129,4 @@ main は develop の祖先とは限らない。2026-10-18 時点で main には 
   ```
 
   通らなければ、直すまで asmdef の上限をその版より前に下げる（例: `[10.0.0,10.4.0-0)`）。直したら、実地確認 38 を回してから上限を戻す。
-- `Code/Infra/BuildHelper.cs`（`Assets/Iroca` を unitypackage へ書き出すヘルパー）は、VPAI インストーラへ切り替えた 2026-09-23 以降のリリース手順では使わない。
+- `Code/Infra/BuildHelper.cs`（`Assets/Iroca` を unitypackage へ書き出すヘルパー）は、VPAI インストーラへ切り替えた 2026-09-23 以降のリリース手順では使わないので、2026-11-13 に消した。

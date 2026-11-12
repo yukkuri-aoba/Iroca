@@ -62,7 +62,7 @@ Unity 6000.7.0b7 と 7000.0.0a12 で実際にコンパイルした結果。ど�
 | `Code/Infra/NonDestructiveApplier.cs`・`Code/Infra/RecipeRegistration.cs`・`Code/UI/IrocaRecolorEditor.cs` | 消えたレシピ（Missing）の欄の見分け | `SerializedProperty.objectReferenceInstanceIDValue` |
 | `Code/Infra/SceneRendererChanges.cs` | `Affects` | `ObjectChangeEvents` の引数の `instanceId` |
 
-### 警告（8 箇所）
+### 警告（7 箇所）
 
 | ファイル | 場所 | 使っている API |
 |---|---|---|
@@ -70,7 +70,6 @@ Unity 6000.7.0b7 と 7000.0.0a12 で実際にコンパイルした結果。ど�
 | `Code/Infra/MeshUvLocator.cs` | `FindForTexture` | `FindObjectsSortMode` |
 | `Code/Infra/RecipeRegistration.cs` | `SuggestTarget`・`OtherUsers`・`UsedOutside`・`CountSceneMaterialsUsing` | `FindObjectsSortMode` |
 | `Code/UI/IrocaWindow.MaterialColor.cs` | `RefreshShadowMismatch`（11-13 に検索で確認） | `FindObjectsSortMode` |
-| `Code/Infra/BuildHelper.cs` | `Export` | `AssetDatabase.ExportPackage` |
 
 ## 3. 直し方
 
@@ -92,7 +91,8 @@ Unity 6000.7.0b7 と 7000.0.0a12 で実際にコンパイルした結果。ど�
    どの形の ID を返すかを先に確かめる。ツールの説明（`Code/McpIntegration/IrocaMcpTools.cs`）とテストも合わせる。
 4. **`FindObjectsSortMode` は 1 つの関数にまとめる。** 7 箇所とも `None` で順序に頼っていないので、新しい版ではソート引数の
    無い多重定義を呼ぶだけでよい。
-5. **`ExportPackage` は急がない。** 配布物を作るビルド用で警告だけ。ビルドする Unity を上げるときに `#if` で分ける。
+5. **`ExportPackage` は無くなった。** 使っていたのは配布物を作る古いヘルパー（`BuildHelper`）だけで、2026-11-13 に消した
+   （配布は VPAI インストーラ。`scripts/Build-VpmPackage.ps1`）。
 
 確かめること:
 
