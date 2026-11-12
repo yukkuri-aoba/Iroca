@@ -139,11 +139,14 @@ Unity 6 の確認用に、VRChat SDK も NDMF も入れない検証ホストを 
 UI を作り込むなど、コードを直しては Unity で見るのを繰り返すときは、軽いホスト `Iroca_Lite` を使う
 （2026-11-12〜。リポジトリは無く、手元で作る）。待ち時間の大半は、コンパイルの後のドメインリロードで、他のパッケージの
 `InitializeOnLoad` にかかっている。Iroca_Dev ではリロードが約 5 秒かかり、そのうち約 3 秒はこの処理だった。
-Iroca_Lite では約 1.0 秒になる（2022.3.22f1・GUI での実測）。
-作り方: `Iroca_U2022` の `manifest.json` から test-framework を抜き（いろかと `com.unity.sentis` 2.1.3 だけにする）、
-ProjectSettings を写して色空間を Linear にし、`Link-HostPackage.ps1`（テストは繋がない）で繋ぐ。
-MCP for Unity は入れない。Iroca_Dev と同時に開くと MCP のサーバーに Unity が 2 台つながり、ほかのセッションの
-操作先が変わりうるからだ。VRChat SDK・NDMF・lilToon が要る確認と、MCP での実地確認は Iroca_Dev で行う。
+Iroca_Lite ではリロードが 1.4〜1.8 秒になる（8 回の中央値は約 1.5 秒。MCP for Unity を入れない場合は約 1.0 秒。
+2022.3.22f1・GUI での実測。MCP を足した直後の起動では、はじめの数回が 2.5 秒ほどかかった）。いろかを外しても約 1.5 秒で、
+いろか自身の分は約 50 ms とばらつきの範囲だった。
+作り方: `Iroca_U2022` の `manifest.json` から test-framework を抜き、MCP for Unity を Iroca_Dev と同じコミットで足す
+（いろか・`com.unity.sentis` 2.1.3・MCP だけにする）。ProjectSettings を写して色空間を Linear にし、
+`Link-HostPackage.ps1`（テストは繋がない）で繋ぐ。VRChat SDK・NDMF・lilToon が要る確認は Iroca_Dev で行う。
+Iroca_Dev と同時に開くと、MCP のサーバーに Unity が 2 台つながる。サーバーは操作先をセッションごとに覚えていて、
+勝手には切り替えない。まだ選んでいないセッションのツールだけがエラーになるので、`set_active_instance` で選ぶ。
 AI のモデルは `%LOCALAPPDATA%\Iroca\Models` をプロジェクト間で共有するので、Lite でもそのまま使える。
 
 詳細（Unity 未インストール環境での DLL シム、batchmode でのコンパイル確認、

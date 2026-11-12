@@ -23,6 +23,17 @@
 ## UI 実装方針
 - Unity Editor UI に新しい操作要素（ボタン・スライダー・トグル・入力フィールド等）を追加するときは、**必ずツールチップを付ける**（`GUIContent(..., tooltip)` など）。操作の意味と効果が UI だけで伝わるようにするため。
 - 既存要素の文言・レイアウトを変えるだけのときは対象外。
+- **UI の変更を Unity で確かめるときは、軽いホスト `Avatar_Projects/Iroca_Lite` を使う**（いろか・Sentis・MCP for Unity だけ。
+  コードを直した後のリロードが Iroca_Dev の約 5 秒に対して約 1.5 秒）。Iroca_Dev を使うのは、VRChat SDK・NDMF・lilToon・
+  アバターが要る確認だけ。EditMode テストの回し方はこれまでどおり（Lite にはテストを繋いでいない）。作り方と実測は
+  `docs/development-setup.md` の 5 章。
+  - Iroca_Lite がまだ開いていなければ（Unity.exe のコマンドラインに `Iroca_Lite` があるかで見る）、自分で起動する
+    （`Start-Process <Unity.exe> -ArgumentList '-projectPath "<Iroca_Lite>"'`）。Unity は `-WindowStyle Minimized` を無視するが、
+    2026-11-12 の確認では、起動しても前面には来なかった。ユーザーの入力を奪わないよう、前面化（SetForegroundWindow）はしない。
+    開いたままで終えてよいが、開いたことは報告に書く。
+  - Iroca_Dev も開いていると、MCP のサーバーに Unity が 2 台つながる。このとき、操作先を選んでいないセッションのツールはエラーになる
+    （サーバーが勝手に切り替えることは無い）。`mcpforunity://instances` で名前を見て、`set_active_instance` で `Iroca_Lite@<hash>` を選ぶ。
+    選んだ先はセッションごとに覚えられるので、ほかのセッションには影響しない。
 
 ## 公開リポに被写体名を書かない
 - 本体リポは公開されている。テストに使う被写体（アバター名・`<avatar>-<part>` 形式の被写体 ID）を、コードコメント・`tools/`・`docs/`（販促とマニュアルを除く）・コミットメッセージに書かない。「白い布」「アトラス被写体」のように素材や性質で書く。
