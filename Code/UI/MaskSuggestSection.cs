@@ -345,15 +345,19 @@ namespace Iroca {
             }
         }
 
-        /// <summary>Unity を再起動する(現在のプロジェクトを開き直す)。</summary>
+        /// <summary>
+        /// Unity を再起動する(現在のプロジェクトを開き直す)。シーンに保存していない変更があれば、Unity が保存するかを聞く
+        /// (「Scene(s) Have Been Modified」。2022.3.22f1 で確認)。そこでキャンセルすると再起動しない。
+        /// </summary>
         static void RestartUnity() {
-            SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
             // 現在のプロジェクトを開き直す = エディタ再起動(Burst をクリーンに初期化)。
             // CWD はプロジェクトルートである保証がない（batchmode 起動やスクリプトからの
             // Directory.SetCurrentDirectory で変わる）。ズレていると別のフォルダを
             // プロジェクトとして開こうとするので、dataPath から確実に導出する。
-            EditorApplication.OpenProject(
-                System.IO.Path.GetDirectoryName(Application.dataPath));
+            string project = System.IO.Path.GetDirectoryName(Application.dataPath);
+            // 描画が終わってから呼ぶ。ボタンを押したイベントの中で呼ぶと、保存の確認画面が OnGUI の途中で開く。
+            // 再起動を勧める案内の印(SessionState)はここで消さない。再起動すれば消え、確認でキャンセルしたときは案内が残る。
+            EditorApplication.delayCall += () => EditorApplication.OpenProject(project);
         }
 
         /// <summary>
