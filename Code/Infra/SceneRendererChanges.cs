@@ -10,15 +10,28 @@ namespace Iroca {
     /// GameObject の作成・削除・構造の変化・プレハブの更新・シーンの変化と、Renderer の値の変化で上がる。
     /// シーンの全部の Renderer を探し直すのは重いので、探し直すかをこれで決める(版が前と同じなら探さない)。
     /// Undo を通さずにスクリプトが素材を差し替えたときは通知が来ない。
+    /// <para>
+    /// 通知を受け取り始めるのは、誰かが最初に <see cref="Version"/> を読んだとき(読むのは編集画面とインスペクタだけ)。
+    /// 以前は読み込みのたびに全員の環境で受け取り始めていたので、いろかを開かない人のエディタでも、シーンの変更のたびに
+    /// 通知の中身を調べていた。
+    /// </para>
     /// </summary>
-    [InitializeOnLoad]
     internal static class SceneRendererChanges {
-        /// <summary>今の版(変わったかもしれないたびに 1 上がる)。メインスレッドで読む。</summary>
-        public static int Version { get; private set; }
+        private static int s_version;
+        private static bool s_listening;
 
-        static SceneRendererChanges() {
-            ObjectChangeEvents.changesPublished -= OnChangesPublished;
-            ObjectChangeEvents.changesPublished += OnChangesPublished;
+        /// <summary>今の版(変わったかもしれないたびに 1 上がる)。メインスレッドで読む。</summary>
+        public static int Version {
+            get {
+                if (!s_listening) {
+                    s_listening = true;
+                    ObjectChangeEvents.changesPublished -= OnChangesPublished;
+                    ObjectChangeEvents.changesPublished += OnChangesPublished;
+                    // 受け取り始める前の変化は数えていない。前の値を覚えている人(いないはずだが)が見逃さないよう、ひとつ上げる。
+                    unchecked { s_version++; }
+                }
+                return s_version;
+            }
         }
 
         private static void OnChangesPublished(ref ObjectChangeEventStream stream) {
@@ -26,7 +39,7 @@ namespace Iroca {
                 if (!Affects(ref stream, i)) {
                     continue;
                 }
-                unchecked { Version++; }
+                unchecked { s_version++; }
                 return;
             }
         }
