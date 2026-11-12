@@ -140,9 +140,16 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(0.5f, fake.v, 1e-6f);
 
             var evidence = LeftHalf();
-            _svc.Finish(evidence);
-            Assert.AreEqual(AutoTuneService.Status.Analyzing, run.Status);
-            WaitForAnalysis(run);
+            // 証拠の控えは、再現データを書き出せる環境(Code/Debug がある)でだけ取る。ここでは控える側を確かめる。
+            bool keepBefore = AutoTuneService.KeepEvidenceForRepro;
+            AutoTuneService.KeepEvidenceForRepro = true;
+            try {
+                _svc.Finish(evidence);
+                Assert.AreEqual(AutoTuneService.Status.Analyzing, run.Status);
+                WaitForAnalysis(run);
+            } finally {
+                AutoTuneService.KeepEvidenceForRepro = keepBefore;
+            }
             var expected = ZoneAutoTuner.AnalyzeWithEvidence(_pixels.Ptr, W, H, zone.Clone(),
                 ZoneAutoTuner.SessionInput.From(session), LeftHalfMask(), W, H);
             AssertSameAsCore(run, zone, session, expected);
@@ -152,6 +159,26 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(W, input.evW);
             Assert.AreEqual(W, input.texW);
             Assert.AreEqual(1, _pixels.RefCount);
+        }
+
+        [Test]
+        public void EvidenceIsNotKept_WhenNothingCanDumpIt() {
+            // 配布物(Code/Debug が無い)では、証拠の控えを読む者がいない。詰め直す時間と、ゾーンごとに持ち続けるメモリを使わない。
+            var zone = RedZone(clicked: true);
+            var session = Session(zone);
+            bool keepBefore = AutoTuneService.KeepEvidenceForRepro;
+            AutoTuneService.KeepEvidenceForRepro = false;
+            try {
+                var run = AutoTuneService.Start(zone, session, _pixels, "k", null, 0, 0);
+                _svc.Finish(LeftHalf());
+                WaitForAnalysis(run);
+                Assert.IsTrue(run.HadEvidence, "証拠を使った解析そのものは変わらない");
+                var input = run.ToInput();
+                Assert.IsNull(input.evidence, "誰も読まない証拠の控えを持っている");
+                Assert.AreEqual(W, input.texW);
+            } finally {
+                AutoTuneService.KeepEvidenceForRepro = keepBefore;
+            }
         }
 
         [Test]

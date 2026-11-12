@@ -19,6 +19,8 @@ namespace Iroca.DebugTools {
             // 「パフォーマンス」セクション 1 つに集約。デバッグモード ON のとき
             // 詳細内訳・スレッド設定・段階キャプチャ(DebugView)を PerfView が内包して描画する。
             DebugWindowHooks.OnDrawFoldout += PerfView.Draw;
+            // 再現データ書き出し(ReproDump)が読む自動調整の証拠を控えさせる。この asmdef が無ければ控えない。
+            AutoTuneService.KeepEvidenceForRepro = true;
         }
     }
 }

@@ -105,14 +105,21 @@ namespace Iroca {
         internal sealed class Input {
             public Color sample;          // 導出に渡したサンプル色(正規化前のスポイト色)
             public Color target;
-            // 証拠マスク(下原点、1bit/画素に MaskSnapshot.Pack したもの。null=証拠なし導出)。
-            // bool[] のままだと 4K で 1 ゾーン 16MB を持ち続ける(詰めると 2MB)。
+            // 証拠マスク(下原点、1bit/画素に MaskSnapshot.Pack したもの。null=証拠なし導出、または控えを取っていない)。
+            // bool[] のままだと 4K で 1 ゾーン 16MB を持ち続ける(詰めると 2MB)。控えるのは <see cref="KeepEvidenceForRepro"/> のときだけ。
             public ulong[] evidence;
             public int evW, evH;
             public int texW, texH;
             public bool maskUsed;         // 除外マスク(共通∪ゾーン別)を導出に渡したか
             public ZoneAutoTuner.TuneResult applied;
         }
+
+        /// <summary>
+        /// 解析に渡した証拠を、再現データ書き出し(Code/Debug の ReproDump)のために詰めて控えるか。読むのは ReproDump だけで、
+        /// Code/Debug は配布しない。配布物では誰も読まないのに、全画素を詰め直す時間が自動調整の待ちに乗り、ゾーンごとに
+        /// 4K で 2MB・8K で 8MB を管理ヒープに持ち続けていた。Debug のアセンブリが起動時に立てる(DebugBootstrap)。
+        /// </summary>
+        internal static volatile bool KeepEvidenceForRepro;
 
         // 自動調整の適用値と同じとみなす許容差（ParamsIntact / ValuesIntact で共用）。
         private static bool ParamEq(float a, float b) => Mathf.Abs(a - b) <= 1e-5f;
@@ -503,8 +510,8 @@ namespace Iroca {
                                 evidence.Ptr, evW, evH, excludedPtr, mw, mh, ct, progress.Report)
                             : ZoneAutoTuner.AnalyzeCore(px.Ptr, px.Width, px.Height, zone, session, excludedPtr, mw, mh, ct,
                                 progress.Report);
-                        // 適用後も持つ証拠(再現データ用)は 1bit/画素に詰めたもの。
-                        _evidencePacked = MaskSnapshot.Pack(evidence);   // null は null
+                        // 適用後も持つ証拠(再現データ用)は 1bit/画素に詰めたもの。再現データを書き出せる環境でだけ控える。
+                        _evidencePacked = KeepEvidenceForRepro ? MaskSnapshot.Pack(evidence) : null;   // null は null
                         progress.Report(1.0f);
                         return (result, (Exception)null);
                     } catch (Exception e) { return (default(ZoneAutoTuner.TuneResult), e); } finally {
