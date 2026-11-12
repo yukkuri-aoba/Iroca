@@ -3,7 +3,8 @@
 Unity 6.5 以降で、いろかはそのままではコンパイルできない。今の利用者には影響しないので**まだ直していない**が、
 VRChat の制作環境が 6.5 以降へ進むときには必須になる。その修正の一覧・直し方・確かめ方をここに置く。
 
-内容は 2026-10-31 時点（`dev-0.4.0` の 5c9adef）。修正を始める前に「4. もう一度調べる手順」で一覧を取り直す。
+コンパイルで確かめた内容は 2026-10-31 時点（`dev-0.4.0` の 5c9adef）。2026-11-13（ebc2504f）に、その後に増えた分を検索で足した
+（下の「10-31 の後に増えた箇所」。コンパイルはしていない）。修正を始める前に「4. もう一度調べる手順」で一覧を取り直す。
 Unity 6（6000.0）の検証ホストは `docs/development-setup.md`、再読み込みと Undo の版の違いは `docs/architecture.md`。
 
 ## 1. いつ直すか
@@ -42,13 +43,33 @@ Unity 6000.7.0b7 と 7000.0.0a12 で実際にコンパイルした結果。ど�
 テストにも同じ API がある（コンパイルは未確認、検索で確認）: `scripts/editor-tests/AutomationTests.cs`・
 `scripts/editor-tests/UndoReloadScenario.cs`。
 
-### 警告（7 箇所）
+### 10-31 の後に増えた箇所（2026-11-13 に検索で確認。コンパイルは未確認）
+
+同じ API（`GetInstanceID`・`InstanceIDToObject`）なので、エラーになる見込み。上の 13 箇所と合わせて **23 箇所**。
+
+| ファイル | 場所 | 使っている API | 用途 |
+|---|---|---|---|
+| `Code/UI/MaskPaintView.cs` | `_targetByTexture` の読み書き（3 箇所） | `GetInstanceID` | 辞書のキー |
+| `Code/Infra/RecipeRegistration.cs` | 重複を見る `HashSet`（2 箇所） | `GetInstanceID` | 重複除去のキー |
+| `Code/Infra/MeshUvLocator.cs` | UV の読みの覚え（2 箇所。`Dedup` とは別） | `GetInstanceID` | 辞書のキー |
+| `Code/Infra/SceneRendererChanges.cs` | `Affects` | `EditorUtility.InstanceIDToObject` | 変わったものが Renderer かを見る |
+| `Code/Automation/IrocaAutomation.Inspect.cs` | `InspectScene`・`Ambiguous`（2 箇所） | `GetInstanceID` | MCP の出力の `instanceId` と、あいまいなときの `#ID` の一覧 |
+
+名前から見て `EntityId` へ置き換わる側の候補（**エラーになるかは未確認**。4 箇所）:
+
+| ファイル | 場所 | 使っている API |
+|---|---|---|
+| `Code/Infra/NonDestructiveApplier.cs`・`Code/Infra/RecipeRegistration.cs`・`Code/UI/IrocaRecolorEditor.cs` | 消えたレシピ（Missing）の欄の見分け | `SerializedProperty.objectReferenceInstanceIDValue` |
+| `Code/Infra/SceneRendererChanges.cs` | `Affects` | `ObjectChangeEvents` の引数の `instanceId` |
+
+### 警告（8 箇所）
 
 | ファイル | 場所 | 使っている API |
 |---|---|---|
 | `Code/Infra/MaterialColorSettings.cs` | `FindForTexture` | `FindObjectsSortMode` |
 | `Code/Infra/MeshUvLocator.cs` | `FindForTexture` | `FindObjectsSortMode` |
 | `Code/Infra/RecipeRegistration.cs` | `SuggestTarget`・`OtherUsers`・`UsedOutside`・`CountSceneMaterialsUsing` | `FindObjectsSortMode` |
+| `Code/UI/IrocaWindow.MaterialColor.cs` | `RefreshShadowMismatch`（11-13 に検索で確認） | `FindObjectsSortMode` |
 | `Code/Infra/BuildHelper.cs` | `Export` | `AssetDatabase.ExportPackage` |
 
 ## 3. 直し方
@@ -69,7 +90,7 @@ Unity 6000.7.0b7 と 7000.0.0a12 で実際にコンパイルした結果。ど�
 3. **MCP の `#123` は仕様を決めてから直す。** ここだけは機械的に置き換えられない。`FindSceneObject` は `int.TryParse` で読むので、
    64 ビットの ID を受けられない。`ulong` で読んで `EntityId.FromULong` に渡すのが候補。MCP for Unity が新しい版で
    どの形の ID を返すかを先に確かめる。ツールの説明（`Code/McpIntegration/IrocaMcpTools.cs`）とテストも合わせる。
-4. **`FindObjectsSortMode` は 1 つの関数にまとめる。** 6 箇所とも `None` で順序に頼っていないので、新しい版ではソート引数の
+4. **`FindObjectsSortMode` は 1 つの関数にまとめる。** 7 箇所とも `None` で順序に頼っていないので、新しい版ではソート引数の
    無い多重定義を呼ぶだけでよい。
 5. **`ExportPackage` は急がない。** 配布物を作るビルド用で警告だけ。ビルドする Unity を上げるときに `#if` で分ける。
 
