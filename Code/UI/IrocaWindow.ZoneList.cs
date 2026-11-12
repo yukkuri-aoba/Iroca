@@ -335,25 +335,24 @@ namespace Iroca {
             int removeIndex = -1;
             var removeRects = new List<Rect>(zones.Count);
             for (int i = 0; i < zones.Count; i++) {
+                _lastZoneDetailFoldoutBottom = -1f;
                 if (DrawZoneCard(zones[i], i)) {
                     removeIndex = i;
                 }
                 removeRects.Add(_lastRemoveButtonRect);
                 // ドロップ位置判定・インジケータ描画用に、このゾーン全体の矩形を記録。
                 // GetLastRect は Layout パスではダミー値だが、判定・描画は非 Layout パスでのみ行う。
-                zoneRects.Add(GUILayoutUtility.GetLastRect());
+                var cardRect = GUILayoutUtility.GetLastRect();
+                zoneRects.Add(cardRect);
+                if (ev.type == EventType.Repaint) {
+                    RecordZoneCardOpenHeight(zones[i], cardRect, _lastZoneDetailFoldoutBottom);
+                }
                 EditorGUILayout.Space(2);
             }
 
             if (ev.type == EventType.Repaint) {
                 _zoneCardRects = zoneRects;
                 _zoneRemoveRects = removeRects;
-                // 開いて描いたカードの高さを覚える(畳むかどうかの見積もり。ZoneToExpand)。
-                for (int i = 0; i < zones.Count && i < zoneRects.Count; i++) {
-                    if ((_expandedZoneIndex < 0 || i == _expandedZoneIndex) && !string.IsNullOrEmpty(zones[i].id)) {
-                        _zoneCardOpenHeights[zones[i].id] = zoneRects[i].height;
-                    }
-                }
                 // 測った高さで畳む/開くが変わるなら、もう 1 回描く(エディタウィンドウは頼まないと描き直さない)。
                 // 見積もりは開いたときの高さだけで決まり、畳んだ結果には左右されないので繰り返さない。
                 if (_dragZoneIndex < 0 && ZoneToExpand() != _expandedZoneIndex) {
@@ -435,8 +434,37 @@ namespace Iroca {
         // 決めるのは Layout のときだけ(DrawZoneList)。
         [System.NonSerialized] private int _expandedZoneIndex = -1;
 
-        // カードを開いて描いたときの高さ(ゾーンの id ごと。前の Repaint のもの)。
+        // カードを開いて描いたときの高さ(ゾーンの id ごと。前の Repaint のもの)。詳細設定は閉じた高さで数える。
         [System.NonSerialized] private readonly Dictionary<string, float> _zoneCardOpenHeights = new Dictionary<string, float>();
+
+        // 描いたばかりのカードの「詳細設定」の行の下端(Repaint のときだけ。-1 = 畳んで描いたので行が無い)。
+        [System.NonSerialized] private float _lastZoneDetailFoldoutBottom = -1f;
+
+        // 詳細設定を閉じたカードで測った、その行の下端からカードの下端までの高さ(枠の内側の余白)。-1 = まだ測っていない。
+        [System.NonSerialized] private float _zoneCardTailBelowDetail = -1f;
+
+        /// <summary>
+        /// 開いて描いたカードの高さを、詳細設定を閉じたときの高さで覚える(畳むかどうかの見積もり。ZoneToExpand)。
+        /// 詳細設定の中身まで数えると、どれか 1 枚で開いただけで全部開いた高さが列を超え、ほかのカードが畳まれていた。
+        /// 詳細設定は開けば中身だけで列を越えやすく、開いたのは使う人なので、その分は列をスクロールしてもらう
+        /// (2026-11-12 のユーザーの要望: 詳細設定の開け閉めで畳む/開くが変わらないように)。
+        /// </summary>
+        private void RecordZoneCardOpenHeight(ColorZone zone, Rect cardRect, float detailFoldoutBottom) {
+            if (detailFoldoutBottom < 0f || string.IsNullOrEmpty(zone.id)) {
+                return;
+            }
+            float tail = cardRect.yMax - detailFoldoutBottom;
+            if (!zone.detailFoldout) {
+                _zoneCardTailBelowDetail = tail;
+                _zoneCardOpenHeights[zone.id] = cardRect.height;
+                return;
+            }
+            if (_zoneCardTailBelowDetail < 0f) {
+                // まだ閉じたカードを描いていない。枠の内側の下の余白で見積もる。
+                _zoneCardTailBelowDetail = Mathf.Max(EditorStyles.helpBox.padding.bottom, EditorStyles.foldout.margin.bottom);
+            }
+            _zoneCardOpenHeights[zone.id] = detailFoldoutBottom - cardRect.y + _zoneCardTailBelowDetail;
+        }
 
         /// <summary>
         /// 開いておくカードの番号(-1 = 全部開く)。全部のカードを開くと設定列の見えている高さに収まらないときだけ、
@@ -543,6 +571,10 @@ namespace Iroca {
             zone.detailFoldout = FoldoutKeepingChanged(
                 zone.detailFoldout,
                 TempContent.Of(Localization.ZoneDetailFoldout, Localization.ZoneDetailFoldoutTooltip));
+            if (Event.current.type == EventType.Repaint) {
+                // 畳むかどうかの見積もりは詳細設定を閉じた高さで測る(ZoneToExpand)。ここが閉じたカードの下端の手前。
+                _lastZoneDetailFoldoutBottom = GUILayoutUtility.GetLastRect().yMax;
+            }
             if (zone.detailFoldout) {
                 DrawZoneAdvancedParams(zone);
             }
