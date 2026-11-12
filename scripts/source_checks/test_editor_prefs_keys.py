@@ -62,8 +62,6 @@ PREFS_KEYS = {
     "Iroca.AiSetup.BannerDismissed",
     "Iroca.Burst.CompileFailed",
     "Iroca.Sentis.RestartRecommended",
-    "Iroca_MaskIndex_",                  # + テクスチャのパス（古い版のマスクの置き場。読んで移したら消す）
-    "Iroca_Mask_",                       # + テクスチャのパス（同上）
 }
 
 _COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)

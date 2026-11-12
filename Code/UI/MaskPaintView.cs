@@ -76,8 +76,6 @@ namespace Iroca {
         [System.NonSerialized] private bool _maskLoadFailed;
         internal bool MaskLoadFailed => _maskLoadFailed;
 
-        public const string CommonMaskKey = "__common__";
-
         // いま直しているゾーンの id(描く前に覚える)。編集対象は番号で持ち、Undo では巻き戻らないので、Undo/Redo で
         // ゾーンの並びが変わったときに同じゾーンを指し直すのに使う。
         [System.NonSerialized] private string _activeTargetZoneId;

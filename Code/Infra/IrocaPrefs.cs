@@ -52,8 +52,5 @@ namespace Iroca {
         internal const string AiSetupBannerDismissed = "Iroca.AiSetup.BannerDismissed";
         internal const string BurstCompileFailed = "Iroca.Burst.CompileFailed";
         internal const string SentisRestartRecommended = "Iroca.Sentis.RestartRecommended";
-        // 古い版のマスクの置き場(+ テクスチャのパス)。読んで移したら消す。
-        internal const string LegacyMaskIndexPrefix = "Iroca_MaskIndex_";
-        internal const string LegacyMaskPrefix = "Iroca_Mask_";
     }
 }

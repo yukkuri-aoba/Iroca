@@ -1,27 +1,11 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
-using UnityEditor;
-using UnityEngine;
 
 namespace Iroca {
     internal partial class MaskPaintView {
 
         private string MaskTexturePath() => SessionPersistence.StorageKeyOf(_host.SourceTexture);
-
-        // 旧 SessionState キー（Phase 6 で MaskFileStore に移行済み）。
-        // 残存データをマイグレートするためのみ残し、新規書き込みには使わない。
-        private static string LegacyMaskIndexSessionKey(string path) => IrocaPrefs.LegacyMaskIndexPrefix + path;
-        private static string LegacyMaskArraySessionKey(string path, string targetKey) => IrocaPrefs.LegacyMaskPrefix + path + ":" + targetKey;
-        private static string LegacySingleMaskSessionKey(string path) => IrocaPrefs.LegacyMaskPrefix + path;
-
-        [System.Serializable]
-        private class LegacyMaskIndex {
-            public bool hasCommon;
-            public List<string> zoneIds = new List<string>();
-            public int width;
-            public int height;
-        }
 
         /// <summary>
         /// 現在の全マスク（共通 + 各ゾーン）をプロジェクト下の MaskCache ファイルへ
@@ -52,8 +36,6 @@ namespace Iroca {
 
         /// <summary>
         /// MaskCache ファイルから全マスクを復元する。
-        /// ファイルが見つからない場合は、旧 SessionState 形式の残存データを
-        /// 一度だけマイグレートして MaskCache へ書き出し、SessionState 側を消去する。
         /// MaskCache ファイルから層を読めたら true(ドメインリロードの後に、履歴の版とファイルのどちらを採るかを決めるのに使う。
         /// ファイルを 2 回読まないように返す)。
         /// </summary>
@@ -69,7 +51,7 @@ namespace Iroca {
             Workspace.Clear();
             _maskLoadFailed = false;
 
-            // 1) MaskCache ファイルからの読み込みを最優先する（Editor 再起動を跨ぐ正規ストア）。
+            // MaskCache ファイルから読む（Editor 再起動を跨ぐ正規ストア）。
             var fileState = MaskFileStore.LoadMask(path, out bool unreadable);
             if (fileState != null && fileState.width > 0 && fileState.height > 0) {
                 // 展開規則(寸法不一致・壊れた項目は捨てる)は Core の MaskStateCodec と同じ(MaskWorkspace.DecodeFrom)。
@@ -90,13 +72,8 @@ namespace Iroca {
 
             // レシピが結び付いていれば、同じ内容がレシピにある。読めないまま空で進むと、次の保存でレシピのマスクまで空になる
             // (印が守るのはファイルだけ)。印は残すので、ファイルは次の保存で退避してから書き直す。
-            if (_maskLoadFailed && RestoreFromBoundRecipe()) {
-                return false;
-            }
-
-            // 2) ファイルが無ければ、旧 SessionState 形式（Phase 6 以前のデータ）からマイグレート。
-            if (TryMigrateFromLegacySessionState(path)) {
-                maskDirty = true;
+            if (_maskLoadFailed) {
+                RestoreFromBoundRecipe();
             }
             return false;
         }
@@ -146,88 +123,6 @@ namespace Iroca {
             }
             session.maskState = new MaskState();
             maskDirty = true;
-        }
-
-        /// <summary>
-        /// 旧 SessionState 形式（Phase 6 以前）のマスクデータを MaskCache ファイルへ移行する。
-        /// 一度移行が完了したら SessionState 側のキーは消去する。
-        /// 戻り値: マイグレーションによりバッファが復元できたら true。
-        /// </summary>
-        private bool TryMigrateFromLegacySessionState(string path) {
-            // 2a) インデックス形式（共通 + ゾーン別）。
-            string indexJson = SessionState.GetString(LegacyMaskIndexSessionKey(path), null);
-            if (!string.IsNullOrEmpty(indexJson)) {
-                LegacyMaskIndex idx = null;
-                try {
-                    idx = JsonUtility.FromJson<LegacyMaskIndex>(indexJson);
-                } catch (System.Exception ex) {
-                    Debug.LogWarning($"[Iroca] Legacy mask index decode failed: {ex.Message}");
-                }
-                if (idx == null || idx.width <= 0 || idx.height <= 0) {
-                    SessionState.EraseString(LegacyMaskIndexSessionKey(path));
-                    return false;
-                }
-
-                Workspace.Reset(idx.width, idx.height);
-
-                // 寸法の合わない層は受け取らない(SetCommon・SetLayer)。
-                if (idx.hasCommon) {
-                    string enc = SessionState.GetString(LegacyMaskArraySessionKey(path, CommonMaskKey), null);
-                    if (!string.IsNullOrEmpty(enc)) {
-                        Workspace.SetCommon(MaskRle.DecodeBits(enc));
-                    }
-                }
-
-                if (idx.zoneIds != null) {
-                    foreach (var zid in idx.zoneIds) {
-                        if (string.IsNullOrEmpty(zid)) {
-                            continue;
-                        }
-                        string enc = SessionState.GetString(LegacyMaskArraySessionKey(path, zid), null);
-                        if (string.IsNullOrEmpty(enc)) {
-                            continue;
-                        }
-                        Workspace.SetLayer(false, zid, MaskRle.DecodeBits(enc));
-                    }
-                }
-
-                EraseLegacySessionEntries(path, idx);
-                SaveToSession();
-                return true;
-            }
-
-            // 2b) 旧々形式: 単一マスクのみ。共通マスクへ昇格。
-            string legacyEncoded = SessionState.GetString(LegacySingleMaskSessionKey(path), null);
-            if (string.IsNullOrEmpty(legacyEncoded)) {
-                return false;
-            }
-
-            var legacy = MaskRle.DecodeBits(legacyEncoded);
-            if (legacy == null) {
-                SessionState.EraseString(LegacySingleMaskSessionKey(path));
-                return false;
-            }
-
-            Workspace.Reset(legacy.Width, legacy.Height);
-            Workspace.SetCommon(legacy);
-
-            SessionState.EraseString(LegacySingleMaskSessionKey(path));
-            SaveToSession();
-            return true;
-        }
-
-        private static void EraseLegacySessionEntries(string path, LegacyMaskIndex idx) {
-            SessionState.EraseString(LegacyMaskIndexSessionKey(path));
-            SessionState.EraseString(LegacyMaskArraySessionKey(path, CommonMaskKey));
-            if (idx.zoneIds != null) {
-                foreach (var zid in idx.zoneIds) {
-                    if (string.IsNullOrEmpty(zid)) {
-                        continue;
-                    }
-                    SessionState.EraseString(LegacyMaskArraySessionKey(path, zid));
-                }
-            }
-            SessionState.EraseString(LegacySingleMaskSessionKey(path));
         }
 
         /// <summary>

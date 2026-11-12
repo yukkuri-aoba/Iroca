@@ -359,12 +359,6 @@
       "editIncludeLayer",
       "maskFoldout"
     ],
-    "MaskPaintView.LegacyMaskIndex": [
-      "hasCommon",
-      "height",
-      "width",
-      "zoneIds"
-    ],
     "MaskPatchEntry": [
       "include",
       "maskBase64",
