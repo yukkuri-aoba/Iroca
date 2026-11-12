@@ -191,14 +191,58 @@ namespace Iroca {
             if (first) {
                 return;
             }
-            GUIUtility.keyboardControl = 0;
-            EditorGUIUtility.editingTextField = false;
+            // 入力のフォーカスはエディタ全体で 1 つ。この窓に無いとき(AI が裏でゾーンを足した・ほかの窓で作業している間の Undo)は、
+            // ほかの窓で打っている途中の欄を手放させない(この窓の名前欄は、フォーカスが無ければ打ちかけではない)。
+            if (focusedWindow == this) {
+                GUIUtility.keyboardControl = 0;
+                EditorGUIUtility.editingTextField = false;
+            }
+            // 色の窓(Unity の ColorPicker)もエディタ全体で 1 つ。この窓の色の欄から開いたものだけを閉じる(以前は、マテリアルの
+            // インスペクタやほかのツールから開いた色の窓まで閉じていた)。
             foreach (var w in Resources.FindObjectsOfTypeAll<EditorWindow>()) {
-                if (w.GetType().Name == "ColorPicker") {
+                if (w.GetType().Name == ColorPickerTypeName && ColorPickerMayBelongTo(w, this)) {
                     w.Close();
                 }
             }
         }
+
+        private const string ColorPickerTypeName = "ColorPicker";
+
+        // 色の窓は、開いた欄のある窓の表示枠(GUIView)を覚えていて、選んだ色をそこへ送る。持ち主を知る公開の API は無いので、
+        // 非公開のフィールドを読む(名前は 2022.3・6000.0 で同じ。docs/unity-version-migration.md の「公開されていない API」)。
+        private const System.Reflection.BindingFlags PrivateInstance =
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        private static readonly System.Reflection.FieldInfo s_windowView = typeof(EditorWindow).GetField("m_Parent", PrivateInstance);
+        private static System.Type s_pickerType;
+        private static System.Reflection.FieldInfo s_pickerView;
+
+        /// <summary>
+        /// 色の窓 <paramref name="picker"/> が、<paramref name="window"/> の色の欄から開いたものでありうるか。
+        /// 確かめられないとき(将来の Unity で中身が変わった)は true(以前と同じく閉じる。閉じないと、選びかけの色が
+        /// 並びの変わった別のゾーンへ入る)。
+        /// </summary>
+        internal static bool ColorPickerMayBelongTo(EditorWindow picker, EditorWindow window) {
+            if (picker == null || window == null) {
+                return false;
+            }
+            try {
+                var type = picker.GetType();
+                if (s_pickerType != type) {
+                    s_pickerType = type;
+                    s_pickerView = type.GetField("m_DelegateView", PrivateInstance);
+                }
+                if (s_pickerView == null || s_windowView == null) {
+                    return true;
+                }
+                return SameView(s_pickerView.GetValue(picker), s_windowView.GetValue(window));
+            } catch (System.Exception) {
+                return true;
+            }
+        }
+
+        // 表示枠が同じか。どちらかが無い(窓が表示されていない・色の窓がどこにも結び付いていない)なら、この窓のものではない。
+        internal static bool SameView(object pickerView, object windowView)
+            => pickerView != null && windowView != null && ReferenceEquals(pickerView, windowView);
 
         private void ProcessPendingZoneChanges() {
             if (Event.current.type != EventType.Layout) {

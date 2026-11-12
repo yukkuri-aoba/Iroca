@@ -547,6 +547,36 @@ namespace Iroca.EditorTests {
                 "EditorApplication.globalEventHandler が見つからないか型が違う(docs/unity-version-migration.md)");
         }
 
+        // ゾーンの並びが変わったときに閉じる色の窓は、この窓の色の欄から開いたものだけ(ほかのツールの色の窓を閉じない)。
+        // 持ち主は公開されていないフィールドで見分けるので、この Unity の版で読めることを確かめる。
+        [Test]
+        public void ColorPicker_OwnerCanBeReadOnThisUnity() {
+            var pickerType = typeof(EditorWindow).Assembly.GetType("UnityEditor.ColorPicker");
+            Assert.IsNotNull(pickerType, "UnityEditor.ColorPicker が無い");
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+            Assert.IsNotNull(pickerType.GetField("m_DelegateView", flags), "ColorPicker.m_DelegateView が無い(持ち主を見分けられない)");
+            Assert.IsNotNull(typeof(EditorWindow).GetField("m_Parent", flags), "EditorWindow.m_Parent が無い(持ち主を見分けられない)");
+        }
+
+        [Test]
+        public void ColorPicker_BelongsOnlyToTheWindowThatOpenedIt() {
+            var view = new object();
+            Assert.IsTrue(IrocaWindow.SameView(view, view), "同じ表示枠なのに、この窓のものでないとした");
+            Assert.IsFalse(IrocaWindow.SameView(view, new object()), "別の窓から開いた色の窓を、この窓のものとした");
+            Assert.IsFalse(IrocaWindow.SameView(null, view), "どこにも結び付いていない色の窓を、この窓のものとした");
+            Assert.IsFalse(IrocaWindow.SameView(null, null), "表示されていない窓が、色の窓の持ち主になった");
+
+            Assert.IsFalse(IrocaWindow.ColorPickerMayBelongTo(null, _win));
+            // 持ち主を読めない窓(Unity の中身が変わったときと同じ)は、以前と同じく閉じる側に倒す。
+            var unknown = ScriptableObject.CreateInstance<EditorWindow>();
+            try {
+                Assert.IsTrue(IrocaWindow.ColorPickerMayBelongTo(unknown, _win));
+            } finally {
+                Object.DestroyImmediate(unknown);
+            }
+        }
+
         // ☰ でゾーンを掴んでいる途中に Undo でゾーンの並びが変わったら、ドラッグをやめる。続けると、掴んだ番号が別のゾーン(または
         // 無いゾーン)を指し、離しても並べ替えが確定しない・別のゾーンを動かす。マウスを掴んだ(hotControl)ままだと Unity は Undo を
         // 行わないので、ここでは掴まずに始める(掴んでいれば CancelZoneDrag が放す)。

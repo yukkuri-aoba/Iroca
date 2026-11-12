@@ -108,7 +108,7 @@ Unity を入れなくても、DLL だけで確かめられる。
 | NDMF の `WithData` | 1.13 で非推奨だが、下限の 1.8.0 にはこれしか無いので警告を抑止している（`IrocaPreviewFilter`） | 下限を 1.13 以上に上げるとき |
 | 作ったテクスチャの mipmap limit（2026-11-10 に対処済み） | 6000.0 では `new Texture2D(w, h, format, mipChain, linear)` が既定の `MipmapLimitDescriptor`（useMipmapLimit = false）を渡すので、作ったテクスチャが `ignoreMipmapLimit = true`（画質設定の上限を無視する）になる。2022.3 は false。いろかは非破壊ビルドとシーンのプレビューのテクスチャを `RecipeTextureBuilder.NewLike` で作り、元の取り込みの「Ignore Mipmap Limit」と Mipmap Limit Group を写す（6000 は Descriptor の口、2022.3 は 8 引数の口。8 引数の口は 6000 で `[Obsolete]`）。2022.3 では形式を変える `Reinitialize` と `CompressTexture` が「Ignore Mipmap Limit」を既定へ戻す（グループは残る）ので写し直している。`NonDestructiveTests.Build_CopiesTheMipmapLimitSettingsFromTheSource` を両方の版で回す | テクスチャを作るコードを足すとき（`NewLike` を使う） |
 | CI | `ci.yml` は 2022.3.22f1 だけを見ていて、新しい版での退行に気づけない | 新しい版に対応した後 |
-| 公開されていない API（リフレクション） | Unity の非公開のフィールドを読む所がある。見つからない・型が違うときは使わずに動く（コンパイルは通るので、気づけるのはテストだけ）。**Esc の解除**: `EditorApplication.globalEventHandler`（`IrocaWindow.InstallGlobalEscape`）。無ければ、Esc はプレビューの窓にフォーカスがあるときだけ効く。2022.3.22f1・6000.0.67f1 にはある | Unity の版を上げるとき、`WindowUndoTests` の `GlobalEscape_HookIsAvailableOnThisUnity` が落ちたら |
+| 公開されていない API（リフレクション） | 2 か所で Unity の非公開のフィールドを読む。どちらも、見つからない・型が違うときは使わずに動く（コンパイルは通るので、気づけるのはテストだけ）。**Esc の解除**: `EditorApplication.globalEventHandler`（`IrocaWindow.InstallGlobalEscape`）。無ければ、Esc はプレビューの窓にフォーカスがあるときだけ効く。**色の窓の持ち主**: `ColorPicker.m_DelegateView` と `EditorWindow.m_Parent`（`IrocaWindow.ColorPickerMayBelongTo`）。読めなければ、ゾーンの並びが変わったときに色の窓を全部閉じる（ほかのツールの色の窓も閉じる、以前の動き）。2022.3.22f1・6000.0.67f1 にはどちらもある | Unity の版を上げるとき、`WindowUndoTests` の `GlobalEscape_HookIsAvailableOnThisUnity`・`ColorPicker_OwnerCanBeReadOnThisUnity` が落ちたら |
 
 ## 6. 確かめていないこと
 
