@@ -585,6 +585,26 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
+        public void Inspect_ZonesWithTheSameName_GetTheirOwnCoverage() {
+            // 同じ名前のゾーンが 2 つあっても(窓やプリセットから入る)、割合はそれぞれのゾーンに付く。
+            // 以前は名前で突き合わせていて、先頭の欄に後のゾーンの値が上書きで入り、後の欄は -1 のままだった。
+            string src = AllRed();
+            string changes = "[{\"name\":\"first\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"},{\"name\":\"second\",\"from\":\"#C81E1E\",\"to\":\"#FFAA00\"}]";
+            WithAvatar(src, () => {
+                var r = RunOk(Request(src, changes, "[]", "avatar"));
+                var recipe = AssetDatabase.LoadAssetAtPath<IrocaRecipe>(r.recipe);
+                var state = RecipeStore.Load(recipe);
+                state.zones[1].name = state.zones[0].name;
+                RecipeStore.Save(recipe, state);
+
+                var info = InspectTexture(src, null, true, out _);
+                Assert.AreEqual(info.zones[0].name, info.zones[1].name);
+                Assert.AreEqual(1f, info.zones[0].approxCoverage, 0.01f, "先のゾーンが全部を塗る");
+                Assert.AreEqual(0f, info.zones[1].approxCoverage, 0.01f, "後のゾーン(同じ名前)は何も塗らない");
+            });
+        }
+
+        [Test]
         public void Inspect_PointsWithoutZones_ReturnsColorAndIsland() {
             string src = _assets.WritePng("red64", TestAssets.Solid(64, 64, Red), 64, 64);
             var mat = new Material(Shader.Find("Standard")) { mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(src) };

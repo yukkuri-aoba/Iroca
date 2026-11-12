@@ -115,6 +115,8 @@ namespace Iroca {
             public float includedFraction;
             // iroca_inspect の coverage・points のときだけ: 不透明な画素のうち、このゾーンが塗るおおよその割合。測っていなければ -1
             public float approxCoverage = -1f;
+            // ゾーンの id(結果には出さない)。同じ名前のゾーンが複数あっても、割合と自動調整の報告を正しいゾーンに付けるための突き合わせ用。
+            [NonSerialized] internal string zoneId;
         }
 
         /// <summary>自動調整を待っている間の途中経過(<see cref="Recolor"/> / <see cref="RecolorStatus"/> が返す)。</summary>
@@ -1038,7 +1040,7 @@ namespace Iroca {
             r.changeComponentCount = c.metrics.componentCount;
             r.preview = WriteRecolorPanel(c, r.texture, r.warnings);
             AddZoneInfos(r.zones, job.state, z => {
-                if (job.tune != null && job.tune.How.TryGetValue(z.name, out var h)) {
+                if (job.tune != null && job.tune.How.TryGetValue(z.id ?? "", out var h)) {
                     return h;
                 }
                 return job.changedZoneIds.Contains(z.id) && !job.req.autoTune ? "skipped: autoTune=false" : "";
@@ -1060,6 +1062,7 @@ namespace Iroca {
                         continue;
                     }
                     dst.Add(new ZoneInfo {
+                        zoneId = z.id,
                         name = z.name,
                         from = "#" + ColorUtility.ToHtmlStringRGB(z.sampleColor),
                         to = "#" + ColorUtility.ToHtmlStringRGB(z.targetColor),

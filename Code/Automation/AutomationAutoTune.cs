@@ -33,7 +33,10 @@ namespace Iroca {
         // AI の証拠待ちが 1 度時間切れになった(残りのゾーンでは AI に聞かない。聞くとゾーンの数だけ時間切れを待つ)。
         private bool _aiTimedOut;
 
-        /// <summary>ゾーン名 → どう調整したか(<see cref="AutoTuneService.Run.Method"/> か "skipped: …")。</summary>
+        /// <summary>
+        /// ゾーンの id → どう調整したか(<see cref="AutoTuneService.Run.Method"/> か "skipped: …")。名前を鍵にすると、同じ名前の
+        /// 調整していないゾーンにも同じ報告が付く。
+        /// </summary>
         public readonly Dictionary<string, string> How = new Dictionary<string, string>();
 
         public bool Done => _index >= _zoneIds.Count;
@@ -72,7 +75,7 @@ namespace Iroca {
                 }
 
                 if (_run == null && _aiTimedOut && zone.HasSampleUV) {
-                    How[zone.name] = "skipped: the AI timed out on an earlier zone";
+                    How[zone.id ?? ""] = "skipped: the AI timed out on an earlier zone";
                     _warnings.Add($"auto-tune of '{zone.name}' was skipped because the AI timed out on an earlier zone; "
                         + "it keeps its current settings. Call iroca_recolor again with the same name to tune it.");
                     Next();
@@ -89,7 +92,7 @@ namespace Iroca {
                     case AutoTuneService.Status.Done:
                         run.ApplyTo(zone, _state);
                         zone.UpdateCacheIfNeeded();
-                        How[zone.name] = run.Method;
+                        How[zone.id ?? ""] = run.Method;
                         break;
                     case AutoTuneService.Status.Failed:
                         Skip(zone, run);
@@ -122,7 +125,7 @@ namespace Iroca {
                 if (zone == null) {
                     continue;
                 }
-                How[zone.name] = "skipped: time budget";
+                How[zone.id ?? ""] = "skipped: time budget";
                 skipped.Add("'" + zone.name + "'");
             }
             if (skipped.Count > 0) {
@@ -136,13 +139,13 @@ namespace Iroca {
         private void Skip(ColorZone zone, AutoTuneService.Run run) {
             switch (run.Failure) {
                 case AutoTuneService.Failure.AiUnavailable:
-                    How[zone.name] = "skipped: AI not available";
+                    How[zone.id ?? ""] = "skipped: AI not available";
                     _warnings.Add($"auto-tune of '{zone.name}' was skipped because the AI (Unity Sentis and the model) is not installed; "
                         + "it keeps its current settings, so highlights or shadows may be missed. See the manual's AI chapter to install it.");
                     return;
                 case AutoTuneService.Failure.AnalysisFailed: {
                         var ex = run.Error;
-                        How[zone.name] = "skipped: analysis failed";
+                        How[zone.id ?? ""] = "skipped: analysis failed";
                         _warnings.Add($"auto-tune of '{zone.name}' failed ({ex?.GetType().Name}: {ex?.Message}); it keeps its current settings.");
                         return;
                     }
@@ -156,7 +159,7 @@ namespace Iroca {
             if (run.Failure == AutoTuneService.Failure.Timeout) {
                 _aiTimedOut = true;
             }
-            How[zone.name] = "skipped: " + failure;
+            How[zone.id ?? ""] = "skipped: " + failure;
             _warnings.Add($"auto-tune of '{zone.name}' was skipped ({failure}); it keeps its current settings.");
         }
 

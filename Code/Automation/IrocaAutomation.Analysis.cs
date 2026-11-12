@@ -213,7 +213,12 @@ namespace Iroca {
             }
             for (int k = 0; k < zones.Count; k++) {
                 float coverage = (float)(share[k] / idx.Length);
-                var zoneInfo = info.zones.Find(z => z.name == zones[k].name);
+                // 名前でなく id で突き合わせる。同じ名前のゾーンが 2 つあると、名前では先頭の欄に後のゾーンの値が上書きで入り、
+                // 後の欄は測っていない(-1)ままになる(同じ名前は窓・プリセットから入る)。
+                string id = zones[k].id;
+                var zoneInfo = string.IsNullOrEmpty(id)
+                    ? info.zones.Find(z => z.name == zones[k].name)
+                    : info.zones.Find(z => z.zoneId == id);
                 if (zoneInfo != null) {
                     zoneInfo.approxCoverage = coverage;
                 }
