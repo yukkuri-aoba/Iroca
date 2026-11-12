@@ -264,9 +264,10 @@ namespace Iroca {
             var grid = DetailTileGrid.For(w, h, pxPerSrc);
             var range = DetailTileRange.Covering(grid, x0, y0, x1, y1, p.DetailOutputVersion);
             var rawRange = range.WithVersion(p.DetailSourceVersion);
-            // 差分表示の間は、変更前の切り出しも一緒に作る(差分は変更後の切り出しとこれから描く)。差分表示へ
-            // 切り替えた直後の切り出しと「元を表示」の変更前は、描くときに EnsureDetailRaw が同じ範囲で作る。
-            bool needRaw = _host.Preview.diffMode;
+            // 差分表示と前後比較の間は、変更前の切り出しも一緒に作る(差分は変更後の切り出しとこれから描き、前後比較は
+            // 左に並べる)。以前は差分表示だけで、前後比較では、拡大してパンするたびに変更前を描画の途中(メインスレッド)で
+            // 組み立てていた。切り替えた直後の切り出しと「元を表示」の変更前は、描くときに EnsureDetailRaw が同じ範囲で作る。
+            bool needRaw = _host.Preview.diffMode || _host.Preview.comparisonMode;
             if (_hasShown && _shown.Equals(range) && detailPreviewTexture != null
                 && (!needRaw || (_hasRawShown && _rawShown.Equals(rawRange) && detailRawTexture != null))) {
                 return false;

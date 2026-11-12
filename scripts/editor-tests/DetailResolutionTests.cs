@@ -223,12 +223,21 @@ namespace Iroca.EditorTests {
         // 差分表示の間に作り始めた切り出しは、同じ範囲の変更前の切り出しを持ってくる(差分はこの 2 枚から GPU で描く。1-2)。
         // それは「元を表示」と同じ口(EnsureDetailRaw)がその場で作るものと同じ画素で、同じ範囲なら作り直さない。
         [Test]
-        public void DiffMode_CropBringsTheSameBeforeCropAsEnsureDetailRaw() {
+        public void DiffMode_CropBringsTheSameBeforeCropAsEnsureDetailRaw()
+            => AssertCropBringsTheSameBeforeCrop(preview => preview.diffMode = true);
+
+        // 前後比較も同じ(変更前を左に並べる)。以前は差分表示だけが持ってきて、前後比較では拡大してパンするたびに
+        // 描画の途中で変更前を組み立てていた。
+        [Test]
+        public void ComparisonMode_CropBringsTheSameBeforeCropAsEnsureDetailRaw()
+            => AssertCropBringsTheSameBeforeCrop(preview => preview.comparisonMode = true);
+
+        private void AssertCropBringsTheSameBeforeCrop(System.Action<PreviewView> setMode) {
             PreviewView.DetailFullResolution = false;
             OpenWindow();
             var preview = _win.Preview;
             RunFullStage(preview);
-            preview.diffMode = true;
+            setMode(preview);
             var dv = preview.DetailView;
             // 縮めて切り出す(表示の 1 画素に元の 2×2 画素。タイルは元の 8 画素四方を 4 画素四方に縮める)。
             DetailTileGrid.TileTexels = 4;
@@ -237,7 +246,7 @@ namespace Iroca.EditorTests {
             dv.ApplyPendingResult();
             var raw = dv.detailRawTexture;
             var after = dv.detailPreviewTexture;
-            Assert.IsNotNull(raw, "差分表示中の切り出しが、変更前の切り出しを持ってこない");
+            Assert.IsNotNull(raw, "差分表示・前後比較の間の切り出しが、変更前の切り出しを持ってこない");
             Assert.AreEqual((0, 0, 24, 24), (dv.detailOriginX, dv.detailOriginY, dv.detailCropW, dv.detailCropH),
                 "範囲を覆うタイルの並び(元の 8 画素四方 × 3)");
             Assert.AreEqual((12, 12), (after.width, after.height), "変更後の切り出しの寸法");
