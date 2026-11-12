@@ -53,7 +53,8 @@ namespace Iroca {
             public RenderTexture rt;
             public int refs;
             // 最後に届いた画素(行 0 = 画像下端)。借り手が現れたとき・作り直したときに書き込む。
-            // 確定段のフル解像度は Mono のヒープの外(native。参照を 1 つ持つ)、概要段の表示寸法は管理配列(pixels)。
+            // 編集画面から届くものは、ドラッグ中の縮小版も確定のフル解像度も Mono のヒープの外(native。参照を 1 つ持つ)。
+            // 管理配列(pixels)で届くのは、配列を渡す口(テストが使う)だけ。
             public Color32[] pixels;
             public NativePixels native;
             public int width, height;
@@ -61,6 +62,7 @@ namespace Iroca {
             // 寸法が替わるので、直近の 2 つの寸法を 1 枚ずつ持って使い回す(staging が直近に使った方、stagingSpare がもう片方)。
             // 1 枚だけだと、ドラッグを始めるたび・離すたびに確定の寸法(4K で 64MB)を作り直していた。
             // 中身は次に上げるときに CPU から書き直す(LoadRawTextureData・Alpha Source)ので、CPU 側の写しは手放せない。
+            // 使い回すのは編集が続いている間だけで足りるので、手を止めたら捨てる(TrimStaging。4K で CPU と GPU に 64MB ずつ)。
             public Texture2D staging;
             public Texture2D stagingSpare;
             // Alpha Source を当てるときの取り込み設定(最後に届いた画素のテクスチャのもの)。
@@ -90,6 +92,30 @@ namespace Iroca {
             // HideAndDontSave の RenderTexture はドメインリロードで静的な参照だけが消えて残るので、先に捨てる。
             AssemblyReloadEvents.beforeAssemblyReload -= ReleaseAll;
             AssemblyReloadEvents.beforeAssemblyReload += ReleaseAll;
+            // 手を止めて作業配列を返す時期(計算が 10 秒無い)に、中継も返す。
+            NativeMemoryLifecycle.IdleTrimmed -= OnIdleTrimmed;
+            NativeMemoryLifecycle.IdleTrimmed += OnIdleTrimmed;
+        }
+
+        // タイマーのスレッドから来る。テクスチャを捨てられるのはメインスレッドだけなので、次のエディタの更新へ回す。
+        private static void OnIdleTrimmed() => PreviewJobMainThread.Post(TrimStaging);
+
+        /// <summary>
+        /// 画素を GPU へ上げる中継を捨てる(手を止めたとき)。RenderTexture と最後に届いた画素は残すので、映っているものは
+        /// 変わらず、次に画素が届いたときに中継を作り直す。internal はテストが呼ぶため。
+        /// </summary>
+        internal static void TrimStaging() {
+            foreach (var slot in Slots.Values) {
+                DestroyStaging(slot);
+            }
+        }
+
+        /// <summary>テスト用: 持っている中継の数(0〜2)。</summary>
+        internal static int StagingCount(Texture2D source) {
+            if (source == null || !Slots.TryGetValue(source, out var slot)) {
+                return 0;
+            }
+            return (slot.staging != null ? 1 : 0) + (slot.stagingSpare != null ? 1 : 0);
         }
 
         /// <summary>
@@ -199,20 +225,72 @@ namespace Iroca {
                 Slots[source] = slot;
             }
             if (slot.rt == null || !slot.rt.IsCreated()) {
-                // GPU 側だけ失われたときは同じオブジェクトのまま作り直す(貸し出し中のマテリアルが参照している)。
-                if (slot.rt == null) {
-                    CreateTarget(slot, source);
-                } else {
-                    slot.rt.Create();
-                }
-                if (slot.HasPixels) {
-                    Upload(slot);
-                } else {
-                    BlitKeepingActive(source, slot.rt);
-                }
+                Restore(slot, source);
             }
             slot.refs++;
+            UpdateTargetWatch();
             return slot.rt;
+        }
+
+        // RenderTexture を作り(GPU 側だけ失われたときは同じオブジェクトのまま作り直す。貸し出し中のマテリアルが参照している)、
+        // 最後に届いた画素を書く。画素がまだ無ければ元テクスチャの見た目にする。
+        private static void Restore(Slot slot, Texture2D source) {
+            if (slot.rt == null) {
+                CreateTarget(slot, source);
+            } else {
+                slot.rt.Create();
+            }
+            if (slot.HasPixels) {
+                Upload(slot);
+            } else {
+                BlitKeepingActive(source, slot.rt);
+            }
+        }
+
+        // ── 貸している RenderTexture の見張り ──
+        // RenderTexture の GPU 側は、画面のロックやドライバーの作り直しなどで失われることがある。以前は借りるときにしか
+        // 見ていなかったので、借りたまま失われると、次に色を変えるまでシーンのアバターが黒く映った。借り手がいる間だけ、
+        // 時々見て、失われていたら上げ直す。
+        private const double TargetWatchSeconds = 1.0;
+        private static bool s_watchingTargets;
+        private static double s_targetsWatchedAt;
+
+        private static void UpdateTargetWatch() {
+            bool borrowed = false;
+            foreach (var slot in Slots.Values) {
+                if (slot.refs > 0) {
+                    borrowed = true;
+                    break;
+                }
+            }
+            if (borrowed == s_watchingTargets) {
+                return;
+            }
+            s_watchingTargets = borrowed;
+            EditorApplication.update -= WatchTargets;
+            if (borrowed) {
+                EditorApplication.update += WatchTargets;
+            }
+        }
+
+        private static void WatchTargets() {
+            double now = EditorApplication.timeSinceStartup;
+            if (now - s_targetsWatchedAt < TargetWatchSeconds) {
+                return;
+            }
+            s_targetsWatchedAt = now;
+            RestoreLostTargets();
+        }
+
+        /// <summary>貸している RenderTexture のうち、GPU 側が失われたものを上げ直す。internal はテストが呼ぶため。</summary>
+        internal static void RestoreLostTargets() {
+            foreach (var pair in Slots) {
+                var slot = pair.Value;
+                if (slot.refs <= 0 || slot.rt == null || slot.rt.IsCreated() || pair.Key == null) {
+                    continue;
+                }
+                Restore(slot, pair.Key);
+            }
         }
 
         public static void Release(Texture2D source) {
@@ -223,6 +301,7 @@ namespace Iroca {
                 slot.refs--;
             }
             DropIfUnused(source);
+            UpdateTargetWatch();
         }
 
         /// <summary>
@@ -250,6 +329,7 @@ namespace Iroca {
                 slot.DropPixels();
                 Slots.Remove(key);
             }
+            UpdateTargetWatch();
         }
 
         /// <summary>テスト用: スロットの数。</summary>
@@ -285,6 +365,8 @@ namespace Iroca {
             } catch (Exception e) { Debug.LogException(e); } finally {
                 Slots.Clear();
                 Current = null;
+                EditorApplication.update -= WatchTargets;
+                s_watchingTargets = false;
             }
         }
 
@@ -391,6 +473,10 @@ namespace Iroca {
                 UnityEngine.Object.DestroyImmediate(slot.rt);
                 slot.rt = null;
             }
+            DestroyStaging(slot);
+        }
+
+        private static void DestroyStaging(Slot slot) {
             if (slot.staging != null) {
                 UnityEngine.Object.DestroyImmediate(slot.staging);
                 slot.staging = null;

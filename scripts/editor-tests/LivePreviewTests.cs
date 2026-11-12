@@ -235,6 +235,50 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // 手を止めたら、画素を GPU へ上げる中継だけを返す。映っているものはそのままで、次に届いた画素は中継を作り直して映す。
+        [Test]
+        public void LivePreview_TrimStaging_DropsOnlyTheStagingAndTheNextPushStillShows() {
+            var tex = Tex("t");
+            LivePreview.SetTarget(tex, null);
+            var rt = LivePreview.Acquire(tex);
+            try {
+                LivePreview.Push(tex, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
+                Assert.Greater(LivePreview.StagingCount(tex), 0, "テストの前提: 中継がある");
+
+                LivePreview.TrimStaging();
+                Assert.AreEqual(0, LivePreview.StagingCount(tex), "中継が残っている");
+                Assert.IsTrue(rt != null, "RenderTexture まで捨てた");
+                AssertPixelsIfGpu(rt, tex, expectRed: true);   // 映っているものは変わらない
+
+                LivePreview.Push(tex, TestAssets.Solid(8, 8, new Color32(0, 255, 0, 255)), 8, 8);
+                Assert.AreEqual(1, LivePreview.StagingCount(tex), "次の画素で中継を作り直していない");
+                if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null) {
+                    Assert.Greater(ReadCenter((RenderTexture)rt).g, 200, "作り直した中継から映っていない");
+                }
+            } finally {
+                LivePreview.Release(tex);
+            }
+        }
+
+        // 借りている RenderTexture の GPU 側が失われたら(画面のロック・ドライバーの作り直しなど)、最後に届いた画素を上げ直す。
+        [Test]
+        public void LivePreview_RestoresALostTargetWhileBorrowed() {
+            var tex = Tex("t");
+            LivePreview.SetTarget(tex, null);
+            var rt = (RenderTexture)LivePreview.Acquire(tex);
+            try {
+                LivePreview.Push(tex, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
+                rt.Release();   // GPU 側だけ失われた(オブジェクトは同じ)
+                Assert.IsFalse(rt.IsCreated(), "テストの前提: GPU 側が無い");
+
+                LivePreview.RestoreLostTargets();
+                Assert.IsTrue(rt.IsCreated(), "失われた RenderTexture を作り直していない");
+                AssertPixelsIfGpu(rt, tex, expectRed: true);
+            } finally {
+                LivePreview.Release(tex);
+            }
+        }
+
         // シーンのプレビューもビルドと同じく取り込み設定の Alpha Source を当てる。
         [Test]
         public void AlphaSourceNone_MakesThePreviewOpaque() {
