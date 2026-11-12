@@ -36,6 +36,17 @@ namespace Iroca.DebugTools {
 
         internal static void Draw(IrocaWindow host) {
             EnsurePrefsLoaded();
+            // ウィンドウのタブの「⋮」の「開発者向けの設定を表示」が ON のときだけ出す(普段の色替えの画面に計測の数字を
+            // 並べない。2026-11-12 ユーザー要望)。隠している間にデバッグモードが残っていると、見えないまま段ごとの
+            // キャプチャを撮り続けて処理が遅くなるので、一緒に切る(次に出したときはオフから始まる)。
+            if (!IrocaWindow.ShowDeveloperSettings) {
+                if (DebugMode.IsEnabled) {
+                    DebugMode.IsEnabled = false;
+                    DebugView.ClearCapture(host);
+                    host.MarkPreviewDirty();
+                }
+                return;
+            }
             // 表示するレポートは Layout のときに固定する。レポートはプレビューの転送(同じ OnGUI の中)で
             // 差し替わるので、Layout と Repaint で別のものを描くと行数が食い違って IMGUI が例外を出す。
             // メモリも同じく Layout で読んだ値を Repaint でも描く。
