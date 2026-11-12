@@ -181,7 +181,6 @@ namespace Iroca {
                     return done;
                 }
 
-                job.waited = true;
                 s_job = job;
                 EditorApplication.update -= PumpRecolorJob;
                 EditorApplication.update += PumpRecolorJob;
@@ -313,8 +312,6 @@ namespace Iroca {
             // 待つ間にどちらかが編集されていたら、仕上げで上書きせずにやめる(EditedWhileWaiting)。
             public string windowJsonAtRequest;
             public string recipeJsonAtRequest;
-            // 途中経過を返した(自動調整などを待った)か
-            public bool waited;
             public IrocaSessionState state;
             public readonly List<string> changedZoneIds = new List<string>();
             public readonly List<AutomationMaskEdits.Edit> maskEditList = new List<AutomationMaskEdits.Edit>();
@@ -340,6 +337,21 @@ namespace Iroca {
                 tune?.ReleaseAiIfNoWindow();
                 maskEdits?.ReleaseAiIfNoWindow();
                 ReleasePixels();
+                // 終わった依頼は、結果が受け取られるまで(受け取られなければ次の依頼が来るまで)s_job に残る。残すのは結果
+                // (finalJson)と、受け取られなかったときに結末を伝えるのに使うもの(r)だけにして、重いものは手放す:
+                // 依頼の時点の窓とレシピの中身(マスク込みの JSON)・展開した編集状態・背景の計算の結果(比較画像の PNG など)・
+                // マスク操作と自動調整。
+                windowJsonAtRequest = null;
+                recipeJsonAtRequest = null;
+                state = null;
+                maskEdits = null;
+                tune = null;
+                compare = null;
+                export = null;
+                maskEditList.Clear();
+                tex = null;
+                target = null;
+                recipe = null;
             }
 
             public void Cancel() {
@@ -787,7 +799,8 @@ namespace Iroca {
                 if (blocked != null) {
                     return FinishRecolor(r, blocked);
                 }
-                string edited = job.waited ? EditedWhileWaiting(job) : null;
+                // ここへ来るのは、途中経過を返して待った後だけ(最初の呼び出しは、比較画像の計算を始めた所で途中経過を返す)。
+                string edited = EditedWhileWaiting(job);
                 if (edited != null) {
                     return FinishRecolor(r, $"while this call was waiting, {edited}, so the result was not applied "
                         + "(to keep those edits). Call iroca_recolor again to apply it on top of the current state.");

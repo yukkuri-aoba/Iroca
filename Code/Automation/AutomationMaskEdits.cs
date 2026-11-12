@@ -325,6 +325,8 @@ namespace Iroca {
             px?.Release();
             _map?.Dispose();
             _map = null;
+            // 見つけたメッシュの UV と三角形(管理配列。メッシュの数だけある)。終わった依頼が残る間、持ち続けていた。
+            _found = null;
             _masks?.Clear();
             _masks = null;
         }
