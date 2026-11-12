@@ -55,22 +55,42 @@ namespace Iroca {
                 return -1;
             }
             float columnW = ColumnWidth();
-            int pressed = -1;
+            var buttonStyle = GUI.skin.button;
+            var m = buttonStyle.margin;
+            float buttonH = buttonStyle.CalcSize(buttons[0]).y;
+            float gap = Mathf.Max(m.top, m.bottom);
+            float stackH = buttons.Length * buttonH + (buttons.Length - 1) * gap;
+
+            // 行の高さは本文の枠とボタンの積みの高い方。枠は少なくともボタンの積みの高さを取り、ボタンは枠の上下の中央に置く
+            // (ボタンを 2 つ積んだ案内で、枠の下端よりボタンがはみ出していた)。ボタンは自動の並べ方に任せず、取っておいた列に
+            // 枠の矩形から位置を決めて描く。FlexibleSpace で中央に寄せると、行が縦に伸びる扱いになってウィンドウの残りの
+            // 高さを取った(ExpandHeight(false) を付けても止まらない)。
             EditorGUILayout.BeginHorizontal();
             // EditorGUILayout.HelpBox は幅の指定を受けない。日本語は語の切れ目が無く、折り返し文の最小幅が本文の長さになって
             // ボタンを右へ押し出すので、MinWidth(0) で領域を取ってから描く。高さは取った幅で折り返した行数になる。
+            // MinHeight は付けない: 折り返す文で最小の高さを指定すると、Unity は折り返した高さを捨ててその値にする
+            // (2 行の本文が 1 行の高さに潰れた)。ボタンの積みの高さは列のほうで取り、枠は描くときだけ伸ばす。
             var sizing = new GUIContent(text, Icon(type));
             Rect box = GUILayoutUtility.GetRect(sizing, EditorStyles.helpBox, GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
+            // ボタンの列。左右の余白はボタンの余白と同じだけ空ける(自動で並べていた頃と同じ間隔)。高さは、枠を積みの高さまで
+            // 伸ばしたときの枠の外側(枠の上下の余白を含む)。
+            var boxMargin = EditorStyles.helpBox.margin;
+            GUILayoutUtility.GetRect(columnW + m.left + m.right, stackH + boxMargin.top + boxMargin.bottom, GUIStyle.none,
+                GUILayout.ExpandWidth(false));
+            EditorGUILayout.EndHorizontal();
+
+            box.height = Mathf.Max(box.height, stackH);
             EditorGUI.HelpBox(box, text, type);
-            // ボタンは上に寄せる。FlexibleSpace で上下中央にすると、行が縦に伸びる扱いになってウィンドウの残りの高さを取った。
-            EditorGUILayout.BeginVertical(GUILayout.Width(columnW));
+            // Layout のときの矩形は仮のものだが、ボタンは数と順番だけそろっていればよい(押した判定は Layout 以外で行われる)。
+            float x = box.xMax + boxMargin.right + m.left;
+            float y = box.y + (box.height - stackH) * 0.5f;
+            int pressed = -1;
             for (int i = 0; i < buttons.Length; i++) {
-                if (GUILayout.Button(buttons[i], GUILayout.Width(columnW))) {
+                var r = new Rect(x, y + i * (buttonH + gap), columnW, buttonH);
+                if (GUI.Button(r, buttons[i])) {
                     pressed = i;
                 }
             }
-            EditorGUILayout.EndVertical();
-            EditorGUILayout.EndHorizontal();
             return pressed;
         }
 
