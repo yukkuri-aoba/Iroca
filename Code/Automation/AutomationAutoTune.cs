@@ -48,7 +48,7 @@ namespace Iroca {
             List<string> zoneIds, List<string> warnings) {
             _state = state;
             _pixels = pixels.AddRef();
-            _key = CacheKey(texture, pixels.Width, pixels.Height);
+            _key = AiSuggestBroker.SourceKey(texture, pixels.Width, pixels.Height);
             _zoneIds = zoneIds ?? new List<string>();
             _warnings = warnings;
             if (Done) {
@@ -211,19 +211,6 @@ namespace Iroca {
             }
             AiSuggestBroker.ReleaseGpuIfUnused();
             _askedAi = false;
-        }
-
-        /// <summary>
-        /// 窓のプレビューと同じ形の埋め込みキャッシュのキー(式は <see cref="PreviewPipeline.SourceCacheKey"/> と同じ。
-        /// 片方だけ変えると、窓と自動化が埋め込みを作り直し合う)。
-        /// </summary>
-        internal static string CacheKey(Texture2D texture, int w, int h) {
-            string path = AssetDatabase.GetAssetPath(texture);
-            long ticks = 0;
-            if (!string.IsNullOrEmpty(path) && File.Exists(path)) {
-                ticks = File.GetLastWriteTimeUtc(path).Ticks;
-            }
-            return $"{path}|{ticks}|{w}x{h}";
         }
     }
 }

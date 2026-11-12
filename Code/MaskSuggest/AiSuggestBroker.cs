@@ -2,6 +2,8 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Generic;
+using System.IO;
+using UnityEditor;
 using UnityEngine;
 
 namespace Iroca {
@@ -35,6 +37,21 @@ namespace Iroca {
 
         /// <summary>サービスの状態が変わった(描き直しに使う)。</summary>
         internal static event Action StateChanged;
+
+        /// <summary>
+        /// 元(ソース画像)のキー: アセットのパス + ファイルの更新時刻 + 読んだ画素の寸法。テクスチャの中身か寸法が変わると
+        /// 別のキーになる。窓のプレビュー・自動調整の証拠・自動化(MCP)の自動調整とマスク操作は、どれもこの式で作る:
+        /// キーが違うと、サービスは元が替わったとみなして埋め込みを捨てるので、式が食い違うと、窓と自動化が埋め込みを
+        /// 作り直し合う(以前は同じ式が 2 か所に書いてあった)。
+        /// </summary>
+        internal static string SourceKey(Texture2D texture, int width, int height) {
+            string path = texture != null ? AssetDatabase.GetAssetPath(texture) : null;
+            long ticks = 0;
+            if (!string.IsNullOrEmpty(path) && File.Exists(path)) {
+                ticks = File.GetLastWriteTimeUtc(path).Ticks;
+            }
+            return $"{path}|{ticks}|{width}x{height}";
+        }
 
         /// <summary><see cref="RequestWhenIdle"/> の結果。</summary>
         internal enum Request {

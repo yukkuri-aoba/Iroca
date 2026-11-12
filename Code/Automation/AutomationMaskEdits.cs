@@ -57,7 +57,7 @@ namespace Iroca {
             _state = state;
             _texture = texture;
             _pixels = pixels.AddRef();
-            _key = AutomationAutoTune.CacheKey(texture, pixels.Width, pixels.Height);
+            _key = AiSuggestBroker.SourceKey(texture, pixels.Width, pixels.Height);
             _edits = edits;
             _warnings = warnings;
             _results = results;
