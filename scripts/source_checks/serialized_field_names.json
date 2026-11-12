@@ -367,9 +367,15 @@
       "width",
       "zoneIds"
     ],
+    "MaskPatchEntry": [
+      "include",
+      "maskBase64",
+      "zoneId"
+    ],
     "MaskState": [
       "commonMaskBase64",
       "height",
+      "patches",
       "schemaVersion",
       "width",
       "zoneIncludes",

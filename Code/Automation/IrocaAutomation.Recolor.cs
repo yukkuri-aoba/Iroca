@@ -61,8 +61,8 @@ namespace Iroca {
             public string zone = "";
             // true なら全ゾーン共通(zone の代わり。dont_paint と clear だけ)
             public bool common;
-            // 範囲の決め方: "ai"(既定。AI が判定した部分) | "island"(メッシュの UV の島) | "other_meshes"(そのメッシュ以外の全部。dont_paint だけ)
-            // | "mask"(その場所のマスクのつながったかたまり。clear だけ。AI もメッシュも使わない)
+            // 範囲の決め方: "ai"(AI が判定した部分) | "island"(メッシュの UV の島) | "other_meshes"(そのメッシュ以外の全部。dont_paint だけ)
+            // | "mask"(その場所のマスクを入れた操作の範囲。clear だけ。AI もメッシュも使わない)。既定は clear なら "mask"、ほかは "ai"
             public string by = "";
             // by=ai の部分の大きさ: "auto"(既定) | "fine"(小さめ) | "coarse"(大きめ)
             public string size = "";
@@ -665,9 +665,9 @@ namespace Iroca {
                 return $"mask op '{opName}': 'at' must be [u, v] within 0..1 (bottom-left origin).";
             }
 
-            // 「消す」も既定は AI。自動化は Undo の履歴を持たないので、右クリックのように「塗った操作の範囲」は引けないが、
-            // 塗ったときと同じ at・size で頼めば AI は同じ範囲を返す。by:'mask' は AI 無しで、つながったかたまりを消す。
-            string byName = string.IsNullOrWhiteSpace(m.by) ? "ai" : m.by.Trim().ToLowerInvariant();
+            // 「消す」の既定は右クリックと同じ: その場所のマスクを入れた操作の範囲をそっくり消す(AI に見分け直させない)。
+            string byName = !string.IsNullOrWhiteSpace(m.by) ? m.by.Trim().ToLowerInvariant()
+                : op == MaskRegionOp.ClearHere ? "mask" : "ai";
             AutomationMaskEdits.By by;
             switch (byName) {
                 case "ai": by = AutomationMaskEdits.By.Ai; break;
@@ -1210,6 +1210,8 @@ namespace Iroca {
             var ids = new HashSet<string>(state.zones.Where(z => z != null && !string.IsNullOrEmpty(z.id)).Select(z => z.id));
             state.maskState.zones?.RemoveAll(e => e == null || !ids.Contains(e.zoneId));
             state.maskState.zoneIncludes?.RemoveAll(e => e == null || !ids.Contains(e.zoneId));
+            // 塗った範囲の記録も、ゾーンと一緒に外す(全ゾーン共通の除外の記録はゾーンの id が空)。
+            state.maskState.patches?.RemoveAll(e => e == null || (!string.IsNullOrEmpty(e.zoneId) && !ids.Contains(e.zoneId)));
         }
 
         private static string WriteRecolorPanel(Comparison c, string texturePath, List<string> warnings) {

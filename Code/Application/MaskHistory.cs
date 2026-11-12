@@ -33,15 +33,15 @@ namespace Iroca {
         private sealed class Version {
             public long Revision;
             public int Width, Height;
-            // この版を作った操作が、範囲の操作(右クリックの「ここも塗る」など。AI の部分・メッシュの島に当てる)か。
-            // 「ここのマスクを消す」が、その操作で塗った画素をそっくり消すのに使う(PaintedBy)。
-            public bool RegionOp;
             public readonly List<Entry> Entries = new List<Entry>();   // 並びは層を足した順(共通・除外・含める)
+            // 範囲の操作が塗った画素の記録(MaskWorkspace.Patches。古い順)。塊は編集中のマスクと共有せず、履歴が自分の写しを持つ
+            // (塊の数え方が「最後の持ち主か」を参照の数で見ているため)。版どうしでは、中身が同じなら共有する。
+            public readonly List<Entry> Patches = new List<Entry>();
         }
 
         // 退避のファイルの見出し(同じエディタの中で書いて読むだけなので、形を変えたら版を上げて読まない)。
         private const int SpillMagic = 0x53484D49;   // "IMHS"
-        private const int SpillFormat = 2;   // 2: 版ごとに RegionOp
+        private const int SpillFormat = 3;   // 3: 版ごとに、範囲の操作が塗った画素の記録
         private const int SpillChunkBytes = 64 * 1024;
 
         private readonly List<Version> _versions = new List<Version>();   // 番号の昇順
@@ -68,10 +68,9 @@ namespace Iroca {
         /// <summary>
         /// 今のマスクを新しい版にして、番号を返す。<paramref name="baseRevision"/> はいまの版で、それより新しい版(Undo で戻した先の
         /// やり直しの分)はもう戻れないので手放す。中身が <paramref name="baseRevision"/> の版と同じ層は同じ塊を共有する。
-        /// 全部 0 の層は載せない(保存形式と同じ)。<paramref name="regionOp"/> は、この版を作ったのが範囲の操作か
-        /// (<see cref="PaintedBy"/>)。
+        /// 全部 0 の層は載せない(保存形式と同じ)。範囲の操作が塗った画素の記録も一緒に載せる。
         /// </summary>
-        public long Capture(MaskWorkspace masks, long baseRevision, bool regionOp = false) {
+        public long Capture(MaskWorkspace masks, long baseRevision) {
             while (_versions.Count > 0 && _versions[_versions.Count - 1].Revision > baseRevision) {
                 Drop(_versions[_versions.Count - 1]);
                 _versions.RemoveAt(_versions.Count - 1);
@@ -80,13 +79,16 @@ namespace Iroca {
             var basis = Find(baseRevision);
             // 番号は時刻から作る。再読み込みで履歴が空になっても、前の番号と重ならない。
             _lastRevision = Math.Max(DateTime.UtcNow.Ticks, _lastRevision + 1);
-            var version = new Version { Revision = _lastRevision, Width = masks.Width, Height = masks.Height, RegionOp = regionOp };
+            var version = new Version { Revision = _lastRevision, Width = masks.Width, Height = masks.Height };
             AddEntry(version, null, false, masks.Common, basis);
             foreach (var kv in masks.Layers(false)) {
                 AddEntry(version, kv.Key, false, kv.Value, basis);
             }
             foreach (var kv in masks.Layers(true)) {
                 AddEntry(version, kv.Key, true, kv.Value, basis);
+            }
+            foreach (var patch in masks.Patches) {
+                AddPatch(version, patch, basis);
             }
             _versions.Add(version);
 
@@ -112,6 +114,24 @@ namespace Iroca {
             version.Entries.Add(new Entry { ZoneId = zoneId, Include = include, Rle = rle });
         }
 
+        // 記録を版に載せる。前の版に同じ中身の記録があれば、その塊を共有する。無ければ写しを作る。
+        private void AddPatch(Version version, MaskPatch patch, Version basis) {
+            NativeBuffer rle = null;
+            if (basis != null) {
+                foreach (var e in basis.Patches) {
+                    if (e.Include == patch.Include && e.ZoneId == patch.ZoneId && MaskPatch.SameRle(e.Rle, patch.Rle)) {
+                        rle = e.Rle.AddRef();
+                        break;
+                    }
+                }
+            }
+            if (rle == null) {
+                rle = MaskPatch.CloneRle(patch.Rle);
+                _bytes += rle.Bytes;
+            }
+            version.Patches.Add(new Entry { ZoneId = patch.ZoneId, Include = patch.Include, Rle = rle });
+        }
+
         /// <summary>
         /// マスクをその版の中身に置き換える。その版を持っていなければ false(マスクは変えない)。中身が同じ層は展開し直さず、
         /// 今のものをそのまま使う。寸法が無効な版(まだマスクが無かったとき)なら層を全部外す(寸法はそのまま)。
@@ -135,6 +155,11 @@ namespace Iroca {
                     ? current.AddRef()
                     : MaskRle.DecodeBitsNative(e.Rle);
             }
+            // 記録も版のものに置き換える(編集中のマスクには写しを渡す)。
+            var patches = new List<MaskPatch>(version.Patches.Count);
+            foreach (var e in version.Patches) {
+                patches.Add(new MaskPatch(e.ZoneId, e.Include, MaskPatch.CloneRle(e.Rle)));
+            }
             masks.Reset(version.Width, version.Height);
             for (int i = 0; i < restored.Length; i++) {
                 var e = version.Entries[i];
@@ -144,82 +169,8 @@ namespace Iroca {
                     masks.SetLayer(e.Include, e.ZoneId, restored[i]);
                 }
             }
+            masks.SetPatches(patches);
             return true;
-        }
-
-        /// <summary>
-        /// 版 <paramref name="revision"/>(いまのマスク)の、層(<paramref name="zoneId"/> = null は全ゾーン共通の除外)の画素
-        /// <paramref name="pixel"/> を塗った操作が、その層で新しく立てた画素(新しいマスク。参照 1。呼び出し側が手放す)。
-        /// 右クリックの「ここのマスクを消す」が、塗ったときの範囲をそっくり消すのに使う。
-        /// <para>
-        /// いまの版から古いほうへたどり、その画素が立ち続けている最初の版を探す。その版を作った操作が塗った画素は、
-        /// 1 つ前の版との差(立った画素)。Undo で戻した先の版(いまの版より新しい)は見ない。
-        /// </para>
-        /// 次のときは null(呼び出し側は、つながったかたまりを消す):
-        /// その版を持っていない・画素が立っていない・塗ったのが範囲の操作でない(ブラシ・読み込みなど)・塗った操作が
-        /// 履歴より前(開いたときからあった・上限で手放した)・途中で寸法が変わった。
-        /// </summary>
-        public unsafe NativeBitMask PaintedBy(long revision, string zoneId, bool include, int pixel) {
-            int at = _versions.FindIndex(v => v.Revision == revision);
-            if (at < 0) {
-                return null;
-            }
-            var current = _versions[at];
-            if (pixel < 0 || (long)pixel >= (long)current.Width * current.Height) {
-                return null;
-            }
-            // 画素が立ち続けている、いちばん古い版 first を探す(同じ塊を共有している版は、読まずに同じ値とみなす)。
-            int first = -1;
-            NativeBuffer seen = null;
-            for (int i = at; i >= 0; i--) {
-                var v = _versions[i];
-                if (v.Width != current.Width || v.Height != current.Height) {
-                    break;
-                }
-                var e = FindEntry(v, zoneId, include);
-                if (e == null) {
-                    break;
-                }
-                if (e.Rle != seen && !RleBit(e.Rle, pixel)) {
-                    break;
-                }
-                seen = e.Rle;
-                first = i;
-            }
-            if (first <= 0 || !_versions[first].RegionOp) {
-                return null;   // first == 0: 塗った操作が履歴より前で、何を塗ったか分からない
-            }
-            // 1 つ前の版にその層が無ければ(まだマスクが無かった版は寸法も 0)、その操作が層の全部を塗った。
-            var before = _versions[first - 1];
-            var old = FindEntry(before, zoneId, include);
-            if (old != null && (before.Width != current.Width || before.Height != current.Height)) {
-                return null;
-            }
-            var painted = MaskRle.DecodeBitsNative(FindEntry(_versions[first], zoneId, include).Rle);
-            if (old != null) {
-                var was = MaskRle.DecodeBitsNative(old.Rle);
-                ulong* p = painted.Bits, q = was.Bits;
-                for (int k = 0, words = painted.Words; k < words; k++) {
-                    p[k] &= ~q[k];
-                }
-                was.Release();
-            }
-            return painted;
-        }
-
-        // RLE(MaskRle.EncodeBitsNative の形)の画素 pixel が立っているか。
-        private static unsafe bool RleBit(NativeBuffer rle, int pixel) {
-            byte* b = (byte*)rle.Ptr;
-            bool cur = b[8] != 0;
-            uint* run = (uint*)(b + 9);
-            long runs = (rle.Bytes - 9) / 4, pos = 0;
-            for (long i = 0; i < runs; i++, cur = !cur) {
-                pos += run[i];
-                if (pixel < pos) {
-                    return cur;
-                }
-            }
-            return false;
         }
 
         /// <summary>全部手放す(窓を閉じたとき)。</summary>
@@ -241,10 +192,12 @@ namespace Iroca {
             var blobs = new List<NativeBuffer>();
             var indexOf = new Dictionary<NativeBuffer, int>();
             foreach (var v in _versions) {
-                foreach (var e in v.Entries) {
-                    if (!indexOf.ContainsKey(e.Rle)) {
-                        indexOf[e.Rle] = blobs.Count;
-                        blobs.Add(e.Rle);
+                foreach (var list in new[] { v.Entries, v.Patches }) {
+                    foreach (var e in list) {
+                        if (!indexOf.ContainsKey(e.Rle)) {
+                            indexOf[e.Rle] = blobs.Count;
+                            blobs.Add(e.Rle);
+                        }
                     }
                 }
             }
@@ -268,12 +221,13 @@ namespace Iroca {
                     w.Write(v.Revision);
                     w.Write(v.Width);
                     w.Write(v.Height);
-                    w.Write(v.RegionOp);
-                    w.Write(v.Entries.Count);
-                    foreach (var e in v.Entries) {
-                        w.Write(e.ZoneId ?? "");
-                        w.Write(e.Include);
-                        w.Write(indexOf[e.Rle]);
+                    foreach (var list in new[] { v.Entries, v.Patches }) {
+                        w.Write(list.Count);
+                        foreach (var e in list) {
+                            w.Write(e.ZoneId ?? "");
+                            w.Write(e.Include);
+                            w.Write(indexOf[e.Rle]);
+                        }
                     }
                 }
             }
@@ -316,17 +270,19 @@ namespace Iroca {
                     }
                     int versionCount = r.ReadInt32();
                     for (int i = 0; i < versionCount; i++) {
-                        var v = new Version { Revision = r.ReadInt64(), Width = r.ReadInt32(), Height = r.ReadInt32(), RegionOp = r.ReadBoolean() };
+                        var v = new Version { Revision = r.ReadInt64(), Width = r.ReadInt32(), Height = r.ReadInt32() };
                         _versions.Add(v);
-                        int entries = r.ReadInt32();
-                        for (int k = 0; k < entries; k++) {
-                            string zoneId = r.ReadString();
-                            bool include = r.ReadBoolean();
-                            int index = r.ReadInt32();
-                            if (index < 0 || index >= blobs.Count) {
-                                return false;
+                        foreach (var list in new[] { v.Entries, v.Patches }) {
+                            int entries = r.ReadInt32();
+                            for (int k = 0; k < entries; k++) {
+                                string zoneId = r.ReadString();
+                                bool include = r.ReadBoolean();
+                                int index = r.ReadInt32();
+                                if (index < 0 || index >= blobs.Count) {
+                                    return false;
+                                }
+                                list.Add(new Entry { ZoneId = zoneId.Length > 0 ? zoneId : null, Include = include, Rle = blobs[index].AddRef() });
                             }
-                            v.Entries.Add(new Entry { ZoneId = zoneId.Length > 0 ? zoneId : null, Include = include, Rle = blobs[index].AddRef() });
                         }
                     }
                 }
@@ -374,11 +330,13 @@ namespace Iroca {
         }
 
         private void Drop(Version version) {
-            foreach (var e in version.Entries) {
-                if (e.Rle.RefCount == 1) {
-                    _bytes -= e.Rle.Bytes;
+            foreach (var list in new[] { version.Entries, version.Patches }) {
+                foreach (var e in list) {
+                    if (e.Rle.RefCount == 1) {
+                        _bytes -= e.Rle.Bytes;
+                    }
+                    e.Rle.Release();
                 }
-                e.Rle.Release();
             }
         }
 

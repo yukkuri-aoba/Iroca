@@ -17,11 +17,22 @@ namespace Iroca {
     /// (<see cref="MaskStateCodec"/>・<see cref="MaskSnapshot.FromBuffers"/>)と同じ結果になる(項目の並びも同じ)。
     /// Undo・保存・重ね表示の予定は呼び出し側(マスクの編集)。メインスレッド専用。
     /// </para>
+    /// <para>
+    /// 層のほかに、範囲の操作(右クリックの「ここも塗る」など)が 1 回ごとに塗った画素の記録(<see cref="MaskPatch"/>)を持つ。
+    /// 「ここのマスクを消す」が入れたときの範囲をそっくり消すのに使い(<see cref="ClearMaskAt"/>)、層と一緒に Undo の履歴と
+    /// 保存形式へ載る。色替えの結果には関わらない。
+    /// </para>
     /// </summary>
     internal sealed unsafe class MaskWorkspace {
         private NativeBitMask _common;
         private readonly Dictionary<string, NativeBitMask> _excludes = new Dictionary<string, NativeBitMask>();
         private readonly Dictionary<string, NativeBitMask> _includes = new Dictionary<string, NativeBitMask>();
+        // 範囲の操作が塗った画素の記録(古い順)。
+        private readonly List<MaskPatch> _patches = new List<MaskPatch>();
+
+        // 1 つの層について持つ記録の数の上限。超えたら古いものから手放す(手放した操作の範囲は、つながったかたまりで消すことになる)。
+        // 記録 1 つは 4K の部分 1 つで 10〜40KB ほど。
+        private const int MaxPatchesPerLayer = 64;
 
         /// <summary>マスクの土台の寸法(0 = まだ決まっていない)。</summary>
         public int Width { get; private set; }
@@ -89,6 +100,7 @@ namespace Iroca {
             if (mask != null && (mask.Width != Width || mask.Height != Height)) { mask.Release(); return; }
             _common?.Release();
             _common = mask;
+            DropPatches(null, false);   // 層ごと置き換えたので、前の層に塗った記録は合わない
         }
 
         /// <summary>ゾーンの層を置き換える(<paramref name="mask"/> の参照を預かる)。寸法が違う・id が空なら受け取らずに返す。</summary>
@@ -102,6 +114,7 @@ namespace Iroca {
                 old.Release();
             }
             map[zoneId] = mask;
+            DropPatches(zoneId, include);
         }
 
         /// <summary>ゾーンの層を消す。</summary>
@@ -111,6 +124,7 @@ namespace Iroca {
             }
             var map = Map(include);
             if (map.TryGetValue(zoneId, out var m)) { m.Release(); map.Remove(zoneId); }
+            DropPatches(zoneId, include);
         }
 
         /// <summary>ゾーンの除外と含めるを両方消す(ゾーンを消したとき)。</summary>
@@ -124,8 +138,15 @@ namespace Iroca {
         /// 外すのはどのゾーンにも効いていない層だけなので、色替えの結果は変わらない(残すと保存とその後のプリセットへ運ばれ、同じ id の
         /// ゾーンが戻ると黙って効き直す)。
         /// </summary>
-        public bool RetainZones(ICollection<string> zoneIds) =>
-            RetainZones(_excludes, zoneIds) | RetainZones(_includes, zoneIds);
+        public bool RetainZones(ICollection<string> zoneIds) {
+            for (int i = _patches.Count - 1; i >= 0; i--) {
+                if (_patches[i].ZoneId != null && (zoneIds == null || !zoneIds.Contains(_patches[i].ZoneId))) {
+                    _patches[i].Release();
+                    _patches.RemoveAt(i);
+                }
+            }
+            return RetainZones(_excludes, zoneIds) | RetainZones(_includes, zoneIds);
+        }
 
         private static bool RetainZones(Dictionary<string, NativeBitMask> map, ICollection<string> zoneIds) {
             List<string> gone = null;
@@ -150,6 +171,63 @@ namespace Iroca {
             _common = null;
             ReleaseAll(_excludes);
             ReleaseAll(_includes);
+            ReleasePatches();
+        }
+
+        // ─────────────── 範囲の操作が塗った画素の記録 ───────────────
+
+        /// <summary>範囲の操作が塗った画素の記録(古い順)。読むだけ。</summary>
+        public IReadOnlyList<MaskPatch> Patches => _patches;
+
+        /// <summary>記録を置き換える(<paramref name="patches"/> の中身の参照を預かる。Undo の履歴から戻すとき)。</summary>
+        public void SetPatches(IEnumerable<MaskPatch> patches) {
+            ReleasePatches();
+            if (patches != null) {
+                _patches.AddRange(patches);
+            }
+        }
+
+        private void ReleasePatches() {
+            foreach (var p in _patches) {
+                p.Release();
+            }
+            _patches.Clear();
+        }
+
+        private void DropPatches(string zoneId, bool include) {
+            for (int i = _patches.Count - 1; i >= 0; i--) {
+                if (_patches[i].IsOf(zoneId, include)) {
+                    _patches[i].Release();
+                    _patches.RemoveAt(i);
+                }
+            }
+        }
+
+        // 範囲の操作が層 after に新しく立てた画素(before = 操作の前の層の写し。無かったら null)を記録する。
+        private void RecordPatch(string zoneId, bool include, NativeBitMask after, NativeBitMask before) {
+            var patch = MaskPatch.Painted(zoneId, include, after, before);
+            if (patch == null) {
+                return;
+            }
+            _patches.Add(patch);
+            int kept = 0;
+            for (int i = _patches.Count - 1; i >= 0; i--) {
+                if (_patches[i].IsOf(zoneId, include) && ++kept > MaxPatchesPerLayer) {
+                    _patches[i].Release();
+                    _patches.RemoveAt(i);
+                }
+            }
+        }
+
+        // 層の画素 pixel を塗った記録のうち、いちばん新しいもの(無ければ null)。
+        private MaskPatch NewestPatchAt(string zoneId, bool include, int pixel) {
+            for (int i = _patches.Count - 1; i >= 0; i--) {
+                var p = _patches[i];
+                if (p.IsOf(zoneId, include) && p.Width == Width && p.Height == Height && p.Contains(pixel)) {
+                    return p;
+                }
+            }
+            return null;
         }
 
         private static void ReleaseAll(Dictionary<string, NativeBitMask> map) {
@@ -178,6 +256,21 @@ namespace Iroca {
             if (_common != null) { var s = RescaleMask(_common, oldW, oldH, width, height); _common.Release(); _common = s; }
             RescaleMap(_excludes, oldW, oldH);
             RescaleMap(_includes, oldW, oldH);
+            // 記録も同じ写し方で新しい寸法へ(層と同じ画素を指し続ける)。
+            for (int i = _patches.Count - 1; i >= 0; i--) {
+                var old = _patches[i];
+                var was = old.Decode();
+                var now = RescaleMask(was, oldW, oldH, width, height);
+                was.Release();
+                var scaled = MaskPatch.Painted(old.ZoneId, old.Include, now, null);
+                now.Release();
+                old.Release();
+                if (scaled != null) {
+                    _patches[i] = scaled;
+                } else {
+                    _patches.RemoveAt(i);
+                }
+            }
         }
 
         private void RescaleMap(Dictionary<string, NativeBitMask> map, int oldW, int oldH) {
@@ -250,8 +343,19 @@ namespace Iroca {
                 return false;
             }
 
-            beforeWrite?.Invoke();
-            result = MaskRegionEdit.Apply(op, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
+            // この操作が塗る層(「ここも塗る」は含める、ほかは除外)の、操作の前の中身。後で差を取って、塗った画素を記録する。
+            bool paintsInclude = op == MaskRegionOp.PaintHere;
+            NativeBitMask target = paintsInclude ? include : exclude;
+            NativeBitMask before = target.Any() ? target.Clone() : null;
+            try {
+                beforeWrite?.Invoke();
+                result = MaskRegionEdit.Apply(op, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
+                if (result.changed > 0) {
+                    RecordPatch(zoneId, paintsInclude, target, before);
+                }
+            } finally {
+                before?.Release();
+            }
             return true;
         }
 
@@ -296,17 +400,17 @@ namespace Iroca {
         /// <summary>
         /// 画素 (cx, cy)(下原点)にあるマスクを消す(右クリックの「ここのマスクを消す」)。AI もメッシュも使わない。
         /// <para>
-        /// 消す範囲は、その画素を塗った操作が塗った画素(<paramref name="paintedBy"/>(含めるか, 画素の番号) が返すマスク。
-        /// 参照はここで手放す。規則は <see cref="MaskRegionEdit.ErasePatch"/>)。paintedBy が null か null を返したら
-        /// (何が塗ったか分からない)、つながっているひとかたまり(<see cref="MaskRegionEdit.ErasePieceAt"/>)。
+        /// 消す範囲は、その画素を塗った範囲の操作が塗った画素(記録のうちいちばん新しいもの。規則は
+        /// <see cref="MaskRegionEdit.ErasePatch"/>)。使った記録は外す。記録が無ければ(ブラシで塗った・記録より前からあった)、
+        /// つながっているひとかたまり(<see cref="MaskRegionEdit.ErasePieceAt"/>)。
         /// </para>
         /// zoneId = null は全ゾーン共通の除外。radius は、クリックの狙いの外れを許す幅(マスクの画素)。含めると除外の
         /// 両方が近くにあれば、近いほうだけを消す(同じ距離なら両方)。
         /// 書く直前に <paramref name="beforeWrite"/> を呼ぶ(消す物が無ければ呼ばず、何も書かない。そのとき、全ゾーン共通の
         /// 除外がそこにあれば result.commonOverlap を 1 にする)。寸法が決まっていなければ false。
         /// </summary>
-        public bool ClearMaskAt(string zoneId, int cx, int cy, int radius, System.Func<bool, int, NativeBitMask> paintedBy,
-            System.Action beforeWrite, out MaskRegionEditResult result) {
+        public bool ClearMaskAt(string zoneId, int cx, int cy, int radius, System.Action beforeWrite,
+            out MaskRegionEditResult result) {
             result = default;
             int w = Width, h = Height;
             if (w <= 0 || h <= 0) {
@@ -323,42 +427,37 @@ namespace Iroca {
             }
             int nearest = de < 0 ? di : di < 0 ? de : System.Math.Min(de, di);
 
-            // 何が塗ったかは、書く前(履歴が今の版のうち)に聞く。
-            NativeBitMask paintedExclude = de == nearest ? paintedBy?.Invoke(false, pe) : null;
-            NativeBitMask paintedInclude = di == nearest ? paintedBy?.Invoke(true, pi) : null;
-            try {
-                NativeBitMask exclude = de != nearest ? null : toCommon ? WritableCommon() : WritableExistingLayer(false, zoneId);
-                NativeBitMask include = di != nearest ? null : WritableExistingLayer(true, zoneId);
-                ulong* common = toCommon ? null : BitsOf(_common);
-                beforeWrite?.Invoke();
-                var work = new List<int>();
-                ErasePaintedOrPiece(exclude, paintedExclude, cx, cy, nearest, common, work, ref result);
-                ErasePaintedOrPiece(include, paintedInclude, cx, cy, nearest, common, work, ref result);
-            } finally {
-                paintedExclude?.Release();
-                paintedInclude?.Release();
-            }
+            MaskPatch paintedExclude = de == nearest ? NewestPatchAt(zoneId, false, pe) : null;
+            MaskPatch paintedInclude = di == nearest ? NewestPatchAt(zoneId, true, pi) : null;
+            NativeBitMask exclude = de != nearest ? null : toCommon ? WritableCommon() : WritableExistingLayer(false, zoneId);
+            NativeBitMask include = di != nearest ? null : WritableExistingLayer(true, zoneId);
+            ulong* common = toCommon ? null : BitsOf(_common);
+            beforeWrite?.Invoke();
+            var work = new List<int>();
+            ErasePaintedOrPiece(exclude, paintedExclude, cx, cy, nearest, common, work, ref result);
+            ErasePaintedOrPiece(include, paintedInclude, cx, cy, nearest, common, work, ref result);
             return true;
         }
 
-        private void ErasePaintedOrPiece(NativeBitMask layer, NativeBitMask painted, int cx, int cy, int distance,
+        private void ErasePaintedOrPiece(NativeBitMask layer, MaskPatch painted, int cx, int cy, int distance,
             ulong* common, List<int> work, ref MaskRegionEditResult result) {
             if (layer == null) {
                 return;
             }
-            if (painted != null && painted.Width == Width && painted.Height == Height) {
-                MaskRegionEdit.ErasePatch(layer.Bits, painted.Bits, layer.Length, common, ref result);
-            } else {
+            if (painted == null) {
                 MaskRegionEdit.ErasePieceAt(layer.Bits, Width, Height, cx, cy, distance, common, work, ref result);
+                return;
             }
+            var pixels = painted.Decode();
+            try {
+                MaskRegionEdit.ErasePatch(layer.Bits, pixels.Bits, layer.Length, common, ref result);
+            } finally {
+                pixels.Release();
+            }
+            // 塗った画素はもう残っていないので、記録も外す。
+            _patches.Remove(painted);
+            painted.Release();
         }
-
-        /// <summary>
-        /// <see cref="ClearMaskAt"/> の、何が塗ったかを使わない形: つながっているひとかたまりを消す(履歴を持たない自動化用)。
-        /// </summary>
-        public bool ClearPieceAt(string zoneId, int cx, int cy, int radius, System.Action beforeWrite,
-            out MaskRegionEditResult result)
-            => ClearMaskAt(zoneId, cx, cy, radius, null, beforeWrite, out result);
 
         private static ulong* BitsOf(NativeBitMask m) => m != null ? m.Bits : null;
 
@@ -383,6 +482,18 @@ namespace Iroca {
             }
             ms.zoneIncludes.Clear();
             AppendEntries(ms.zoneIncludes, _includes);
+
+            // 範囲の操作が塗った画素の記録。塗った画素がもう 1 つも残っていない記録は書かない。
+            if (ms.patches == null) {
+                ms.patches = new List<MaskPatchEntry>();
+            }
+            ms.patches.Clear();
+            foreach (var p in _patches) {
+                var layer = p.ZoneId == null ? (p.Include ? null : _common) : Layer(p.Include, p.ZoneId);
+                if (p.AnyIn(layer)) {
+                    ms.patches.Add(new MaskPatchEntry { zoneId = p.ZoneId ?? "", include = p.Include, maskBase64 = p.Text });
+                }
+            }
 
             // 保存のたびに同じ文字列になるようにする。レシピの中身が揺れると .asset が書き換わり、シーンのプレビューとビルドのキャッシュの
             // 鍵も変わって作り直しになる(版はファイルへ書くときだけ刻んでいた。層が無いのに寸法だけ書くと、開いて保存するだけで変わる)。
@@ -429,6 +540,7 @@ namespace Iroca {
             _common = null;
             _excludes.Clear();
             _includes.Clear();
+            ReleasePatches();
             try {
                 if (ms == null || ms.width <= 0 || ms.height <= 0) {
                     return false;
@@ -444,6 +556,7 @@ namespace Iroca {
                 }
                 dropped += ReadEntries(ms.zones, _excludes, sameSize ? oldExcludes : null, include: false);
                 dropped += ReadEntries(ms.zoneIncludes, _includes, sameSize ? oldIncludes : null, include: true);
+                ReadPatches(ms.patches);
                 return true;
             } finally {
                 // 使い回さなかった前の層を手放す(使い回した層は新しい持ち主へ移っている)。
@@ -478,6 +591,28 @@ namespace Iroca {
                 }
             }
             return false;
+        }
+
+        // 範囲の操作が塗った画素の記録を読む。読めない・層が無い記録は黙って捨てる(マスクそのものは変わらない。その場所の
+        // 「ここのマスクを消す」が、つながったかたまりを消すだけになる)。古い版の保存には項目が無い(= 記録なし)。
+        private void ReadPatches(List<MaskPatchEntry> src) {
+            if (src == null) {
+                return;
+            }
+            foreach (var entry in src) {
+                if (entry == null) {
+                    continue;
+                }
+                string zoneId = string.IsNullOrEmpty(entry.zoneId) ? null : entry.zoneId;
+                var layer = zoneId == null ? (entry.include ? null : _common) : Layer(entry.include, zoneId);
+                if (layer == null) {
+                    continue;
+                }
+                var patch = MaskPatch.FromText(zoneId, entry.include, entry.maskBase64, Width, Height);
+                if (patch != null) {
+                    _patches.Add(patch);
+                }
+            }
         }
 
         // 読み飛ばした項目の数を返す。

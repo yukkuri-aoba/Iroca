@@ -172,111 +172,89 @@ namespace Iroca.EditorTests {
             }
         }
 
-        // ─── PaintedBy: その画素を塗った範囲の操作が塗った画素(右クリックの「ここのマスクを消す」) ───
+        // ─── 範囲の操作が塗った画素の記録(MaskWorkspace.Patches)も版に載る ───
 
-        private long CommitRegion(long basis) => _history.Capture(_masks, basis, regionOp: true);
-
-        private List<int> Painted(MaskHistory history, long revision, string zoneId, bool include, int pixel) {
-            var m = history.PaintedBy(revision, zoneId, include, pixel);
-            if (m == null) {
-                return null;
+        private unsafe void Region(string zoneId, MaskRegionOp op, params int[] on) {
+            var region = new bool[W * H];
+            foreach (int i in on) {
+                region[i] = true;
             }
-            try { return Pixels(m); } finally { m.Release(); }
+            fixed (bool* p = region) {
+                Assert.IsTrue(_masks.ApplyRegion(p, zoneId, op, null, out _));
+            }
+        }
+
+        private static List<List<int>> PatchPixels(MaskWorkspace masks) {
+            var all = new List<List<int>>();
+            foreach (var p in masks.Patches) {
+                var m = p.Decode();
+                try { all.Add(Pixels(m)); } finally { m.Release(); }
+            }
+            return all;
         }
 
         [Test]
-        public void PaintedBy_ReturnsWhatTheRegionOperationTurnedOn() {
+        public void Restore_BringsBackThePatchesOfThatVersion() {
             long v0 = Commit(0);
-            _masks.WritableLayer(false, "z").Set(4, true);
-            long v1 = CommitRegion(v0);
-            _masks.WritableLayer(false, "z").Set(5, true);
-            _masks.WritableLayer(false, "z").Set(900, true);   // 同じ操作で塗った、離れた所
-            _masks.WritableLayer(true, "z").Set(6, true);      // 同じ操作が別の層に塗った画素は入らない
-            long v2 = CommitRegion(v1);
-            _masks.WritableLayer(false, "z").Set(7, true);
-            long v3 = Commit(v2);                              // ブラシ(範囲の操作でない)
-
-            CollectionAssert.AreEqual(new[] { 5, 900 }, Painted(_history, v3, "z", false, 5), "2 回目の操作が立てた画素だけ");
-            CollectionAssert.AreEqual(new[] { 5, 900 }, Painted(_history, v3, "z", false, 900));
-            CollectionAssert.AreEqual(new[] { 4 }, Painted(_history, v3, "z", false, 4), "1 回目の操作");
-            CollectionAssert.AreEqual(new[] { 6 }, Painted(_history, v3, "z", true, 6), "含めるの層");
-            Assert.IsNull(Painted(_history, v3, "z", false, 7), "ブラシで塗った画素は分からない扱い");
-            Assert.IsNull(Painted(_history, v3, "z", false, 8), "立っていない画素");
-            Assert.IsNull(Painted(_history, v3, null, false, 4), "層が無い");
-            Assert.IsNull(Painted(_history, v3, "z", false, -1), "範囲の外");
-            Assert.IsNull(Painted(_history, v3, "z", false, W * H), "範囲の外");
-            Assert.IsNull(Painted(_history, v3 + 1, "z", false, 4), "持っていない版");
-            CollectionAssert.AreEqual(new[] { 4 }, Painted(_history, v1, "z", false, 4), "Undo で戻った先の版から見ても同じ");
-            Assert.IsNull(Painted(_history, v1, "z", false, 5), "いまの版より後で塗った画素は見ない");
-        }
-
-        [Test]
-        public void PaintedBy_TheFirstMaskOfAll_WhenThePreviousVersionHadNoSize() {
-            // マスクがまだ無いとき(寸法 0)の版の次に、最初の範囲の操作が来る(ウィンドウを開いて最初の右クリック)。
-            var empty = new MaskWorkspace();
-            long v0 = _history.Capture(empty, 0);
-            _masks.WritableLayer(false, "z").Set(4, true);
-            long v1 = CommitRegion(v0);
-
-            CollectionAssert.AreEqual(new[] { 4 }, Painted(_history, v1, "z", false, 4));
-        }
-
-        [Test]
-        public void PaintedBy_PixelsThatWereThereBeforeTheHistory_AreUnknown() {
-            _masks.WritableLayer(false, "z").Set(4, true);
-            long v0 = Commit(0);                               // 開いたときからあったマスク
-            _masks.WritableLayer(false, "z").Set(5, true);
-            long v1 = CommitRegion(v0);
-
-            Assert.IsNull(Painted(_history, v1, "z", false, 4), "履歴より前に塗った画素");
-            Assert.IsNull(Painted(_history, v0, "z", false, 4));
-            CollectionAssert.AreEqual(new[] { 5 }, Painted(_history, v1, "z", false, 5));
-        }
-
-        [Test]
-        public void PaintedBy_APixelClearedAndPaintedAgain_BelongsToTheLaterOperation() {
-            long v0 = Commit(0);
-            _masks.WritableLayer(false, "z").Set(4, true);
-            _masks.WritableLayer(false, "z").Set(5, true);
-            long v1 = CommitRegion(v0);
-            _masks.WritableLayer(false, "z").Set(4, false);
+            Region("z", MaskRegionOp.DontPaintHere, 4, 900);
+            long v1 = Commit(v0);
+            Region("z", MaskRegionOp.DontPaintHere, 5);
+            Region(null, MaskRegionOp.DontPaintHere, 7);
             long v2 = Commit(v1);
-            _masks.WritableLayer(false, "z").Set(4, true);
-            _masks.WritableLayer(false, "z").Set(6, true);
-            long v3 = CommitRegion(v2);
 
-            CollectionAssert.AreEqual(new[] { 4, 6 }, Painted(_history, v3, "z", false, 4), "塗り直した操作");
-            CollectionAssert.AreEqual(new[] { 4, 5 }, Painted(_history, v3, "z", false, 5), "最初の操作(いまは消えた画素も含む)");
+            Assert.IsTrue(_history.TryRestore(v1, _masks));
+            Assert.AreEqual(1, _masks.Patches.Count, "その版の時点の記録だけ");
+            CollectionAssert.AreEqual(new[] { 4, 900 }, PatchPixels(_masks)[0]);
+            Assert.IsTrue(_masks.ClearMaskAt("z", 4, 0, 0, null, out var r));
+            Assert.AreEqual(2, r.changed, "戻した版でも、入れたときの範囲で消える");
+
+            Assert.IsTrue(_history.TryRestore(v2, _masks));
+            Assert.AreEqual(3, _masks.Patches.Count, "消す前の版の記録が戻る(履歴は自分の写しを持つ)");
+            Assert.IsNull(_masks.Patches[2].ZoneId);
+
+            Assert.IsTrue(_history.TryRestore(v0, _masks));
+            Assert.AreEqual(0, _masks.Patches.Count, "マスクが無かった版には記録も無い");
         }
 
         [Test]
-        public void PaintedBy_TheCommonMask_AndUnchangedVersionsInBetween() {
+        public void Capture_SharesUnchangedPatches() {
             long v0 = Commit(0);
-            _masks.WritableCommon().Set(3, true);
-            long v1 = CommitRegion(v0);
-            _masks.WritableLayer(false, "z").Set(9, true);     // 共通の層は変わらない版(同じ塊を共有する)
+            Region("z", MaskRegionOp.DontPaintHere, 4, 900);
+            long v1 = Commit(v0);
+            long bytes = _history.Bytes;
+            _masks.WritableCommon().Set(3, true);          // 記録は変わらない
             long v2 = Commit(v1);
-            long v3 = CommitRegion(v2);
-
-            CollectionAssert.AreEqual(new[] { 3 }, Painted(_history, v3, null, false, 3));
+            _masks.WritableCommon().Set(6, true);
+            Commit(v2);
+            // 増えるのは共通の層の RLE の分だけ(1 画素なら 9 + 4 × 3 バイト、2 画素なら 9 + 4 × 5 バイト)。記録の写しは増えない。
+            Assert.AreEqual(bytes + 21 + 29, _history.Bytes, "中身が同じ記録は前の版と共有する");
         }
 
         [Test]
-        public void PaintedBy_SurvivesTheSpill() {
+        public void Spill_KeepsThePatches() {
             string path = SpillFile();
             try {
                 long v0 = Commit(0);
-                _masks.WritableLayer(false, "z").Set(4, true);
-                long v1 = CommitRegion(v0);
-                _masks.WritableLayer(false, "z").Set(5, true);
+                Region("z", MaskRegionOp.DontPaintHere, 4, 900);
+                long v1 = Commit(v0);
+                Region("z", MaskRegionOp.PaintHere, 5);
                 long v2 = Commit(v1);
+                long bytes = _history.Bytes;
                 _history.SaveTo(path);
 
                 var loaded = new MaskHistory();
                 try {
                     Assert.IsTrue(loaded.LoadFrom(path));
-                    CollectionAssert.AreEqual(new[] { 4 }, Painted(loaded, v2, "z", false, 4), "範囲の操作の印も読み戻す");
-                    Assert.IsNull(Painted(loaded, v2, "z", false, 5), "ブラシの版はブラシのまま");
+                    Assert.AreEqual(bytes, loaded.Bytes, "共有していた塊は共有のまま");
+                    var restored = new MaskWorkspace();
+                    try {
+                        Assert.IsTrue(loaded.TryRestore(v2, restored));
+                        Assert.AreEqual(2, restored.Patches.Count);
+                        Assert.IsTrue(restored.Patches[1].Include);
+                        CollectionAssert.AreEqual(new[] { 4, 900 }, PatchPixels(restored)[0]);
+                        Assert.IsTrue(loaded.TryRestore(v1, restored));
+                        Assert.AreEqual(1, restored.Patches.Count);
+                    } finally { restored.Clear(); }
                 } finally { loaded.Clear(); }
             } finally { File.Delete(path); }
         }

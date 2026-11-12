@@ -229,6 +229,215 @@ namespace Iroca.EditorTests {
             ws.Clear();
         }
 
+        // ─── 範囲の操作が塗った画素の記録(MaskPatch)と「ここのマスクを消す」 ───
+
+        private const int PW = 8, PH = 4;
+
+        private static MaskWorkspace Empty() {
+            var ws = new MaskWorkspace();
+            ws.Reset(PW, PH);
+            return ws;
+        }
+
+        private static unsafe MaskRegionEditResult Apply(MaskWorkspace ws, string zoneId, MaskRegionOp op, params int[] on) {
+            var region = new bool[ws.Width * ws.Height];
+            foreach (int i in on) {
+                region[i] = true;
+            }
+            fixed (bool* p = region) {
+                Assert.IsTrue(ws.ApplyRegion(p, zoneId, op, null, out var result), op.ToString());
+                return result;
+            }
+        }
+
+        private static List<int> On(NativeBitMask m) {
+            var got = new List<int>();
+            for (int i = 0; m != null && i < m.Length; i++) {
+                if (m.Get(i)) {
+                    got.Add(i);
+                }
+            }
+            return got;
+        }
+
+        private static List<int> On(MaskPatch p) {
+            var m = p.Decode();
+            try { return On(m); } finally { m.Release(); }
+        }
+
+        private static int Clear(MaskWorkspace ws, string zoneId, int pixel) {
+            Assert.IsTrue(ws.ClearMaskAt(zoneId, pixel % ws.Width, pixel / ws.Width, 0, null, out var result));
+            return result.changed;
+        }
+
+        [Test]
+        public void ApplyRegion_RecordsThePixelsItTurnedOn() {
+            var ws = Empty();
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 0, 1, 20);
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 1, 2);            // 1 はもう立っている
+            Apply(ws, "z", MaskRegionOp.PaintHere, 20, 21);              // 含めるに塗る(除外の 20 は消える)
+            Apply(ws, null, MaskRegionOp.DontPaintHere, 30);             // 全ゾーン共通
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 1);               // 何も変えない操作は記録しない
+            Apply(ws, "z", MaskRegionOp.ClearHere, 31);                  // 消す操作も記録しない
+
+            Assert.AreEqual(4, ws.Patches.Count);
+            CollectionAssert.AreEqual(new[] { 0, 1, 20 }, On(ws.Patches[0]));
+            CollectionAssert.AreEqual(new[] { 2 }, On(ws.Patches[1]), "新しく立てた画素だけ");
+            Assert.IsTrue(ws.Patches[2].Include && ws.Patches[2].ZoneId == "z");
+            CollectionAssert.AreEqual(new[] { 20, 21 }, On(ws.Patches[2]));
+            Assert.IsNull(ws.Patches[3].ZoneId, "共通の記録はゾーンなし");
+            CollectionAssert.AreEqual(new[] { 30 }, On(ws.Patches[3]));
+            ws.Clear();
+        }
+
+        [Test]
+        public void ApplyRegion_OnlyThisPart_RecordsTheOutside() {
+            var ws = Empty();
+            Apply(ws, "z", MaskRegionOp.OnlyThisPart, 0, 1);
+            Assert.AreEqual(1, ws.Patches.Count);
+            Assert.AreEqual(PW * PH - 2, On(ws.Patches[0]).Count, "範囲の外の全部");
+            Assert.AreEqual(PW * PH - 2, Clear(ws, "z", 5), "外側で消すと、外側の「塗らない」がまとめて消える");
+            Assert.IsFalse(ws.Layer(false, "z").Any());
+            ws.Clear();
+        }
+
+        [Test]
+        public void ClearMaskAt_RemovesExactlyWhatTheOperationPainted() {
+            var ws = Empty();
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 0, 1, 20, 31);    // 離れた島と点を含む 1 回の操作
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 2, 3);            // 隣の部分(1 とつながる)
+
+            Assert.AreEqual(4, Clear(ws, "z", 20), "離れた所を押しても、その操作の全部");
+            CollectionAssert.AreEqual(new[] { 2, 3 }, On(ws.Layer(false, "z")), "別の操作の分は、つながっていても残る");
+            Assert.AreEqual(1, ws.Patches.Count, "使った記録は外す");
+
+            Assert.AreEqual(2, Clear(ws, "z", 3));
+            Assert.AreEqual(0, ws.Patches.Count);
+            Assert.AreEqual(0, Clear(ws, "z", 3), "もう無い");
+            ws.Clear();
+        }
+
+        [Test]
+        public void ClearMaskAt_UsesTheNewestOperationThatPaintedThePixel() {
+            var ws = Empty();
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 0, 1, 2);
+            Apply(ws, "z", MaskRegionOp.PaintHere, 1);                   // 除外の 1 を消す
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 1, 9);            // 1 を塗り直す(含めるの 1 は消える)
+
+            Assert.AreEqual(2, Clear(ws, "z", 1), "塗り直した操作の 1・9");
+            CollectionAssert.AreEqual(new[] { 0, 2 }, On(ws.Layer(false, "z")));
+            Assert.AreEqual(2, Clear(ws, "z", 0), "最初の操作の残り(1 はもう無い)");
+            Assert.IsFalse(ws.Layer(false, "z").Any());
+            ws.Clear();
+        }
+
+        [Test]
+        public void ClearMaskAt_WithoutARecord_RemovesTheConnectedPiece() {
+            var ws = Empty();
+            var layer = ws.WritableLayer(false, "z");                    // ブラシで塗ったのと同じ(記録なし)
+            foreach (int i in new[] { 0, 1, PW + 2, 31 }) {
+                layer.Set(i, true);
+            }
+            Assert.AreEqual(3, Clear(ws, "z", 0), "斜めにつながる 3 画素");
+            CollectionAssert.AreEqual(new[] { 31 }, On(ws.Layer(false, "z")));
+            ws.Clear();
+        }
+
+        [Test]
+        public void Patches_SurviveSaveAndLoad_ButNotWhenNothingOfThemIsLeft() {
+            var ws = Empty();
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 0, 1, 20);
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 2, 3);
+            Apply(ws, "z", MaskRegionOp.PaintHere, 2, 3);                // 2 回目の操作の画素を全部消す → その記録は書かない
+            Apply(ws, null, MaskRegionOp.DontPaintHere, 30);
+            var ms = new MaskState();
+            ws.EncodeTo(ms);
+            Assert.AreEqual(3, ms.patches.Count, "除外 1・含める 1・共通 1(消えた操作の分は書かない)");
+            Assert.AreEqual(MaskState.CurrentSchemaVersion, ms.schemaVersion);
+            string json = Json(ms);
+
+            var loaded = new MaskWorkspace();
+            Assert.IsTrue(loaded.DecodeFrom(UnityEngine.JsonUtility.FromJson<MaskState>(json)));
+            Assert.AreEqual(3, loaded.Patches.Count);
+            var again = new MaskState();
+            loaded.EncodeTo(again);
+            Assert.AreEqual(json, Json(again), "読んで書くと同じ文字列");
+
+            Assert.AreEqual(3, Clear(loaded, "z", 20), "開き直した後も、入れたときの範囲で消える");
+            Assert.IsFalse(loaded.Layer(false, "z").Any());
+            Assert.AreEqual(1, Clear(loaded, null, 30), "共通の除外も");
+            ws.Clear();
+            loaded.Clear();
+        }
+
+        [Test]
+        public void DecodeFrom_WithoutPatches_OrWithBrokenOnes_KeepsTheMasks() {
+            var ws = Empty();
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 0, 1, 20);
+            var ms = new MaskState();
+            ws.EncodeTo(ms);
+            ms.patches.Add(new MaskPatchEntry { zoneId = "z", include = false, maskBase64 = "R:###" });
+            ms.patches.Add(new MaskPatchEntry { zoneId = "gone", include = false, maskBase64 = ms.patches[0].maskBase64 });
+            ms.patches.Add(new MaskPatchEntry { zoneId = "z", include = false, maskBase64 = MaskRle.Encode(new bool[4] { true, false, true, false }, 2, 2) });
+            ms.patches.Add(null);
+
+            var loaded = new MaskWorkspace();
+            Assert.IsTrue(loaded.DecodeFrom(ms, out int dropped));
+            Assert.AreEqual(0, dropped, "記録が読めなくても、マスクの読み飛ばしには数えない");
+            Assert.AreEqual(1, loaded.Patches.Count, "壊れた・層の無い・寸法の違う記録は捨てる");
+            CollectionAssert.AreEqual(new[] { 0, 1, 20 }, On(loaded.Layer(false, "z")));
+
+            ms.patches = null;                                           // 記録を持たない版の保存
+            Assert.IsTrue(loaded.DecodeFrom(ms));
+            Assert.AreEqual(0, loaded.Patches.Count);
+            Assert.AreEqual(2, Clear(loaded, "z", 0), "記録が無ければ、つながったかたまり");
+            ws.Clear();
+            loaded.Clear();
+        }
+
+        [Test]
+        public void Patches_GoWithTheirLayer() {
+            var ws = Empty();
+            Apply(ws, "a", MaskRegionOp.DontPaintHere, 0);
+            Apply(ws, "a", MaskRegionOp.PaintHere, 5);
+            Apply(ws, "b", MaskRegionOp.DontPaintHere, 9);
+            Apply(ws, null, MaskRegionOp.DontPaintHere, 30);
+            Assert.AreEqual(4, ws.Patches.Count);
+
+            ws.RemoveLayer(true, "a");
+            Assert.AreEqual(3, ws.Patches.Count, "層を消すと、その層の記録も消える");
+            ws.SetCommon(null);
+            Assert.AreEqual(2, ws.Patches.Count);
+            Assert.IsTrue(ws.RetainZones(new HashSet<string> { "b" }));
+            Assert.AreEqual(1, ws.Patches.Count, "無くなったゾーンの記録も外す");
+            Assert.AreEqual("b", ws.Patches[0].ZoneId);
+            ws.Clear();
+            Assert.AreEqual(0, ws.Patches.Count);
+        }
+
+        [Test]
+        public void Patches_FollowARescale() {
+            var ws = Empty();
+            Apply(ws, "z", MaskRegionOp.DontPaintHere, 0, 1);
+            ws.Rescale(PW * 2, PH * 2);
+            Assert.AreEqual(8, On(ws.Layer(false, "z")).Count, "2 倍にすると 2 画素が 8 画素");
+            Assert.AreEqual(8, Clear(ws, "z", 0), "記録も同じ画素を指す");
+            ws.Clear();
+        }
+
+        [Test]
+        public void Patches_AreCappedPerLayer() {
+            var ws = new MaskWorkspace();
+            ws.Reset(100, 2);
+            for (int i = 0; i < 70; i++) {
+                Apply(ws, "z", MaskRegionOp.DontPaintHere, i * 2);       // 1 画素おき(つながらない)
+            }
+            Apply(ws, "other", MaskRegionOp.DontPaintHere, 199);
+            Assert.AreEqual(64 + 1, ws.Patches.Count, "1 つの層について 64 個まで。ほかの層の記録は数えない");
+            CollectionAssert.AreEqual(new[] { 12 }, On(ws.Patches[0]), "古いものから手放す");
+            ws.Clear();
+        }
+
         [Test]
         public void CombinedExclusion_IsCommonOrZone() {
             var ws = Fill(out var common, out var zones, out _);

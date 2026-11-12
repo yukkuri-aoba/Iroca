@@ -835,11 +835,7 @@ namespace Iroca.EditorTests {
             ApplyToMask(id, MaskRegionOp.DontPaintHere, 0, 1, 3 * W + 3);
             ApplyToMask(id, MaskRegionOp.DontPaintHere, 2);
 
-            var painted = _win.Editing.MaskRegionPaintedAt(id, false, 0);
-            Assert.IsNotNull(painted, $"右クリックの操作は、何を塗ったかを履歴から引ける(版の数 {_win.Editing.MaskHistory.Count})");
-            try {
-                Assert.IsTrue(painted.Get(0) && painted.Get(1) && painted.Get(3 * W + 3) && !painted.Get(2), "1 回目の操作の 3 画素");
-            } finally { painted.Release(); }
+            Assert.AreEqual(2, _win.Editing.Masks.Patches.Count, "右クリックの操作ごとに、塗った画素を覚える");
 
             Assert.IsTrue(ClearMaskAt(0, 0, id, 0, out var result));
             Assert.AreEqual(3, result.changed, "1 回目の操作が塗った 3 画素");
@@ -851,11 +847,16 @@ namespace Iroca.EditorTests {
             Undo.PerformUndo();
             exclude = _win.Editing.Masks.Layer(false, id);
             Assert.IsTrue(exclude.Get(0) && exclude.Get(1) && exclude.Get(3 * W + 3), "Undo で戻る");
+            Assert.AreEqual(2, _win.Editing.Masks.Patches.Count, "覚えていた範囲も戻る");
 
             Undo.PerformRedo();
             exclude = _win.Editing.Masks.Layer(false, id);
             Assert.IsFalse(exclude.Get(1) || exclude.Get(3 * W + 3), "やり直すとまた消える");
             Assert.IsTrue(exclude.Get(2));
+
+            Undo.PerformUndo();
+            Assert.IsTrue(ClearMaskAt(1, 0, id, 0, out result));
+            Assert.AreEqual(3, result.changed, "Undo で戻した後も、同じ範囲で消せる");
         }
 
         [Test]
@@ -899,18 +900,42 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
-        public void ClearMask_WhenTheHistoryIsGone_RemovesTheConnectedPiece() {
+        public void ClearMask_WhenTheUndoHistoryIsGone_StillRemovesWhatTheOperationPainted() {
             AddZones("服");
             string id = _win.Session.zones[0].id;
             ApplyToMask(id, MaskRegionOp.DontPaintHere, 0, 1, 3 * W + 3);
-            _win.Editing.MaskHistory.Clear();     // 開き直した・上限で手放したのと同じ
+            _win.Editing.MaskHistory.Clear();     // 上限で手放したのと同じ(覚えている範囲は、履歴ではなくマスクと一緒に持つ)
 
             Assert.IsTrue(ClearMaskAt(0, 0, id, 0, out var result));
-            Assert.AreEqual(2, result.changed, "何が塗ったか分からないので、つながっている 2 画素");
-            Assert.IsTrue(_win.Editing.Masks.Layer(false, id).Get(3 * W + 3), "離れたかたまりは残る");
+            Assert.AreEqual(3, result.changed);
+            Assert.IsFalse(_win.Editing.Masks.Layer(false, id).Any());
 
             Undo.PerformUndo();
-            Assert.IsTrue(_win.Editing.Masks.Layer(false, id).Get(0), "Undo で戻る");
+            Assert.IsTrue(_win.Editing.Masks.Layer(false, id).Get(3 * W + 3), "Undo で戻る");
+        }
+
+        [Test]
+        public void ClearMask_AfterSavingAndLoadingTheMasks_StillRemovesWhatTheOperationPainted() {
+            AddZones("服");
+            string id = _win.Session.zones[0].id;
+            ApplyToMask(id, MaskRegionOp.DontPaintHere, 0, 1, 3 * W + 3);
+            ApplyToMask(id, MaskRegionOp.DontPaintHere, 2);
+
+            // 保存形式(レシピ・セッションのファイルに書く形)へ書いて、読み直す(テクスチャを開き直したのと同じ)。
+            var saved = new MaskState();
+            _win.Editing.Masks.EncodeTo(saved);
+            var reloaded = JsonUtility.FromJson<MaskState>(JsonUtility.ToJson(saved));
+            Undo.IncrementCurrentGroup();
+            _win._maskView.BeginStroke();
+            Assert.IsTrue(_win.Editing.Masks.DecodeFrom(reloaded));
+            _win._maskView.EndStroke();
+            Undo.IncrementCurrentGroup();
+
+            Assert.IsTrue(ClearMaskAt(0, 0, id, 0, out var result));
+            Assert.AreEqual(3, result.changed, "開き直した後も、入れたときの範囲(離れた所を含む)で消える");
+            var exclude = _win.Editing.Masks.Layer(false, id);
+            Assert.IsFalse(exclude.Get(3 * W + 3));
+            Assert.IsTrue(exclude.Get(2), "別の操作の分は残る");
         }
 
         [Test]

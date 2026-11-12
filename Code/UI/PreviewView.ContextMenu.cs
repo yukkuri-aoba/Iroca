@@ -163,7 +163,7 @@ namespace Iroca {
             }
             // ここのマスクを消す: その場所を塗った操作(右クリックの 1 回)が塗った範囲をそっくり消す。AI には見分けさせない
             // (2026-11-12。AI に見分け直させると、塗ったときの範囲と合わずに縁や離れた所に細かい消し残りが出た。何を塗ったかは
-            // Undo の履歴が持っている)。ブラシで塗った所・履歴が残っていない所は、つながっているひとかたまり。AI が無くても使える。
+            // マスクと一緒に覚えている。MaskPatch)。ブラシで塗った所・記録が無い所は、つながっているひとかたまり。AI が無くても使える。
             // 一部だけを消すのは、下のサブメニュー(AI の部分・メッシュの島)。
             if (clearLabel != null) {
                 menu.AddItem(new GUIContent(clearLabel), false, () => ClearMaskHere(maskView, uv, clearZoneId, clearRadius));
