@@ -36,7 +36,37 @@ namespace Iroca.SentisIntegration {
         Worker _encoder, _decoder;
         BackendType _backend;
         bool _modelsLoaded;
-        bool _triedCpuFallback;
+        // GPU での失敗の数(スクリプトを読み直すまで)。GPU 固有の失敗(ドライバ・シェーダ)は、その場で CPU に切り替えてやり直す
+        // (ワーカーを作れない・エンコードの失敗・クリックのデコードの失敗)。1 回目の失敗の後は、ワーカーを手放した後
+        // (いろかの窓を閉じて開き直したとき)にもう一度だけ GPU を試し、MaxGpuFailures 回失敗したら以後は CPU だけを使う。
+        // 以前は 1 回失敗するとスクリプトの読み直しまでずっと CPU で、一時的な失敗でも遅いままだった。
+        int _gpuFailures;
+        const int MaxGpuFailures = 2;
+
+        BackendType PreferredBackend
+            => SystemInfo.supportsComputeShaders && _gpuFailures < MaxGpuFailures ? BackendType.GPUCompute : BackendType.CPU;
+
+        // 読み出しを待つ上限(CPU では計算そのものをここで待つので長い。EditorReadbackPoller)。
+        double ReadbackTimeoutMs
+            => _backend == BackendType.CPU ? EditorReadbackPoller.CpuTimeoutMs : EditorReadbackPoller.GpuTimeoutMs;
+
+        // テスト専用: GPU のときに、次の n 回を失敗させる(CPU への切り替えを、GPU が壊れていない環境で確かめる)。
+        internal static int FailNextGpuWorkerCreationsForTests, FailNextGpuEncodesForTests, FailNextGpuDecodesForTests;
+
+        void ThrowIfInducedGpuFailure(ref int remaining, string what) {
+            if (_backend == BackendType.GPUCompute && remaining > 0) {
+                remaining--;
+                throw new InvalidOperationException($"induced GPU {what} failure (test)");
+            }
+        }
+
+        // GPU で失敗した(what は警告に出す、失敗した処理の名前)。数えて CPU に切り替え、ワーカーを作り直す。作れなければ false。
+        bool FallBackToCpu(string what, string message, out string error) {
+            _gpuFailures++;
+            Debug.LogWarning($"[Iroca] GPUCompute での{what}に失敗したため CPU で再試行します: {message}");
+            _backend = BackendType.CPU;
+            return CreateWorkers(out error);
+        }
         // デコーダの初回実行は推論カーネル(Burst / コンピュートシェーダ)のコンパイルを伴い、
         // Unity 起動後の 1 回だけ数秒〜数十秒かかる。クリック後に踏むと「押しても返ってこない」
         // 時間になるので、埋め込み計算の直後に 1 回だけ捨て推論して温めておく。
@@ -315,7 +345,7 @@ namespace Iroca.SentisIntegration {
                 }
                 EditorUtility.DisplayProgressBar(
                     Localization.AiSuggest, Localization.AiSuggestLoadingModel, 0.9f);
-                _backend = SystemInfo.supportsComputeShaders ? BackendType.GPUCompute : BackendType.CPU;
+                _backend = PreferredBackend;
                 if (!TryCreateWorkers(out string werr)) {
                     SetPhase(MaskSuggestPhase.Error, error: werr);
                     return false;
@@ -345,10 +375,19 @@ namespace Iroca.SentisIntegration {
             }
         }
 
+        // ワーカーを作る。GPU で作れなければ CPU で作り直す(以前は、GPU で作れないとそのままエラーだった)。
         bool TryCreateWorkers(out string error) {
+            if (CreateWorkers(out error)) {
+                return true;
+            }
+            return _backend == BackendType.GPUCompute && FallBackToCpu("ワーカーの作成", error, out error);
+        }
+
+        bool CreateWorkers(out string error) {
             error = null;
             try {
                 DisposeWorkers();
+                ThrowIfInducedGpuFailure(ref FailNextGpuWorkerCreationsForTests, "worker creation");
                 _encoder = new Worker(_encoderModel, _backend);
                 _decoder = new Worker(_decoderModel, _backend);
                 _decoderWarmed = false; // バックエンドが変わればカーネルも作り直しになる
@@ -459,6 +498,7 @@ namespace Iroca.SentisIntegration {
             }
             try {
                 _encInput = EncoderInputTensor(chw);
+                ThrowIfInducedGpuFailure(ref FailNextGpuEncodesForTests, "encode");
                 var it = _encoder.ScheduleIterable(_encInput);
                 int total = _encoderModel.layers != null ? _encoderModel.layers.Count : 0;
                 _pumpStartedAt = MaskSuggestPerf.Now;
@@ -483,7 +523,7 @@ namespace Iroca.SentisIntegration {
                 // ズームは毎クリック走り得るため、同期読出のメイン停止(実測 129-194ms)が
                 // そのまま操作の引っ掛かりになっていた。
                 var output = _encoder.PeekOutput() as Tensor<float>;
-                _readback.Start(output, data => onEmbedding(data, pumpMs, tRead), fail);
+                _readback.Start(output, data => onEmbedding(data, pumpMs, tRead), fail, ReadbackTimeoutMs);
             } catch (Exception e) {
                 fail(e);
             }
@@ -512,7 +552,6 @@ namespace Iroca.SentisIntegration {
                         Localization.AiErrEmptyResult);
                 }
                 _embeddingCache.Put(_sourceKey, _embedding);
-                _triedCpuFallback = false;
                 // 健全な埋め込みが得られた = 実際に使うバックエンドで推論カーネルが動いた証拠。
                 // ログ文字列からの Burst 失敗推定より強い根拠なので、再起動を促す案内を取り下げる
                 // (CPU へフォールバックしたうえで成功した場合もここを通る)。
@@ -627,12 +666,11 @@ namespace Iroca.SentisIntegration {
 
         void OnEncoderError(Exception e) {
             DisposeEncInput();
-            // GPU 固有の失敗(ドライバ/シェーダ)に備えて CPU で 1 回だけ再試行する
-            if (_backend == BackendType.GPUCompute && !_triedCpuFallback) {
-                Debug.LogWarning($"[Iroca] GPUCompute でのエンコードに失敗したため CPU で再試行します: {e.Message}");
-                _triedCpuFallback = true;
-                _backend = BackendType.CPU;
-                if (TryCreateWorkers(out string werr)) {
+            // GPU 固有の失敗(ドライバ/シェーダ・読み出しの時間切れ)に備えて CPU で 1 回だけ再試行する(切り替えた後は CPU なので、
+            // ここへもう一度来ても再試行しない)。ワーカーは作り直すので、時間切れで前の計算が残っていても、同じワーカーへ次を
+            // 投げることにはならない。
+            if (_backend == BackendType.GPUCompute) {
+                if (FallBackToCpu("エンコード", e.Message, out string werr)) {
                     StartEncode();
                     return;
                 }
@@ -735,7 +773,19 @@ namespace Iroca.SentisIntegration {
                         FailFromEditorCallback(e, Localization.AiErrProposalFormat);
                     }
                 },
-                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrDecodeFormat, e.Message)));
+                e => {
+                    // GPU 固有の失敗なら、CPU に切り替えてこのクリックをやり直す(埋め込みは CPU 側に持っているので、そのまま使える)。
+                    // 以前は、デコードの失敗はそのままエラーだった。切り替えた後は CPU なので、もう一度失敗したらエラーにする。
+                    if (_backend == BackendType.GPUCompute && _phase == MaskSuggestPhase.Decoding) {
+                        if (FallBackToCpu("デコード", e.Message, out string werr)) {
+                            RunDecode(u, v, granularity, queueWaitMs);
+                            return;
+                        }
+                        SetPhase(MaskSuggestPhase.Error, error: werr);
+                        return;
+                    }
+                    SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrDecodeFormat, e.Message));
+                });
         }
 
         // 第 1 段(全体)の後処理: 粗マスク → ズームの判定 → (ズームしなければ)精密化。
@@ -834,6 +884,7 @@ namespace Iroca.SentisIntegration {
                 if (embedding == null) {
                     throw new InvalidOperationException(Localization.AiErrEmptyResult);
                 }
+                ThrowIfInducedGpuFailure(ref FailNextGpuDecodesForTests, "decode");
                 // 埋め込みのテンソルは同じ埋め込みの間は使い回す(EmbeddingTensorSlot。写した後は元を手放してよい)。
                 var emb = (cropRect.HasValue ? _cropEmbTensor : _fullEmbTensor).For(embedding);
                 DisposeDecoderPrompt();
@@ -862,7 +913,8 @@ namespace Iroca.SentisIntegration {
                 e => {
                     DisposeDecoderPrompt();
                     onError(e);
-                });
+                },
+                ReadbackTimeoutMs);
         }
 
         /// <summary>
@@ -1114,6 +1166,8 @@ namespace Iroca.SentisIntegration {
         public void ReleaseGpuResources() {
             CancelAll();
             DisposeWorkers();
+            // 次に作り直すときは、もう一度 GPU から試す(失敗が MaxGpuFailures 回に届いていなければ)。
+            _backend = PreferredBackend;
         }
 
         void CancelOps() {

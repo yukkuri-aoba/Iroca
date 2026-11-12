@@ -31,8 +31,11 @@ namespace Iroca.SentisIntegration {
     /// (0.4.0 の計画の B4。以前は 4.2MB の float[] を毎回作っていた)。
     /// </summary>
     internal sealed class EditorReadbackPoller {
-        // GPU ハング等での永久待ちを避ける安全弁。通常は数十〜数百 ms で完了する。
-        const double TimeoutMs = 15000;
+        // GPU ハング等での永久待ちを避ける安全弁。GPU では通常は数十〜数百 ms で完了する。
+        internal const double GpuTimeoutMs = 15000;
+        // CPU では、計算そのもの(背景のジョブ)が終わるのをここで待つ(エンコーダを進める所はジョブを積むだけで、すぐ終わる。
+        // 速い PC で 0.3 秒ほど)。遅い CPU や、推論のカーネルのコンパイルが済んでいない初回は GPU の上限を超えうるので、長く取る。
+        internal const double CpuTimeoutMs = 120000;
 
         Tensor<float>[] _tensors;
         // 読み出しが済んだものから CPU へ写したもの(_tensors と同じ並び。まだなら null)。読み終えたら捨てる。
@@ -40,11 +43,12 @@ namespace Iroca.SentisIntegration {
         Func<Tensor<float>[], Action> _read;
         Action<Exception> _onError;
         long _startedAt;
+        double _timeoutMs;
         bool _running;
 
         /// <summary>読出リクエストを発行しポーリングを開始する。tensor は Worker 所有の
         /// PeekOutput 返しを想定(こちらでは Dispose しない)。</summary>
-        public void Start(Tensor<float> tensor, Action<NativeBuffer> onDone, Action<Exception> onError) {
+        public void Start(Tensor<float> tensor, Action<NativeBuffer> onDone, Action<Exception> onError, double timeoutMs) {
             Start(new[] { tensor }, copies => {
                 NativeBuffer data = SamNativeOps.CopyFloats(copies[0].DownloadToNativeArray());
                 if (onDone == null) {
@@ -52,16 +56,17 @@ namespace Iroca.SentisIntegration {
                     return null;
                 }
                 return () => onDone(data);
-            }, onError);
+            }, onError, timeoutMs);
         }
 
         /// <summary>
         /// tensors すべての読出リクエストを発行し、済んだものから CPU へ写し(ReadbackAndClone。済んでいるので待たない)、
         /// すべて済んだら read をメインスレッドで呼ぶ。read は CPU へ写したもの(tensors と同じ並び。read が返ったら捨てるので、
         /// 中身は read の中で取り出す)を受け取り、読んだ中身を受け取った通知を返す(null = 通知しない)。通知は読み出しの
-        /// 外で呼ぶ。read の例外と時間切れは onError へ。tensors は Worker 所有の PeekOutput 返しを想定(Dispose しない)。
+        /// 外で呼ぶ。read の例外と時間切れ(timeoutMs。<see cref="GpuTimeoutMs"/> か <see cref="CpuTimeoutMs"/>)は onError へ。
+        /// tensors は Worker 所有の PeekOutput 返しを想定(Dispose しない)。
         /// </summary>
-        public void Start(Tensor<float>[] tensors, Func<Tensor<float>[], Action> read, Action<Exception> onError) {
+        public void Start(Tensor<float>[] tensors, Func<Tensor<float>[], Action> read, Action<Exception> onError, double timeoutMs) {
             Stop();
             try {
                 foreach (var t in tensors) {
@@ -76,6 +81,7 @@ namespace Iroca.SentisIntegration {
             _read = read;
             _onError = onError;
             _startedAt = MaskSuggestPerf.Now;
+            _timeoutMs = timeoutMs;
             _running = true;
             EditorApplication.update += Tick;
         }
@@ -115,7 +121,7 @@ namespace Iroca.SentisIntegration {
                     }
                 }
                 if (waiting) {
-                    if (MaskSuggestPerf.MsSince(_startedAt) > TimeoutMs) {
+                    if (MaskSuggestPerf.MsSince(_startedAt) > _timeoutMs) {
                         throw new TimeoutException(Localization.AiErrReadbackTimeout);
                     }
                     return;

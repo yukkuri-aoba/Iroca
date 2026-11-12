@@ -64,7 +64,7 @@ namespace Iroca.EditorTests {
             } finally { LogAssert.ignoreFailingMessages = false; }
         }
 
-        static IEnumerator RunDiscSuggestion(IMaskSuggestService svc, string sourceKey) {
+        static IEnumerator RunDiscSuggestion(IMaskSuggestService svc, string sourceKey, System.Action beforeClick = null) {
             Assert.IsTrue(svc.TryEnsureModels(), $"モデルのロード失敗: {svc.ErrorMessage}");
             Assert.AreEqual(MaskSuggestPhase.Idle, svc.Phase, svc.ErrorMessage);
 
@@ -78,6 +78,7 @@ namespace Iroca.EditorTests {
                 "画像のエンコードと暖機");
             Assert.AreEqual(MaskSuggestPhase.Idle, svc.Phase, svc.ErrorMessage);
 
+            beforeClick?.Invoke();
             Assert.IsTrue(svc.RequestProposal(0.5f, 0.5f, MaskSuggestGranularity.Auto));
             yield return WaitFor(
                 () => svc.Phase == MaskSuggestPhase.ProposalReady || svc.Phase == MaskSuggestPhase.Error,
@@ -143,6 +144,79 @@ namespace Iroca.EditorTests {
                 Assert.AreEqual(MaskSuggestPhase.Idle, svc.Phase, svc.ErrorMessage);
                 Assert.AreEqual(cpuBefore, svc.UsesCpuBackend, "ワーカーが無いだけなのにバックエンドが変わった");
             } finally { LogAssert.ignoreFailingMessages = false; }
+        }
+
+        // GPU の失敗の扱い。GPU 固有の失敗(ドライバ・シェーダ)は CPU に切り替えてやり直し、ワーカーを手放した後
+        // (いろかの窓を開き直したとき)にもう一度だけ GPU を試す。2 回失敗したら、以後は CPU のまま。
+        // 失敗はテスト専用の印で 1 回ずつ起こす(AI 統合アセンブリの内部なので名前で呼ぶ)。GPU で推論している環境でだけ意味がある。
+        [UnityTest, Timeout(1200000)]
+        public IEnumerator GpuFailures_FallBackToCpu_AndTheGpuIsRetriedOnce() {
+            var svc = MaskSuggestBridge.Service;
+            if (svc == null) {
+                Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
+            }
+            if (!MaskSuggestBridge.ModelFilesPresent) {
+                Assert.Ignore("AI モデルが未配置");
+            }
+            var type = svc.GetType();
+            const System.Reflection.BindingFlags statics = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+            var failEncodes = type.GetField("FailNextGpuEncodesForTests", statics);
+            var failDecodes = type.GetField("FailNextGpuDecodesForTests", statics);
+            var failCreations = type.GetField("FailNextGpuWorkerCreationsForTests", statics);
+            var gpuFailures = type.GetField("_gpuFailures",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if (failEncodes == null || failDecodes == null || failCreations == null || gpuFailures == null) {
+                Assert.Ignore("サービスが別の実装(テスト用の印が無い)");
+            }
+            // 失敗の数を 0 に戻して、ワーカーを作り直させる(このテストの前後で、ほかのテストに持ち越さない)。
+            void Reset() {
+                failEncodes.SetValue(null, 0);
+                failDecodes.SetValue(null, 0);
+                failCreations.SetValue(null, 0);
+                gpuFailures.SetValue(svc, 0);
+                svc.ReleaseGpuResources();
+            }
+            string id = System.Guid.NewGuid().ToString("N");
+
+            LogAssert.ignoreFailingMessages = true;   // 切り替えの警告と、-nographics のときの GPU の失敗
+            try {
+                Reset();
+                yield return RunDiscSuggestion(svc, "iroca-test-gpu-first-" + id);
+                if (svc.UsesCpuBackend) {
+                    Assert.Ignore("この環境は GPU で推論していない(-nographics など)");
+                }
+
+                // エンコードの失敗(1 回目): CPU に切り替えてやり直し、提案まで通る。
+                failEncodes.SetValue(null, 1);
+                yield return RunDiscSuggestion(svc, "iroca-test-gpu-encode-" + id);
+                Assert.AreEqual(0, (int)failEncodes.GetValue(null), "テストの前提: 失敗を起こしていない");
+                Assert.IsTrue(svc.UsesCpuBackend, "GPU のエンコードの失敗の後、CPU に切り替えていない");
+
+                // ワーカーを手放す(窓を閉じる)と、次はもう一度 GPU を試す。
+                svc.ReleaseGpuResources();
+                yield return RunDiscSuggestion(svc, "iroca-test-gpu-retry-" + id);
+                Assert.IsFalse(svc.UsesCpuBackend, "ワーカーを手放した後、GPU を試し直していない(1 回の失敗でずっと CPU のまま)");
+
+                // クリックのデコードの失敗(2 回目): CPU に切り替えて、そのクリックをやり直す(エラーにしない)。
+                yield return RunDiscSuggestion(svc, "iroca-test-gpu-decode-" + id, () => failDecodes.SetValue(null, 1));
+                Assert.AreEqual(0, (int)failDecodes.GetValue(null), "テストの前提: 失敗を起こしていない");
+                Assert.IsTrue(svc.UsesCpuBackend, "GPU のデコードの失敗の後、CPU に切り替えていない");
+
+                // 2 回失敗した後は、手放しても CPU のまま(毎回 GPU の失敗を待たせない)。
+                svc.ReleaseGpuResources();
+                yield return RunDiscSuggestion(svc, "iroca-test-gpu-stay-" + id);
+                Assert.IsTrue(svc.UsesCpuBackend, "2 回失敗した後も GPU を試した");
+
+                // ワーカーを作れないとき: CPU で作り直す(以前はそのままエラーだった)。
+                Reset();
+                failCreations.SetValue(null, 1);
+                Assert.IsTrue(svc.TryEnsureModels(), $"GPU でワーカーを作れないとき、CPU で作り直していない: {svc.ErrorMessage}");
+                Assert.AreEqual(0, (int)failCreations.GetValue(null), "テストの前提: 失敗を起こしていない");
+                Assert.IsTrue(svc.UsesCpuBackend, "ワーカーの作成の失敗の後、CPU に切り替えていない");
+            } finally {
+                Reset();
+                LogAssert.ignoreFailingMessages = false;
+            }
         }
 
         // 埋め込みの計算の進みは、百分率が変わったときだけ知らせる(知らせるたびに、開いている窓を描き直す)。
