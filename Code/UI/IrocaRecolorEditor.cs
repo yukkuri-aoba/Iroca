@@ -136,13 +136,13 @@ namespace Iroca {
                     MessageType.Warning);
             } else if (!Summary(recipe).Readable(recipe)) {
                 EditorGUILayout.HelpBox(Localization.RecolorUnreadable, MessageType.Warning);
-            } else if (RecolorInput.CountEnabled(Summary(recipe).Get(recipe).zones) == 0) {
+            } else if (RecolorInput.CountEnabled(Summary(recipe).Zones(recipe)) == 0) {
                 // 色替えを外している状態(ビルドでは NDMF Console に出さないので、ここで知らせる)。
                 EditorGUILayout.HelpBox(Localization.RecolorNoEnabledZones, MessageType.Info);
             } else {
                 var scope = Scope(component, source);
                 DrawScope(scope, source);
-                DrawShadowMatch(component, source, scope, Summary(recipe).Get(recipe));
+                DrawShadowMatch(component, source, scope, Summary(recipe).Zones(recipe));
             }
 
             using (new EditorGUI.DisabledScope(source == null)) {
@@ -154,12 +154,12 @@ namespace Iroca {
 
         // 範囲で元テクスチャをメインに使う、影のあるマテリアルごとの「影の色を合わせる」。設定はこのコンポーネントが持ち、
         // マテリアルそのものは変えない。
-        private static void DrawShadowMatch(IrocaRecolor component, Texture2D source, ScopeInfo scope, IrocaSessionState state) {
+        private static void DrawShadowMatch(IrocaRecolor component, Texture2D source, ScopeInfo scope, List<ColorZone> zones) {
             var materials = scope.shadowMaterials;
             if (materials.Count == 0) {
                 return;
             }
-            bool hasColors = MaterialShadowColors.TryGetColors(state.zones, out var sample, out var target);
+            bool hasColors = MaterialShadowColors.TryGetColors(zones, out var sample, out var target);
 
             EditorGUILayout.LabelField(Localization.ShadowMatchHeader, EditorStyles.miniBoldLabel);
             foreach (var m in materials) {
@@ -307,23 +307,24 @@ namespace Iroca {
     }
 
     /// <summary>
-    /// インスペクタは再描画のたびに呼ばれるので、レシピの JSON(マスク込みで数百 KB になり得る)は
-    /// 中身が変わったときだけ読み直す。
+    /// インスペクタは再描画のたびに呼ばれるので、レシピの JSON(マスク込みで数 MB になり得る)は
+    /// 中身が変わったときだけ読み直す。持つのはゾーンだけ(以前は読んだ編集状態を、マスクの文字列ごと持ち続けていた)。
     /// </summary>
     internal sealed class RecipeSummaryCache {
         private string _json;
         private int _version;
-        private IrocaSessionState _state;
+        private List<ColorZone> _zones;
 
-        public IrocaSessionState Get(IrocaRecipe recipe) {
+        /// <summary>レシピのゾーン。読めないレシピ(空・壊れている・新しい版の形式)なら null。</summary>
+        public List<ColorZone> Zones(IrocaRecipe recipe) {
             if (!ReferenceEquals(_json, recipe.sessionJson) || _version != recipe.formatVersion) {
                 _json = recipe.sessionJson;
                 _version = recipe.formatVersion;
-                _state = RecipeStore.Load(recipe);
+                _zones = RecipeStore.LoadZones(recipe);
             }
-            return _state;
+            return _zones;
         }
 
-        public bool Readable(IrocaRecipe recipe) => Get(recipe) != null;
+        public bool Readable(IrocaRecipe recipe) => Zones(recipe) != null;
     }
 }

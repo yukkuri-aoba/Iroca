@@ -127,7 +127,9 @@ namespace Iroca {
             if (RecipeChangedOutside(recipe)) {
                 return false;
             }
-            if (RecipeStore.SaveUnlessUnreadable(recipe, state, json => UnchangedSinceOpened(recipe, json))) {
+            // ここまで来たら、レシピの中身は窓が最後に同期した(読めた・自分で書いた)ものなので、読めるかは読み直さない。
+            if (RecipeStore.SaveUnlessUnreadable(recipe, state, json => UnchangedSinceOpened(recipe, json),
+                    contentKnownReadable: true)) {
                 // 書いた後のレシピは今の形(次からはいつもの比べ方で足りる)。
                 ForgetRecipeOpened(recipe);
             }
@@ -209,7 +211,28 @@ namespace Iroca {
         // (読み直しは Undo で戻せるが、上書きしたレシピは戻せない)。
 
         // レシピ(instanceID) → 最後に同期した sessionJson。中身が変わっていなければ参照の比較だけで済む。
-        private static readonly Dictionary<int, string> s_recipeSyncedJson = new Dictionary<int, string>();
+        // 弱い参照で持つ: レシピが今も同じ文字列を持っていれば、レシピが生かしているので比べられる。レシピが別の中身に
+        // なった・読み込みを外された後は、ここだけが古い文字列(4K で数 MB)を生かし続けていた。消えていたらハッシュで比べる。
+        private static readonly Dictionary<int, System.WeakReference<string>> s_recipeSyncedJson
+            = new Dictionary<int, System.WeakReference<string>>();
+
+        private static bool IsKnownSyncedJson(int id, string json)
+            => s_recipeSyncedJson.TryGetValue(id, out var weak) && weak.TryGetTarget(out var known) && ReferenceEquals(known, json);
+
+        private static void RememberSyncedJson(int id, string json) {
+            if (s_recipeSyncedJson.TryGetValue(id, out var weak)) {
+                weak.SetTarget(json);
+            } else {
+                s_recipeSyncedJson[id] = new System.WeakReference<string>(json);
+            }
+        }
+
+        /// <summary>
+        /// レシピの今の中身(文字列そのもの)が、窓が最後に同期したものか。ハッシュは取らない(描画から呼べる軽さ)。
+        /// 同じ中身でも、取り込み直しなどで文字列が別物になっていれば false。
+        /// </summary>
+        internal static bool IsSyncedReference(IrocaRecipe recipe)
+            => recipe != null && IsKnownSyncedJson(recipe.GetInstanceID(), recipe.sessionJson ?? "");
         // SessionState に残す、同期した中身のハッシュの数(新しい順の最後が今の同期)。古いものは Undo で
         // レシピが前の中身へ戻ったとき(自動化 API の色替えの Ctrl+Z)に、外からの変更と見分けるのに使う。
         private const int RecipeSyncHistory = 8;
@@ -234,10 +257,10 @@ namespace Iroca {
             }
             string json = recipe.sessionJson ?? "";
             int id = recipe.GetInstanceID();
-            if (s_recipeSyncedJson.TryGetValue(id, out var known) && ReferenceEquals(known, json)) {
+            if (IsKnownSyncedJson(id, json)) {
                 return;
             }
-            s_recipeSyncedJson[id] = json;
+            RememberSyncedJson(id, json);
             string key = RecipeSyncKey(recipe);
             if (key == null) {
                 return;
@@ -261,7 +284,7 @@ namespace Iroca {
             }
             string json = recipe.sessionJson ?? "";
             int id = recipe.GetInstanceID();
-            if (s_recipeSyncedJson.TryGetValue(id, out var known) && ReferenceEquals(known, json)) {
+            if (IsKnownSyncedJson(id, json)) {
                 return false;
             }
             // 参照が違っても(同じ中身で取り込み直された・ドメインリロードの後)中身が同じなら変わっていない。
@@ -269,7 +292,7 @@ namespace Iroca {
             if (hashes.Length == 0 || hashes[hashes.Length - 1] != RecipeJsonHash(json)) {
                 return true;
             }
-            s_recipeSyncedJson[id] = json;
+            RememberSyncedJson(id, json);
             return false;
         }
 

@@ -16,16 +16,16 @@ namespace Iroca {
                 TempContent.Of(Localization.RecipeSourceField, Localization.RecipeSourceFieldTooltip));
             serializedObject.ApplyModifiedProperties();
 
-            var state = _summary.Get(recipe);
+            var zones = _summary.Zones(recipe);
             if (recipe.sourceTexture == null) {
                 EditorGUILayout.HelpBox(Localization.RecolorNoSource, MessageType.Warning);
             }
-            if (state == null) {
+            if (zones == null) {
                 EditorGUILayout.HelpBox(Localization.RecolorUnreadable, MessageType.Warning);
             } else {
-                int enabled = RecolorInput.CountEnabled(state.zones);
+                int enabled = RecolorInput.CountEnabled(zones);
                 EditorGUILayout.LabelField(string.Format(Localization.RecipeInspectorZonesFormat,
-                    state.zones.Count, enabled), EditorStyles.miniLabel);
+                    zones.Count, enabled), EditorStyles.miniLabel);
             }
             RecipeOutputNotice.Draw(recipe);
 

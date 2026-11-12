@@ -296,8 +296,17 @@ namespace Iroca {
         // 保存先のレシピを読めるか。描画のたびに JSON(マスク込み)を読まないよう、中身が変わったときだけ読み直す。
         [System.NonSerialized] private readonly RecipeSummaryCache _boundSummary = new RecipeSummaryCache();
 
-        private bool BoundRecipeUnreadable(IrocaRecipe bound)
-            => bound != null && !string.IsNullOrEmpty(bound.sessionJson) && !_boundSummary.Readable(bound);
+        private bool BoundRecipeUnreadable(IrocaRecipe bound) {
+            if (bound == null || string.IsNullOrEmpty(bound.sessionJson)) {
+                return false;
+            }
+            // 窓が自分で読んだ・書いた中身そのものなら読める。保存のたびにレシピの文字列は別物になるので、これを見ないと、
+            // 保存のたびに中身を解析し直すことになる。
+            if (bound.formatVersion <= IrocaRecipe.CurrentFormatVersion && SessionPersistence.IsSyncedReference(bound)) {
+                return false;
+            }
+            return !_boundSummary.Readable(bound);
+        }
 
         private int ExportUsersCount() {
             var source = _host != null ? _host.SourceTexture : null;

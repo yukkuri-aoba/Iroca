@@ -359,6 +359,9 @@
       "editIncludeLayer",
       "maskFoldout"
     ],
+    "RecipeStore.ZonesOnly": [
+      "zones"
+    ],
     "MaskPatchEntry": [
       "include",
       "maskBase64",

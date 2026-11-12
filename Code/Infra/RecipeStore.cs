@@ -22,11 +22,7 @@ namespace Iroca {
         /// 戻り値は毎回新しいオブジェクト(呼び出し側が自由に変更してよい)。
         /// </summary>
         public static IrocaSessionState Load(IrocaRecipe recipe) {
-            if (recipe == null || string.IsNullOrEmpty(recipe.sessionJson)) {
-                return null;
-            }
-            if (recipe.formatVersion > IrocaRecipe.CurrentFormatVersion) {
-                Debug.LogWarning($"[Iroca] レシピ '{recipe.name}' はこの版のいろかより新しい形式です(形式 {recipe.formatVersion})。いろかを更新してください。");
+            if (!HasReadableFormat(recipe)) {
                 return null;
             }
             try {
@@ -41,6 +37,44 @@ namespace Iroca {
                     state.maskState = new MaskState();
                 }
                 return state;
+            } catch (Exception ex) {
+                Debug.LogWarning($"[Iroca] レシピ '{recipe.name}' を読めませんでした: {ex.Message}");
+                return null;
+            }
+        }
+
+        // 中身があり、この版で読める形式か(新しい版の形式なら警告を出す)。
+        private static bool HasReadableFormat(IrocaRecipe recipe) {
+            if (recipe == null || string.IsNullOrEmpty(recipe.sessionJson)) {
+                return false;
+            }
+            if (recipe.formatVersion > IrocaRecipe.CurrentFormatVersion) {
+                Debug.LogWarning($"[Iroca] レシピ '{recipe.name}' はこの版のいろかより新しい形式です(形式 {recipe.formatVersion})。いろかを更新してください。");
+                return false;
+            }
+            return true;
+        }
+
+        // ゾーンだけを読むための形(マスクの文字列を作らない)。
+        [Serializable]
+        private sealed class ZonesOnly {
+            public List<ColorZone> zones = new List<ColorZone>();
+        }
+
+        /// <summary>
+        /// レシピのゾーンだけを読む。読めなければ null(判定は <see cref="Load"/> と同じ)。インスペクタと書き出し欄の要約用:
+        /// 全部を読むと、マスクの文字列(4K で数 MB)まで作って持つことになる。
+        /// </summary>
+        public static List<ColorZone> LoadZones(IrocaRecipe recipe) {
+            if (!HasReadableFormat(recipe)) {
+                return null;
+            }
+            try {
+                var summary = JsonUtility.FromJson<ZonesOnly>(recipe.sessionJson);
+                if (summary == null) {
+                    return null;
+                }
+                return summary.zones ?? new List<ColorZone>();
             } catch (Exception ex) {
                 Debug.LogWarning($"[Iroca] レシピ '{recipe.name}' を読めませんでした: {ex.Message}");
                 return null;
@@ -62,10 +96,17 @@ namespace Iroca {
         /// 書こうとする JSON を受け取り、true なら書かない(レシピの今の中身と同じ意味のまま。開いただけの古い形のレシピを新しい形で
         /// 書き直さない。<see cref="SessionPersistence"/>)。null なら見ない。
         /// </param>
-        public static bool SaveUnlessUnreadable(IrocaRecipe recipe, IrocaSessionState state, Func<string, bool> keepAsIs = null)
-            => Save(recipe, state, keepUnreadable: true, keepAsIs);
+        /// <param name="contentKnownReadable">
+        /// 今の中身(文字列)は読めると、呼び出し側が分かっている(窓が自分で読んだ・書いた中身のまま)。true なら、読めるかを
+        /// 確かめるために中身を読み直さない(変更のある自動保存のたびに、マスク込みの古い中身を全部解析していた)。
+        /// 形式の版は、どちらでも確かめる。
+        /// </param>
+        public static bool SaveUnlessUnreadable(IrocaRecipe recipe, IrocaSessionState state, Func<string, bool> keepAsIs = null,
+                                                bool contentKnownReadable = false)
+            => Save(recipe, state, keepUnreadable: true, keepAsIs, contentKnownReadable);
 
-        private static bool Save(IrocaRecipe recipe, IrocaSessionState state, bool keepUnreadable, Func<string, bool> keepAsIs = null) {
+        private static bool Save(IrocaRecipe recipe, IrocaSessionState state, bool keepUnreadable, Func<string, bool> keepAsIs = null,
+                                 bool contentKnownReadable = false) {
             if (recipe == null || state == null) {
                 return false;
             }
@@ -76,8 +117,11 @@ namespace Iroca {
             if (keepAsIs != null && keepAsIs(json)) {
                 return false;
             }
-            if (keepUnreadable && !string.IsNullOrEmpty(recipe.sessionJson) && Load(recipe) == null) {
-                return false;
+            if (keepUnreadable && !string.IsNullOrEmpty(recipe.sessionJson)) {
+                bool readable = contentKnownReadable ? HasReadableFormat(recipe) : Load(recipe) != null;
+                if (!readable) {
+                    return false;
+                }
             }
             // Undo には積まない(編集の Undo はウィンドウの編集状態側が持つ。自動保存のたびに
             // アセットの記録が積まれると、ウィンドウの Undo と二重になる)。

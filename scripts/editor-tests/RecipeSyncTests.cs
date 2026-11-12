@@ -135,6 +135,63 @@ namespace Iroca.EditorTests {
             Assert.AreEqual("読み直してから直した内容", RecipeZoneName());
         }
 
+        // 中身の文字列は窓が同期したもののままでも、形式の版だけが新しい版のいろかのものになっていたら、上書きしない
+        // (自動保存は、窓が同期した中身なら読めるかを読み直さないが、形式の版は毎回確かめる)。
+        [Test]
+        public void NewerFormatVersion_IsNotOverwrittenByTheWindow() {
+            int current = _recipe.formatVersion;
+            _recipe.formatVersion = IrocaRecipe.CurrentFormatVersion + 1;
+            try {
+                SetZoneName("窓で直した内容");
+                LogAssert.ignoreFailingMessages = true;   // 「新しい形式です」の警告
+                try { Save(); } finally { LogAssert.ignoreFailingMessages = false; }
+                Assert.AreEqual(IrocaRecipe.CurrentFormatVersion + 1, _recipe.formatVersion, "形式の版を書き戻した");
+                StringAssert.Contains("登録した内容", _recipe.sessionJson, "新しい版の形式のレシピを上書きした");
+            } finally { _recipe.formatVersion = current; }
+        }
+
+        // インスペクタと書き出し欄の要約はゾーンだけを読む(マスクの文字列を作って持たない)。読めるかの判定は全部を読むときと同じ。
+        [Test]
+        public void SummaryReadsZonesOnly_WithTheSameReadableRule() {
+            _win.Editing.Masks.Reset(4, 4);
+            _win.Editing.Masks.WritableCommon().Set(3, true);
+            SetZoneName("要約に出る名前");
+            Save();
+            var summary = new RecipeSummaryCache();
+            var zones = summary.Zones(_recipe);
+            Assert.IsNotNull(zones);
+            Assert.AreEqual(RecipeStore.Load(_recipe).zones.Count, zones.Count);
+            Assert.AreEqual("要約に出る名前", zones[0].name);
+            Assert.AreSame(zones, summary.Zones(_recipe), "中身が同じなのに読み直した");
+
+            string json = _recipe.sessionJson;
+            int version = _recipe.formatVersion;
+            LogAssert.ignoreFailingMessages = true;
+            try {
+                _recipe.formatVersion = IrocaRecipe.CurrentFormatVersion + 1;
+                Assert.IsFalse(summary.Readable(_recipe), "新しい版の形式を読めると言った");
+                _recipe.formatVersion = version;
+                _recipe.sessionJson = "{ broken";
+                Assert.IsFalse(summary.Readable(_recipe), "壊れた中身を読めると言った");
+                Assert.IsNull(RecipeStore.Load(_recipe), "テストの前提: 全部を読んでも読めない");
+            } finally {
+                LogAssert.ignoreFailingMessages = false;
+                _recipe.formatVersion = version;
+                _recipe.sessionJson = json;
+            }
+        }
+
+        // 窓が同期した中身かを、文字列そのもので見る(書き出し欄が、保存のたびに中身を解析し直さないために使う)。
+        [Test]
+        public void IsSyncedReference_FollowsOwnSavesAndOutsideChanges() {
+            Assert.IsTrue(SessionPersistence.IsSyncedReference(_recipe), "開いた直後は同期している");
+            SetZoneName("窓で直した内容");
+            Save();
+            Assert.IsTrue(SessionPersistence.IsSyncedReference(_recipe), "自分で保存した後は同期している");
+            ChangeOutside("Git で取り込んだ内容");
+            Assert.IsFalse(SessionPersistence.IsSyncedReference(_recipe), "外で書き換わった中身を同期済みと言った");
+        }
+
         [Test]
         public void ReimportWithTheSameContent_IsNotAnExternalChange() {
             // 同じ中身で取り込み直された(文字列の参照だけが変わった)なら、窓の編集をそのまま保存する。
