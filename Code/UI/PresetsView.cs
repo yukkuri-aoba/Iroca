@@ -25,27 +25,96 @@ namespace Iroca {
         // 読み直すのは、保存・削除・取り込み・保存先の切り替えの直後と、Layout で前に読んでから ListRefreshSeconds 経ったとき
         // (ほかの道具が置いたプリセットは、その分だけ遅れて見える)。Layout でだけ読み直すので、同じフレームの
         // Layout と Repaint で一覧の行の数が食い違わない。
-        [System.NonSerialized] private string[] _listedFiles;
-        [System.NonSerialized] private string _listedFolder;
+        //
+        // 一覧は保存先ごとに分けて両方出す(2026-11-12)。以前は保存先の切り替えが「一覧に出すもの」も兼ねていて、
+        // 反対側に保存したプリセットが見えず、2 つが何の違いなのかも分かりにくかった。
+        // 並びは、このテクスチャで作ったものが先(_projectForTexture などがその印。読み直すときに一緒に決める)。
+        [System.NonSerialized] private string[] _projectFiles;
+        [System.NonSerialized] private string[] _userFiles;
+        [System.NonSerialized] private bool[] _projectForTexture;
+        [System.NonSerialized] private bool[] _userForTexture;
+        [System.NonSerialized] private string _listedForGuid;
         [System.NonSerialized] private double _listedAt;
         private const double ListRefreshSeconds = 2.0;
+
+        // ファイルごとの「作ったテクスチャ」(頭だけ読む。更新日時が変わったら読み直す)。
+        private struct SourceGuidEntry {
+            internal System.DateTime writtenAt;
+            internal string guid;
+        }
+        [System.NonSerialized] private System.Collections.Generic.Dictionary<string, SourceGuidEntry> _sourceGuids;
 
         private string ActivePresetFolder
             => presetStorageProject ? PresetStore.ProjectPresetFolder : PresetStore.UserPresetFolder;
 
-        private void InvalidatePresetList() => _listedFiles = null;
+        private void InvalidatePresetList() {
+            _projectFiles = null;
+            _userFiles = null;
+        }
 
-        private string[] PresetFiles() {
-            string folder = ActivePresetFolder;
+        /// <summary>
+        /// 一覧を読み直す。保存・削除などの直後と、Layout のときに、テクスチャが替わっていたか前に読んでから
+        /// ListRefreshSeconds 経っていたとき。時間とテクスチャでは Layout でだけ読み直すので、同じイベントの
+        /// Layout とその後の描画で行の数が食い違わない(テクスチャは欄の操作のイベントの途中で替わりうる)。
+        /// </summary>
+        private void RefreshPresetLists() {
             double now = EditorApplication.timeSinceStartup;
-            bool stale = _listedFiles == null || _listedFolder != folder
-                || (Event.current != null && Event.current.type == EventType.Layout && now - _listedAt >= ListRefreshSeconds);
-            if (stale) {
-                _listedFiles = PresetStore.ListJson(folder);
-                _listedFolder = folder;
-                _listedAt = now;
+            bool layout = Event.current != null && Event.current.type == EventType.Layout;
+            string textureGuid = layout || _projectFiles == null
+                ? SessionPersistence.GuidOf(_host != null ? _host.SourceTexture : null)
+                : _listedForGuid;
+            bool stale = _projectFiles == null || _userFiles == null
+                || (layout && (_listedForGuid != textureGuid || now - _listedAt >= ListRefreshSeconds));
+            if (!stale) {
+                return;
             }
-            return _listedFiles;
+            _listedAt = now;
+            _listedForGuid = textureGuid;
+            SortForTexture(PresetStore.ListJson(PresetStore.ProjectPresetFolder), textureGuid,
+                out _projectFiles, out _projectForTexture);
+            SortForTexture(PresetStore.ListJson(PresetStore.UserPresetFolder), textureGuid,
+                out _userFiles, out _userForTexture);
+        }
+
+        // このテクスチャで作ったものを先に、それぞれの中は名前の順に並べる。
+        private void SortForTexture(string[] files, string textureGuid, out string[] sorted, out bool[] forTexture) {
+            var keys = new bool[files.Length];
+            for (int i = 0; i < files.Length; i++) {
+                keys[i] = MadeForTexture(files[i], textureGuid);
+            }
+            var order = new int[files.Length];
+            for (int i = 0; i < order.Length; i++) {
+                order[i] = i;
+            }
+            System.Array.Sort(order, (a, b) => keys[a] != keys[b]
+                ? (keys[a] ? -1 : 1)
+                : string.Compare(Path.GetFileNameWithoutExtension(files[a]), Path.GetFileNameWithoutExtension(files[b]),
+                    System.StringComparison.CurrentCultureIgnoreCase));
+            sorted = new string[files.Length];
+            forTexture = new bool[files.Length];
+            for (int i = 0; i < order.Length; i++) {
+                sorted[i] = files[order[i]];
+                forTexture[i] = keys[order[i]];
+            }
+        }
+
+        /// <summary>このプリセットを、いま開いているテクスチャで作ったか(マスク・起点の位置がそのまま合う)。</summary>
+        private bool MadeForTexture(string file, string textureGuid) {
+            if (string.IsNullOrEmpty(textureGuid)) {
+                return false;
+            }
+            System.DateTime writtenAt;
+            try {
+                writtenAt = File.GetLastWriteTimeUtc(file);
+            } catch (System.Exception) {
+                return false;
+            }
+            _sourceGuids ??= new System.Collections.Generic.Dictionary<string, SourceGuidEntry>();
+            if (!_sourceGuids.TryGetValue(file, out var entry) || entry.writtenAt != writtenAt) {
+                entry = new SourceGuidEntry { writtenAt = writtenAt, guid = PresetStore.ReadSourceTextureGuid(file) };
+                _sourceGuids[file] = entry;
+            }
+            return entry.guid == textureGuid;
         }
 
         public void Initialize(IrocaWindow host) {
@@ -67,20 +136,22 @@ namespace Iroca {
             // 使い方の説明は各コントロールのツールチップに委ね、常時表示の HelpBox は置かない。
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Toggle(presetStorageProject, TempContent.Of(Localization.PresetStorageProject, Localization.PresetStorageProjectTooltip), EditorStyles.miniButtonLeft) && !presetStorageProject) {
-                presetStorageProject = true;
-            }
-            if (GUILayout.Toggle(!presetStorageProject, TempContent.Of(Localization.PresetStorageUser, Localization.PresetStorageUserTooltip), EditorStyles.miniButtonRight) && presetStorageProject) {
-                presetStorageProject = false;
-            }
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.BeginHorizontal();
             presetSaveName = EditorGUILayout.TextField(
                 TempContent.Of(Localization.PresetName, Localization.PresetNameTooltip),
                 presetSaveName);
             if (GUILayout.Button(TempContent.Of(Localization.SavePreset, Localization.SavePresetTooltip), GUILayout.Width(IrocaUiConsts.Layout.SmallButtonWidth))) {
                 SavePreset(presetSaveName);
+            }
+            EditorGUILayout.EndHorizontal();
+
+            // 保存先は保存の行のすぐ下に置く(一覧は保存先ごとに分けて両方出すので、これは保存だけに効く)。
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.PrefixLabel(TempContent.Of(Localization.PresetSaveDestination, Localization.PresetSaveDestinationTooltip));
+            if (GUILayout.Toggle(presetStorageProject, TempContent.Of(Localization.PresetStorageProject, Localization.PresetStorageProjectTooltip), EditorStyles.miniButtonLeft) && !presetStorageProject) {
+                presetStorageProject = true;
+            }
+            if (GUILayout.Toggle(!presetStorageProject, TempContent.Of(Localization.PresetStorageUser, Localization.PresetStorageUserTooltip), EditorStyles.miniButtonRight) && presetStorageProject) {
+                presetStorageProject = false;
             }
             EditorGUILayout.EndHorizontal();
 
@@ -107,33 +178,58 @@ namespace Iroca {
                 }
             }
 
-            string[] files = PresetFiles();
+            RefreshPresetLists();
+            // 行の操作(削除)で一覧が読み直されても、このイベントの残りは読む前の配列で描く(行の数を変えない)。
+            string[] projectFiles = _projectFiles, userFiles = _userFiles;
+            bool[] projectForTexture = _projectForTexture, userForTexture = _userForTexture;
 
-            if (files.Length == 0) {
+            if (projectFiles.Length == 0 && userFiles.Length == 0) {
                 EditorGUILayout.HelpBox(Localization.NoPresets, MessageType.None);
             } else {
-                foreach (string file in files) {
-                    string pname = Path.GetFileNameWithoutExtension(file);
-                    EditorGUILayout.BeginHorizontal();
-                    EditorGUILayout.LabelField(pname, GUILayout.ExpandWidth(true));
-                    if (GUILayout.Button(TempContent.Of(Localization.LoadPreset, Localization.LoadPresetTooltip),
-                            GUILayout.Width(IrocaWindow.FitButtonWidth(40f, Localization.LoadPreset)))) {
-                        LoadPreset(file);
-                    }
-                    if (GUILayout.Button(TempContent.Of("×", Localization.DeletePresetTooltip), GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth))) {
-                        if (EditorUtility.DisplayDialog(Localization.Confirm,
-                            Localization.DeletePresetConfirm(pname), Localization.OK, Localization.Cancel)) {
-                            bool ok = PresetStore.Delete(file);
-                            InvalidatePresetList();
-                            Notify(ok ? Localization.PresetDeleted : $"{Localization.Error}: {Localization.PresetDeleteFailed}");
-                        }
-                    }
-                    EditorGUILayout.EndHorizontal();
-                }
+                DrawPresetGroup(Localization.PresetGroupProject, Localization.PresetGroupProjectTooltip,
+                    projectFiles, projectForTexture);
+                DrawPresetGroup(Localization.PresetGroupUser, Localization.PresetGroupUserTooltip,
+                    userFiles, userForTexture);
             }
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
+        }
+
+        /// <summary>保存先 1 つ分の一覧(見出しと行)。空なら見出しの行に「なし」とだけ出す。</summary>
+        private void DrawPresetGroup(string title, string tooltip, string[] files, bool[] forTexture) {
+            EditorGUILayout.Space(2);
+            if (files.Length == 0) {
+                EditorGUILayout.LabelField(TempContent.Of(title, tooltip),
+                    TempContent.Of(Localization.PresetGroupEmpty, tooltip), EditorStyles.miniLabel);
+                return;
+            }
+            EditorGUILayout.LabelField(TempContent.Of(title, tooltip), EditorStyles.miniBoldLabel);
+            for (int i = 0; i < files.Length; i++) {
+                string file = files[i];
+                string pname = Path.GetFileNameWithoutExtension(file);
+                EditorGUILayout.BeginHorizontal();
+                // MinWidth(0): 長い名前で行が設定列より広くなって、列全体の右端が切れないように(名前のほうを欠けさせる)。
+                EditorGUILayout.LabelField(TempContent.Of(pname, pname), GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true));
+                if (forTexture[i]) {
+                    var mark = TempContent.Of(Localization.PresetForThisTexture, Localization.PresetForThisTextureTooltip);
+                    GUILayout.Label(mark, EditorStyles.miniLabel,
+                        GUILayout.Width(EditorStyles.miniLabel.CalcSize(mark).x));
+                }
+                if (GUILayout.Button(TempContent.Of(Localization.LoadPreset, Localization.LoadPresetTooltip),
+                        GUILayout.Width(IrocaWindow.FitButtonWidth(40f, Localization.LoadPreset)))) {
+                    LoadPreset(file);
+                }
+                if (GUILayout.Button(TempContent.Of("×", Localization.DeletePresetTooltip), GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth))) {
+                    if (EditorUtility.DisplayDialog(Localization.Confirm,
+                        Localization.DeletePresetConfirm(pname), Localization.OK, Localization.Cancel)) {
+                        bool ok = PresetStore.Delete(file);
+                        InvalidatePresetList();
+                        Notify(ok ? Localization.PresetDeleted : $"{Localization.Error}: {Localization.PresetDeleteFailed}");
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+            }
         }
 
         private void SavePreset(string name) {

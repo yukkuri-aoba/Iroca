@@ -645,6 +645,23 @@ namespace Iroca {
         public static string ImportJson => IsJapanese ? "JSON インポート" : "Import JSON";
         public static string PresetStorageProject => IsJapanese ? "プロジェクト内" : "In Project";
         public static string PresetStorageUser => IsJapanese ? "全プロジェクト共通" : "All Projects";
+        public static string PresetSaveDestination => IsJapanese ? "保存先" : "Save To";
+        public static string PresetSaveDestinationTooltip => IsJapanese
+            ? "「保存」でプリセットを書き込む場所です。一覧には両方の場所のプリセットが出ます"
+            : "Where Save writes the preset. The list shows presets from both places.";
+        public static string PresetGroupProject => IsJapanese ? "このプロジェクト" : "This Project";
+        public static string PresetGroupProjectTooltip => IsJapanese
+            ? "このプロジェクトの Assets/Iroca/Presets にあるプリセットです。このプロジェクトでだけ使えます"
+            : "Presets in this project's Assets/Iroca/Presets. Available only in this project.";
+        public static string PresetGroupUser => IsJapanese ? "全プロジェクト共通" : "All Projects";
+        public static string PresetGroupUserTooltip => IsJapanese
+            ? "OS のユーザーフォルダにあるプリセットです。この PC のどのプロジェクトでも使えます"
+            : "Presets in the OS user folder. Available in every project on this PC.";
+        public static string PresetGroupEmpty => IsJapanese ? "なし" : "None";
+        public static string PresetForThisTexture => IsJapanese ? "このテクスチャ" : "This texture";
+        public static string PresetForThisTextureTooltip => IsJapanese
+            ? "いま開いているテクスチャで作ったプリセットです。マスクも同じ場所にそのまま合います"
+            : "Made on the texture that is open now. Its masks fit this texture as they are.";
         public static string DeletePresetConfirm(string name) => IsJapanese
             ? $"プリセット「{name}」を削除しますか？"
             : $"Delete preset '{name}'?";

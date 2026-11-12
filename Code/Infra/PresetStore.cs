@@ -146,6 +146,30 @@ namespace Iroca {
             }
         }
 
+        // 頭から読む量。sourceTextureGuid は IrocaPresetData の先頭近くのフィールドで、JsonUtility は宣言の順に
+        // 書くので、整形した JSON でも数行目に出る。マスク入りのプリセットは数 MB になるので全部は読まない。
+        private const int GuidProbeChars = 2048;
+        private static readonly System.Text.RegularExpressions.Regex s_sourceGuidPattern =
+            new System.Text.RegularExpressions.Regex("\"sourceTextureGuid\"\\s*:\\s*\"([0-9a-fA-F]*)\"");
+
+        /// <summary>
+        /// プリセットを作ったテクスチャの GUID を、ファイルの頭だけ読んで返す(一覧で「このテクスチャで作った」を
+        /// 見分けるため。全体を読み込まない)。無い・読めないときは空。
+        /// </summary>
+        public static string ReadSourceTextureGuid(string filePath) {
+            try {
+                using (var reader = new StreamReader(filePath)) {
+                    var buf = new char[GuidProbeChars];
+                    int n = reader.ReadBlock(buf, 0, buf.Length);
+                    var m = s_sourceGuidPattern.Match(new string(buf, 0, n));
+                    return m.Success ? m.Groups[1].Value : "";
+                }
+            } catch (Exception) {
+                // 一覧の印のためだけなので、読めなければ印を付けないだけにする(読み込みのときに Load が知らせる)。
+                return "";
+            }
+        }
+
         /// <summary>保存先フォルダを用意する。失敗したら false（例外は呼び出し元へ流さない）。</summary>
         private static bool EnsureDirectory(string folder) {
             try {
