@@ -22,6 +22,12 @@ namespace Iroca {
     /// 一瞬粗く見える)。RenderTexture の寸法は取り込み済みの元テクスチャに
     /// そろえる(シーンで普段見えている解像度。非破壊ビルドの差し替えテクスチャも同じ寸法)。
     /// </para>
+    /// <para>
+    /// ミップと圧縮は、再生・アップロードのときの差し替えテクスチャ(<see cref="RecipeTextureBuilder"/>)と同じではない。
+    /// こちらは非圧縮で、ミップは GPU の単純な縮小(取り込み設定の Kaiser・Preserve Coverage・Fadeout は効かない)。
+    /// 取り込みと同じ処理は 4K で 0.3 秒ほどかかり、スライダーに追従できないため。遠景や、アルファで切り抜いた髪の
+    /// 見え方は、再生・アップロードのときと少し違いうる(編集中の表示の仕様)。
+    /// </para>
     /// </summary>
     internal static class LivePreview {
         /// <summary>ウィンドウが編集している元テクスチャと、結び付いたレシピ(無ければ null)。</summary>
