@@ -299,8 +299,7 @@ namespace Iroca {
             // ドラッグの途中で並びが変わると、ドラッグ用の control ID(HandleZoneReorderDrag)が押したときと
             // ずれて、離してもドラッグが終わらなかった。開くのは離した後の Layout。
             if (ev.type == EventType.Layout && _dragZoneIndex < 0) {
-                int cur = _maskView != null ? _maskView.activeMaskTarget : -1;
-                _expandedZoneIndex = zones.Count >= 2 && cur >= 0 && cur < zones.Count ? cur : -1;
+                _expandedZoneIndex = ZoneToExpand();
             }
             if (ev.type == EventType.MouseDown && _zoneCardRects != null && MouseInSettingsScroll()) {
                 for (int i = 0; i < _zoneCardRects.Count && i < zones.Count; i++) {
@@ -332,6 +331,17 @@ namespace Iroca {
             if (ev.type == EventType.Repaint) {
                 _zoneCardRects = zoneRects;
                 _zoneRemoveRects = removeRects;
+                // 開いて描いたカードの高さを覚える(畳むかどうかの見積もり。ZoneToExpand)。
+                for (int i = 0; i < zones.Count && i < zoneRects.Count; i++) {
+                    if ((_expandedZoneIndex < 0 || i == _expandedZoneIndex) && !string.IsNullOrEmpty(zones[i].id)) {
+                        _zoneCardOpenHeights[zones[i].id] = zoneRects[i].height;
+                    }
+                }
+                // 測った高さで畳む/開くが変わるなら、もう 1 回描く(エディタウィンドウは頼まないと描き直さない)。
+                // 見積もりは開いたときの高さだけで決まり、畳んだ結果には左右されないので繰り返さない。
+                if (_dragZoneIndex < 0 && ZoneToExpand() != _expandedZoneIndex) {
+                    Repaint();
+                }
             }
 
             HandleZoneReorderDrag(zoneRects);
@@ -408,10 +418,40 @@ namespace Iroca {
         // 決めるのは Layout のときだけ(DrawZoneList)。
         [System.NonSerialized] private int _expandedZoneIndex = -1;
 
+        // カードを開いて描いたときの高さ(ゾーンの id ごと。前の Repaint のもの)。
+        [System.NonSerialized] private readonly Dictionary<string, float> _zoneCardOpenHeights = new Dictionary<string, float>();
+
+        /// <summary>
+        /// 開いておくカードの番号(-1 = 全部開く)。全部のカードを開くと設定列の見えている高さに収まらないときだけ、
+        /// いま直しているゾーンのカードを残してほかを畳む。収まるなら全部開く(畳むと、別のゾーンの値を見る・触るのに
+        /// 1 回押す手間が増える。2026-11-12 のユーザーの要望で、常に畳むのをやめた)。
+        /// 開いたときの高さは前に開いて描いたときの実測で、まだ測っていないカードは測ったものの最大で見積もる。
+        /// </summary>
+        private int ZoneToExpand() {
+            int cur = _maskView != null ? _maskView.activeMaskTarget : -1;
+            if (zones.Count < 2 || cur < 0 || cur >= zones.Count) {
+                return -1;
+            }
+            float visible = _settingsScrollScreenRect.height;
+            if (visible <= 0f || _zoneCardOpenHeights.Count == 0) {
+                return -1;
+            }
+            float known = 0f;
+            foreach (var h in _zoneCardOpenHeights.Values) {
+                known = Mathf.Max(known, h);
+            }
+            // 欄の見出しと「別の色を追加」の行のぶん。
+            float total = (EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing) * 3f;
+            foreach (var z in zones) {
+                total += (z.id != null && _zoneCardOpenHeights.TryGetValue(z.id, out float h) ? h : known) + 2f;
+            }
+            return total > visible ? cur : -1;
+        }
+
         // 1 ゾーン分のカード（ヘッダ行＋採色/変更先＋自動調整＋許容範囲＋模様保持/出力彩度＋
         // 畳んだ詳細設定）を描画する。
-        // ゾーンが 2 つ以上あるときは、いま直しているゾーンのカードだけを開き、ほかは見出しの 1 行に畳む。
-        // 全部を開いたままだと 1 枚 8 行ほどあり、4〜5 色に増えると目的のゾーンまでスクロールが要った。開くのに
+        // 全部のカードを開くと設定列に収まらないときだけ、いま直しているゾーンのカードを開き、ほかは見出しの 1 行に畳む
+        // (ZoneToExpand)。1 枚 8 行ほどあり、4〜5 色に増えると目的のゾーンまでスクロールが要ったため。開くのに
         // 専用の操作は足さず、「カードを押すと、そのゾーンを直す」に相乗りする(押したカードが開く)。
         // 戻り値 true = このカードの削除(×)ボタンが押された。
         private bool DrawZoneCard(ColorZone zone, int index) {
