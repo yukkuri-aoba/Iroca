@@ -30,6 +30,17 @@ namespace Iroca {
                 return src;
             }
 
+            // 作業配列を借りる計算の区間として数える(手を止めて 10 秒で空きを返す予約は、区間が終わったときに入る)。AI の後処理の
+            // ほかの段は背景のジョブ(PreviewJob)が数えていて、メインスレッドで走るこの段だけが外にあった。
+            NativeMemoryLifecycle.WorkStarted();
+            try {
+                return Transfer(src, mw, mh, texture, out owned, ref timing);
+            } finally {
+                NativeMemoryLifecycle.WorkEnded();
+            }
+        }
+
+        private static NativeBools Transfer(NativeBools src, int mw, int mh, Texture2D texture, out bool owned, ref Timing timing) {
             long t = MaskSuggestPerf.Now;
             var region = NativeBools.AllocateUninitialized(mw, mh);
             owned = true;
