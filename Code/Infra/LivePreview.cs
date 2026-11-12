@@ -97,10 +97,15 @@ namespace Iroca {
         /// 同じ値なら何もしない(ウィンドウは毎フレーム呼んでよい)。
         /// </summary>
         public static void SetTarget(Texture2D source, IrocaRecipe boundRecipe) {
-            var next = source != null ? new Target(source, boundRecipe) : null;
-            if (Equals(Current, next)) {
+            // 同じなら比べるための Target を作らない(ウィンドウが描画のたびに呼ぶ)。
+            var current = Current;
+            bool same = source == null
+                ? current == null
+                : current != null && ReferenceEquals(current.source, source) && ReferenceEquals(current.boundRecipe, boundRecipe);
+            if (same) {
                 return;
             }
+            var next = source != null ? new Target(source, boundRecipe) : null;
             PurgeDestroyedSources();
             var previous = Current;
             Current = next;

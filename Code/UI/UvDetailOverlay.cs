@@ -39,21 +39,36 @@ namespace Iroca {
         }
 
         // ── 表示の設定(PC ごと) ──
+        // プレビューの描画のたびに読むので、値は控えておく(EditorPrefs を毎回引かない。書くのはここだけ)。
+        private static bool? s_showFill, s_showWire, s_showOverlap, s_showHoverInfo;
+
         public static bool ShowFill {
-            get => EditorPrefs.GetBool(IrocaPrefs.UvDetailFill, false);
-            set => EditorPrefs.SetBool(IrocaPrefs.UvDetailFill, value);
+            get => s_showFill ??= EditorPrefs.GetBool(IrocaPrefs.UvDetailFill, false);
+            set {
+                s_showFill = value;
+                EditorPrefs.SetBool(IrocaPrefs.UvDetailFill, value);
+            }
         }
         public static bool ShowWire {
-            get => EditorPrefs.GetBool(IrocaPrefs.UvDetailWire, false);
-            set => EditorPrefs.SetBool(IrocaPrefs.UvDetailWire, value);
+            get => s_showWire ??= EditorPrefs.GetBool(IrocaPrefs.UvDetailWire, false);
+            set {
+                s_showWire = value;
+                EditorPrefs.SetBool(IrocaPrefs.UvDetailWire, value);
+            }
         }
         public static bool ShowOverlap {
-            get => EditorPrefs.GetBool(IrocaPrefs.UvDetailOverlap, false);
-            set => EditorPrefs.SetBool(IrocaPrefs.UvDetailOverlap, value);
+            get => s_showOverlap ??= EditorPrefs.GetBool(IrocaPrefs.UvDetailOverlap, false);
+            set {
+                s_showOverlap = value;
+                EditorPrefs.SetBool(IrocaPrefs.UvDetailOverlap, value);
+            }
         }
         public static bool ShowHoverInfo {
-            get => EditorPrefs.GetBool(IrocaPrefs.UvDetailHoverInfo, false);
-            set => EditorPrefs.SetBool(IrocaPrefs.UvDetailHoverInfo, value);
+            get => s_showHoverInfo ??= EditorPrefs.GetBool(IrocaPrefs.UvDetailHoverInfo, false);
+            set {
+                s_showHoverInfo = value;
+                EditorPrefs.SetBool(IrocaPrefs.UvDetailHoverInfo, value);
+            }
         }
 
         /// <summary>詳しい表示が効く状態か(開発者向けの設定と、島の表示が ON)。</summary>

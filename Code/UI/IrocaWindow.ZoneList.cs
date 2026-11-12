@@ -49,6 +49,9 @@ namespace Iroca {
         // 同じ描画で記録した各カードの × の矩形(× を押しても直す対象を替えない判定用)と、描いている途中の 1 枚分。
         [System.NonSerialized] private List<Rect> _zoneRemoveRects;
         [System.NonSerialized] private Rect _lastRemoveButtonRect;
+        // 描いている途中の矩形の置き場。イベントごとに List を作らず、Repaint のたびに上の記録と入れ替えて使い回す
+        // (記録と置き場は、いつも別の List)。
+        [System.NonSerialized] private List<Rect> _zoneCardRectsScratch, _zoneRemoveRectsScratch;
 
         private bool OnZoneRemoveButton(int index, Vector2 mouse) =>
             _zoneRemoveRects != null && index < _zoneRemoveRects.Count && _zoneRemoveRects[index].Contains(mouse);
@@ -400,7 +403,8 @@ namespace Iroca {
             // ドラッグハンドル用スタイルとヘッダ行の GUIContent は静的キャッシュを使う
             // (毎フレーム×ゾーン数のアロケーション回避。言語切替時のみ再構築)。
             EnsureZoneListCache();
-            var zoneRects = new List<Rect>(zones.Count);
+            var zoneRects = _zoneCardRectsScratch ??= new List<Rect>(zones.Count);
+            zoneRects.Clear();
 
             // カードのどこかを押したら、そのゾーンを「いま直しているゾーン」にする。カードの中の操作より
             // 先に見るので、前の描画で記録した矩形で判定する(イベントは消費しない＝押した操作はそのまま効く)。
@@ -447,7 +451,8 @@ namespace Iroca {
             }
 
             int removeIndex = -1;
-            var removeRects = new List<Rect>(zones.Count);
+            var removeRects = _zoneRemoveRectsScratch ??= new List<Rect>(zones.Count);
+            removeRects.Clear();
             for (int i = 0; i < zones.Count; i++) {
                 _lastZoneDetailFoldoutBottom = -1f;
                 if (DrawZoneCard(zones[i], i)) {
@@ -465,7 +470,10 @@ namespace Iroca {
             }
 
             if (ev.type == EventType.Repaint) {
+                // いまの矩形を記録にし、前の記録だった List を次のイベントの置き場にする。
+                _zoneCardRectsScratch = _zoneCardRects;
                 _zoneCardRects = zoneRects;
+                _zoneRemoveRectsScratch = _zoneRemoveRects;
                 _zoneRemoveRects = removeRects;
                 // 測った高さで畳む/開くが変わるなら、もう 1 回描く(エディタウィンドウは頼まないと描き直さない)。
                 // 見積もりは開いたときの高さだけで決まり、畳んだ結果には左右されないので繰り返さない。

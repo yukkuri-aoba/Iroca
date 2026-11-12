@@ -126,19 +126,34 @@ namespace Iroca {
             // テクスチャ欄は変更の検出(プレビューの作り直し)に囲まれているので、ここの操作では立てない
             // (「アバターの色」は表示用の画像だけを作り直す)。
             bool changed = GUI.changed;
-            string text = MaterialColorNoticeText(r, _previewView != null && _previewView.appearanceMode, out bool warn);
-            DrawTextureNotice(MaterialColorDismissedKeyPrefix, text, warn ? MessageType.Warning : MessageType.Info,
-                Localization.MaterialColorDismissTooltip);
+            // 文面と選択肢は、読み取り結果が替わったとき(読み直しは 0.5 秒ごと)・「アバターの色」の入切・言語の切り替えでだけ
+            // 作り直す(以前はイベントごとに文を組み立て、選択肢の GUIContent を作っていた)。
+            var lang = Localization.CurrentLanguage;
+            bool appearanceOn = _previewView != null && _previewView.appearanceMode;
+            if (!ReferenceEquals(_materialNoticeFor, r) || _materialNoticeAppearance != appearanceOn || _materialNoticeLang != lang) {
+                _materialNoticeText = MaterialColorNoticeText(r, appearanceOn, out _materialNoticeWarn);
+                _materialNoticeFor = r;
+                _materialNoticeAppearance = appearanceOn;
+                _materialNoticeLang = lang;
+            }
+            DrawTextureNotice(MaterialColorDismissedKeyPrefix, _materialNoticeText,
+                _materialNoticeWarn ? MessageType.Warning : MessageType.Info, Localization.MaterialColorDismissTooltip);
             // どのマテリアルの設定で見るかは、組が 2 つ以上あるときだけ本文の下に出す。
             if (groups.Count > 1) {
-                var labels = new GUIContent[groups.Count];
-                for (int i = 0; i < groups.Count; i++) {
-                    var g = groups[i];
-                    string name = g[0].material.name;
-                    labels[i] = new GUIContent(g.Count > 1
-                        ? string.Format(Localization.MaterialColorChoiceManyFormat, name, g.Count - 1)
-                        : name);
+                if (!ReferenceEquals(_materialChoiceLabelsFor, groups) || _materialChoiceLabelsLang != lang) {
+                    var built = new GUIContent[groups.Count];
+                    for (int i = 0; i < groups.Count; i++) {
+                        var g = groups[i];
+                        string name = g[0].material.name;
+                        built[i] = new GUIContent(g.Count > 1
+                            ? string.Format(Localization.MaterialColorChoiceManyFormat, name, g.Count - 1)
+                            : name);
+                    }
+                    _materialChoiceLabels = built;
+                    _materialChoiceLabelsFor = groups;
+                    _materialChoiceLabelsLang = lang;
                 }
+                var labels = _materialChoiceLabels;
                 int choice = EditorGUILayout.Popup(
                     TempContent.Of(Localization.MaterialColorChoice, Localization.MaterialColorChoiceTooltip),
                     _materialColorChoice, labels);
@@ -150,6 +165,14 @@ namespace Iroca {
             }
             GUI.changed = changed;
         }
+
+        // 案内の文面と選択肢の覚え(何から作ったか)。
+        [System.NonSerialized] private MaterialColorSettings.Report _materialNoticeFor;
+        [System.NonSerialized] private bool _materialNoticeAppearance, _materialNoticeWarn;
+        [System.NonSerialized] private LanguageMode _materialNoticeLang, _materialChoiceLabelsLang;
+        [System.NonSerialized] private string _materialNoticeText;
+        [System.NonSerialized] private List<List<MaterialColorSettings.Report>> _materialChoiceLabelsFor;
+        [System.NonSerialized] private GUIContent[] _materialChoiceLabels;
 
         // ───────────── 影の色を塗り先に合わせる ─────────────
 

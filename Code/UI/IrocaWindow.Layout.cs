@@ -474,16 +474,14 @@ namespace Iroca {
         /// <summary>
         /// 固定幅のボタンの幅。文言（状態で切り替わるものは全部）が既定のボタンの書体で入りきる幅と
         /// minWidth の大きい方を返す。言語で長さが変わる文言を固定値の幅に入れると、片方の言語で末尾が欠ける。
-        /// OnGUI の中で呼ぶ。
+        /// OnGUI の中で呼ぶ。カードごと・イベントごとに呼ぶので、文言を配列で受けない(呼ぶたびに配列を作らない)。
         /// </summary>
-        internal static float FitButtonWidth(float minWidth, params string[] texts) {
-            float w = minWidth;
-            var style = GUI.skin.button;
-            foreach (var t in texts) {
-                w = Mathf.Max(w, Mathf.Ceil(style.CalcSize(TempContent.Of(t)).x));
-            }
-            return w;
-        }
+        internal static float FitButtonWidth(float minWidth, string text) =>
+            Mathf.Max(minWidth, Mathf.Ceil(GUI.skin.button.CalcSize(TempContent.Of(text)).x));
+
+        /// <summary>状態で切り替わる 2 つの文言の、どちらも入りきる幅(<see cref="FitButtonWidth(float, string)"/>)。</summary>
+        internal static float FitButtonWidth(float minWidth, string text, string otherText) =>
+            FitButtonWidth(FitButtonWidth(minWidth, text), otherText);
 
         /// <summary>
         /// ジョブオーバーレイの 1 行（進捗バー＋キャンセルボタン）を描画し、キャンセルが押されたら true を返す。

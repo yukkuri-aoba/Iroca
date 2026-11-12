@@ -20,11 +20,18 @@ namespace Iroca {
         // メッシュ欄(ラベルを除く)の最小幅。ピッカーのボタンと名前の頭が見える程度。
         private const float MinObjectFieldWidth = 30f;
 
-        /// <summary>プレビューに UV の島の輪郭を重ねるか(ユーザーごとの表示設定)。</summary>
+        /// <summary>
+        /// プレビューに UV の島の輪郭を重ねるか(ユーザーごとの表示設定)。プレビューの描画のたびに読むので、値は控えておく
+        /// (EditorPrefs を毎回引かない。書くのはここだけ。<see cref="IrocaWindow.ShowDeveloperSettings"/> と同じ形)。
+        /// </summary>
         public static bool ShowIslands {
-            get => EditorPrefs.GetBool(ShowIslandsPrefKey, false);
-            set => EditorPrefs.SetBool(ShowIslandsPrefKey, value);
+            get => s_showIslands ??= EditorPrefs.GetBool(ShowIslandsPrefKey, false);
+            set {
+                s_showIslands = value;
+                EditorPrefs.SetBool(ShowIslandsPrefKey, value);
+            }
         }
+        private static bool? s_showIslands;
 
         public static void Draw(IrocaWindow host, MaskPaintView maskView) {
             var parts = maskView.MeshParts;
