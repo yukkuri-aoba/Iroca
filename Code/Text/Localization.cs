@@ -839,6 +839,11 @@ namespace Iroca {
         public static string AiSetupOnnxConflictBody => IsJapanese
             ? "自動調整と AI マスク提案には Unity Sentis {1} が必要ですが、このプロジェクトには .onnx ファイルを取り込む別のパッケージ（{0}）が入っています。Sentis を導入すると .onnx の取り込みがぶつかり、そのパッケージの AI モデルも、いろかの AI も使えなくなります。\n\nそのパッケージを使っていなければ、Package Manager で外してから導入してください。導入した後でも、Sentis を外せば元に戻ります。\n\nそれでも導入しますか？"
             : "Auto-tune and AI Mask Suggestion need Unity Sentis {1}, but this project already has another package that imports .onnx files ({0}). Installing Sentis makes the two .onnx importers conflict, and neither that package's AI models nor Iroca's AI will work.\n\nIf you do not use that package, remove it in the Package Manager before installing. Removing Sentis afterwards also restores it.\n\nInstall anyway?";
+        // Sentis を入れた後で、.onnx を取り込む別のパッケージが入った(または「それでも導入する」を選んだ)とき。モデルの変換
+        // (.onnx の取り込み)が失敗するので、モデルのファイルの異常と案内すると、取り直しても直らない。
+        public static string AiSuggestOnnxConflictBlocksModel => IsJapanese
+            ? "このプロジェクトには、.onnx ファイルを取り込むパッケージが 2 つ以上入っています（Sentis のほかに {0}）。Unity はこのとき .onnx をどのパッケージでも取り込まなくなるので、いろかは AI のモデルを読み込めません（モデルのファイルは壊れていません。取り直しても直りません）。\n{0} を使っていなければ、Package Manager で外してください。使っている場合は、いろかの AI（自動調整・AI マスク提案）と同時には使えません。"
+            : "This project has more than one package that imports .onnx files (Sentis and {0}). Unity then imports .onnx files with none of them, so Iroca cannot load its AI models (the model files are not broken, and downloading them again does not help).\nIf you do not use {0}, remove it in the Package Manager. If you do, it cannot be used together with Iroca's AI (auto-tune and AI Mask Suggestion).";
         public static string AiSetupDontInstall => IsJapanese ? "導入しない" : "Don't install";
         public static string AiSetupInstallAnyway => IsJapanese ? "それでも導入する" : "Install anyway";
         public static string AiOnnxConflictSeparator => IsJapanese ? "、" : ", ";

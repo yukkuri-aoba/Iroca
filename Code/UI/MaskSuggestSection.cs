@@ -155,6 +155,16 @@ namespace Iroca {
 
                 case MaskSuggestPhase.Error:
                     EditorGUILayout.HelpBox(svc.ErrorMessage ?? Localization.AiUnknownError, MessageType.Error);
+                    if (svc.ErrorIsModelFile && MaskSuggestInstall.OnnxImporterConflicts().Count > 0) {
+                        // .onnx を取り込むパッケージがほかにもあると、Unity はどれも使わなくなり、モデルの変換(.onnx の取り込み)が
+                        // 失敗する。モデルのファイルは正しいので、取り直しも再起動も効かない。ぶつかっているパッケージを知らせる
+                        // (導入欄の警告は、Sentis を入れる前にしか出ない)。
+                        EditorGUILayout.HelpBox(
+                            string.Format(Localization.AiSuggestOnnxConflictBlocksModel,
+                                          string.Join(Localization.AiOnnxConflictSeparator, MaskSuggestInstall.OnnxImporterConflicts())),
+                            MessageType.Warning);
+                        break;
+                    }
                     if (svc.ErrorIsModelFile) {
                         // モデルのファイルを読めなかった(壊れている・欠けている)。再起動では直らないので、
                         // 取り直しだけを出す(取り直しで直ることは確認済み)。
