@@ -192,18 +192,42 @@ namespace Iroca {
 
         private static void InspectScene(InspectResult r) {
             r.kind = "scene";
+            var nested = new List<GameObject>();
             foreach (var root in SceneRoots()) {
                 var renderers = root.GetComponentsInChildren<Renderer>(true);
                 if (renderers.Length == 0) {
                     continue;
                 }
+                // アバターかどうかは登録の判定(RecipeRegistration.IsInsideAvatar)と同じ見方で決める。以前は型の名前の文字列で見ていた。
+                bool isAvatar = RecipeRegistration.IsAvatarRoot(root);
                 r.objects.Add(new ObjectInfo {
                     path = root.name,
                     instanceId = root.GetInstanceID(),
-                    isAvatar = HasComponentNamed(root, "VRCAvatarDescriptor"),
+                    isAvatar = isAvatar,
                     rendererCount = renderers.Length,
                     textureCount = MainTexturesOf(renderers).Count,
                 });
+                if (isAvatar) {
+                    continue;
+                }
+                // 複数のアバターを空のオブジェクトの下にまとめていると、ルートはアバターではない。登録はその下のアバターへ通るので、
+                // 一覧にも出す(出さないと、アバターが 1 体も無いように見える)。
+                nested.Clear();
+                RecipeRegistration.AvatarRootsUnder(root, nested);
+                foreach (var avatar in nested) {
+                    var inAvatar = avatar.GetComponentsInChildren<Renderer>(true);
+                    r.objects.Add(new ObjectInfo {
+                        path = HierarchyPath(avatar.transform),
+                        instanceId = avatar.GetInstanceID(),
+                        isAvatar = true,
+                        rendererCount = inAvatar.Length,
+                        textureCount = MainTexturesOf(inAvatar).Count,
+                    });
+                }
+            }
+            if (!RecipeRegistration.CanTellAvatars) {
+                r.warnings.Add("The VRChat SDK is not installed in this project, so avatars cannot be told apart: 'isAvatar' is always false. "
+                    + "apply='avatar' still works and registers on the object that uses the texture (or on the one given as 'avatar').");
             }
         }
 
@@ -484,15 +508,6 @@ namespace Iroca {
                 }
             }
             return result;
-        }
-
-        private static bool HasComponentNamed(GameObject go, string typeName) {
-            foreach (var c in go.GetComponents<Component>()) {
-                if (c != null && c.GetType().Name == typeName) {
-                    return true;
-                }
-            }
-            return false;
         }
 
         private static string MaterialLabel(Material m) {

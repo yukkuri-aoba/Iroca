@@ -66,6 +66,49 @@ namespace Iroca {
 #endif
         }
 
+        /// <summary>
+        /// このプロジェクトでアバターを見分けられるか(VRChat SDK があるか)。無いときは <see cref="IsInsideAvatar"/> が常に true、
+        /// <see cref="IsAvatarRoot"/> が常に false。
+        /// </summary>
+        internal static bool CanTellAvatars {
+            get {
+#if IROCA_VRCSDK_AVATARS
+                return true;
+#else
+                return false;
+#endif
+            }
+        }
+
+        /// <summary>
+        /// <paramref name="go"/> がアバターのルート(VRChat の Avatar Descriptor が付いた物)か。<see cref="IsInsideAvatar"/> と
+        /// 同じ型で見る(自動化の一覧と登録の判定を食い違わせない)。アバターを見分けられないプロジェクトでは false。
+        /// </summary>
+        internal static bool IsAvatarRoot(GameObject go) {
+#if IROCA_VRCSDK_AVATARS
+            return go != null && go.GetComponent<VRC.SDKBase.VRC_AvatarDescriptor>() != null;
+#else
+            return false;
+#endif
+        }
+
+        /// <summary>
+        /// <paramref name="root"/> の子孫(自分は含めない)にあるアバターのルートを <paramref name="into"/> に足す。
+        /// 複数のアバターを空のオブジェクトの下にまとめた構成で、登録できる先を一覧に出すのに使う。
+        /// </summary>
+        internal static void AvatarRootsUnder(GameObject root, List<GameObject> into) {
+#if IROCA_VRCSDK_AVATARS
+            if (root == null) {
+                return;
+            }
+            foreach (var d in root.GetComponentsInChildren<VRC.SDKBase.VRC_AvatarDescriptor>(true)) {
+                if (d != null && d.gameObject != root) {
+                    into.Add(d.gameObject);
+                }
+            }
+#endif
+        }
+
         /// <summary><paramref name="target"/> に既に登録されている、<paramref name="source"/> のレシピ(無ければ null)。</summary>
         public static IrocaRecipe ExistingFor(GameObject target, Texture2D source) {
             if (target == null || source == null) {

@@ -601,6 +601,51 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // シーンの一覧のアバターの印は、登録の判定と同じ見方で付く。まとめ用の空のオブジェクトの下のアバターも一覧に出る。
+        [Test]
+        public void Inspect_Scene_MarksAvatarsTheWayRegistrationSeesThem() {
+            bool hasSdk = System.AppDomain.CurrentDomain.GetAssemblies()
+                .Any(a => a.GetType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor", false) != null);
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
+            var avatar = new GameObject("IrocaAvatarRootTest");
+            var group = new GameObject("IrocaAvatarGroupTest");
+            try {
+                MarkAsAvatar(avatar);
+                var body = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                body.transform.SetParent(avatar.transform);
+                body.GetComponent<Renderer>().sharedMaterial = mat;
+                var inner = new GameObject("Inner");
+                inner.transform.SetParent(group.transform);
+                MarkAsAvatar(inner);
+                var innerBody = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                innerBody.transform.SetParent(inner.transform);
+                innerBody.GetComponent<Renderer>().sharedMaterial = mat;
+
+                var scene = Inspect("");
+                var a = scene.objects.Single(o => o.path == "IrocaAvatarRootTest");
+                var g = scene.objects.Single(o => o.path == "IrocaAvatarGroupTest");
+                bool warned = scene.warnings.Any(w => w.Contains("VRChat SDK is not installed"));
+                if (!hasSdk) {
+                    Assert.IsFalse(a.isAvatar, "SDK が無ければ見分けられない");
+                    Assert.IsTrue(warned, "見分けられないことを知らせる");
+                    return;
+                }
+                Assert.IsFalse(warned);
+                Assert.IsTrue(a.isAvatar);
+                Assert.IsFalse(g.isAvatar, "まとめ用のルートはアバターではない");
+                var n = scene.objects.Single(o => o.path == "IrocaAvatarGroupTest/Inner");
+                Assert.IsTrue(n.isAvatar, "その下のアバターも一覧に出る");
+                Assert.AreEqual(1, n.rendererCount);
+                Assert.AreEqual(inner.GetInstanceID(), n.instanceId);
+            } finally {
+                Object.DestroyImmediate(avatar);
+                Object.DestroyImmediate(group);
+                Object.DestroyImmediate(mat);
+            }
+        }
+
         // アバターの外を明示されても登録しない(シーンのプレビューでは色が変わるのに、アップロードでは変わらない)。
         [Test]
         public void Recolor_Avatar_OutsideAnAvatar_IsRefused() {
