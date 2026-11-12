@@ -1024,23 +1024,30 @@ namespace Iroca {
             int w = work.Width, h = work.Height;
             var recolored = Duplicate(work);
             try {
-                var c = new Comparison();
                 SessionRecolor.Apply(recolored.Ptr, w, h, state, ct);
                 ct.ThrowIfCancellationRequested();
-                c.metrics = RecolorPreview.ComputeMetrics(work.Ptr, recolored.Ptr, w, h);
-                try {
-                    var panel = RecolorPreview.BuildComparisonPanel(work.Ptr, recolored.Ptr, w, h,
-                        RecolorPreview.DefaultMaxTile, out int pw, out int ph);
-                    c.panelPng = ExportPipeline.EncodePng(panel, pw, ph);
-                } catch (Exception ex) {
-                    c.panelError = $"{ex.GetType().Name}: {ex.Message}";
-                }
+                var c = BuildComparison(work, recolored);
                 if (keepAfter) {
                     after = recolored;
                     recolored = null;
                 }
                 return c;
             } finally { recolored?.Release(); }
+        }
+
+        // 色替えの前と後の画素(同じ寸法)から、変化の指標と比較画像(PNG)を作る。Unity の API に触らないので背景から呼んでよい。
+        // MCP の色替えと、静的 API・コマンドラインの色替えが使う(以前は静的 API の側が同じことを別に書いていた)。
+        private static unsafe Comparison BuildComparison(NativePixels before, NativePixels after) {
+            int w = before.Width, h = before.Height;
+            var c = new Comparison { metrics = RecolorPreview.ComputeMetrics(before.Ptr, after.Ptr, w, h) };
+            try {
+                var panel = RecolorPreview.BuildComparisonPanel(before.Ptr, after.Ptr, w, h,
+                    RecolorPreview.DefaultMaxTile, out int pw, out int ph);
+                c.panelPng = ExportPipeline.EncodePng(panel, pw, ph);
+            } catch (Exception ex) {
+                c.panelError = $"{ex.GetType().Name}: {ex.Message}";
+            }
+            return c;
         }
 
         // 同じ寸法の写し(ヒープの外。参照 1 で返す)。

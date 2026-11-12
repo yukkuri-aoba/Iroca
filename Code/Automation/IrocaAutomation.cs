@@ -433,13 +433,22 @@ namespace Iroca {
 
                 if (!TryWritePng(pixels, outAbs, srcAbs)) { result.error = "PNG encode failed."; return result; }
 
-                var m = RecolorPreview.ComputeMetrics(originalPixels.Ptr, pixels.Ptr, w, h);
+                // 変化の指標と比較画像は、MCP の色替えと同じ作り(BuildComparison)・同じ置き場(WriteRecolorPanel。UserSettings の下で、
+                // 取り込まない)。比較画像が作れない・書けないのは致命的でない(出力は成功のままで、warnings に残す)。
+                var comparison = BuildComparison(originalPixels, pixels);
+                var m = comparison.metrics;
                 result.changedPixels = m.changedPixels;
                 result.changedFraction = m.changedFraction;
                 result.largestComponentFraction = m.largestComponentFraction;
                 result.changeComponentCount = m.componentCount;
                 result.changeBBox = new[] { m.bboxX, m.bboxY, m.bboxW, m.bboxH };
-                WritePreviewPanel(originalPixels, pixels, srcAbs, result);
+                result.preview = WriteRecolorPanel(comparison, PathUtils.ToAssetsRelativeOrNull(srcAbs) ?? srcAbs, result.warnings);
+                if (result.preview.Length > 0) {
+                    result.note = "Open 'preview' to visually verify the result: left=before, middle=after, "
+                        + "right=changed pixels (magenta). Scattered magenta or a low largestComponentFraction "
+                        + "suggests over-selection; empty magenta where you expected change suggests it was missed. "
+                        + "Adjust 'target'/'tolerance' and re-run if it does not match intent.";
+                }
 
                 result.ok = true;
                 result.output = outAbs;
@@ -458,34 +467,6 @@ namespace Iroca {
         // 出力先に既にファイルがあるときの案内に入れる、置き換えの許しの渡し方。
         private const string OverwriteHint = "overwrite = true (the RecolorByPreset/RecolorWithZones overload with 'overwrite'; "
             + "-irocaOverwrite or \"overwrite\": true in the job file on the command line)";
-
-        /// <summary>
-        /// 変換前/後から比較パネル PNG を組み立てて、MCP の <see cref="Recolor"/> と同じ置き場
-        /// (<see cref="AutomationOutputRules.PreviewPanelPath"/>。UserSettings の下で、取り込まない)へ書く。
-        /// 生成できたら <see cref="RecolorResult.preview"/> とエージェント向け <see cref="RecolorResult.note"/> を設定。
-        /// 失敗は非致命(本体出力は成功のまま)で warnings に残す。
-        /// 以前は出力の隣(&lt;stem&gt;_preview.png)へ書いて取り込んでいたので、出力先ごとに Assets にテクスチャが増え、
-        /// 名前しだいで原本を指すこともあった(その判定は、置き場が Assets の外になって要らなくなった)。
-        /// </summary>
-        private static unsafe void WritePreviewPanel(NativePixels before, NativePixels after, string srcAbs, RecolorResult result) {
-            try {
-                var panel = RecolorPreview.BuildComparisonPanel(
-                    before.Ptr, after.Ptr, before.Width, before.Height, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
-                byte[] png;
-                try { png = ExportPipeline.EncodePng(panel, pw, ph); } catch (Exception) { result.warnings.Add("preview panel PNG encode failed."); return; }
-                string previewAbs = AutomationOutputRules.PreviewPanelPath(PathUtils.ToAssetsRelativeOrNull(srcAbs) ?? srcAbs);
-                Directory.CreateDirectory(Path.GetDirectoryName(previewAbs));
-                AtomicFile.WriteAllBytes(previewAbs, png);
-
-                result.preview = previewAbs;
-                result.note = "Open 'preview' to visually verify the result: left=before, middle=after, "
-                    + "right=changed pixels (magenta). Scattered magenta or a low largestComponentFraction "
-                    + "suggests over-selection; empty magenta where you expected change suggests it was missed. "
-                    + "Adjust 'target'/'tolerance' and re-run if it does not match intent.";
-            } catch (Exception ex) {
-                result.warnings.Add($"preview generation failed: {ex.GetType().Name}: {ex.Message}");
-            }
-        }
 
         /// <summary>
         /// 色替えした画素を PNG にして <paramref name="abs"/> へ書き、取り込む(出力先は確かめ済み)。PNG もヒープの外に作り、
