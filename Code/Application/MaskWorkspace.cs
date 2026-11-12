@@ -294,23 +294,27 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 画素 (cx, cy)(下原点)にあるマスクの、つながっているひとかたまりを消す(右クリックの「ここのマスクを消す」。
-        /// 規則は <see cref="MaskRegionEdit.ErasePieceAt"/>)。AI もメッシュも使わず、マスクの形だけで決まる。
+        /// 画素 (cx, cy)(下原点)にあるマスクを消す(右クリックの「ここのマスクを消す」)。AI もメッシュも使わない。
+        /// <para>
+        /// 消す範囲は、その画素を塗った操作が塗った画素(<paramref name="paintedBy"/>(含めるか, 画素の番号) が返すマスク。
+        /// 参照はここで手放す。規則は <see cref="MaskRegionEdit.ErasePatch"/>)。paintedBy が null か null を返したら
+        /// (何が塗ったか分からない)、つながっているひとかたまり(<see cref="MaskRegionEdit.ErasePieceAt"/>)。
+        /// </para>
         /// zoneId = null は全ゾーン共通の除外。radius は、クリックの狙いの外れを許す幅(マスクの画素)。含めると除外の
         /// 両方が近くにあれば、近いほうだけを消す(同じ距離なら両方)。
         /// 書く直前に <paramref name="beforeWrite"/> を呼ぶ(消す物が無ければ呼ばず、何も書かない。そのとき、全ゾーン共通の
         /// 除外がそこにあれば result.commonOverlap を 1 にする)。寸法が決まっていなければ false。
         /// </summary>
-        public bool ClearPieceAt(string zoneId, int cx, int cy, int radius, System.Action beforeWrite,
-            out MaskRegionEditResult result) {
+        public bool ClearMaskAt(string zoneId, int cx, int cy, int radius, System.Func<bool, int, NativeBitMask> paintedBy,
+            System.Action beforeWrite, out MaskRegionEditResult result) {
             result = default;
             int w = Width, h = Height;
             if (w <= 0 || h <= 0) {
                 return false;
             }
             bool toCommon = zoneId == null;
-            int de = MaskRegionEdit.NearestBitDistance(BitsOf(toCommon ? _common : Layer(false, zoneId)), w, h, cx, cy, radius);
-            int di = MaskRegionEdit.NearestBitDistance(BitsOf(toCommon ? null : Layer(true, zoneId)), w, h, cx, cy, radius);
+            int pe = MaskRegionEdit.NearestBit(BitsOf(toCommon ? _common : Layer(false, zoneId)), w, h, cx, cy, radius, out int de);
+            int pi = MaskRegionEdit.NearestBit(BitsOf(toCommon ? null : Layer(true, zoneId)), w, h, cx, cy, radius, out int di);
             if (de < 0 && di < 0) {
                 if (!toCommon && MaskRegionEdit.AnyBitNear(BitsOf(_common), w, h, cx, cy, radius)) {
                     result.commonOverlap = 1;
@@ -319,15 +323,42 @@ namespace Iroca {
             }
             int nearest = de < 0 ? di : di < 0 ? de : System.Math.Min(de, di);
 
-            NativeBitMask exclude = de != nearest ? null : toCommon ? WritableCommon() : WritableExistingLayer(false, zoneId);
-            NativeBitMask include = di != nearest ? null : WritableExistingLayer(true, zoneId);
-            ulong* common = toCommon ? null : BitsOf(_common);
-            beforeWrite?.Invoke();
-            var work = new List<int>();
-            MaskRegionEdit.ErasePieceAt(BitsOf(exclude), w, h, cx, cy, nearest, common, work, ref result);
-            MaskRegionEdit.ErasePieceAt(BitsOf(include), w, h, cx, cy, nearest, common, work, ref result);
+            // 何が塗ったかは、書く前(履歴が今の版のうち)に聞く。
+            NativeBitMask paintedExclude = de == nearest ? paintedBy?.Invoke(false, pe) : null;
+            NativeBitMask paintedInclude = di == nearest ? paintedBy?.Invoke(true, pi) : null;
+            try {
+                NativeBitMask exclude = de != nearest ? null : toCommon ? WritableCommon() : WritableExistingLayer(false, zoneId);
+                NativeBitMask include = di != nearest ? null : WritableExistingLayer(true, zoneId);
+                ulong* common = toCommon ? null : BitsOf(_common);
+                beforeWrite?.Invoke();
+                var work = new List<int>();
+                ErasePaintedOrPiece(exclude, paintedExclude, cx, cy, nearest, common, work, ref result);
+                ErasePaintedOrPiece(include, paintedInclude, cx, cy, nearest, common, work, ref result);
+            } finally {
+                paintedExclude?.Release();
+                paintedInclude?.Release();
+            }
             return true;
         }
+
+        private void ErasePaintedOrPiece(NativeBitMask layer, NativeBitMask painted, int cx, int cy, int distance,
+            ulong* common, List<int> work, ref MaskRegionEditResult result) {
+            if (layer == null) {
+                return;
+            }
+            if (painted != null && painted.Width == Width && painted.Height == Height) {
+                MaskRegionEdit.ErasePatch(layer.Bits, painted.Bits, layer.Length, common, ref result);
+            } else {
+                MaskRegionEdit.ErasePieceAt(layer.Bits, Width, Height, cx, cy, distance, common, work, ref result);
+            }
+        }
+
+        /// <summary>
+        /// <see cref="ClearMaskAt"/> の、何が塗ったかを使わない形: つながっているひとかたまりを消す(履歴を持たない自動化用)。
+        /// </summary>
+        public bool ClearPieceAt(string zoneId, int cx, int cy, int radius, System.Action beforeWrite,
+            out MaskRegionEditResult result)
+            => ClearMaskAt(zoneId, cx, cy, radius, null, beforeWrite, out result);
 
         private static ulong* BitsOf(NativeBitMask m) => m != null ? m.Bits : null;
 

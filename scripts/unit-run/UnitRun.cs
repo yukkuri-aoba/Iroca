@@ -1121,6 +1121,53 @@ namespace Iroca.UnitRun {
             Check.Equal(-1, Nearest(null, w, h, 4, 4, 3), "層が無い");
         }
 
+        public static void MaskPiece_NearestBitReturnsThePixel() {
+            unsafe {
+                const int w = 9, h = 9;
+                var bits = PackBits(w * h, 4 * w + 7, 6 * w + 4);   // (7, 4) と (4, 6)
+                fixed (ulong* b = bits) {
+                    Check.Equal(6 * w + 4, MaskRegionEdit.NearestBit(b, w, h, 4, 4, 4, out int d), "近いほう(距離 2)の画素");
+                    Check.Equal(2, d, "距離");
+                    Check.Equal(4 * w + 7, MaskRegionEdit.NearestBit(b, w, h, 7, 4, 4, out d), "真上");
+                    Check.Equal(0, d, "距離 0");
+                    Check.Equal(-1, MaskRegionEdit.NearestBit(b, w, h, 0, 0, 2, out d), "半径の中に無い");
+                    Check.Equal(-1, d, "距離も -1");
+                }
+            }
+        }
+
+        // ─── ここのマスクを消す: 塗った操作の画素(patch)をそっくり消す ───
+
+        public static void MaskPatch_ErasesExactlyThePaintedPixelsThatAreStillSet() {
+            unsafe {
+                const int n = 200;   // 語の境目をまたぐ
+                var bits = PackBits(n, 1, 2, 63, 64, 65, 130, 199);
+                var patch = PackBits(n, 2, 63, 64, 131, 199);      // 131 はもう立っていない
+                var common = PackBits(n, 64, 65);
+                var r = new MaskRegionEditResult();
+                fixed (ulong* b = bits, p = patch, c = common) {
+                    MaskRegionEdit.ErasePatch(b, p, n, c, ref r);
+                }
+                Check.Equal(4, r.changed, "立っていた 4 画素だけ数える");
+                Check.Equal(1, r.commonOverlap, "消した画素に重なる共通の除外");
+                Check.True(bits.SequenceEqual(PackBits(n, 1, 65, 130)), "patch の外は残る");
+                Check.True(common.SequenceEqual(PackBits(n, 64, 65)), "共通の除外は消さない");
+            }
+        }
+
+        public static void MaskPatch_NullsAreIgnored() {
+            unsafe {
+                var bits = PackBits(70, 3);
+                var r = new MaskRegionEditResult();
+                fixed (ulong* b = bits) {
+                    MaskRegionEdit.ErasePatch(b, null, 70, null, ref r);
+                    MaskRegionEdit.ErasePatch(null, b, 70, null, ref r);
+                }
+                Check.Equal(0, r.changed, "何もしない");
+                Check.True(Bit(bits, 3), "残る");
+            }
+        }
+
         public static void MaskPiece_ProbeRadiusFollowsTheZoom() {
             Check.Equal(MaskRegionEdit.ClearProbeRadius, MaskRegionEdit.ClearProbeRadiusFor(0.25f), "拡大表示では下限");
             Check.Equal(3, MaskRegionEdit.ClearProbeRadiusFor(1f), "等倍は画面の 3 画素");

@@ -61,8 +61,8 @@ namespace Iroca {
             public string zone = "";
             // true なら全ゾーン共通(zone の代わり。dont_paint と clear だけ)
             public bool common;
-            // 範囲の決め方: "ai"(AI が判定した部分) | "island"(メッシュの UV の島) | "other_meshes"(そのメッシュ以外の全部。dont_paint だけ)
-            // | "mask"(その場所のマスクのつながったかたまり。clear だけ)。既定は clear なら "mask"、ほかは "ai"
+            // 範囲の決め方: "ai"(既定。AI が判定した部分) | "island"(メッシュの UV の島) | "other_meshes"(そのメッシュ以外の全部。dont_paint だけ)
+            // | "mask"(その場所のマスクのつながったかたまり。clear だけ。AI もメッシュも使わない)
             public string by = "";
             // by=ai の部分の大きさ: "auto"(既定) | "fine"(小さめ) | "coarse"(大きめ)
             public string size = "";
@@ -665,9 +665,9 @@ namespace Iroca {
                 return $"mask op '{opName}': 'at' must be [u, v] within 0..1 (bottom-left origin).";
             }
 
-            // 「消す」の既定は右クリックと同じ: その場所のマスクのつながったかたまり(AI に見分け直させない)。
-            string byName = !string.IsNullOrWhiteSpace(m.by) ? m.by.Trim().ToLowerInvariant()
-                : op == MaskRegionOp.ClearHere ? "mask" : "ai";
+            // 「消す」も既定は AI。自動化は Undo の履歴を持たないので、右クリックのように「塗った操作の範囲」は引けないが、
+            // 塗ったときと同じ at・size で頼めば AI は同じ範囲を返す。by:'mask' は AI 無しで、つながったかたまりを消す。
+            string byName = string.IsNullOrWhiteSpace(m.by) ? "ai" : m.by.Trim().ToLowerInvariant();
             AutomationMaskEdits.By by;
             switch (byName) {
                 case "ai": by = AutomationMaskEdits.By.Ai; break;

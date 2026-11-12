@@ -92,9 +92,10 @@ namespace Iroca.McpIntegration {
         + "{name, at:[u,v] or from:'#RRGGBB', to:'#RRGGBB'} and changes every pixel of that color (with its shading), not only "
         + "the clicked spot; send the same name to redo a zone. Existing zones are kept unless reset=true. To limit a zone like the "
         + "window's right-click menu, add 'masks': {op:'dont_paint' (keep this part unpainted), 'only' (paint only this part), 'paint' "
-        + "(also paint this part), at:[u,v], zone:name} applies to the part the AI finds at that spot; "
+        + "(also paint this part) or 'clear' (remove masks here), at:[u,v], zone:name} applies to the part the AI finds at that spot; "
         + "by:'island' uses the mesh's UV island instead, and size:'fine'/'coarse' picks a smaller or larger AI part. "
-        + "op:'clear' removes the connected piece of mask at that spot (no AI; by:'ai'/'island' clears only inside that part). Masks are applied "
+        + "To undo an earlier mask, send 'clear' with the same at/by/size (the same part comes back); by:'mask' instead clears the "
+        + "connected piece of mask at that spot without the AI. Masks are applied "
         + "after 'changes' and before auto-tune. apply='avatar' "
         + "(default) registers it on the avatar non-destructively (shows in the Scene view, applied at upload; needs NDMF, not in "
         + "Play mode; Ctrl+Z undoes it); 'png' writes a PNG under Assets/ (an existing file is replaced only with overwrite=true); "
@@ -110,7 +111,7 @@ namespace Iroca.McpIntegration {
             [ToolParameter("[{\"name\":\"skirt\",\"at\":[u,v],\"to\":\"#1A2B5C\"}]. 'from':'#RRGGBB' instead of 'at' picks by color. Unity color names like \"navy\" also work.", Required = false)]
             public JToken changes { get; set; }
 
-            [ToolParameter("[{\"op\":\"dont_paint\",\"at\":[u,v],\"zone\":\"skirt\"}]. op: dont_paint, only, paint or clear. zone can be omitted if there is one zone; common:true targets all zones (dont_paint, clear). by: ai (default), island, other_meshes (dont_paint only) or mask (clear only, its default: the connected piece of mask there). size (ai): auto, fine or coarse.", Required = false)]
+            [ToolParameter("[{\"op\":\"dont_paint\",\"at\":[u,v],\"zone\":\"skirt\"}]. op: dont_paint, only, paint or clear. zone can be omitted if there is one zone; common:true targets all zones (dont_paint, clear). by: ai (default), island, other_meshes (dont_paint only) or mask (clear only: the connected piece of mask there, no AI). size (ai): auto, fine or coarse.", Required = false)]
             public JToken masks { get; set; }
 
             [ToolParameter("Zone names to remove.", Required = false)]

@@ -94,11 +94,34 @@ namespace Iroca {
             }
         }
 
-        /// <summary>今のマスクを新しい版にして、文書の番号を進める。読み込みなど、マスクを置き換えたときも呼ぶ。</summary>
-        internal void CommitMaskEdit() {
-            _appliedMaskRevision = MaskHistory.Capture(Masks, Document.maskRevision);
+        /// <summary>
+        /// 今のマスクを新しい版にして、文書の番号を進める。読み込みなど、マスクを置き換えたときも呼ぶ。
+        /// <paramref name="regionOp"/> は、範囲の操作(右クリックの「ここも塗る」など)で書き換えたか(<see cref="MaskRegionPaintedAt"/>)。
+        /// </summary>
+        internal void CommitMaskEdit() => CommitMaskEdit(false);
+
+        /// <inheritdoc cref="CommitMaskEdit()"/>
+        internal void CommitMaskEdit(bool regionOp) {
+            _appliedMaskRevision = MaskHistory.Capture(Masks, Document.maskRevision, regionOp);
             Document.maskRevision = _appliedMaskRevision;
             _masksNewerThanDocument = false;
+        }
+
+        /// <summary>
+        /// 編集中のマスクの層(<paramref name="zoneId"/> = null は全ゾーン共通の除外)の画素 <paramref name="pixel"/> を塗った
+        /// 範囲の操作が、その層に塗った画素(新しいマスク。呼び出し側が手放す)。分からなければ null
+        /// (<see cref="MaskHistory.PaintedBy"/>。編集中のマスクが履歴の今の版と食い違っているときも null)。
+        /// </summary>
+        internal NativeBitMask MaskRegionPaintedAt(string zoneId, bool include, int pixel) {
+            if (_masksNewerThanDocument || _appliedMaskRevision != Document.maskRevision) {
+                return null;
+            }
+            var painted = MaskHistory.PaintedBy(Document.maskRevision, zoneId, include, pixel);
+            if (painted != null && (painted.Width != Masks.Width || painted.Height != Masks.Height)) {
+                painted.Release();
+                return null;
+            }
+            return painted;
         }
 
         /// <summary>

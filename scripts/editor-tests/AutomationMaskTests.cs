@@ -130,21 +130,29 @@ namespace Iroca.EditorTests {
 
         [Test]
         public void Operations_AreAppliedInOrder_ClearUndoesTheEarlierOne() {
-            // 「消す」は AI に見分け直させない(提案は「塗らない」の 1 回だけ)。その場所のマスクのかたまりを消す。
             var r = RunOk(Request(AllRed(), RedZone,
                     "[{\"op\":\"dont_paint\",\"at\":[0.25,0.5]},{\"op\":\"clear\",\"at\":[0.25,0.5]}]"),
-                Half(left: true));
+                Half(left: true), Half(left: true));
             Assert.AreEqual(1f, r.changedFraction, 1e-4f);
             Assert.AreEqual(2, r.maskEdits.Count);
-            Assert.AreEqual("mask", r.maskEdits[1].by, "消すの既定はマスクのかたまり");
+        }
+
+        [Test]
+        public void Clear_ByMask_ClearsTheConnectedPieceWithoutTheAi() {
+            // by:'mask' は AI に見分けさせない(提案は「塗らない」の 1 回だけ)。その場所のマスクのかたまりを消す。
+            var r = RunOk(Request(AllRed(), RedZone,
+                    "[{\"op\":\"dont_paint\",\"at\":[0.25,0.5]},{\"op\":\"clear\",\"at\":[0.25,0.5],\"by\":\"mask\"}]"),
+                Half(left: true));
+            Assert.AreEqual(1f, r.changedFraction, 1e-4f);
+            Assert.AreEqual("mask", r.maskEdits[1].by);
             Assert.AreEqual(W * H / 2, r.maskEdits[1].changedPixels);
             Assert.AreEqual(0.5f, r.maskEdits[1].regionFraction, 1e-4f);
         }
 
         [Test]
-        public void Clear_WhereThereIsNoMask_ChangesNothingAndSaysSo() {
+        public void Clear_ByMask_WhereThereIsNoMask_ChangesNothingAndSaysSo() {
             var r = RunOk(Request(AllRed(), RedZone,
-                    "[{\"op\":\"dont_paint\",\"at\":[0.25,0.5]},{\"op\":\"clear\",\"at\":[0.75,0.5]}]"),
+                    "[{\"op\":\"dont_paint\",\"at\":[0.25,0.5]},{\"op\":\"clear\",\"at\":[0.75,0.5],\"by\":\"mask\"}]"),
                 Half(left: true));
             Assert.AreEqual(0.5f, r.changedFraction, 1e-4f, "左の「塗らない」は残る");
             Assert.AreEqual(0, r.maskEdits[1].changedPixels);

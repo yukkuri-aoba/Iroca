@@ -284,12 +284,31 @@ namespace Iroca {
         /// 半径 radius の正方形の中に無ければ -1。bits が null でも -1。
         /// </summary>
         public static int NearestBitDistance(ulong* bits, int w, int h, int cx, int cy, int radius) {
+            NearestBit(bits, w, h, cx, cy, radius, out int distance);
+            return distance;
+        }
+
+        /// <summary>
+        /// 中心 (cx, cy) にいちばん近い立っている画素の番号(y * w + x)と、そこまでの距離(<see cref="NearestBitDistance"/>)。
+        /// 半径の中に無ければどちらも -1。同じ距離に何個もあれば、下の行・左の画素を先に選ぶ。
+        /// </summary>
+        public static int NearestBit(ulong* bits, int w, int h, int cx, int cy, int radius, out int distance) {
+            distance = -1;
             if (bits == null || w <= 0 || h <= 0) {
                 return -1;
             }
             for (int r = 0; r <= radius; r++) {
-                if (AnyBitOnRing(bits, w, h, cx, cy, r)) {
-                    return r;
+                int found = -1;
+                VisitRing(w, h, cx, cy, r, i => {
+                    if (!Bit(bits, i)) {
+                        return false;
+                    }
+                    found = i;
+                    return true;
+                });
+                if (found >= 0) {
+                    distance = r;
+                    return found;
                 }
             }
             return -1;
@@ -318,16 +337,46 @@ namespace Iroca {
             return false;
         }
 
-        private static bool AnyBitOnRing(ulong* bits, int w, int h, int cx, int cy, int r)
-            => VisitRing(w, h, cx, cy, r, i => Bit(bits, i));
+        // 立っているビットの数(Unity の Mono には BitOperations が無い)。
+        private static int PopCount(ulong v) {
+            v -= (v >> 1) & 0x5555555555555555UL;
+            v = (v & 0x3333333333333333UL) + ((v >> 2) & 0x3333333333333333UL);
+            v = (v + (v >> 4)) & 0x0F0F0F0F0F0F0F0FUL;
+            return (int)((v * 0x0101010101010101UL) >> 56);
+        }
 
         /// <summary>
-        /// 「ここのマスクを消す」の本体: クリックした所のマスクの、つながっているひとかたまり(縦横斜めの 8 方向)を消す。
+        /// 「ここのマスクを消す」の本体(1): その場所を塗った操作が塗った画素(patch。マスクと同じ寸法のビット)を、マスクから消す。
         /// <para>
-        /// 以前は消す範囲を AI に見分け直させていた。塗ったときとは別のクリックなので範囲が同じにならず、縁に細い切れ端が
-        /// 残った(ブラシやメッシュの島で塗ったマスクは、AI の範囲とそもそも合わない)。消したい物はマスクそのもので、
-        /// どこにあるかは分かっているので、推定を挟まずにマスクの形をそのまま使う。
+        /// 以前は消す範囲を AI に見分け直させていた。塗ったときとは別のクリックなので同じ範囲にならず、同じ部分を押しても
+        /// 半分以上の場合で縁や離れた所に細かい消し残りが出た(2026-11-12 の計測。84 組中 45 組)。右クリックの 1 回で塗られる
+        /// 範囲は、本体のほかに離れた島や細かい点を含むので、つながりだけでも決められない(60 件中 44 件が複数のかたまり)。
+        /// 何を塗ったかは Undo の履歴が持っているので、推定を挟まずにそれを使う(MaskHistory.PaintedBy)。
         /// </para>
+        /// n はマスクの画素数。消した画素数と、そのうち全ゾーン共通の除外(common。null 可)が重なる画素数を
+        /// <paramref name="r"/> に足す。patch のうち、いまはもう立っていない画素(後の操作で消した所)は何もしない。
+        /// </summary>
+        public static void ErasePatch(ulong* bits, ulong* patch, int n, ulong* common, ref MaskRegionEditResult r) {
+            if (bits == null || patch == null) {
+                return;
+            }
+            int words = (n + 63) >> 6;
+            for (int k = 0; k < words; k++) {
+                ulong hit = bits[k] & patch[k];
+                if (hit == 0UL) {
+                    continue;
+                }
+                bits[k] &= ~hit;
+                r.changed += PopCount(hit);
+                if (common != null) {
+                    r.commonOverlap += PopCount(hit & common[k]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 「ここのマスクを消す」の本体(2): クリックした所のマスクの、つながっているひとかたまり(縦横斜めの 8 方向)を消す。
+        /// 何が塗ったか分からないマスク(ブラシで塗った・履歴が残っていない)に使う。
         /// 中心 (cx, cy) から距離 distance(<see cref="NearestBitDistance"/> の戻り値)にある立っている画素を起点にする。
         /// 消した画素数と、そのうち全ゾーン共通の除外(common。null 可)が重なる画素数を <paramref name="r"/> に足す。
         /// work は起点の置き場(中身は捨てる。呼び出しをまたいで使い回せる)。

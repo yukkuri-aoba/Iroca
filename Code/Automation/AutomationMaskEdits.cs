@@ -9,7 +9,8 @@ namespace Iroca {
     /// 自動化 API(MCP)のマスク操作。プレビューの右クリックと同じ操作(ここも塗る・ここは塗らない・この部分だけ塗る・
     /// ここのマスクを消す)を、編集状態のマスクへ順に当てる。範囲は右クリックと同じく AI の提案かメッシュの UV の島で、
     /// 当てる規則は <see cref="MaskWorkspace.ApplyRegion"/>、提案の転写は <see cref="ProposalMaskRegion"/> を共有する。
-    /// 「消す」の既定は右クリックと同じく、その場所のマスクのつながったかたまり(<see cref="MaskWorkspace.ClearPieceAt"/>)。
+    /// 「消す」は by:'mask' で、その場所のマスクのつながったかたまりも選べる(<see cref="MaskWorkspace.ClearPieceAt"/>。
+    /// 右クリックの「ここのマスクを消す」は Undo の履歴から塗った操作の範囲を引くが、自動化は履歴を持たない)。
     /// AI の提案は EditorApplication.update で進むので、メインスレッドの <see cref="Advance"/> で進める
     /// (<see cref="AutomationAutoTune"/> と同じ。update と MCP の問い合わせのたび)。
     /// </summary>
@@ -223,7 +224,7 @@ namespace Iroca {
             try { ApplyRegion(edit, region, region.CountTrue()); } finally { region.Release(); }
         }
 
-        // その場所のマスクの、つながっているひとかたまりを消す(右クリックの「ここのマスクを消す」と同じ。AI もメッシュも使わない)。
+        // その場所のマスクの、つながっているひとかたまりを消す(AI もメッシュも使わない)。
         private void ClearPiece(Edit edit) {
             EnsureMasks();
             PreviewCoords.UvToPixel(edit.uv.x, edit.uv.y, _masks.Width, _masks.Height, out int x, out int y);

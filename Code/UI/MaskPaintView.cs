@@ -623,19 +623,22 @@ namespace Iroca {
         // 範囲(マスクと同じ寸法)を当てる本体。
         private unsafe bool ApplyRegion(bool* region, MaskDestination d, out MaskRegionEditResult result) {
             MaskRegionEditResult r = default;
-            bool ok = EditAsOneStroke(d.zoneId, beforeWrite => Workspace.ApplyRegion(region, d.zoneId, d.op, beforeWrite, out r));
+            // 範囲の操作として版にする(「ここのマスクを消す」が、この操作で塗った画素をそっくり消せるように)。
+            bool ok = EditAsOneStroke(d.zoneId, true,
+                beforeWrite => Workspace.ApplyRegion(region, d.zoneId, d.op, beforeWrite, out r));
             result = r;
             return ok;
         }
 
         /// <summary>
         /// 右クリックの「ここのマスクを消す」: クリックした所(<paramref name="uv"/>)にある、ゾーン <paramref name="zoneId"/>
-        /// (null = 全ゾーン共通)のマスクの、つながっているひとかたまりを消す。1 つの Undo ストロークになる。
-        /// AI もメッシュも使わない(規則は <see cref="MaskWorkspace.ClearPieceAt"/>)。<paramref name="radius"/> は
-        /// クリックの狙いの外れを許す幅(マスクの画素)。消す物が無ければ何も書かず、result.changed は 0。
-        /// 宛先のゾーンが消えていれば false。
+        /// (null = 全ゾーン共通)のマスクを消す。1 つの Undo ストロークになる。AI もメッシュも使わない。
+        /// 消す範囲は、その場所を塗った範囲の操作(右クリックの 1 回)が塗った画素(Undo の履歴から分かるとき)。ブラシで塗った所や
+        /// 履歴が残っていない所は、つながっているひとかたまり(規則は <see cref="MaskWorkspace.ClearMaskAt"/>)。
+        /// <paramref name="radius"/> はクリックの狙いの外れを許す幅(マスクの画素)。消す物が無ければ何も書かず、
+        /// result.changed は 0。宛先のゾーンが消えていれば false。
         /// </summary>
-        public bool ClearPieceAt(Vector2 uv, string zoneId, int radius, out MaskRegionEditResult result) {
+        public bool ClearMaskAt(Vector2 uv, string zoneId, int radius, out MaskRegionEditResult result) {
             result = default;
             EnsureMasks();
             if (maskWidth <= 0 || maskHeight <= 0) {
@@ -643,14 +646,16 @@ namespace Iroca {
             }
             PreviewCoords.UvToPixel(uv.x, uv.y, maskWidth, maskHeight, out int cx, out int cy);
             MaskRegionEditResult r = default;
-            bool ok = EditAsOneStroke(zoneId, beforeWrite => Workspace.ClearPieceAt(zoneId, cx, cy, radius, beforeWrite, out r));
+            var editing = _host.Editing;
+            bool ok = EditAsOneStroke(zoneId, false, beforeWrite => Workspace.ClearMaskAt(zoneId, cx, cy, radius,
+                (include, pixel) => editing.MaskRegionPaintedAt(zoneId, include, pixel), beforeWrite, out r));
             result = r;
             return ok;
         }
 
         // マスクを書き換える操作 1 つを、1 つの Undo ストロークにする。edit には「書く直前に呼ぶ物」を渡す
-        // (呼ばれなければ何も書いていない)。宛先のゾーンが消えていれば false。
-        private bool EditAsOneStroke(string zoneId, System.Func<System.Action, bool> edit) {
+        // (呼ばれなければ何も書いていない)。宛先のゾーンが消えていれば false。regionOp = 範囲の操作か(版に印を付ける)。
+        private bool EditAsOneStroke(string zoneId, bool regionOp, System.Func<System.Action, bool> edit) {
             if (zoneId != null && FindZone(zoneId) == null) {
                 return false;
             }
@@ -668,7 +673,7 @@ namespace Iroca {
             if (!wrote) {
                 return true;
             }
-            EndStroke();
+            EndStroke(regionOp);
             _host.NotifyMasksEditedFullRefine();
             _host.RequestRepaint();
             return true;
@@ -985,11 +990,11 @@ namespace Iroca {
         /// <summary>
         /// ペイントストローク終了時に呼び、ストローク後のマスクを新しい版にする(Redo で戻す先)。
         /// </summary>
-        public void EndStroke() {
+        public void EndStroke(bool regionOp = false) {
             if (!_maskStrokeStarted) {
                 return;
             }
-            _host.Editing.CommitMaskEdit();
+            _host.Editing.CommitMaskEdit(regionOp);
             _maskStrokeStarted = false;
             // ストローク中の直接書き込みは表示テクスチャのみの更新なので、確定時に一度だけ
             // 正規の再構築を予約して収束させる(保留した非同期結果や対象切替の過渡も含む)。
