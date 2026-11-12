@@ -179,8 +179,13 @@ namespace Iroca {
             var rt = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32,
                 srgb ? RenderTextureReadWrite.sRGB : RenderTextureReadWrite.Linear);
             var active = RenderTexture.active;
+            // 取り込み済みのテクスチャをそのまま Blit すると、GPU に最上位のミップが載っていないときに、下位のミップを引き伸ばした
+            // 画素を「原本」として読む(Quality の Global Mipmap Limit が Half 以下・Mipmap Limit Group・ミップのストリーミング)。
+            // 同じ中身で上限もストリーミングも効かない写しを作り、それを Blit する(2026-11-13 の実測: 1 画素の市松の BC7 を
+            // Half で読むと、全画素が最大 188 段ずれていた)。
+            var full = CopyWithoutMipmapLimit(source, !srgb);
             try {
-                Graphics.Blit(source, rt);
+                Graphics.Blit(full != null ? full : source, rt);
                 RenderTexture.active = rt;
                 var result = new Texture2D(w, h, TextureFormat.RGBA32, false, !srgb);
                 result.ReadPixels(new Rect(0, 0, w, h), 0, 0, false);
@@ -188,6 +193,37 @@ namespace Iroca {
             } finally {
                 RenderTexture.active = active;
                 RenderTexture.ReleaseTemporary(rt);
+                if (full != null) {
+                    UnityEngine.Object.DestroyImmediate(full);
+                }
+            }
+        }
+
+        /// <summary>
+        /// source と同じ中身(圧縮されたままの生データ。全ミップ)で、ミップの上限もストリーミングも効かないテクスチャ
+        /// (呼ぶ側が破棄する)。スクリプトで作ったテクスチャはストリーミングされず、上限は ignoreMipmapLimit で外す。
+        /// 一時的に、圧縮した大きさ(4K BC7 で約 21MB)の CPU 側の写しと GPU への 1 回のアップロードが要る。
+        /// 読めない(Read/Write が無効)・作れないときは null(呼ぶ側は source をそのまま使う)。
+        /// </summary>
+        private static Texture2D CopyWithoutMipmapLimit(Texture2D source, bool linear) {
+            if (!source.isReadable) {
+                return null;
+            }
+            Texture2D copy = null;
+            try {
+                copy = new Texture2D(source.width, source.height, source.format, source.mipmapCount, linear);
+                copy.LoadRawTextureData(source.GetRawTextureData<byte>());
+                // 上限を外す印は、生データを読み込んだ後・GPU へ上げる前に立てる。2022.3 では、Crunch の生データを読み込むと
+                // 印が既定(外さない)へ戻る(作るときに立てても戻る。2026-11-13 に DXT5Crunched で確認)。
+                copy.ignoreMipmapLimit = true;
+                copy.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+                return copy;
+            } catch (Exception e) when (e is UnityException || e is ArgumentException || e is InvalidOperationException) {
+                // 形式によっては同じ形のテクスチャを作れない・生データを写せないことがある。そのときは従来どおり source から読む。
+                if (copy != null) {
+                    UnityEngine.Object.DestroyImmediate(copy);
+                }
+                return null;
             }
         }
 

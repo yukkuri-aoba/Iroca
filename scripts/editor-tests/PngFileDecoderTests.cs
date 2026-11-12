@@ -504,7 +504,22 @@ namespace Iroca.EditorTests {
         [TestCase(TextureImporterFormat.RGBAHalf, 0)]
         [TestCase(TextureImporterFormat.BC6H, 3)]
         [TestCase(TextureImporterFormat.BC5, 0)]
-        public void CompressedTexture_ReadsLikeGetPixels32(TextureImporterFormat format, int allowed) {
+        public void CompressedTexture_ReadsLikeGetPixels32(TextureImporterFormat format, int allowed)
+            => AssertCompressedReadsLikeGetPixels32(format, allowed, mipmapLimit: 0);
+
+        // Quality の Global Mipmap Limit が Half のときも、最上位のミップ(= GetPixels32 と同じ画素)を読む。以前は取り込み済みの
+        // テクスチャをそのまま GPU で展開していて、GPU に載っているのが半分の解像度のミップだけになり、それを引き伸ばした
+        // 画素を原本として読んでいた(窓・書き出し・非破壊ビルドの全部)。GPU が要るので、-Graphics を付けて回したときだけ効く。
+        [TestCase(TextureImporterFormat.DXT1, 1)]
+        [TestCase(TextureImporterFormat.DXT5, 1)]
+        [TestCase(TextureImporterFormat.DXT1Crunched, 1)]
+        [TestCase(TextureImporterFormat.DXT5Crunched, 1)]
+        [TestCase(TextureImporterFormat.BC7, 0)]
+        [TestCase(TextureImporterFormat.RGBAHalf, 0)]
+        public void CompressedTexture_ReadsTheTopMip_UnderAGlobalMipmapLimit(TextureImporterFormat format, int allowed)
+            => AssertCompressedReadsLikeGetPixels32(format, allowed, mipmapLimit: 1);
+
+        private void AssertCompressedReadsLikeGetPixels32(TextureImporterFormat format, int allowed, int mipmapLimit) {
             const int size = 128;
             var px = new Color32[size * size];
             var r = new System.Random(5);
@@ -516,6 +531,8 @@ namespace Iroca.EditorTests {
             string path = _assets.WritePng("compressed", px, size, size);
             var importer = (TextureImporter)AssetImporter.GetAtPath(path);
             importer.isReadable = true;
+            importer.mipmapEnabled = true;
+            importer.ignoreMipmapLimit = false;
             var ps = importer.GetPlatformTextureSettings("Standalone");
             ps.overridden = true;
             ps.format = format;
@@ -523,7 +540,14 @@ namespace Iroca.EditorTests {
             importer.SaveAndReimport();
             var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             var expected = tex.GetPixels32();
-            var got = WorkingResolution.NativePixelsOf(tex, null);
+            int limitBefore = QualitySettings.globalTextureMipmapLimit;
+            NativePixels got;
+            QualitySettings.globalTextureMipmapLimit = mipmapLimit;
+            try {
+                got = WorkingResolution.NativePixelsOf(tex, null);
+            } finally {
+                QualitySettings.globalTextureMipmapLimit = limitBefore;
+            }
             try {
                 int max = 0;
                 var a = got.ToArray();
