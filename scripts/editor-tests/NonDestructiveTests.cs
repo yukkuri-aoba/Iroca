@@ -292,6 +292,23 @@ namespace Iroca.EditorTests {
                 GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat), "色空間(sRGB)が取り込みと違う");
         }
 
+        // 取り込みと同じ処理(TextureGenerator)で作ったものが取り込み済みと違う寸法・形式になったら、以前の作りへ戻す。その判定。
+        // 取り込みの結果を変えるほかの仕組み(Build Settings の Asset Import Overrides など)があると、ここで渡す設定だけでは同じにならない。
+        [Test]
+        public void SameShape_ComparesSizeFormatAndMipCount() {
+            var like = ImportSource(maxSize: 32);
+            var same = Track(RecipeTextureBuilder.CreateMatching(Bands(), W, H, like));
+            Assert.IsTrue(RecipeTextureBuilder.SameShape(same, like), "取り込みと同じ処理で作ったものが、取り込み済みと違う形になった");
+
+            var bigger = Track(new Texture2D(like.width * 2, like.height * 2, like.format, like.mipmapCount > 1));
+            Assert.IsFalse(RecipeTextureBuilder.SameShape(bigger, like), "寸法が違うのに同じとした(VRAM が 4 倍になる)");
+            var otherFormat = Track(new Texture2D(like.width, like.height,
+                like.format == TextureFormat.RGBA32 ? TextureFormat.RGB24 : TextureFormat.RGBA32, like.mipmapCount > 1));
+            Assert.IsFalse(RecipeTextureBuilder.SameShape(otherFormat, like), "形式が違うのに同じとした");
+            var noMips = Track(new Texture2D(like.width, like.height, like.format, like.mipmapCount <= 1));
+            Assert.IsFalse(RecipeTextureBuilder.SameShape(noMips, like), "ミップの有無が違うのに同じとした");
+        }
+
         // mipmap limit の設定(「Ignore Mipmap Limit」と Mipmap Limit Group)を元の取り込みから写す(利用者の画質設定の上限が
         // 元と同じように効く)。非圧縮(形式の詰め替えで作り直す)・圧縮・キャッシュからの 3 通り。Unity 6 では既定の作り方だと
         // 上限を無視するテクスチャになる(2022.3 は無視しない)ので、両方の版で回す。

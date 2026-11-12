@@ -457,7 +457,10 @@ namespace Iroca {
         private static unsafe Texture2D CreateMatching(Color32* pixels, int width, int height, Texture2D like) {
             var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) as TextureImporter;
             if (importer != null && GeneratesLikeImport(importer)) {
-                return GenerateLikeImport(pixels, width, height, like, importer);
+                var generated = GenerateLikeImport(pixels, width, height, like, importer);
+                if (generated != null) {
+                    return generated;
+                }
             }
             var tex = CreateUncompressed(pixels, width, height, like);
             Compress(tex, like);
@@ -486,6 +489,8 @@ namespace Iroca {
         /// Tests/Baselines/texgen-2026-11-11)。呼んでいる間だけ作業領域が増える(この呼び出しだけなら 4K で +0.36GB・8K で +1.7GB、
         /// ビルド全体の山では 4K で +0.13GB・8K で +0.8GB。終われば返り、後に残る量は増えない)。メインスレッドで呼ぶ。
         /// 読み書きできるまま返す(キャッシュへ書くため。読めなくするのは <see cref="FinishLike"/>)。
+        /// 出来上がりが取り込み済みの <paramref name="like"/> と違う寸法・形式・ミップ数になったら null を返す(呼ぶ側が以前の作りで
+        /// 作る。<see cref="SameShape"/>)。
         /// </summary>
         private static unsafe Texture2D GenerateLikeImport(Color32* pixels, int width, int height, Texture2D like,
             TextureImporter importer) {
@@ -517,6 +522,14 @@ namespace Iroca {
             if (tex == null) {
                 throw new InvalidOperationException($"TextureGenerator がテクスチャを返しませんでした: {like.name}");
             }
+            // 取り込み済みと違う寸法・形式のものを、ビルドやプレビューへ入れない(キャッシュにも残る)。ここで渡す設定は取り込み設定と
+            // ビルド対象のプラットフォーム設定だけで、取り込みの結果を変えるほかの仕組み(Build Settings の Asset Import Overrides の
+            // 最大寸法・圧縮の上書きなど)は見ていない。違ったら捨てて、取り込み済みの寸法・形式に必ずそろえる以前の作りへ戻す。
+            if (!SameShape(tex, like)) {
+                WarnShapeMismatchOnce(tex, like);
+                UnityEngine.Object.DestroyImmediate(tex);
+                return null;
+            }
             // TextureGenerator は Mipmap Limit Group を写さない(作った後には変えられない)。グループが元と違えば、同じ寸法・形式・
             // ミップ数で mipmap limit を写したテクスチャを作り(NewLike)、生データを写す(圧縮済みの大きさ。4K BC7 で 21MB)。
             if (tex.mipmapLimitGroup != like.mipmapLimitGroup) {
@@ -539,6 +552,25 @@ namespace Iroca {
             return tex;
         }
 
+        /// <summary>出来上がりが、取り込み済みのテクスチャと同じ寸法・形式・ミップ数か。</summary>
+        internal static bool SameShape(Texture2D tex, Texture2D like)
+            => tex.width == like.width && tex.height == like.height && tex.format == like.format
+                && tex.mipmapCount == like.mipmapCount;
+
+        // 同じテクスチャについては 1 回だけ知らせる(ビルド・プレビューのたびに出さない)。
+        private static readonly HashSet<string> s_shapeMismatchWarned = new HashSet<string>();
+
+        private static void WarnShapeMismatchOnce(Texture2D tex, Texture2D like) {
+            string path = AssetDatabase.GetAssetPath(like);
+            if (!s_shapeMismatchWarned.Add(path ?? like.name)) {
+                return;
+            }
+            Debug.LogWarning($"[Iroca] {path}: the recolored texture built with the import settings came out as "
+                + $"{tex.width}x{tex.height} {tex.format} (mips {tex.mipmapCount}), but the imported texture is "
+                + $"{like.width}x{like.height} {like.format} (mips {like.mipmapCount}). Built it to match the imported texture instead "
+                + "(mipmap filter settings such as Kaiser are not applied). Asset Import Overrides in Build Settings can cause this.");
+        }
+
         // 今のビルド対象のプラットフォーム設定(取り込みが使うもの)。上書きしていなければ既定の設定(Standalone の名前で
         // 引くと、上書きしていないときに形式が既定と違うものになる)。
         private static TextureImporterPlatformSettings PlatformSettingsForBuild(TextureImporter importer) {
@@ -555,8 +587,11 @@ namespace Iroca {
         private static unsafe Texture2D CreateMatchingUncompressedOrFull(NativePixels pixels, Texture2D like, out bool compressed) {
             var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) as TextureImporter;
             if (importer != null && GeneratesLikeImport(importer)) {
-                compressed = true;
-                return GenerateLikeImport(pixels.Ptr, pixels.Width, pixels.Height, like, importer);
+                var generated = GenerateLikeImport(pixels.Ptr, pixels.Width, pixels.Height, like, importer);
+                if (generated != null) {
+                    compressed = true;
+                    return generated;
+                }
             }
             compressed = false;
             return CreateUncompressed(pixels, like);
