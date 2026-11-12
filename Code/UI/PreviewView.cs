@@ -819,12 +819,10 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 計算の側から受け取った結果(表示寸法の変更後・変更前)をテクスチャへ上げ、マスクの重ね表示と拡大表示を
-        /// 追従させる。
+        /// 計算の側から受け取った結果(表示寸法の変更後・変更前)をテクスチャへ上げ、拡大表示を追従させる
+        /// (マスクの重ね表示は <see cref="TickMaskOverlay"/>)。
         /// </summary>
         private void ApplyPendingPreview(PreviewFrame frame) {
-            int w = frame.Width;
-            int h = frame.Height;
             var stage = frame.Stage;
             if (stage != null) {
                 stage.UploadStart = PreviewLatencyCycle.Now;
@@ -832,15 +830,10 @@ namespace Iroca {
 
             _renderer.UploadFrame(frame);
 
-            var maskView = _host._maskView;
-            // オーバーレイ寸法はプレビュー寸法の整数倍(表示倍率に追従。OverlayScale が正)。
-            int ovScale = maskView.OverlayScale(w, h, EffectiveZoom);
-            int ovW = w * ovScale, ovH = h * ovScale;
-            if (maskView.overlayBuiltW != ovW || maskView.overlayBuiltH != ovH || maskView.maskDirty) {
-                // 非同期スケジュール：結果は次フレームの Draw 冒頭で ApplyPendingOverlay により反映
-                maskView.RebuildMaskOverlay(ovW, ovH);
-                maskView.maskDirty = false;
-            }
+            // マスクの重ね表示の作り直しは、同じ Draw の後ろで呼ばれる TickMaskOverlay だけが決める(表示寸法が変わったことも
+            // そこで拾う)。以前はここでも全体用だけを作り直して maskDirty を下ろしていたので、マスクの変更と結果が同じ
+            // 描画に重なると、拡大表示用の重ね表示が作り直されず、次の切り出しが届くまで古いマスクのままだった
+            // (AI 提案の反映やゾーンの切り替えの直後)。塗っている間の間引きも素通りしていた。
 
             // 拡大表示(詳細クロップ)は確定(フル段)の出力から切り出すので、確定を出したときだけ
             // 作り直させる。プロキシの直後は何もしない(切り出し元のフル段の出力がまだ前の状態のまま)。
