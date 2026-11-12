@@ -120,8 +120,9 @@ namespace Iroca {
         /// そのテクスチャのレシピがちょうど 1 つのときだけ結び付ける。
         /// </summary>
         private bool TryLoadSessionFromRecipe() {
-            BindRecipe(SessionPersistence.RecipeFor(SourceTexture, BoundRecipe));
-            RefreshUnboundRecipeCount();
+            BindRecipe(SessionPersistence.RecipeFor(SourceTexture, BoundRecipe, out int foundCount));
+            // いま探した数をそのまま使う(同じ探索を続けてもう一度しない)。
+            SetUnboundRecipeCount(foundCount);
             if (Doc.boundRecipe == null) {
                 return false;
             }
@@ -150,8 +151,31 @@ namespace Iroca {
         [System.NonSerialized] private int _unboundRecipeCount;
         internal int UnboundRecipeCount => _unboundRecipeCount;
 
-        private void RefreshUnboundRecipeCount() =>
-            _unboundRecipeCount = SourceTexture != null && BoundRecipe == null ? RecipeStore.FindForTexture(SourceTexture).Count : 0;
+        // 数えたときの(テクスチャ, 結び付いていたか)。数はこの組とプロジェクトのレシピの顔ぶれで決まる。
+        [System.NonSerialized] private Texture2D _unboundCountFor;
+        [System.NonSerialized] private bool _unboundCountWasBound;
+        [System.NonSerialized] private bool _unboundCountValid;
+
+        /// <summary>
+        /// 結び付いていないテクスチャのレシピを数え直す。<paramref name="force"/> が false なら、前に数えたときと
+        /// (テクスチャ, 結び付いているか)が同じときは探さない(Undo・窓の有効化。レシピの顔ぶれが変わったとき = 取り込み・削除は
+        /// force で数え直す)。以前は、結び付いていないテクスチャで Ctrl+Z を押すたびに、プロジェクトの全レシピを探していた。
+        /// </summary>
+        private void RefreshUnboundRecipeCount(bool force = true) {
+            bool bound = BoundRecipe != null;
+            if (!force && _unboundCountValid && _unboundCountFor == SourceTexture && _unboundCountWasBound == bound) {
+                return;
+            }
+            SetUnboundRecipeCount(SourceTexture != null && !bound ? RecipeStore.FindForTexture(SourceTexture).Count : 0);
+        }
+
+        // 探した結果の数を覚える(found が負 = 探していないので 0。結び付いていれば数は使わない)。
+        private void SetUnboundRecipeCount(int found) {
+            _unboundCountFor = SourceTexture;
+            _unboundCountWasBound = BoundRecipe != null;
+            _unboundCountValid = true;
+            _unboundRecipeCount = SourceTexture != null && BoundRecipe == null ? System.Math.Max(0, found) : 0;
+        }
 
         /// <summary>結び付いたレシピへ今の編集内容を書く。<paramref name="saved"/> はマスク込みのもの(<see cref="EditingSession.ToSaveState"/>)。</summary>
         private void SaveSessionToBoundRecipe(IrocaSessionState saved) {
@@ -277,6 +301,19 @@ namespace Iroca {
                 ScheduleRecipeReload();
             }
             RefreshUnboundRecipeCount();
+        }
+
+        /// <summary>
+        /// .asset が削除されたときに呼ばれる(<see cref="RecipeImportWatcher"/>。消えたものの型は引けないので、レシピとは限らない)。
+        /// 結び付いていないレシピの数を数え直す。以前は取り込みしか見ておらず、レシピを Project で消しても
+        /// 「結び付いていないレシピが n 個」の案内が古い数のままだった。
+        /// </summary>
+        internal void OnAssetFilesDeleted() {
+            // 数が要るのは、テクスチャを開いていて結び付いていないときだけ(それ以外は探さない)。
+            if (SourceTexture != null && BoundRecipe == null) {
+                RefreshUnboundRecipeCount();
+                Repaint();
+            }
         }
 
         /// <summary>
@@ -555,6 +592,7 @@ namespace Iroca {
                 return;
             }
             bool anyAsset = ContainsRecipe(importedAssets);
+            bool anyDeletedAsset = ContainsAssetFile(deletedAssets);
             foreach (var e in EditingSessionRegistry.Snapshot()) {
                 if (!(e is IrocaWindow w)) {
                     continue;
@@ -562,8 +600,21 @@ namespace Iroca {
                 if (anyAsset) {
                     w.OnRecipeAssetsImported();
                 }
+                if (anyDeletedAsset) {
+                    w.OnAssetFilesDeleted();
+                }
                 w.OnSourceAssetImported(importedAssets);
             }
+        }
+
+        // 消えたものに .asset があるか(消えた後は型を引けないので、拡張子だけで見る)。
+        private static bool ContainsAssetFile(string[] paths) {
+            foreach (var path in paths) {
+                if (path.EndsWith(".asset", System.StringComparison.OrdinalIgnoreCase)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // レシピの .asset が取り込まれたときだけ、窓のレシピを確かめて数え直す(数え直しはプロジェクトのレシピ探し)。

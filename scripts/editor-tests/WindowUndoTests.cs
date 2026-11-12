@@ -407,6 +407,28 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(2, _win.UnboundRecipeCount);
         }
 
+        // 結び付いていないレシピの数は、レシピが増えた・消えたときに数え直す(レシピを Project で消しても、案内が古い数のままだった)。
+        [Test]
+        public void UnboundRecipeCount_FollowsCreatedAndDeletedRecipes() {
+            var texture = _win.SourceTexture;
+            var content = new IrocaSessionState();
+            content.zones.Add(new ColorZone { name = "レシピの内容" });
+            var a = RecipeStore.Create(texture, content, _assets.Folder);
+            var b = RecipeStore.Create(texture, content, _assets.Folder);
+            _win.SwitchSourceTexture(texture);
+            Assert.AreEqual(2, _win.UnboundRecipeCount);
+
+            var c = RecipeStore.Create(texture, content, _assets.Folder);
+            Assert.AreEqual(3, _win.UnboundRecipeCount, "増えたレシピを数える(取り込みの知らせ)");
+
+            Assert.IsTrue(AssetDatabase.DeleteAsset(AssetDatabase.GetAssetPath(c)));
+            Assert.AreEqual(2, _win.UnboundRecipeCount, "消えたレシピを数から外す(削除の知らせ)");
+            Assert.IsTrue(AssetDatabase.DeleteAsset(AssetDatabase.GetAssetPath(b)));
+            Assert.AreEqual(1, _win.UnboundRecipeCount);
+            Assert.IsNull(_win.BoundRecipe, "数え直すだけで、残った 1 つに勝手に結び付けない");
+            Assert.IsTrue(a != null);
+        }
+
         // 読めないまま空で開いた後、再読み込みの間に読めるようになっても、空の保存でファイルを消さない。
         [Test]
         public void SessionFileThatBecameReadable_IsNotDeletedByReload() {

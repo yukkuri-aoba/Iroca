@@ -55,7 +55,15 @@ namespace Iroca {
         /// 最後に結び付いたレシピ(開き直すと前と違う所へ保存しないように)。どれでもなければ null(どれに書くか決められないため。
         /// インスペクタの「いろかで開く」で選ぶ。窓が案内を出す)。
         /// </summary>
-        internal static IrocaRecipe RecipeFor(Texture2D tex, IrocaRecipe bound) {
+        internal static IrocaRecipe RecipeFor(Texture2D tex, IrocaRecipe bound) => RecipeFor(tex, bound, out _);
+
+        /// <summary>
+        /// <see cref="RecipeFor(Texture2D, IrocaRecipe)"/> と同じ。<paramref name="foundCount"/> は、このテクスチャのレシピを
+        /// 探した結果の数(探さなかったとき = テクスチャが無い・既に結び付いている は -1)。呼んだ側が同じ探索(プロジェクトの
+        /// 全レシピの走査)をもう一度しなくて済むように返す。
+        /// </summary>
+        internal static IrocaRecipe RecipeFor(Texture2D tex, IrocaRecipe bound, out int foundCount) {
+            foundCount = -1;
             if (tex == null) {
                 return null;
             }
@@ -63,6 +71,7 @@ namespace Iroca {
                 return bound;
             }
             var found = RecipeStore.FindForTexture(tex);
+            foundCount = found.Count;
             if (found.Count == 1) {
                 return found[0];
             }
