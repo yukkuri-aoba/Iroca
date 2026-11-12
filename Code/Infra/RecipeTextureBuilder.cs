@@ -7,8 +7,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEditor;
+using UnityEditor.AssetImporters;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
@@ -41,7 +43,8 @@ namespace Iroca {
         }
 
         // キャッシュの中身の作り方を変えたら上げる(古いキャッシュを読まないため)。
-        private const int CacheFormatVersion = 1;
+        // 2: ミップ・圧縮・アルファを取り込みと同じ処理(TextureGenerator)で作るようにした(2026-11-11。中身が変わる)。
+        private const int CacheFormatVersion = 2;
         private const long CacheMaxBytes = 2L * 1024 * 1024 * 1024;
 
         internal static string CacheDir =>
@@ -308,8 +311,9 @@ namespace Iroca {
                 return;
             }
             Texture2D tex;
+            bool compressed = false;
             try {
-                tex = Step(() => pixels == null || like == null ? null : CreateUncompressed(pixels, like), null);
+                tex = Step(() => pixels == null || like == null ? null : CreateMatchingUncompressedOrFull(pixels, like, out compressed), null);
             } finally {
                 pixels?.Release();
             }
@@ -327,7 +331,9 @@ namespace Iroca {
                     return;
                 }
                 done(Step(() => {
-                    Compress(tex, like);
+                    if (!compressed) {
+                        Compress(tex, like);
+                    }
                     TryStoreCache(key, tex);
                     FinishLike(tex, like);
                     return tex;
@@ -439,18 +445,121 @@ namespace Iroca {
             if (pixels.Length < (long)width * height) {
                 throw new ArgumentException($"pixels.Length({pixels.Length}) < {width}x{height}", nameof(pixels));
             }
-            Texture2D tex;
             fixed (Color32* p = pixels) {
-                tex = CreateUncompressed(p, width, height, like);
+                return CreateMatching(p, width, height, like);
             }
+        }
+
+        private static unsafe Texture2D CreateMatching(NativePixels pixels, Texture2D like)
+            => CreateMatching(pixels.Ptr, pixels.Width, pixels.Height, like);
+
+        // 取り込み設定(TextureImporter)があれば、取り込みと同じ処理(TextureGenerator)で作る。無ければ以前の作り。
+        private static unsafe Texture2D CreateMatching(Color32* pixels, int width, int height, Texture2D like) {
+            var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) as TextureImporter;
+            if (importer != null && GeneratesLikeImport(importer)) {
+                return GenerateLikeImport(pixels, width, height, like, importer);
+            }
+            var tex = CreateUncompressed(pixels, width, height, like);
             Compress(tex, like);
             return tex;
         }
 
-        private static Texture2D CreateMatching(NativePixels pixels, Texture2D like) {
+        // 以前の作り(面積平均で取り込み後の寸法へ・Apply の単純なフィルタでミップ・CompressTexture)。取り込み設定の無い
+        // 元テクスチャと、比べる計測(TextureGeneratorBenchTests)が使う。
+        private static Texture2D CreateMatchingByApply(NativePixels pixels, Texture2D like) {
             var tex = CreateUncompressed(pixels, like);
             Compress(tex, like);
             return tex;
+        }
+
+        // TextureGenerator で作れる種類か。色替えするのはふつうのテクスチャ(Default)とスプライト(画素は同じ作り)。
+        // 法線マップなどは画素の意味が違うので以前の作りのまま。
+        private static bool GeneratesLikeImport(TextureImporter importer)
+            => importer.textureType == TextureImporterType.Default || importer.textureType == TextureImporterType.Sprite;
+
+        /// <summary>
+        /// 色替えした画素から、取り込みと同じ処理(<see cref="TextureGenerator.GenerateTexture"/>)で差し替えテクスチャを作る
+        /// (2026-11-11、点検 D-8 段 2)。縮小・ミップのフィルタ(Kaiser・Preserve Coverage・Fadeout)・Alpha Source・圧縮が、
+        /// 元テクスチャの取り込み設定とビルド対象のプラットフォーム設定どおりになる。以前は Apply の単純なフィルタでミップを作り、
+        /// 遠くで見たときの見え方が Unity で普通に使ったときと違っていた。同じ画素なら取り込み済みのテクスチャと生データが
+        /// 同じになることを確かめた(2022.3・6000.0、BC7・DXT5・Crunch・8K・縮小、Android の ASTC・ETC。dev_safe の
+        /// Tests/Baselines/texgen-2026-11-11)。呼んでいる間だけ作業領域が増える(この呼び出しだけなら 4K で +0.36GB・8K で +1.7GB、
+        /// ビルド全体の山では 4K で +0.13GB・8K で +0.8GB。終われば返り、後に残る量は増えない)。メインスレッドで呼ぶ。
+        /// 読み書きできるまま返す(キャッシュへ書くため。読めなくするのは <see cref="FinishLike"/>)。
+        /// </summary>
+        private static unsafe Texture2D GenerateLikeImport(Color32* pixels, int width, int height, Texture2D like,
+            TextureImporter importer) {
+            var tis = new TextureImporterSettings();
+            importer.ReadTextureSettings(tis);
+            tis.readable = true;
+            tis.textureType = TextureImporterType.Default;   // スプライトの切り出しの情報は要らない(画素は同じ)
+            var settings = new TextureGenerationSettings(TextureImporterType.Default) {
+                textureImporterSettings = tis,
+                platformSettings = PlatformSettingsForBuild(importer),
+                sourceTextureInformation = new SourceTextureInformation {
+                    width = width, height = height, containsAlpha = importer.DoesSourceTextureHaveAlpha(), hdr = false,
+                },
+                enablePostProcessor = false,
+            };
+            var input = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Color32>(pixels, width * height, Allocator.None);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            var safety = AtomicSafetyHandle.Create();
+            NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref input, safety);
+#endif
+            Texture2D tex;
+            try {
+                tex = TextureGenerator.GenerateTexture(settings, input).texture as Texture2D;
+            } finally {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                AtomicSafetyHandle.Release(safety);
+#endif
+            }
+            if (tex == null) {
+                throw new InvalidOperationException($"TextureGenerator がテクスチャを返しませんでした: {like.name}");
+            }
+            // TextureGenerator は Mipmap Limit Group を写さない(作った後には変えられない)。グループが元と違えば、同じ寸法・形式・
+            // ミップ数で mipmap limit を写したテクスチャを作り(NewLike)、生データを写す(圧縮済みの大きさ。4K BC7 で 21MB)。
+            if (tex.mipmapLimitGroup != like.mipmapLimitGroup) {
+                var copy = NewLike(tex.width, tex.height, tex.format, tex.mipmapCount,
+                    !GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat), like);
+                try {
+                    copy.LoadRawTextureData(tex.GetRawTextureData<byte>());
+                    copy.Apply(updateMipmaps: false, makeNoLongerReadable: false);
+                } catch {
+                    UnityEngine.Object.DestroyImmediate(copy);
+                    throw;
+                } finally {
+                    UnityEngine.Object.DestroyImmediate(tex);
+                }
+                tex = copy;
+            }
+            if (tex.ignoreMipmapLimit != like.ignoreMipmapLimit) {
+                tex.ignoreMipmapLimit = like.ignoreMipmapLimit;
+            }
+            return tex;
+        }
+
+        // 今のビルド対象のプラットフォーム設定(取り込みが使うもの)。上書きしていなければ既定の設定(Standalone の名前で
+        // 引くと、上書きしていないときに形式が既定と違うものになる)。
+        private static TextureImporterPlatformSettings PlatformSettingsForBuild(TextureImporter importer) {
+            var group = BuildPipeline.GetBuildTargetGroup(EditorUserBuildSettings.activeBuildTarget);
+            string platform = group == BuildTargetGroup.Android ? "Android"
+                : group == BuildTargetGroup.iOS ? "iPhone"
+                : "Standalone";
+            var ps = importer.GetPlatformTextureSettings(platform);
+            return ps.overridden ? ps : importer.GetDefaultPlatformTextureSettings();
+        }
+
+        // 非同期の 1 つ目の tick: 取り込みと同じ処理で作れるなら圧縮まで済ませる(compressed = true)。作れなければ以前と同じく
+        // 圧縮の前まで(圧縮は次の tick)。
+        private static unsafe Texture2D CreateMatchingUncompressedOrFull(NativePixels pixels, Texture2D like, out bool compressed) {
+            var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) as TextureImporter;
+            if (importer != null && GeneratesLikeImport(importer)) {
+                compressed = true;
+                return GenerateLikeImport(pixels.Ptr, pixels.Width, pixels.Height, like, importer);
+            }
+            compressed = false;
+            return CreateUncompressed(pixels, like);
         }
 
         private static unsafe Texture2D CreateUncompressed(NativePixels pixels, Texture2D like)

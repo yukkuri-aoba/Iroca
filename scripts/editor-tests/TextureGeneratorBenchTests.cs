@@ -20,10 +20,10 @@ namespace Iroca.EditorTests {
     /// <summary>
     /// 非破壊ビルドの差し替えテクスチャを作る 2 つの方法を、同じ原本の画素で比べる(点検 D-8 段 2 の判断の材料。2026-11-11)。
     /// <list type="bullet">
-    /// <item>今の作り(RecipeTextureBuilder の CreateMatching): 取り込み後の寸法へ面積平均で縮め、Apply の単純なフィルタでミップを作り、
+    /// <item>以前の作り(RecipeTextureBuilder の CreateMatchingByApply): 取り込み後の寸法へ面積平均で縮め、Apply の単純なフィルタでミップを作り、
     ///   CompressTexture で取り込みと同じ形式へ。</item>
-    /// <item>TextureGenerator.GenerateTexture: 取り込みと同じ処理(縮小・ミップのフィルタ・Alpha・圧縮)に、元の取り込み設定と
-    ///   Standalone のプラットフォーム設定を渡す。</item>
+    /// <item>製品の作り(CreateMatching): 取り込み設定があれば TextureGenerator.GenerateTexture で、取り込みと同じ処理(縮小・ミップの
+    ///   フィルタ・Alpha・圧縮)に元の取り込み設定と今のビルド対象のプラットフォーム設定を渡す(2026-11-11 から)。</item>
     /// </list>
     /// 1 回ごとに、時間・呼び出しの間のプロセスの Private の山(別スレッドで 1ms ごとに読む)・終わった後の残り・Mono のヒープ・
     /// Unity のネイティブの量と、出来たテクスチャの生データが取り込み済みのもの(元テクスチャ)と同じかを書く。
@@ -31,7 +31,7 @@ namespace Iroca.EditorTests {
     /// </summary>
     [Category("TextureGeneratorBench")]
     public class TextureGeneratorBenchTests {
-        [Serializable] private class CaseDto { public string name = ""; public string png = ""; public int maxSize = 4096; public string format = "BC7"; public string mipFilter = "Kaiser"; public bool crunch; }
+        [Serializable] private class CaseDto { public string name = ""; public string png = ""; public int maxSize = 4096; public string format = "BC7"; public string mipFilter = "Kaiser"; public bool crunch; public string platform = "Standalone"; public bool overrideFormat = true; }
         [Serializable] private class CasesDto { public int repeats = 2; public List<CaseDto> cases = new List<CaseDto>(); }
 
         private const string Folder = "Assets/IrocaTexGenBench";
@@ -67,9 +67,13 @@ namespace Iroca.EditorTests {
                 Assert.Ignore("IROCA_TEXGEN_BENCH_CASES と IROCA_TEXGEN_BENCH_REPORT が要ります(D-8 段 2 の計測)");
             }
             var cfg = JsonUtility.FromJson<CasesDto>(File.ReadAllText(casesPath));
-            var createMatching = typeof(RecipeTextureBuilder).GetMethod("CreateMatching", BindingFlags.Static | BindingFlags.NonPublic,
+            var byApply = typeof(RecipeTextureBuilder).GetMethod("CreateMatchingByApply", BindingFlags.Static | BindingFlags.NonPublic,
                 null, new[] { typeof(NativePixels), typeof(Texture2D) }, null);
-            Assert.IsNotNull(createMatching, "RecipeTextureBuilder.CreateMatching(NativePixels, Texture2D)");
+            Assert.IsNotNull(byApply, "RecipeTextureBuilder.CreateMatchingByApply(NativePixels, Texture2D)");
+            // 製品の作り(取り込み設定があれば TextureGenerator。プラットフォーム設定は今のビルド対象から選ぶ)
+            var builder = typeof(RecipeTextureBuilder).GetMethod("CreateMatching", BindingFlags.Static | BindingFlags.NonPublic,
+                null, new[] { typeof(NativePixels), typeof(Texture2D) }, null);
+            Assert.IsNotNull(builder, "RecipeTextureBuilder.CreateMatching(NativePixels, Texture2D)");
             if (!AssetDatabase.IsValidFolder(Folder)) {
                 AssetDatabase.CreateFolder("Assets", "IrocaTexGenBench");
             }
@@ -84,13 +88,16 @@ namespace Iroca.EditorTests {
                 importer.mipmapFilter = c.mipFilter == "Box" ? TextureImporterMipFilter.BoxFilter : TextureImporterMipFilter.KaiserFilter;
                 importer.maxTextureSize = c.maxSize;
                 importer.alphaIsTransparency = false;
-                var ps = importer.GetPlatformTextureSettings("Standalone");
-                ps.overridden = true;
-                ps.maxTextureSize = c.maxSize;
-                ps.format = (TextureImporterFormat)Enum.Parse(typeof(TextureImporterFormat), c.format);
-                ps.crunchedCompression = c.crunch;
-                ps.compressionQuality = 50;
-                importer.SetPlatformTextureSettings(ps);
+                // overrideFormat なら c.platform の設定を上書きする。しなければ既定(Automatic)のまま取り込む。
+                if (c.overrideFormat) {
+                    var ps = importer.GetPlatformTextureSettings(c.platform);
+                    ps.overridden = true;
+                    ps.maxTextureSize = c.maxSize;
+                    ps.format = (TextureImporterFormat)Enum.Parse(typeof(TextureImporterFormat), c.format);
+                    ps.crunchedCompression = c.crunch;
+                    ps.compressionQuality = 50;
+                    importer.SetPlatformTextureSettings(ps);
+                }
                 importer.SaveAndReimport();
                 var like = AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
                 byte[] likeRaw = like.GetRawTextureData();
@@ -101,8 +108,8 @@ namespace Iroca.EditorTests {
                 Assert.IsNotNull(pixels, c.png);
                 try {
                     for (int rep = 0; rep < cfg.repeats; rep++) {
-                        foreach (string way in new[] { "current", "texgen" }) {
-                            sb.Append(Measure(c, way, rep, likeHash, like, pixels, importer, createMatching)).Append('\n');
+                        foreach (string way in new[] { "byApply", "builder" }) {
+                            sb.Append(Measure(c, way, rep, likeHash, like, pixels, way == "byApply" ? byApply : builder)).Append('\n');
                             File.WriteAllText(report, sb.ToString());
                         }
                     }
@@ -115,7 +122,7 @@ namespace Iroca.EditorTests {
         }
 
         private static unsafe string Measure(CaseDto c, string way, int rep, string likeHash, Texture2D like, NativePixels pixels,
-            TextureImporter importer, MethodInfo createMatching) {
+            MethodInfo make) {
             GC.Collect();
             GC.WaitForPendingFinalizers();
             long monoBefore = Profiler.GetMonoHeapSizeLong(), nativeBefore = Profiler.GetTotalAllocatedMemoryLong();
@@ -134,42 +141,8 @@ namespace Iroca.EditorTests {
             sampler.Start();
             var sw = Stopwatch.StartNew();
             Texture2D tex = null;
-            string warnings = "";
             try {
-                if (way == "current") {
-                    tex = (Texture2D)createMatching.Invoke(null, new object[] { pixels, like });
-                } else {
-                    var tis = new TextureImporterSettings();
-                    importer.ReadTextureSettings(tis);
-                    var ps = importer.GetPlatformTextureSettings("Standalone");
-                    if (!ps.overridden) {
-                        ps = importer.GetDefaultPlatformTextureSettings();
-                    }
-                    var settings = new TextureGenerationSettings(TextureImporterType.Default) {
-                        textureImporterSettings = tis,
-                        platformSettings = ps,
-                        sourceTextureInformation = new SourceTextureInformation {
-                            width = pixels.Width, height = pixels.Height, containsAlpha = true, hdr = false,
-                        },
-                        enablePostProcessor = false,
-                    };
-                    var arr = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<Color32>(pixels.Ptr, pixels.Length, Allocator.None);
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    var safety = AtomicSafetyHandle.Create();
-                    NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref arr, safety);
-#endif
-                    try {
-                        var output = TextureGenerator.GenerateTexture(settings, arr);
-                        tex = output.texture as Texture2D;
-                        if (output.importWarnings != null && output.importWarnings.Length > 0) {
-                            warnings = string.Join(" / ", output.importWarnings);
-                        }
-                    } finally {
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                        AtomicSafetyHandle.Release(safety);
-#endif
-                    }
-                }
+                tex = (Texture2D)make.Invoke(null, new object[] { pixels, like });
             } finally {
                 sw.Stop();
                 Volatile.Write(ref stop, true);
@@ -200,7 +173,7 @@ namespace Iroca.EditorTests {
                    $"\"privAfterDeltaMB\":{(privAfter - privBefore) / MB}," +
                    $"\"monoHeapDeltaMB\":{(Profiler.GetMonoHeapSizeLong() - monoBefore) / MB}," +
                    $"\"nativeAllocDeltaMB\":{(Profiler.GetTotalAllocatedMemoryLong() - nativeBefore) / MB}," +
-                   $"\"sameAsImport\":{sameAsImport},\"hash\":\"{result}\",\"warnings\":\"{warnings.Replace("\"", "'")}\"" + "}";
+                   $"\"platform\":\"{EditorUserBuildSettings.activeBuildTarget}\",\"sameAsImport\":{sameAsImport},\"hash\":\"{result}\"" + "}";
         }
 
         private static string Hash(byte[] data) {
