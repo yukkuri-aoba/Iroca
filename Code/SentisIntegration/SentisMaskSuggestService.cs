@@ -237,7 +237,7 @@ namespace Iroca.SentisIntegration {
             }
             // 共有フォルダ化(80d1000)以前に旧プロジェクト内へ置いたモデルを、初回だけ共有先へ引き継ぐ。
             MaskSuggestBridge.MigrateLegacyModelsIfNeeded();
-            if (!SentisModelRepository.ModelsPresent()) {
+            if (!MaskSuggestBridge.ModelFilesPresent) {
                 if (_phase != MaskSuggestPhase.NoModel) {
                     SetPhase(MaskSuggestPhase.NoModel);
                 }
@@ -287,7 +287,7 @@ namespace Iroca.SentisIntegration {
                 return;
             }
             MaskSuggestBridge.MigrateLegacyModelsIfNeeded();
-            bool present = SentisModelRepository.ModelsPresent();
+            bool present = MaskSuggestBridge.ModelFilesPresent;
             if (present) {
                 MaskSuggestModelDownload.PlaceBundledNoticesIfMissing();
             }

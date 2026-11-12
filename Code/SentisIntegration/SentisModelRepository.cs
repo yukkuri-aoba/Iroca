@@ -35,10 +35,6 @@ namespace Iroca.SentisIntegration {
         public static string EncoderOnnxPath => Path.Combine(ModelsDir, EncoderFileName);
         public static string DecoderOnnxPath => Path.Combine(ModelsDir, DecoderFileName);
 
-        /// <summary>両モデルの .onnx が配置済みか(軽量チェック)。</summary>
-        public static bool ModelsPresent() =>
-            File.Exists(EncoderOnnxPath) && File.Exists(DecoderOnnxPath);
-
         // パッケージの版はドメインの間は変わらない(版を替えるとスクリプトの読み直しになる)ので、1 回だけ引く。
         // 以前はモデル 1 本ごと(エンコーダとデコーダで 2 回)に、パッケージの一覧を引き直していた。
         static string s_sentisVersion;

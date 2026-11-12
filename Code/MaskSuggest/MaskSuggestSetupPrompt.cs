@@ -20,9 +20,6 @@ namespace Iroca {
     /// (MaskSuggestSection.DrawSetupBanner)。
     /// </summary>
     internal static class MaskSuggestSetupPrompt {
-        /// <summary>AI が今すぐ使える(Sentis あり・モデルファイルあり)か。</summary>
-        public static bool Ready => MaskSuggestBridge.Available && MaskSuggestBridge.ModelFilesPresent;
-
         /// <summary>
         /// 必要なら導入/ダウンロードのダイアログを出す。
         /// 戻り値 = 何らかの準備(導入・ダウンロード)を開始したか。

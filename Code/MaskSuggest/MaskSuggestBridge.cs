@@ -168,9 +168,9 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 配布モデル(ONNX 2 本)が共有フォルダに揃っているか。Sentis 統合アセンブリの
-        /// ModelsPresent と同じ判定を本体側で行う(Sentis 不在でも「モデルが要る」案内を
-        /// 出せるように)。ロードはしない。
+        /// 配布モデル(ONNX 2 本)が共有フォルダに揃っているか。ロードはしない。Sentis の有無に関係なく使える
+        /// (Sentis 不在でも「モデルが要る」案内を出すため)。Sentis の連携もこれを使う: 以前は同じ判定を別に持っていて、
+        /// そちらはパスの例外を受け止めず、描画まで抜けうる形だった。
         /// </summary>
         public static bool ModelFilesPresent {
             get {

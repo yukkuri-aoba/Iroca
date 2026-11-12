@@ -35,8 +35,6 @@ namespace Iroca.SentisIntegration {
         long _startedAt;
         bool _running;
 
-        public bool IsRunning => _running;
-
         /// <summary>読出リクエストを発行しポーリングを開始する。tensor は Worker 所有の
         /// PeekOutput 返しを想定(こちらでは Dispose しない)。</summary>
         public void Start(Tensor<float> tensor, Action<NativeBuffer> onDone, Action<Exception> onError) {

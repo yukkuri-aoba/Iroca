@@ -29,8 +29,6 @@ namespace Iroca.SentisIntegration {
         int _ticks;
         bool _running;
 
-        public bool IsRunning => _running;
-
         // ─── 計測用(直近の実行分。Stop では消さないので onDone 内から読める) ───
         /// <summary>消化したイテレータステップ数。</summary>
         public int Steps => _steps;

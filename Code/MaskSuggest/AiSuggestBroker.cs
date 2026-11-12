@@ -242,17 +242,6 @@ namespace Iroca {
             }
         }
 
-        /// <summary>持ち主のまだ届いていない要求の数(テスト・表示用)。</summary>
-        internal static int PendingCount(object owner) {
-            int n = 0;
-            foreach (var t in s_queue) {
-                if (t.onResult != null && ReferenceEquals(t.owner, owner)) {
-                    n++;
-                }
-            }
-            return n;
-        }
-
         private static void UseSource(IMaskSuggestService svc, string sourceKey, NativePixels pixels) {
             if (sourceKey != s_sourceKey) {
                 // サービスは元を切り替えると待ち行列を黙って捨てる。受け取り先にも「来ない」を返してそろえる。
