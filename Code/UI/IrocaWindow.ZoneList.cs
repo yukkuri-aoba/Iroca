@@ -141,6 +141,23 @@ namespace Iroca {
             _settingsScrollScreenRect = new Rect(GUIUtility.GUIToScreenPoint(r.position), r.size);
         }
 
+        /// <summary>設定列のスクロールの見えている高さ(前の Repaint のもの。まだなら 0)。</summary>
+        internal float SettingsVisibleHeight => _settingsScrollScreenRect.height;
+
+        // 設定列のスクロールの中身の下端(スクロールの中の座標。前の Repaint のもの。まだなら 0)。
+        [System.NonSerialized] private float _settingsContentEnd;
+
+        /// <summary>設定列の中身の高さ(前の Repaint のもの。まだなら 0)。見えている高さと比べて、欄を開いても収まるかを見る。</summary>
+        internal float SettingsContentEnd => _settingsContentEnd;
+
+        // 設定列のスクロールの中身を描き終えたところで呼ぶ(どのイベントでも呼んで、レイアウトの要素の数をそろえる)。
+        private void RecordSettingsContentEnd() {
+            float y = GUILayoutUtility.GetRect(0f, 0f).y;
+            if (Event.current.type == EventType.Repaint) {
+                _settingsContentEnd = y;
+            }
+        }
+
         private bool MouseInSettingsScroll() =>
             _settingsScrollScreenRect.width <= 0f
             || _settingsScrollScreenRect.Contains(GUIUtility.GUIToScreenPoint(Event.current.mousePosition));

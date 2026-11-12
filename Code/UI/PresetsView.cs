@@ -121,17 +121,80 @@ namespace Iroca {
             _host = host;
         }
 
+        // ゾーンが 1 つも無いときは、プリセットを読むのがいちばん多い場面なので、閉じていても開いて見せる(2026-11-12
+        // ユーザー要望)。ただし、保存したプリセットがあり、開いても設定列の見えている高さに収まるときだけ(縦幅は
+        // プレビューと取り合うので、収まらないなら畳んだまま。ゾーンのカードと同じ考え方)。開閉の保存値 presetsFoldout は
+        // 書き換えないので、ゾーンを作れば利用者が選んだ開閉に戻る。見せている間に閉じたら、このウィンドウを開いている
+        // 間はもう自動では開かない。決めるのは Layout のときだけ(同じイベントの描画で行の数が食い違わないように)。
+        [System.NonSerialized] private bool _autoOpen;
+        [System.NonSerialized] private bool _autoOpenDismissed;
+        // この欄を最後に描いた高さ(前の Repaint のもの)と、開いて描いたときの高さ。
+        [System.NonSerialized] private float _shownHeight;
+        [System.NonSerialized] private float _openHeight;
+
+        private bool DecideAutoOpen() {
+            if (presetsFoldout || _autoOpenDismissed || _host == null || _host.SourceTexture == null) {
+                return false;
+            }
+            var zones = _host.Session?.zones;
+            if (zones == null || zones.Count > 0) {
+                return false;
+            }
+            RefreshPresetLists();
+            if (_projectFiles.Length == 0 && _userFiles.Length == 0) {
+                return false;   // 開いても「ありません」の枠が縦幅を取るだけ
+            }
+            float visible = _host.SettingsVisibleHeight;
+            float contentEnd = _host.SettingsContentEnd;
+            if (visible <= 0f || contentEnd <= 0f || _shownHeight <= 0f) {
+                return false;   // まだ測っていない(次の描き直しで決める)
+            }
+            float open = _openHeight > 0f ? _openHeight : EstimateOpenHeight();
+            return contentEnd - _shownHeight + open <= visible;
+        }
+
+        // まだ開いて描いていないときの見積もり(見出し・保存・保存先・詳細・一覧の見出し 2 つと行)。
+        private float EstimateOpenHeight() {
+            float line = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
+            return line * (6 + _projectFiles.Length + _userFiles.Length) + 8f;
+        }
+
         public void Draw() {
-            bool wasOpen = presetsFoldout;
-            presetsFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(presetsFoldout,
+            if (Event.current.type == EventType.Layout) {
+                _autoOpen = DecideAutoOpen();
+            }
+            float startY = GUILayoutUtility.GetRect(0f, 0f).y;
+
+            bool shownOpen = presetsFoldout || _autoOpen;
+            bool open = EditorGUILayout.BeginFoldoutHeaderGroup(shownOpen,
                 TempContent.Of(Localization.Presets, Localization.PresetsTooltip));
-            if (presetsFoldout && !wasOpen) {
+            if (open != shownOpen) {
+                presetsFoldout = open;
+                if (!open && _autoOpen) {
+                    _autoOpenDismissed = true;
+                }
+            }
+            if (open && !shownOpen) {
                 InvalidatePresetList();   // 閉じている間に増えた・消えたプリセットを、開いたときに読み直す
             }
-            if (!presetsFoldout) {
-                EditorGUILayout.EndFoldoutHeaderGroup();
-                return;
+            if (open) {
+                DrawBody();
             }
+            EditorGUILayout.EndFoldoutHeaderGroup();
+            if (open) {
+                EditorGUILayout.Space(4);
+            }
+
+            float endY = GUILayoutUtility.GetRect(0f, 0f).y;
+            if (Event.current.type == EventType.Repaint) {
+                _shownHeight = endY - startY;
+                if (open) {
+                    _openHeight = _shownHeight;
+                }
+            }
+        }
+
+        private void DrawBody() {
 
             // 使い方の説明は各コントロールのツールチップに委ね、常時表示の HelpBox は置かない。
 
@@ -191,9 +254,6 @@ namespace Iroca {
                 DrawPresetGroup(Localization.PresetGroupUser, Localization.PresetGroupUserTooltip,
                     userFiles, userForTexture);
             }
-
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            EditorGUILayout.Space(4);
         }
 
         /// <summary>保存先 1 つ分の一覧(見出しと行)。空なら見出しの行に「なし」とだけ出す。</summary>
