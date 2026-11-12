@@ -55,8 +55,7 @@ namespace Iroca.SentisIntegration {
         // 現テクスチャの埋め込み(null=未計算)。埋め込みとエンコーダの入力はヒープの外の float の並び(NativeBuffer)で、
         // ここと各キャッシュがそれぞれ参照を 1 つ持つ(0.4.0 の計画の B4)。推論に渡すときだけ NativeArray に見せる。
         NativeBuffer _embedding;
-        readonly Dictionary<string, NativeBuffer> _embeddingCache = new Dictionary<string, NativeBuffer>();
-        readonly List<string> _lruOrder = new List<string>();
+        readonly EmbeddingLru _embeddingCache = new EmbeddingLru(EmbeddingCacheCapacity);
 
         readonly EditorIteratorPump _pump = new EditorIteratorPump();
         readonly EditorReadbackPoller _readback = new EditorReadbackPoller();
@@ -103,13 +102,62 @@ namespace Iroca.SentisIntegration {
         double _encodePrepMs;        // BuildEncoderInput(BG スレッド)
         long _pumpStartedAt;         // pump 開始
 
-        readonly Dictionary<string, NativeBuffer> _cropEmbeddingCache = new Dictionary<string, NativeBuffer>();
-        readonly List<string> _cropLruOrder = new List<string>();
+        readonly EmbeddingLru _cropEmbeddingCache = new EmbeddingLru(CropEmbeddingCacheCapacity);
 
         // デコーダに渡す埋め込みのテンソル(全体用と切り出し用に 1 つずつ。GPU では VRAM に 4MB ずつ)。
         // ズームが走るクリックは全体 → 切り出しの順に使うので、1 つだけだと毎回上げ直しになる。
         readonly EmbeddingTensorSlot _fullEmbTensor = new EmbeddingTensorSlot();
         readonly EmbeddingTensorSlot _cropEmbTensor = new EmbeddingTensorSlot();
+
+        /// <summary>
+        /// 埋め込みの控え(鍵 → 埋め込み。使った順に並べ、容量を超えたら古いものから手放す)。全体用と切り出し用に 1 つずつ持つ。
+        /// 控えが自分の参照を足して持ち、押し出したもの・消すものの参照は返す。メインスレッドだけで使う。
+        /// </summary>
+        sealed class EmbeddingLru {
+            readonly Dictionary<string, NativeBuffer> _items = new Dictionary<string, NativeBuffer>();
+            readonly List<string> _order = new List<string>();
+            readonly int _capacity;
+
+            public EmbeddingLru(int capacity) => _capacity = capacity;
+
+            /// <summary>あれば返し、使った順の最後へ回す。参照は足さない(持ち続けるなら、呼んだ側が足す)。</summary>
+            public bool TryGet(string key, out NativeBuffer embedding) {
+                if (!_items.TryGetValue(key, out embedding)) {
+                    return false;
+                }
+                _order.Remove(key);
+                _order.Add(key);
+                return true;
+            }
+
+            public void Put(string key, NativeBuffer embedding) {
+                if (string.IsNullOrEmpty(key) || embedding == null) {
+                    return;
+                }
+                if (_items.TryGetValue(key, out var old)) {
+                    old.Release();
+                }
+                _items[key] = embedding.AddRef();
+                _order.Remove(key);
+                _order.Add(key);
+                while (_order.Count > _capacity) {
+                    string evict = _order[0];
+                    _order.RemoveAt(0);
+                    if (_items.TryGetValue(evict, out var e)) {
+                        _items.Remove(evict);
+                        e.Release();
+                    }
+                }
+            }
+
+            public void Clear() {
+                foreach (var e in _items.Values) {
+                    e.Release();
+                }
+                _items.Clear();
+                _order.Clear();
+            }
+        }
 
         /// <summary>
         /// デコーダに渡す埋め込みのテンソル。同じ埋め込み(同じ <see cref="NativeBuffer"/>)の間は作り直さずに使い回す。
@@ -329,9 +377,8 @@ namespace Iroca.SentisIntegration {
             _texH = pixelsBottomUp?.Height ?? 0;
             SetEmbedding(null);
 
-            if (_embeddingCache.TryGetValue(cacheKey, out var cached)) {
+            if (_embeddingCache.TryGet(cacheKey, out var cached)) {
                 SetEmbedding(cached.AddRef());
-                TouchLru(cacheKey);
                 MaskSuggestPerf.Log("エンコード(全体): 埋め込みキャッシュ命中");
                 SetPhase(MaskSuggestPhase.Idle);
                 return;
@@ -347,8 +394,28 @@ namespace Iroca.SentisIntegration {
                 return;
             }
             SetPhase(MaskSuggestPhase.Encoding);
+            StartEncodeJob(_sourcePixels, MaskSuggestPhase.Encoding,
+                onProgress: p => { _progress = p; StateChanged?.Invoke(); },
+                onEmbedding: CompleteEncode,
+                onPrepError: e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrPreprocessFormat, e.Message)),
+                onEncodeError: OnEncoderError);
+        }
+
+        /// <summary>
+        /// 画素(元の画像の全体か、ズームの切り出し)をエンコードして埋め込みを作る。入力の並びを背景で作り、エンコーダを
+        /// エディタの更新で少しずつ進め、出力を待たずに読み出す(<see cref="ReadEncoderOutput"/>)。全体のエンコードと
+        /// ズームのエンコードが、同じ手順を別々に持っていた。
+        /// </summary>
+        /// <param name="whilePhase">入力ができた時点でこの状態でなければ、エンコードを始めない(取り消された・元が替わった)。</param>
+        /// <param name="onProgress">進みの知らせ(要らなければ null)。</param>
+        /// <param name="onEmbedding">できた埋め込み(参照を引き取る)・エンコーダを進めた時間(ms)・読み出しを始めた時刻。</param>
+        /// <param name="onPrepError">入力の並びを作れなかった。</param>
+        /// <param name="onEncodeError">エンコーダか読み出しが失敗した(入力のテンソルは捨ててある)。</param>
+        void StartEncodeJob(NativePixels pixels, MaskSuggestPhase whilePhase, Action<float> onProgress,
+                            Action<NativeBuffer, double, long> onEmbedding,
+                            Action<Exception> onPrepError, Action<Exception> onEncodeError) {
             _encodeStartedAt = MaskSuggestPerf.Now;
-            var px = _sourcePixels.AddRef();   // 読む間の参照(後始末で返す)
+            var px = pixels.AddRef();   // 読む間の参照(後始末で返す)
             double prepMs = 0; // work(BG)で書き apply(メイン)で読む。Post キュー経由で順序保証あり
             _prepJob ??= new PreviewJob<NativeBuffer>();
             _prepJob.Schedule(
@@ -362,9 +429,9 @@ namespace Iroca.SentisIntegration {
                 },
                 chw => {
                     _encodePrepMs = prepMs;
-                    StartEncoderPump(chw);
+                    StartEncoderPump(chw, whilePhase, onProgress, onEmbedding, onEncodeError);
                 },
-                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrPreprocessFormat, e.Message)),
+                onPrepError,
                 cleanup: () => px.Release(),
                 // 作ったが使わなかった入力(取り消し・新しいソース)も返す。
                 discard: chw => chw?.Release());
@@ -379,10 +446,16 @@ namespace Iroca.SentisIntegration {
             } finally { chw.Release(); }
         }
 
-        void StartEncoderPump(NativeBuffer chw) {
-            if (_phase != MaskSuggestPhase.Encoding) {
+        void StartEncoderPump(NativeBuffer chw, MaskSuggestPhase whilePhase, Action<float> onProgress,
+                              Action<NativeBuffer, double, long> onEmbedding, Action<Exception> onError) {
+            if (_phase != whilePhase) {
                 chw.Release();
                 return;
+            }
+            // ここから先の失敗は、入力のテンソルを捨ててから知らせる。
+            void Fail(Exception e) {
+                DisposeEncInput();
+                onError(e);
             }
             try {
                 _encInput = EncoderInputTensor(chw);
@@ -390,29 +463,29 @@ namespace Iroca.SentisIntegration {
                 int total = _encoderModel.layers != null ? _encoderModel.layers.Count : 0;
                 _pumpStartedAt = MaskSuggestPerf.Now;
                 _pump.Start(it, total,
-                    onDone: FinishEncode,
-                    onError: OnEncoderError,
-                    onProgress: p => { _progress = p; StateChanged?.Invoke(); });
+                    onDone: () => ReadEncoderOutput(onEmbedding, Fail),
+                    onError: Fail,
+                    onProgress: onProgress);
             } catch (Exception e) {
-                OnEncoderError(e);
+                Fail(e);
             }
         }
 
-        void FinishEncode() {
+        void ReadEncoderOutput(Action<NativeBuffer, double, long> onEmbedding, Action<Exception> fail) {
             try {
                 double pumpMs = MaskSuggestPerf.MsSince(_pumpStartedAt);
                 long tRead = MaskSuggestPerf.Now;
                 // pump 完了 = ディスパッチ完了であって GPU 実行完了ではない。同期
                 // ReadbackAndClone は実行完了まで(数百 ms 級)メインスレッドを止めるため、
                 // 非同期リクエスト + ポーリングで待つ(待機中もエディタは応答する)。
-                // 待機中も Phase は Encoding のままなのでクリックはキューに積まれ、
+                // 待機中も Phase は変わらないのでクリックはキューに積まれ、
                 // 同一 Worker への新規 Schedule は起きない(フェーズの単一実行)。
+                // ズームは毎クリック走り得るため、同期読出のメイン停止(実測 129-194ms)が
+                // そのまま操作の引っ掛かりになっていた。
                 var output = _encoder.PeekOutput() as Tensor<float>;
-                _readback.Start(output,
-                    data => CompleteEncode(data, pumpMs, tRead),
-                    OnEncoderError);
+                _readback.Start(output, data => onEmbedding(data, pumpMs, tRead), fail);
             } catch (Exception e) {
-                OnEncoderError(e);
+                fail(e);
             }
         }
 
@@ -438,7 +511,7 @@ namespace Iroca.SentisIntegration {
                     throw new InvalidOperationException(
                         Localization.AiErrEmptyResult);
                 }
-                CacheEmbedding(_sourceKey, _embedding);
+                _embeddingCache.Put(_sourceKey, _embedding);
                 _triedCpuFallback = false;
                 // 健全な埋め込みが得られた = 実際に使うバックエンドで推論カーネルが動いた証拠。
                 // ログ文字列からの Burst 失敗推定より強い根拠なので、再起動を促す案内を取り下げる
@@ -855,71 +928,19 @@ namespace Iroca.SentisIntegration {
         void StartZoomStage(PostOutcome plan, float u, float v, MaskSuggestGranularity granularity) {
             _clickZoomRan = true;
             string key = $"{_sourceKey}|{plan.cropX0},{plan.cropY0},{plan.cropSide}";
-            if (_cropEmbeddingCache.TryGetValue(key, out var cached)) {
-                TouchCropLru(key);
+            if (_cropEmbeddingCache.TryGet(key, out var cached)) {
                 MaskSuggestPerf.Log("エンコード(ズーム): クロップ埋め込みキャッシュ命中");
                 RunZoomDecode(cached, plan, u, v, granularity);
                 return;
             }
-            _encodeStartedAt = MaskSuggestPerf.Now;
-            var cropPx = plan.cropPixels.AddRef();   // 読む間の参照(後始末で返す)
-            double prepMs = 0; // work(BG)で書き apply(メイン)で読む
-            _prepJob ??= new PreviewJob<NativeBuffer>();
-            _prepJob.Schedule(
-                ct => {
-                    long t0 = MaskSuggestPerf.Now;
-                    var chw = SamNativeOps.BuildEncoderInput(cropPx, ct);
-                    prepMs = MaskSuggestPerf.MsSince(t0);
-                    return chw;
-                },
-                chw => {
-                    _encodePrepMs = prepMs;
-                    StartZoomEncoderPump(chw, key, plan, u, v, granularity);
-                },
-                e => FallbackToStage1(plan, e),
-                cleanup: () => cropPx.Release(),
-                discard: chw => chw?.Release());
-        }
-
-        void StartZoomEncoderPump(NativeBuffer chw, string key, PostOutcome plan,
-                                  float u, float v, MaskSuggestGranularity granularity) {
-            if (_phase != MaskSuggestPhase.Decoding) {
-                chw.Release();
-                return;
-            }
-            try {
-                _encInput = EncoderInputTensor(chw);
-                var it = _encoder.ScheduleIterable(_encInput);
-                int total = _encoderModel.layers != null ? _encoderModel.layers.Count : 0;
-                _pumpStartedAt = MaskSuggestPerf.Now;
-                // 進みは受け取らない: 進みの棒が出るのは全体のエンコードの間だけで、ここ(クリックの処理中)は出ない。
-                // 知らせると、見た目が何も変わらないのに、開いている窓を描き直すだけになる。
-                _pump.Start(it, total,
-                    onDone: () => FinishZoomEncode(key, plan, u, v, granularity),
-                    onError: e => { DisposeEncInput(); FallbackToStage1(plan, e); },
-                    onProgress: null);
-            } catch (Exception e) {
-                DisposeEncInput();
-                FallbackToStage1(plan, e);
-            }
-        }
-
-        void FinishZoomEncode(string key, PostOutcome plan,
-                              float u, float v, MaskSuggestGranularity granularity) {
-            try {
-                double pumpMs = MaskSuggestPerf.MsSince(_pumpStartedAt);
-                long tRead = MaskSuggestPerf.Now;
-                // 全体エンコードと同じく非同期リクエスト + ポーリング(FinishEncode 参照)。
-                // ズームは毎クリック走り得るため、同期読出のメイン停止(実測 129-194ms)が
-                // そのまま操作の引っ掛かりになっていた。
-                var output = _encoder.PeekOutput() as Tensor<float>;
-                _readback.Start(output,
-                    data => CompleteZoomEncode(data, key, plan, u, v, granularity, pumpMs, tRead),
-                    e => { DisposeEncInput(); FallbackToStage1(plan, e); });
-            } catch (Exception e) {
-                DisposeEncInput();
-                FallbackToStage1(plan, e);
-            }
+            // 進みは受け取らない: 進みの棒が出るのは全体のエンコードの間だけで、ここ(クリックの処理中)は出ない。
+            // 知らせると、見た目が何も変わらないのに、開いている窓を描き直すだけになる。
+            // 失敗したら第 1 段の提案を返す(エラーにしない)。
+            StartEncodeJob(plan.cropPixels, MaskSuggestPhase.Decoding,
+                onProgress: null,
+                onEmbedding: (emb, pumpMs, tRead) => CompleteZoomEncode(emb, key, plan, u, v, granularity, pumpMs, tRead),
+                onPrepError: e => FallbackToStage1(plan, e),
+                onEncodeError: e => FallbackToStage1(plan, e));
         }
 
         // emb の参照はここが引き取る(キャッシュへ入れたら、手元の分は返す)。
@@ -946,7 +967,7 @@ namespace Iroca.SentisIntegration {
                 return;
             }
             try {
-                CacheCropEmbedding(key, emb);
+                _cropEmbeddingCache.Put(key, emb);
                 RunZoomDecode(emb, plan, u, v, granularity);
             } finally { emb.Release(); }
         }
@@ -1054,39 +1075,6 @@ namespace Iroca.SentisIntegration {
                 });
         }
 
-        // キャッシュが自分の参照を足して持つ(押し出したものは返す)。
-        void CacheCropEmbedding(string key, NativeBuffer embedding)
-            => PutLru(_cropEmbeddingCache, _cropLruOrder, CropEmbeddingCacheCapacity, key, embedding);
-
-        static void PutLru(Dictionary<string, NativeBuffer> cache, List<string> order, int capacity,
-                           string key, NativeBuffer embedding) {
-            if (string.IsNullOrEmpty(key) || embedding == null) {
-                return;
-            }
-            if (cache.TryGetValue(key, out var old)) {
-                old.Release();
-            }
-            cache[key] = embedding.AddRef();
-            order.Remove(key);
-            order.Add(key);
-            while (order.Count > capacity) {
-                string evict = order[0];
-                order.RemoveAt(0);
-                if (cache.TryGetValue(evict, out var e)) {
-                    cache.Remove(evict);
-                    e.Release();
-                }
-            }
-        }
-
-        static void ClearLru(Dictionary<string, NativeBuffer> cache, List<string> order) {
-            foreach (var e in cache.Values) {
-                e.Release();
-            }
-            cache.Clear();
-            order.Clear();
-        }
-
         // 今の埋め込みを差し替える(前のものの参照を返す。渡したものの参照は引き取る)。
         void SetEmbedding(NativeBuffer embedding) {
             var old = _embedding;
@@ -1096,11 +1084,6 @@ namespace Iroca.SentisIntegration {
                 DisposeEmbeddingTensors();
             }
             old?.Release();
-        }
-
-        void TouchCropLru(string key) {
-            _cropLruOrder.Remove(key);
-            _cropLruOrder.Add(key);
         }
 
         /// <summary>確定した提案を受け取る(範囲の参照ごと渡す。受け取った側が <see cref="MaskSuggestProposal.Release"/> する)。</summary>
@@ -1150,15 +1133,6 @@ namespace Iroca.SentisIntegration {
             _discardInFlight = false;
         }
 
-        // キャッシュが自分の参照を足して持つ(押し出したものは返す)。
-        void CacheEmbedding(string key, NativeBuffer embedding)
-            => PutLru(_embeddingCache, _lruOrder, EmbeddingCacheCapacity, key, embedding);
-
-        void TouchLru(string key) {
-            _lruOrder.Remove(key);
-            _lruOrder.Add(key);
-        }
-
         void DisposeEncInput() {
             _encInput?.Dispose();
             _encInput = null;
@@ -1183,8 +1157,8 @@ namespace Iroca.SentisIntegration {
             // 埋め込み(ヒープの外)も手放す。
             try {
                 SetEmbedding(null);
-                ClearLru(_embeddingCache, _lruOrder);
-                ClearLru(_cropEmbeddingCache, _cropLruOrder);
+                _embeddingCache.Clear();
+                _cropEmbeddingCache.Clear();
             } catch (Exception e) { Debug.LogException(e); }
         }
     }
