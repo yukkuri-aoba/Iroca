@@ -297,8 +297,8 @@ namespace Iroca {
             if (!deferred) {
                 _resumeDeferredPreview = false;
             }
-            // スポイト・ブラシの間も、マウスの移動と出入りを受け取る(見本とカーソルをマウスに付いて動かす。
-            // PreviewView.HandleHoverRepaint)。ほかのときは受け取らない(動かすたびに OnGUI が走るため)。
+            // スポイト・ブラシ・開発者向けの「カーソルの下の島を表示」の間も、マウスの移動と出入りを受け取る(見本・カーソル・
+            // 島の情報をマウスに付いて動かす。PreviewView.HandleHoverRepaint)。ほかのときは受け取らない(動かすたびに OnGUI が走るため)。
             bool track = deferred || WantsPreviewHover;
             if (from.wantsMouseMove != track) {
                 from.wantsMouseMove = track;
@@ -308,9 +308,14 @@ namespace Iroca {
             }
         }
 
-        /// <summary>プレビューの上でマウスの位置に付いて動くものを出しているか(スポイトの見本・ブラシのカーソル)。</summary>
+        /// <summary>
+        /// プレビューの上でマウスの位置に付いて動くものを出しているか(スポイトの見本・ブラシのカーソル・開発者向けの
+        /// 「カーソルの下の島を表示」)。島の情報は、以前はここに入っておらず、マウスを動かしても付いて来なかった
+        /// (クリックなど、ほかのきっかけで描き直したときの位置に出たまま)。
+        /// </summary>
         private bool WantsPreviewHover =>
-            !string.IsNullOrEmpty(_eyedropperZoneId) || (_maskView != null && _maskView.maskPaintActive);
+            !string.IsNullOrEmpty(_eyedropperZoneId) || (_maskView != null && _maskView.maskPaintActive)
+            || UvDetailOverlay.HoverActive;
 
         private static bool IsDeferredPreviewTrigger(EventType t) =>
             t == EventType.MouseEnterWindow || t == EventType.MouseMove || t == EventType.MouseDown

@@ -120,6 +120,11 @@ namespace Iroca {
         private int _taskW, _taskH;
         private Layers _taskLayers;
         private CancellationTokenSource _cts;
+        // 焼きに失敗したときの条件(メッシュの結果・寸法・層)。同じ条件では焼き直さない。覚えないと、描き直しのたびに
+        // 焼き直しと警告が続く。条件が変わるか、表示を切って入れ直す(Release)と、もう一度試す。
+        private object _failedFor;
+        private int _failedW, _failedH;
+        private Layers _failedLayers;
 
         /// <summary>
         /// 必要なら焼き直しを始め、焼けていれば重ねて描く。Repaint のときに呼ぶ。焼いている間は true を返す
@@ -138,7 +143,8 @@ namespace Iroca {
 
             bool upToDate = _shown != null && ReferenceEquals(_shownFor, found)
                             && _shown.w == w && _shown.h == h && _shown.layers == layers;
-            if (!upToDate) {
+            bool failedBefore = ReferenceEquals(_failedFor, found) && _failedW == w && _failedH == h && _failedLayers == layers;
+            if (!upToDate && !failedBefore) {
                 bool taskMatches = _task != null && ReferenceEquals(_taskFor, found)
                                    && _taskW == w && _taskH == h && _taskLayers == layers;
                 if (!taskMatches) {
@@ -196,6 +202,7 @@ namespace Iroca {
             _shown?.Release();
             _shown = null;
             _shownFor = null;
+            _failedFor = null;
             TextureSlot.Release(ref _texture);
         }
 
@@ -234,6 +241,10 @@ namespace Iroca {
             if (task.Status != TaskStatus.RanToCompletion || task.Result == null) {
                 if (task.IsFaulted) {
                     Debug.LogWarning($"[Iroca] UV detail overlay failed: {task.Exception?.GetBaseException().Message}");
+                    _failedFor = forResult;
+                    _failedW = _taskW;
+                    _failedH = _taskH;
+                    _failedLayers = _taskLayers;
                 }
                 return;
             }
