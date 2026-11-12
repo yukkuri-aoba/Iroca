@@ -457,6 +457,20 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// いまの元テクスチャでの、マスクの土台の寸法(<see cref="EnsureMasks"/> が合わせる先)。マスクをまだ 1 つも持たなくても
+        /// 決まる。テクスチャが無ければ 0。<see cref="EnsureMasks"/> と違い、マスクには触らない(寸法を変えない・「変わった」の
+        /// 印を立てない)ので、先読み(UV のチャート地図を背景で作る寸法)に使える。
+        /// </summary>
+        internal void CanvasSize(out int w, out int h) {
+            w = 0;
+            h = 0;
+            var tex = _host != null ? _host.SourceTexture : null;
+            if (tex != null) {
+                CanvasSizeFor(tex, out w, out h);
+            }
+        }
+
         // マスクの土台の寸法の覚え(EnsureMasks はブラシの 1 スタンプごとにも呼ばれるので、取り込み設定を
         // 引くのはテクスチャか中身(再インポート)か取り込み後の寸法が変わったときだけにする)。
         [System.NonSerialized] private Texture2D _canvasFor;

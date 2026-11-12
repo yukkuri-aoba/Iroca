@@ -52,8 +52,8 @@ namespace Iroca {
                     _found = MeshUvLocator.FindForTexture(_searchedFor);
                     _sceneStamp = SceneStamp();
                     _searched = true;
-                    StartMapBuild();
                 }
+                StartMapBuild();
                 return _found;
             }
         }
@@ -72,6 +72,8 @@ namespace Iroca {
                     ScheduleSearch();
                     return null;
                 }
+                // 地図を手放した後(閉じる・リロードの前に返す。MaskPaintView.SuspendTransientState)も、描かれた時点で作り直し始める。
+                StartMapBuild();
                 return _found;
             }
         }
@@ -205,6 +207,7 @@ namespace Iroca {
             _map?.Dispose();
             _map = null;
             DiscardMapTask();
+            _prebuildSkipped = false;
         }
 
         /// <summary>
@@ -315,19 +318,31 @@ namespace Iroca {
             }
         }
 
+        // 先に作るのは一辺 4096 まで。8K では地図が 256MB(作る間は 512MB)になり、右クリックの「メッシュの形で」を使わなくても
+        // 窓を開いている間持ち続けることになる。辺が 4096 を超えるテクスチャは少ないので(2026-11-08 に手元の 2,489 枚で 0.6%)、
+        // 超えるときは右クリックのときに Map() が作る(そのときだけ止まる)。
+        const int MaxPrebuildSide = 4096;
+        // 先に作らないと決めたか(寸法が大きい・決まらない)。地図を手放す・探し直すと戻る(ReleaseMap)。
+        bool _prebuildSkipped;
+
         /// <summary>
-        /// 地図を背景で作り始める(メッシュが見つかったとき)。寸法は今のマスクの寸法で、まだ無ければ作らない
-        /// (右クリックのときに Map() が作る)。マスクの寸法がその後で変わったら、Map() が捨てて作り直す。
+        /// 地図を背景で作り始める(メッシュが見つかっていて、地図をまだ持たず、作ってもいないとき。何度呼んでもよい)。
+        /// 寸法は、いまのテクスチャでのマスクの土台の寸法(<see cref="MaskPaintView.CanvasSize"/>。Map() が
+        /// <see cref="MaskPaintView.EnsureMasks"/> で合わせる先と同じ)。以前は「今のマスクの寸法」を使っていて、マスクを
+        /// まだ持たないテクスチャでは 0(作らない)か前のテクスチャの寸法(作って捨てる)になり、最初の右クリックで止まっていた。
+        /// 寸法がその後で変わったら(取り込み設定の変更)、Map() が捨てて作り直す。
         /// </summary>
         void StartMapBuild() {
-            if (_map != null || _mapTask != null || _maskView == null) {
+            if (_map != null || _mapTask != null || _maskView == null || !_searched || _prebuildSkipped) {
                 return;
             }
             if (_found == null || _found.found.Count == 0) {
                 return;
             }
-            int w = _maskView.maskWidth, h = _maskView.maskHeight;
-            if (w <= 0 || h <= 0) {
+            _maskView.CanvasSize(out int w, out int h);
+            if (w <= 0 || h <= 0 || w > MaxPrebuildSide || h > MaxPrebuildSide) {
+                // 描くたびに呼ばれるので、作らないと決めたら覚える。
+                _prebuildSkipped = true;
                 return;
             }
             var sources = _found.Sources();
