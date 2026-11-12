@@ -781,9 +781,8 @@ namespace Iroca {
             // Read/Write を求めるのは、原本ファイルからも画素を取れないときだけ（PSD/TGA 等）。
             // PNG/JPG は原本を直接読めるので、インポート設定を書き換える必要はない。
             if (SourceTexture != null && !CanReadSource(SourceTexture)) {
-                EditorGUILayout.HelpBox(Localization.ReadWriteError, MessageType.Error);
-
-                if (GUILayout.Button(TempContent.Of(Localization.EnableReadWrite, Localization.EnableReadWriteTooltip))) {
+                if (NoticeBox.Draw(Localization.ReadWriteError, MessageType.Error,
+                        TempContent.Of(Localization.EnableReadWrite, Localization.EnableReadWriteTooltip)) == 0) {
                     TextureIO.EnableReadWrite(SourceTexture);
                 }
             }
@@ -870,55 +869,9 @@ namespace Iroca {
             } else {
                 text = string.Format(Localization.LargeSourceNoticeFormat, w, h, needGB, haveGB);
             }
-            if (NoticeWithButtons(text, MessageType.Warning,
+            if (NoticeBox.Draw(text, MessageType.Warning,
                     TempContent.Of(Localization.LargeSourceDismiss, Localization.LargeSourceDismissTooltip)) == 0) {
                 SessionState.SetBool(key, true);
-            }
-        }
-
-        /// <summary>
-        /// テクスチャ欄の下の案内 1 つ。ボタン(閉じる など)は本文の右に縦に積む。本文の下の行に置いていた頃は、案内 1 つにつき
-        /// ボタンの 1 行ぶん上部の高さを使い、横並びでは設定列とプレビューの両方が縮んでいた(2026-11-12)。
-        /// 戻り値は押されたボタンの番号(-1 = 押されていない)。案内が出ているときだけ通るので、配列の確保は気にしない。
-        /// </summary>
-        private static int NoticeWithButtons(string text, MessageType type, params GUIContent[] buttons) {
-            // ボタンの幅はいちばん広いものにそろえる(縦に積んだときに端がそろう)。
-            var buttonStyle = GUI.skin.button;
-            float buttonW = 0f;
-            foreach (var b in buttons) {
-                buttonW = Mathf.Max(buttonW, buttonStyle.CalcSize(b).x);
-            }
-
-            int pressed = -1;
-            EditorGUILayout.BeginHorizontal();
-            // EditorGUILayout.HelpBox は幅の指定を受けない。日本語は語の切れ目が無く、折り返し文の最小幅が本文の長さになって
-            // ボタンを右へ押し出すので、MinWidth(0) で領域を取ってから描く。高さは取った幅で折り返した行数になる。
-            var sizing = new GUIContent(text, NoticeIcon(type));
-            Rect box = GUILayoutUtility.GetRect(sizing, EditorStyles.helpBox, GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
-            EditorGUI.HelpBox(box, text, type);
-            // ボタンは上に寄せる。FlexibleSpace で上下中央にすると、行が縦に伸びる扱いになってウィンドウの残りの高さを取った。
-            EditorGUILayout.BeginVertical(GUILayout.Width(buttonW));
-            for (int i = 0; i < buttons.Length; i++) {
-                if (GUILayout.Button(buttons[i], GUILayout.Width(buttonW))) {
-                    pressed = i;
-                }
-            }
-            EditorGUILayout.EndVertical();
-            EditorGUILayout.EndHorizontal();
-            return pressed;
-        }
-
-        // 案内の見出しの絵(EditorGUI.HelpBox が描くものと同じ。高さの見積もりに使う)。
-        private static Texture NoticeIcon(MessageType type) {
-            switch (type) {
-                case MessageType.Info:
-                    return EditorGUIUtility.IconContent("console.infoicon").image;
-                case MessageType.Warning:
-                    return EditorGUIUtility.IconContent("console.warnicon").image;
-                case MessageType.Error:
-                    return EditorGUIUtility.IconContent("console.erroricon").image;
-                default:
-                    return null;
             }
         }
 
@@ -960,7 +913,7 @@ namespace Iroca {
             if (SessionState.GetBool(key, false)) {
                 return;
             }
-            if (NoticeWithButtons(string.Format(Localization.PngGammaNoticeFormat, _gammaValue), MessageType.Warning,
+            if (NoticeBox.Draw(string.Format(Localization.PngGammaNoticeFormat, _gammaValue), MessageType.Warning,
                     TempContent.Of(Localization.LargeSourceDismiss, Localization.PngGammaDismissTooltip)) == 0) {
                 SessionState.SetBool(key, true);
             }

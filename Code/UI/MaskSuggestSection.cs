@@ -80,18 +80,17 @@ namespace Iroca {
             }
 
             EditorGUILayout.Space(2);
-            EditorGUILayout.HelpBox(
-                needsSentis ? Localization.AiBannerSentis : Localization.AiBannerModel,
-                MessageType.Info);
+            // 「閉じる」は案内の右(上部のほかの案内とそろえる。NoticeBox)。導入・ダウンロードの操作は本文の下に全幅で置く
+            // (進み具合の棒や、版を含む長い文言のボタンがあるため)。
+            if (NoticeBox.Draw(needsSentis ? Localization.AiBannerSentis : Localization.AiBannerModel, MessageType.Info,
+                    TempContent.Of(Localization.AiBannerDismiss, Localization.AiBannerDismissTooltip)) == 0) {
+                SessionState.SetBool(BannerDismissedKey, true);
+            }
 
             if (needsSentis) {
                 DrawSentisSetup();
             } else {
                 DrawModelDownload(svc);
-            }
-
-            if (GUILayout.Button(TempContent.Of(Localization.AiBannerDismiss, Localization.AiBannerDismissTooltip))) {
-                SessionState.SetBool(BannerDismissedKey, true);
             }
         }
 
@@ -269,15 +268,14 @@ namespace Iroca {
                 return;
             }
             EditorGUILayout.Space(4);
-            EditorGUILayout.HelpBox(Localization.AiSuggestRestartRecommended, MessageType.Info);
-            EditorGUILayout.BeginHorizontal();
-            DrawRestartButton();
-            if (GUILayout.Button(TempContent.Of(Localization.AiSuggestRestartLater,
-                                                Localization.AiSuggestRestartLaterTooltip),
-                                 GUILayout.Width(80))) {
+            int pressed = NoticeBox.Draw(Localization.AiSuggestRestartRecommended, MessageType.Info,
+                RestartButtonContent(),
+                TempContent.Of(Localization.AiSuggestRestartLater, Localization.AiSuggestRestartLaterTooltip));
+            if (pressed == 0) {
+                RestartUnity();
+            } else if (pressed == 1) {
                 SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
             }
-            EditorGUILayout.EndHorizontal();
         }
 
         /// <summary>
@@ -297,8 +295,9 @@ namespace Iroca {
                 return;
             }
             EditorGUILayout.Space(4);
-            EditorGUILayout.HelpBox(Localization.AiSuggestBurstFailed, MessageType.Warning);
-            DrawRestartButton();
+            if (NoticeBox.Draw(Localization.AiSuggestBurstFailed, MessageType.Warning, RestartButtonContent()) == 0) {
+                RestartUnity();
+            }
         }
 
         // 「モデルを確認して取り直す」の結果。照合は 44 MB を読むので押したときだけ行い、
@@ -335,12 +334,19 @@ namespace Iroca {
             }
         }
 
-        /// <summary>Unity を再起動する(現在のプロジェクトを開き直す)ボタン。</summary>
+        /// <summary>Unity を再起動する(現在のプロジェクトを開き直す)ボタンの文言。</summary>
+        static GUIContent RestartButtonContent() =>
+            TempContent.Of(Localization.AiSuggestRestartNow, Localization.AiSuggestRestartNowTooltip);
+
+        /// <summary>Unity を再起動するボタン(全幅。マスク欄の中のエラー表示で使う)。</summary>
         static void DrawRestartButton() {
-            if (!GUILayout.Button(TempContent.Of(Localization.AiSuggestRestartNow,
-                                                 Localization.AiSuggestRestartNowTooltip))) {
-                return;
+            if (GUILayout.Button(RestartButtonContent())) {
+                RestartUnity();
             }
+        }
+
+        /// <summary>Unity を再起動する(現在のプロジェクトを開き直す)。</summary>
+        static void RestartUnity() {
             SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
             // 現在のプロジェクトを開き直す = エディタ再起動(Burst をクリーンに初期化)。
             // CWD はプロジェクトルートである保証がない（batchmode 起動やスクリプトからの

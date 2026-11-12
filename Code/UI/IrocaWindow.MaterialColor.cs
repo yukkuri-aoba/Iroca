@@ -128,7 +128,7 @@ namespace Iroca {
             // (「アバターの色」は表示用の画像だけを作り直す)。
             bool changed = GUI.changed;
             string text = MaterialColorNoticeText(r, _previewView != null && _previewView.appearanceMode, out bool warn);
-            if (NoticeWithButtons(text, warn ? MessageType.Warning : MessageType.Info,
+            if (NoticeBox.Draw(text, warn ? MessageType.Warning : MessageType.Info,
                     TempContent.Of(Localization.LargeSourceDismiss, Localization.MaterialColorDismissTooltip)) == 0) {
                 SessionState.SetBool(key, true);
             }
@@ -248,9 +248,9 @@ namespace Iroca {
             bool changed = GUI.changed;
             var dismiss = TempContent.Of(Localization.LargeSourceDismiss, Localization.ShadowColorDismissTooltip);
             int pressed = mismatch
-                ? NoticeWithButtons(text, MessageType.Info,
+                ? NoticeBox.Draw(text, MessageType.Info,
                     TempContent.Of(Localization.ShadowColorMatchButton, Localization.ShadowColorMatchButtonTooltip), dismiss)
-                : NoticeWithButtons(text, MessageType.Info, dismiss);
+                : NoticeBox.Draw(text, MessageType.Info, dismiss);
             bool match = mismatch && pressed == 0;
             if (pressed == (mismatch ? 1 : 0)) {
                 SessionState.SetBool(key, true);

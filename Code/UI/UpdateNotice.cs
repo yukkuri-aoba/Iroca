@@ -24,20 +24,19 @@ namespace Iroca {
             }
 
             EditorGUILayout.Space(2);
-            EditorGUILayout.HelpBox(
+            int pressed = NoticeBox.Draw(
                 string.Format(Localization.UpdateNoticeFormat, latest, UpdateCheck.CurrentVersion),
-                MessageType.Info);
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(TempContent.Of(Localization.UpdateNoticeChanges, Localization.UpdateNoticeChangesTooltip))) {
+                MessageType.Info,
+                TempContent.Of(Localization.UpdateNoticeChanges, Localization.UpdateNoticeChangesTooltip),
+                TempContent.Of(Localization.UpdateNoticeHowTo, Localization.UpdateNoticeHowToTooltip),
+                TempContent.Of(Localization.UpdateNoticeDismiss, Localization.UpdateNoticeDismissTooltip));
+            if (pressed == 0) {
                 Application.OpenURL(UpdateCheck.ChangelogUrl);
-            }
-            if (GUILayout.Button(TempContent.Of(Localization.UpdateNoticeHowTo, Localization.UpdateNoticeHowToTooltip))) {
+            } else if (pressed == 1) {
                 Application.OpenURL(IrocaManual.OnlineUrl + ManualAnchor);
-            }
-            if (GUILayout.Button(TempContent.Of(Localization.UpdateNoticeDismiss, Localization.UpdateNoticeDismissTooltip))) {
+            } else if (pressed == 2) {
                 UpdateCheck.Dismiss(latest);
             }
-            EditorGUILayout.EndHorizontal();
         }
 
         [SettingsProvider]
