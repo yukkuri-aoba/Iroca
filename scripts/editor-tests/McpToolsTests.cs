@@ -252,6 +252,17 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
+        public void Recolor_Failure_KeepsWarningsInData() {
+            // 失敗した依頼でも、いろかが付けた warnings(受け取られなかった前の依頼の結末・値を丸めた知らせなど)は AI に届く。
+            string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
+            string json = Call("IrocaRecolorTool",
+                "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"autoTune\":false,\"remove\":[\"no_such_zone\"]}");
+            Assert.AreEqual("False", Token(json, "success"), json);
+            StringAssert.StartsWith("no enabled zones", Token(json, "error"), json);
+            StringAssert.Contains("no_such_zone", Token(json, "data.warnings[0]") ?? "", "失敗の応答に warnings が無い: " + json);
+        }
+
+        [Test]
         public void Open_UnknownTarget_BecomesError() {
             string json = Call("IrocaOpenTool", Args(("target", "NoSuchObject_IrocaTest")));
             Assert.AreEqual("False", Token(json, "success"), json);

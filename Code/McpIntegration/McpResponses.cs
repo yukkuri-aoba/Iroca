@@ -31,7 +31,9 @@ namespace Iroca.McpIntegration {
 
         /// <summary>
         /// IrocaAutomation の JSON 文字列({"ok":...,"error":...})を成功/失敗の応答へ整える。
-        /// ok が true でなければ error の文言で失敗にする。
+        /// ok が true でなければ error の文言で失敗にする。失敗のときも、いろかが組んだ中身(warnings など)は data に載せる。
+        /// 受け取られなかった前の依頼の結末(登録した・失敗した)や、値を丸めた知らせは warnings に入るので、落とすと
+        /// 失敗した依頼では AI に届かない。
         /// </summary>
         public static JObject FromAutomationResult(string json, string fallbackError) {
             JObject data;
@@ -40,7 +42,7 @@ namespace Iroca.McpIntegration {
             bool ok = data.TryGetValue("ok", out var okToken) && okToken.Type == JTokenType.Boolean && okToken.Value<bool>();
             if (!ok) {
                 string err = data.TryGetValue("error", out var errToken) ? errToken.ToString() : fallbackError;
-                return Error(string.IsNullOrEmpty(err) ? fallbackError : err);
+                return Error(string.IsNullOrEmpty(err) ? fallbackError : err, data);
             }
             return Success("ok", data);
         }
