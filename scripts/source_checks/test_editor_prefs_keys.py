@@ -45,6 +45,11 @@ PREFS_KEYS = {
     "Iroca.Debug.SelectedZone",
     "Iroca.Perf.ThreadOverride",
     "Iroca.ReproDump.LastDir",
+    # 2026-11-12 追加: UV の詳しい表示(開発者向け)
+    "Iroca.UvDetail.Fill",
+    "Iroca.UvDetail.Wire",
+    "Iroca.UvDetail.Overlap",
+    "Iroca.UvDetail.HoverInfo",
     # SessionState（エディタを閉じるまで）
     "Iroca.UpdateCheck.Tried",
     "Iroca.WindowEnabled.",              # + ウィンドウの InstanceID

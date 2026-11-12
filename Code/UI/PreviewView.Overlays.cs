@@ -50,6 +50,36 @@ namespace Iroca {
             }
         }
 
+        // 開発者向けの UV の詳しい表示(島の塗り分け・三角形の線・重なり・カーソルの下の島)。
+        [System.NonSerialized] private UvDetailOverlay _uvDetail;
+
+        /// <summary>
+        /// UV の詳しい表示を重ねる(開発者向けの設定と島の表示が ON のときだけ。島の輪郭より下に敷く)。
+        /// 背景で焼いている間は描き直しを頼み、焼き上がりを拾う。
+        /// </summary>
+        private void DrawUvDetailOverlay(Rect previewRect) {
+            var found = UvDetailOverlay.Available ? _host._maskView?.MeshParts?.FoundForDrawing : null;
+            var tex = _host.SourceTexture;
+            if (found == null || tex == null) {
+                _uvDetail?.Release();
+                return;
+            }
+            _uvDetail ??= new UvDetailOverlay();
+            if (_uvDetail.Draw(previewRect, found, tex.width, tex.height)) {
+                _host.RequestRepaint();
+            }
+        }
+
+        // カーソルの下の島の情報(ほかの目印より上に出す)。
+        private void DrawUvDetailHover(Rect previewRect) {
+            var found = _host._maskView?.MeshParts?.FoundForDrawing;
+            _uvDetail?.DrawHoverInfo(previewRect, found, Event.current.mousePosition);
+        }
+
+        private void ReleaseUvDetail() {
+            _uvDetail?.Release();
+        }
+
         // UV の島の輪郭の描画用バッファ(線分の端点をスクリーン座標へ直したもの。毎回確保しない)。
         [System.NonSerialized] private Vector3[] _islandLineBuffer;
 

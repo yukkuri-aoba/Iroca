@@ -87,6 +87,29 @@ namespace Iroca {
                     ShowIslands = show;
                     host.RequestRepaint();
                 }
+
+                // 開発者向けの UV の詳しい表示(UvDetailOverlay)。島の表示が ON のときだけ効くので、その下に字下げして置く。
+                if (IrocaWindow.ShowDeveloperSettings) {
+                    using (new EditorGUI.IndentLevelScope())
+                    using (new EditorGUI.DisabledScope(!ShowIslands)) {
+                        EditorGUI.BeginChangeCheck();
+                        bool fill = EditorGUILayout.ToggleLeft(
+                            TempContent.Of(Localization.UvDetailFill, Localization.UvDetailFillTooltip), UvDetailOverlay.ShowFill);
+                        bool wire = EditorGUILayout.ToggleLeft(
+                            TempContent.Of(Localization.UvDetailWire, Localization.UvDetailWireTooltip), UvDetailOverlay.ShowWire);
+                        bool overlap = EditorGUILayout.ToggleLeft(
+                            TempContent.Of(Localization.UvDetailOverlap, Localization.UvDetailOverlapTooltip), UvDetailOverlay.ShowOverlap);
+                        bool hover = EditorGUILayout.ToggleLeft(
+                            TempContent.Of(Localization.UvDetailHoverInfo, Localization.UvDetailHoverInfoTooltip), UvDetailOverlay.ShowHoverInfo);
+                        if (EditorGUI.EndChangeCheck()) {
+                            UvDetailOverlay.ShowFill = fill;
+                            UvDetailOverlay.ShowWire = wire;
+                            UvDetailOverlay.ShowOverlap = overlap;
+                            UvDetailOverlay.ShowHoverInfo = hover;
+                            host.RequestRepaint();
+                        }
+                    }
+                }
             }
         }
 

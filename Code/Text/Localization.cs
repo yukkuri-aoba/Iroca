@@ -501,6 +501,25 @@ namespace Iroca {
         public static string MeshShowIslandsTooltip => IsJapanese
             ? "メッシュの UV の島の輪郭をプレビューに重ねます。右クリックの「メッシュの形で」で当てる範囲が、この線で囲まれた島（と線のすぐ外のにじみ）です。表示だけで、色替えの結果は変わりません"
             : "Overlay the outlines of the mesh's UV islands on the preview. The right-click \"By mesh shape\" items apply to the island enclosed by these lines (plus the bleed just outside them). Display only; the recolor result does not change";
+        // UV の詳しい表示(開発者向け。「開発者向けの設定を表示」のときだけ出る)
+        public static string UvDetailFill => IsJapanese ? "島を塗り分ける" : "Color each island";
+        public static string UvDetailFillTooltip => IsJapanese
+            ? "UV の島ごとに別の色で塗ります（開発者向け）。島の分かれ方を確かめられます。表示だけで、色替えの結果は変わりません"
+            : "Fill each UV island with its own color (developer option). Shows how the islands are split. Display only.";
+        public static string UvDetailWire => IsJapanese ? "三角形の線" : "Triangle wireframe";
+        public static string UvDetailWireTooltip => IsJapanese
+            ? "メッシュの三角形の辺を線で重ねます（開発者向け）。表示だけで、色替えの結果は変わりません"
+            : "Overlay the edges of the mesh triangles (developer option). Display only.";
+        public static string UvDetailOverlap => IsJapanese ? "UV の重なり" : "UV overlaps";
+        public static string UvDetailOverlapTooltip => IsJapanese
+            ? "2 つ以上の三角形が同じ場所を使っている所を、紫の縞で示します（開発者向け）。左右対称のパーツが UV を共有している所などです。表示だけで、色替えの結果は変わりません"
+            : "Mark texels used by two or more triangles with purple stripes (developer option), such as mirrored parts sharing UVs. Display only.";
+        public static string UvDetailHoverInfo => IsJapanese ? "カーソルの下の島を表示" : "Show island under cursor";
+        public static string UvDetailHoverInfoTooltip => IsJapanese
+            ? "プレビューの上のカーソルの位置にあるメッシュの名前・島の番号・重なっている三角形の数を、カーソルのそばに出します（開発者向け）"
+            : "Show the mesh name, island number, and number of overlapping triangles at the cursor on the preview (developer option).";
+        public static string UvDetailHoverFormat => IsJapanese ? "{0}\n島 {1}・三角形 {2} 枚" : "{0}\nIsland {1} · {2} triangle(s)";
+        public static string UvDetailHoverNone => IsJapanese ? "島の外" : "Outside islands";
         public static string NotifyAiNotStarted => IsJapanese
             ? "AI 提案を開始できませんでした（マスク編集ウィンドウの AI 提案欄を確認してください）"
             : "Could not start AI suggest (see the AI section of the mask edit window)";

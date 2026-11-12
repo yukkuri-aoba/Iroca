@@ -34,6 +34,11 @@ namespace Iroca {
         internal const string DebugSelectedZone = "Iroca.Debug.SelectedZone";
         internal const string PerfThreadOverride = "Iroca.Perf.ThreadOverride";
         internal const string ReproDumpLastDir = "Iroca.ReproDump.LastDir";
+        // UV の詳しい表示(開発者向けの設定のときだけ出る。UvDetailOverlay)
+        internal const string UvDetailFill = "Iroca.UvDetail.Fill";
+        internal const string UvDetailWire = "Iroca.UvDetail.Wire";
+        internal const string UvDetailOverlap = "Iroca.UvDetail.Overlap";
+        internal const string UvDetailHoverInfo = "Iroca.UvDetail.HoverInfo";
 
         // ── SessionState(エディタを閉じるまで) ──
         internal const string UpdateCheckTried = "Iroca.UpdateCheck.Tried";

@@ -351,6 +351,7 @@ namespace Iroca {
             // テクスチャ・拡大表示・差分のマテリアル・見た目も手放す。次に描くときに作り直す。
             _renderer?.Release();
             ClearSceneHighlight();
+            ReleaseUvDetail();
         }
 
         /// <summary>
@@ -680,6 +681,8 @@ namespace Iroca {
 
             // 連続領域モードのシード(任意上書き)を十字オーバーレイで描画。
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0) {
+                // 開発者向けの UV の詳しい表示(塗り分け・三角形の線・重なり)。島の輪郭より下に敷く。
+                DrawUvDetailOverlay(activePreviewRect);
                 // メッシュの UV の島の輪郭(表示を ON にしているときだけ)。目印より下に敷く。
                 DrawMeshIslandOverlay(activePreviewRect);
                 // Scene でモデルをクリックした場所(その UV の島とクリック位置)
@@ -689,6 +692,8 @@ namespace Iroca {
                 DrawSampleUvOverlay(activePreviewRect);
                 // AI 提案の反映待ちクリック位置(受理済み・未反映)の目印
                 DrawAiSuggestPendingOverlay(activePreviewRect);
+                // 開発者向けの、カーソルの下の島の情報(いちばん上)
+                DrawUvDetailHover(activePreviewRect);
             }
 
             // 画像の矩形を控える(拡大表示の切り出しの範囲と、描く位置の計算に使う)。
@@ -726,7 +731,7 @@ namespace Iroca {
                                  && !maskView.maskPaintActive && !eyedropperArmed;
 
             // スポイトの見本・ブラシのカーソルをマウスに付いて動かす(押していないときも)。
-            if (eyedropperArmed || maskView.maskPaintActive) {
+            if (eyedropperArmed || maskView.maskPaintActive || UvDetailOverlay.HoverActive) {
                 HandleHoverRepaint(activePreviewRect);
             }
 
