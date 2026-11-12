@@ -166,6 +166,10 @@ namespace Iroca {
             return true;
         }
 
+        // 最後に本体を描き直したときのサービスの状態と待ちの数(-1 = まだ描き直していない)。
+        MaskSuggestPhase _drawnPhase;
+        int _drawnPending = -1;
+
         // サービスの状態の変化(読み込み・埋め込みの計算の進み)を描き直す。
         void OnServiceStateChanged() {
             // 破棄済みウィンドウに紐づく購読者(= Shutdown を取りこぼした残骸)は自己解除する。
@@ -174,6 +178,18 @@ namespace Iroca {
                 _subscribed = false;
                 return;
             }
+            var svc = MaskSuggestBridge.Service;
+            var phase = svc != null ? svc.Phase : MaskSuggestPhase.NoModel;
+            int pending = svc != null ? svc.PendingClickCount : 0;
+            if (phase == _drawnPhase && pending == _drawnPending) {
+                // 状態も待ちの数も同じ = 埋め込みの計算の進みだけが変わった。進みの棒を描くのはマスク編集の窓だけで、本体と
+                // プレビューは描き直しても見た目が変わらない(計算の間、全面の描き直しを繰り返すだけになる)。本体の状態の版だけを
+                // 進めると、マスク編集の窓が自分の見回り(約 10 回/秒)で気づいて、自分だけを描き直す。
+                _host.BumpUiState();
+                return;
+            }
+            _drawnPhase = phase;
+            _drawnPending = pending;
             _host.RequestRepaint();
         }
 

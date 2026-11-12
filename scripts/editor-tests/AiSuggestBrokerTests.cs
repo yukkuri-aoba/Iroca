@@ -53,6 +53,32 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // 状態も待ちの数も変わらない知らせ(埋め込みの計算の進み)では、本体とプレビューは描き直さない(見た目が変わらない)が、
+        // 本体の状態の版は進める: 進みの棒を描くマスク編集の窓は、版が進んだのを見て自分を描き直す。
+        [Test]
+        public void ProgressOnlyNotice_StillReachesTheBrushWindow() {
+            string prefKey = IrocaWindow.LastTextureGuidPrefKey;
+            string prefBefore = UnityEditor.EditorPrefs.HasKey(prefKey) ? UnityEditor.EditorPrefs.GetString(prefKey) : null;
+            UnityEditor.EditorPrefs.DeleteKey(prefKey);
+            var win = UnityEngine.ScriptableObject.CreateInstance<IrocaWindow>();
+            try {
+                _ = win._maskView.SuggestController;
+                var drawn = new IrocaWindow.DrawStamp();
+                drawn.Record(win);
+                _svc.Set(MaskSuggestPhase.Encoding);
+                Assert.IsTrue(drawn.Changed(win), "状態が変わった知らせで、マスク編集の窓が描き直さない");
+
+                drawn.Record(win);
+                _svc.Set(MaskSuggestPhase.Encoding);   // 状態は同じ = 進みだけ
+                Assert.IsTrue(drawn.Changed(win), "進みだけの知らせで、マスク編集の窓(進みの棒)が描き直さない");
+            } finally {
+                UnityEngine.Object.DestroyImmediate(win);
+                if (prefBefore != null) {
+                    UnityEditor.EditorPrefs.SetString(prefKey, prefBefore);
+                }
+            }
+        }
+
         [Test]
         public void ProposalsGoBackToWhoAskedInOrder() {
             MaskSuggestProposal gotA = null, gotB = null;
