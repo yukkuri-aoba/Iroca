@@ -6,9 +6,7 @@ using System.Runtime.CompilerServices;
 // Code.Debug/ フォルダがプロジェクトに存在しない場合、このターゲットアセンブリは
 // 単に存在しないだけで、本体のコンパイルには何の影響もない。
 [assembly: InternalsVisibleTo("com.yukkuri-aoba.iroca.Editor.Debug")]
-// AI マスク提案の Sentis 統合 asmdef(com.unity.sentis 導入時のみコンパイル)にも公開する。
-[assembly: InternalsVisibleTo("Iroca.SentisIntegration")]
-// NDMF 連携 asmdef(nadena.dev.ndmf 導入時のみコンパイル)。非破壊ビルドの本体を呼ぶ。
-[assembly: InternalsVisibleTo("Iroca.NdmfIntegration")]
+// Sentis・NDMF の連携(Iroca.SentisIntegration・Iroca.NdmfIntegration)へは公開しない。どちらもこのアセンブリ(UI・Automation)を
+// 参照しておらず、Core と Services だけを使う(そちらへの公開は Code/Application/AssemblyInfo.cs と Code/Core/AssemblyInfo.cs)。
 // EditMode テスト（リポジトリの scripts/editor-tests。配布物には含まれない）。
 [assembly: InternalsVisibleTo("Iroca.EditorTests")]
