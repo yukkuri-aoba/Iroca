@@ -790,6 +790,15 @@ namespace Iroca {
                     return FinishRecolor(r, $"while this call was waiting, {edited}, so the result was not applied "
                         + "(to keep those edits). Call iroca_recolor again to apply it on top of the current state.");
                 }
+                // 待つ間に登録先が消えた・そのシーンが閉じられた、テクスチャが消えたなら、レシピを作る前に断る。作ってから気づくと
+                // (登録の計画が消えたオブジェクトを読んで例外になる)、どこにも登録されないレシピのアセットが Assets に残る。
+                if (job.target == null || !RecipeRegistration.IsSceneObject(job.target)) {
+                    return FinishRecolor(r, $"'{r.avatar}' was deleted or its scene was closed while this call was waiting, "
+                        + "so nothing was registered. Call iroca_inspect to pick a target again.");
+                }
+                if (tex == null) {
+                    return FinishRecolor(r, $"the texture '{r.texture}' was deleted while this call was waiting, so nothing was registered.");
+                }
                 // 書き込み先と同じレシピ(どちらも無いときを含む)を表示している窓だけ、書いた後に読み直す。別のレシピを
                 // 表示している窓は、そちらへ保存するので古い内容で上書きする心配は無く、読み直すと窓の未保存の編集を捨てて
                 // 書き込み先へ結び替えてしまう。

@@ -765,6 +765,57 @@ namespace Iroca.EditorTests {
             }
         }
 
+        [UnityTest]
+        public IEnumerator Recolor_Avatar_TargetDeletedWhileWaiting_LeavesNoRecipe() {
+            // 結果を待つ間に登録先が消えたら、レシピのアセットを作らずに断る(作ってから気づくと、どこにも登録されないレシピが残る)。
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
+            bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
+            var root = new GameObject("IrocaGoneTestAvatar");
+            MarkAsAvatar(root);
+            try {
+                var body = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                body.name = "Body";
+                body.transform.SetParent(root.transform);
+                body.GetComponent<Renderer>().sharedMaterial = mat;
+                int recipesBefore = hadRecipeFolder
+                    ? UnityEditor.AssetDatabase.FindAssets("t:IrocaRecipe", new[] { RecipeStore.DefaultFolder }).Length : 0;
+
+                string json = IrocaAutomation.Recolor(Request(src, "avatar",
+                    "[{\"name\":\"blue\",\"from\":\"#1E28C8\",\"to\":\"#FFAA00\"}]", ",\"avatar\":\"IrocaGoneTestAvatar/Body\""));
+                if (!json.Contains("\"pending\":true")) {
+                    Assert.Inconclusive("比較が 1 回目の呼び出しの中で終わった(待ちが無い)");
+                }
+                Object.DestroyImmediate(root);   // 待っている間に登録先を消す
+
+                double deadline = UnityEditor.EditorApplication.timeSinceStartup + 120;
+                while (json.Contains("\"pending\":true")) {
+                    Assert.Less(UnityEditor.EditorApplication.timeSinceStartup, deadline, "比較が終わらない: " + json);
+                    yield return null;
+                    json = IrocaAutomation.RecolorStatus();
+                }
+                var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+                Assert.IsFalse(r.ok, json);
+                StringAssert.Contains("was deleted or its scene was closed", r.error);
+                int recipesAfter = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder)
+                    ? UnityEditor.AssetDatabase.FindAssets("t:IrocaRecipe", new[] { RecipeStore.DefaultFolder }).Length : 0;
+                Assert.AreEqual(recipesBefore, recipesAfter, "登録されないレシピのアセットを残さない");
+            } finally {
+                if (root != null) {
+                    Object.DestroyImmediate(root);
+                }
+                Object.DestroyImmediate(mat);
+                if (!hadRecipeFolder) {
+                    UnityEditor.AssetDatabase.DeleteAsset(RecipeStore.DefaultFolder);
+                }
+                if (!hadIrocaFolder) {
+                    UnityEditor.AssetDatabase.DeleteAsset("Assets/Iroca");
+                }
+            }
+        }
+
         [Test]
         public void Recolor_Avatar_DoesNotReuseTheRecipeOfAnotherAvatar() {
             // 同じテクスチャを使うアバターが 2 体あり、片方だけ登録済み。もう片方の登録では、そのレシピを流用して
