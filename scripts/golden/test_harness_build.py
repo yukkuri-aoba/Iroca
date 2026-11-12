@@ -101,6 +101,50 @@ def test_sources_edited_during_build_cause_rebuild(tmp_path, monkeypatch):
         hb._build_in(tmp_path, "worktree", lambda: {"a": next(always_changing)}, with_samops=False)
 
 
+def test_verified_build_skips_dotnet_only_when_nothing_changed(tmp_path, monkeypatch):
+    """前に確かめたビルドがそのまま残っているときだけ、MSBuild を起動せずに来歴を返す。1 つでも違えば使わない。"""
+    _fake_tree(tmp_path)
+    fake = _FakeDotnet(tmp_path)
+    monkeypatch.setattr(hb, "_dotnet_build", fake)
+    monkeypatch.setattr(hb, "LOCK", tmp_path / "build.lock")
+    monkeypatch.delenv("IROCA_HARNESS_BUILD_ALWAYS", raising=False)
+    unity = ["C:/Unity/UnityEngine.CoreModule.dll", 100, 1]
+    monkeypatch.setattr(hb, "_unity_reference", lambda root: list(unity))
+    src = _sources(tmp_path)
+    assert hb._verified_build(tmp_path, "worktree", src, with_samops=False) is None, "記録が無ければビルドする"
+    built = hb._build_in(tmp_path, "worktree", lambda: src, with_samops=False)
+    calls = list(fake.calls)
+
+    hit = hb._verified_build(tmp_path, "worktree", src, with_samops=False)
+    assert hit is not None and fake.calls == calls, "同じソース・同じ DLL なら dotnet を呼ばない"
+    assert (hit.dll, hit.dll_sha256, hit.sources, hit.built_at) == (built.dll, built.dll_sha256, src, built.built_at)
+    # 鍵用の DLL つきの記録は別(鍵用の DLL を確かめていないビルドを、鍵つきの依頼に使わない)
+    assert hb._verified_build(tmp_path, "worktree", src, with_samops=True) is None
+
+    assert hb._verified_build(tmp_path, "worktree", {**src, "Code/Core/A.cs": "changed"}, with_samops=False) is None
+    unity[1] = 101
+    assert hb._verified_build(tmp_path, "worktree", src, with_samops=False) is None, "参照する Unity の DLL が替わった"
+    unity[1] = 100
+    monkeypatch.setenv("IROCA_HARNESS_BUILD_ALWAYS", "1")
+    assert hb._verified_build(tmp_path, "worktree", src, with_samops=False) is None
+    monkeypatch.delenv("IROCA_HARNESS_BUILD_ALWAYS")
+    assert hb._verified_build(tmp_path, "worktree", src, with_samops=False) is not None
+    (tmp_path / hb.HARNESS_DLL).write_bytes(b"someone rebuilt it")
+    assert hb._verified_build(tmp_path, "worktree", src, with_samops=False) is None, "DLL が記録と違う"
+
+
+def test_build_edited_midway_is_not_recorded_as_verified(tmp_path, monkeypatch):
+    """前後でソースが食い違ったままのビルドは、確かめ済みとして記録しない(次の回に古い DLL を返さない)。"""
+    _fake_tree(tmp_path)
+    monkeypatch.setattr(hb, "_dotnet_build", _FakeDotnet(tmp_path))
+    monkeypatch.setattr(hb, "LOCK", tmp_path / "build.lock")
+    monkeypatch.setattr(hb, "_unity_reference", lambda root: ["u", 1, 1])
+    always_changing = iter(range(100))
+    with pytest.raises(hb.BuildFailed):
+        hb._build_in(tmp_path, "worktree", lambda: {"a": next(always_changing)}, with_samops=False)
+    assert not hb._verified_path(tmp_path, False).exists()
+
+
 def test_snapshot_is_content_addressed_and_keeps_provenance(tmp_path):
     out = tmp_path / "bin"
     out.mkdir()

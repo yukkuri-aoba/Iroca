@@ -49,6 +49,7 @@ LOCK = Path(tempfile.gettempdir()) / "iroca_harness_build.lock"
 LOCK_WAIT_S = 900
 BUILD_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_BUILD_TIMEOUT", "600"))
 RECORD_NAME = "iroca_build_record.json"     # obj/ に置く「ソースの中身 → DLL」の記録(B-7②)
+VERIFIED_NAME = "iroca_build_verified.json"  # scripts/headless-run/obj に置く、確かめ済みのビルドの記録(_verified_build)
 PROVENANCE = "provenance.json"
 # 写さないもの(実行に要らない。UnityEngine.CoreModule.xml だけで 3MB)
 _SNAP_SKIP_SUFFIXES = (".xml", ".exe")
@@ -286,6 +287,88 @@ def _samops_digest(root: Path) -> str:
     return "samops:" + file_sha256(root / SAMOPS_DLL) + ":" + file_sha256(root / HARNESS_CS)
 
 
+def _unity_reference(root: Path) -> list | None:
+    """csproj が参照する Unity の DLL の (パス, 大きさ, 更新時刻)。無ければ None。
+
+    Unity の DLL は bin/Release へ写されて一緒に動く。ソースが同じでも、参照先(UnityManaged・UnityVersion)を
+    替えたらビルドし直す必要があるので、確かめ済みの記録(_verified_build)に入れる。
+    """
+    text = (root / HARNESS_CSPROJ).read_text(encoding="utf-8-sig")
+
+    def default(name: str) -> str | None:
+        m = re.search(rf"<{name}\s+Condition=[^>]*>([^<]+)</{name}>", text)
+        return m.group(1).strip() if m else None
+
+    hint = re.search(r"<HintPath>\$\(UnityManaged\)[\\/](.+?)</HintPath>", text)
+    version = os.environ.get("UnityVersion") or default("UnityVersion")
+    managed = os.environ.get("UnityManaged") or default("UnityManaged")
+    if not (hint and version and managed):
+        return None
+    dll = Path(managed.replace("$(UnityVersion)", version)) / hint.group(1).strip().replace("\\", "/")
+    try:
+        st = dll.stat()
+    except OSError:
+        return None
+    return [str(dll), st.st_size, st.st_mtime_ns]
+
+
+def _verified_path(root: Path, with_samops: bool) -> Path:
+    return root / HEADLESS / "obj" / (VERIFIED_NAME if with_samops else VERIFIED_NAME.replace(".json", "_nosamops.json"))
+
+
+def _write_verified(root: Path, info: BuildInfo, with_samops: bool) -> None:
+    """前後でソースが同じと確かめたビルドを記録する(次に同じソースで呼ばれたら _verified_build が MSBuild を飛ばす)。"""
+    doc = {"sources": digest_of(info.sources), "unity": _unity_reference(root), "dll_sha256": info.dll_sha256,
+           "samops_dll_sha256": file_sha256(root / SAMOPS_DLL) if info.samops_digest else None,
+           "samops_digest": info.samops_digest, "built_at": info.built_at}
+    path = _verified_path(root, with_samops)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(doc), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass            # 記録できなくても、次に普通にビルドするだけ
+
+
+def _verified_build(root: Path, source: str, sources: dict, with_samops: bool) -> BuildInfo | None:
+    """今のソース(sources)で、前に確かめ済みのビルドがそのまま残っていれば、その BuildInfo(無ければ None)。
+
+    ソースを変えていないときの `dotnet build` は何もコンパイルしないが、MSBuild の起動と評価に csproj 1 つあたり
+    約 1.5〜2 秒かかる。pytest は起動のたびに親で 2 つ(ハーネスと鍵用の DLL)、golden はモジュールごとに 1 つ
+    ビルドしていた(2026-11-12 の計測: 1 周で 5 回・計 10 秒、どんなに小さい pytest の実行にも約 3 秒)。
+    ここでは MSBuild を起動せずに、次がすべて前の記録と同じことを確かめる:
+      - コンパイルするソースと csproj・props の中身(git の blob の id。build_worktree が普通のビルドの前に取るのと同じもの)
+      - 参照する Unity の DLL(パス・大きさ・更新時刻)
+      - いまある DLL のバイト列(ハーネスと、鍵用の DLL)
+    記録は、ビルドの前後でソースが同じだったと確かめた後にだけ書く(_build_in)。1 つでも違えば普通にビルドする。
+    鍵用の DLL を作れなかった記録(samops_digest が無い)は使わない(次の回にもう一度試す)。
+    SDK を入れ替えただけでは作り直さない(ソースを変えるか obj を消せば作り直す)。止めるなら IROCA_HARNESS_BUILD_ALWAYS=1。
+    """
+    if os.environ.get("IROCA_HARNESS_BUILD_ALWAYS") == "1":
+        return None
+    try:
+        doc = json.loads(_verified_path(root, with_samops).read_text(encoding="utf-8"))
+        if doc.get("sources") != digest_of(sources) or doc.get("unity") is None or doc["unity"] != _unity_reference(root):
+            return None
+        dll = root / HARNESS_DLL
+        if not dll.is_file() or file_sha256(dll) != doc.get("dll_sha256"):
+            return None
+        samops = None
+        if with_samops:
+            if not doc.get("samops_digest") or not (root / SAMOPS_DLL).is_file():
+                return None
+            if file_sha256(root / SAMOPS_DLL) != doc.get("samops_dll_sha256"):
+                return None
+            samops = _samops_digest(root)
+            if samops != doc["samops_digest"]:
+                return None
+        return BuildInfo(dll=str(dll), dll_sha256=doc["dll_sha256"], source=source, sources=sources,
+                         samops_digest=samops, built_at=doc.get("built_at", ""))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def _build_in(root: Path, source: str, read_sources, with_samops: bool) -> BuildInfo:
     """root のハーネスをロックの中でビルドする。read_sources() は今のソースの来歴を返す(前後で 2 回呼ぶ)。"""
     last_out = ""
@@ -306,17 +389,23 @@ def _build_in(root: Path, source: str, read_sources, with_samops: bool) -> Build
             dll_sha = file_sha256(root / HARNESS_DLL)
             after = read_sources()
             if after == before:
-                return BuildInfo(dll=str(root / HARNESS_DLL), dll_sha256=dll_sha, source=source,
+                info = BuildInfo(dll=str(root / HARNESS_DLL), dll_sha256=dll_sha, source=source,
                                  sources=before, samops_digest=samops, samops_error=samops_err,
                                  built_at=datetime.now().isoformat(timespec="seconds"))
+                _write_verified(root, info, with_samops)
+                return info
     raise BuildFailed("ビルドの間にソースが変わり続けました(3 回作り直しても前後が一致しない)", last_out)
 
 
 def build_worktree(with_samops: bool = True) -> BuildInfo:
-    """作業ツリーのハーネスを scripts/headless-run/bin/Release にビルドする(写さない)。"""
+    """作業ツリーのハーネスを scripts/headless-run/bin/Release にビルドする(写さない)。
+
+    ソースも参照も DLL も前に確かめたビルドのままなら、MSBuild を起動せずにその来歴を返す(_verified_build)。
+    """
     def read():
         return blobs_worktree(build_inputs(ROOT, with_samops))
-    return _build_in(ROOT, "worktree", read, with_samops)
+    hit = _verified_build(ROOT, "worktree", read(), with_samops)
+    return hit if hit is not None else _build_in(ROOT, "worktree", read, with_samops)
 
 
 def snapshot(info: BuildInfo, snap_root: Path) -> BuildInfo:
