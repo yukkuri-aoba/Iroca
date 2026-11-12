@@ -574,6 +574,23 @@ namespace Iroca.EditorTests {
             RecolorFails(Request(src, "png", again, ",\"output\":\"" + src + "\",\"overwrite\":true"), "must differ from the source");
         }
 
+        // 画素を読まなくても断れる依頼は、元の画像をデコードする前に断る(8K の原本のデコードは数百 ms と 256MB)。
+        // 読めない元画像と、既にある出力先が重なった依頼では、出力先の断りが先に返る。
+        [Test]
+        public void Recolor_Png_RefusesBeforeDecodingTheSource() {
+            string src = Halves();
+            RecolorOk(Request(src, "png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]"));   // 出力先を作る
+            // 元のファイルを壊す。取り込み直さないので、アセットは読み込まれたまま(Read/Write は無効なので、画素は読めない)。
+            File.WriteAllBytes(TestAssets.Abs(src), new byte[] { 1, 2, 3, 4 });
+            string again = "[{\"from\":\"#C81E1E\",\"to\":\"#FFAA00\"}]";
+            LogAssert.ignoreFailingMessages = true;
+            try {
+                RecolorFails(Request(src, "png", again), "already exists");
+                // テストの前提: 出力先の断りが無ければ、画素を読む所で断られる。
+                RecolorFails(Request(src, "png", again, ",\"overwrite\":true"), "could not read the pixels");
+            } finally { LogAssert.ignoreFailingMessages = false; }
+        }
+
         [TestCase("Packages/iroca_automation_test_out.png")]
         [TestCase("ProjectSettings/iroca_automation_test_out.png")]
         [TestCase("Library/iroca_automation_test_out.png")]

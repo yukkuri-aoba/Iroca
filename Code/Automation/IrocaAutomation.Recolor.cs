@@ -530,13 +530,7 @@ namespace Iroca {
             if (abs == null) {
                 return $"texture file not found: {r.texture}";
             }
-            var kind = ReadWorkingPixels(abs, tex, out job.work);
-            if (!ExportPipeline.HasPixels(kind)) {
-                return "could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).";
-            }
-            job.w = job.work.Width;
-            job.h = job.work.Height;
-            job.workIsFullResolution = IsFullResolution(kind, tex, job.w, job.h);
+            // 画素は、画素が無くても断れるもの(出力先・Play 中・登録先・レシピ・プリセット)を確かめた後で読む(下の「原本の画素」)。
 
             // ── png の出力先(自動調整を待つ前に断れるものは断る) ──
             if (r.apply == ApplyPng) {
@@ -620,6 +614,17 @@ namespace Iroca {
             state.zones ??= new List<ColorZone>();
             state.maskState ??= new MaskState();
             job.state = state;
+
+            // ── 原本の画素 ──
+            // ここより前の断りは画素を使わない。以前は依頼の頭でデコードしていたので、断る依頼でも、窓が同じテクスチャを
+            // 開いていなければ元の画像を丸ごと読んでいた(8K で数百 ms と 256MB)。下のゾーンの変更は、at の画素を読む。
+            var kind = ReadWorkingPixels(abs, tex, out job.work);
+            if (!ExportPipeline.HasPixels(kind)) {
+                return "could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).";
+            }
+            job.w = job.work.Width;
+            job.h = job.work.Height;
+            job.workIsFullResolution = IsFullResolution(kind, tex, job.w, job.h);
 
             // ── ゾーンの変更 ──
             if (req.reset) {
