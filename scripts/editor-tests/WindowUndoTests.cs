@@ -539,6 +539,14 @@ namespace Iroca.EditorTests {
             Assert.IsNull(_win.EyedropperZoneId);
         }
 
+        // Esc をエディタ全体で受ける差し込み先(公開されていない EditorApplication.globalEventHandler)が、この Unity の版にある。
+        // 無くなった・型が変わった版では差し込まない(プレビューの窓にフォーカスがあるときだけ効く)ので、ここで気づけるようにする。
+        [Test]
+        public void GlobalEscape_HookIsAvailableOnThisUnity() {
+            Assert.IsTrue(IrocaWindow.GlobalEscapeAvailable,
+                "EditorApplication.globalEventHandler が見つからないか型が違う(docs/unity-version-migration.md)");
+        }
+
         // ☰ でゾーンを掴んでいる途中に Undo でゾーンの並びが変わったら、ドラッグをやめる。続けると、掴んだ番号が別のゾーン(または
         // 無いゾーン)を指し、離しても並べ替えが確定しない・別のゾーンを動かす。マウスを掴んだ(hotControl)ままだと Unity は Undo を
         // 行わないので、ここでは掴まずに始める(掴んでいれば CancelZoneDrag が放す)。

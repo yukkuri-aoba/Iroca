@@ -138,31 +138,58 @@ namespace Iroca {
         }
 
         // 「Esc で解除」はプレビューの窓にフォーカスがあるときしか届かない。武装した後にパレットや Project を触ると効かなかったので、
-        // エディタ全体のキー入力を横から見る(消費しない)。公開の API ではないので、見つからなければ今までどおりプレビューの窓だけで効く。
-        private static readonly System.Reflection.FieldInfo s_globalEventHandler = typeof(EditorApplication).GetField("globalEventHandler",
-            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+        // エディタ全体のキー入力を横から見る(消費しない)。公開の API ではないので、見つからない・型が違う(将来の Unity で変わった)
+        // なら差し込まず、今までどおりプレビューの窓だけで効く(docs/unity-version-migration.md の「公開されていない API」)。
+        private static readonly System.Reflection.FieldInfo s_globalEventHandler = FindGlobalEventHandler();
 
+        internal static bool GlobalEscapeAvailable => s_globalEventHandler != null;
+
+        private static System.Reflection.FieldInfo FindGlobalEventHandler() {
+            try {
+                var field = typeof(EditorApplication).GetField("globalEventHandler",
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+                // ほかのツールの受け手も同じ列に並ぶ。型が違うものへ書くと、読んだ値が null になって相手の受け手を消してしまう。
+                return field != null && field.FieldType == typeof(EditorApplication.CallbackFunction) ? field : null;
+            } catch (System.Exception) {
+                return null;
+            }
+        }
+
+        // 窓の OnEnable・OnDisable から呼ぶ。ここで投げると、後に続く登録・後始末が抜けるので止める。
         private void InstallGlobalEscape() {
             if (s_globalEventHandler == null) {
                 return;
             }
-            UninstallGlobalEscape();
-            var current = s_globalEventHandler.GetValue(null) as EditorApplication.CallbackFunction;
-            s_globalEventHandler.SetValue(null, current + OnGlobalEvent);
+            try {
+                var current = s_globalEventHandler.GetValue(null) as EditorApplication.CallbackFunction;
+                current -= OnGlobalEvent;   // 2 度差し込まない
+                s_globalEventHandler.SetValue(null, current + OnGlobalEvent);
+            } catch (System.Exception ex) {
+                Debug.LogWarning("[Iroca] Global Esc handler could not be installed: " + ex.Message);
+            }
         }
 
         private void UninstallGlobalEscape() {
             if (s_globalEventHandler == null) {
                 return;
             }
-            var current = s_globalEventHandler.GetValue(null) as EditorApplication.CallbackFunction;
-            s_globalEventHandler.SetValue(null, current - OnGlobalEvent);
+            try {
+                var current = s_globalEventHandler.GetValue(null) as EditorApplication.CallbackFunction;
+                s_globalEventHandler.SetValue(null, current - OnGlobalEvent);
+            } catch (System.Exception ex) {
+                Debug.LogWarning("[Iroca] Global Esc handler could not be removed: " + ex.Message);
+            }
         }
 
+        // エディタ全体のキー入力のたびに、ほかのツールの受け手と同じ列で呼ばれる。例外を漏らすと、後ろに並んだ受け手が飛ばされる。
         private void OnGlobalEvent() {
-            var e = Event.current;
-            if (e != null) {
-                ClearModesOnEscape(e.rawType, e.keyCode);
+            try {
+                var e = Event.current;
+                if (e != null) {
+                    ClearModesOnEscape(e.rawType, e.keyCode);
+                }
+            } catch (System.Exception ex) {
+                Debug.LogException(ex);
             }
         }
 
