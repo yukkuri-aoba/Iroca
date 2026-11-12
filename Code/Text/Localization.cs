@@ -164,7 +164,6 @@ namespace Iroca {
         // 色を足す入口は「スポイトで…」のボタン（StartWithEyedropper / AddColorWithEyedropper）。
         // こちらは色を決めていない空のゾーンを作る脇の入口なので、その旨が分かる名前にしている。
         public static string AddZone => IsJapanese ? "+ 空のゾーン" : "+ Empty zone";
-        public static string SelectionMode => IsJapanese ? "選択モード" : "Selection Mode";
         public static string SampleColor => IsJapanese ? "サンプルカラー" : "Sample Color";
 
         // サンプルカラー欄と同一行に置くため短縮ラベル（詳細説明は EyedropperTooltip が保持）。
@@ -184,7 +183,6 @@ namespace Iroca {
             ? "押すとスポイトモードになり、プレビュー上をクリックするとそのピクセルの色を\nこのゾーンの「サンプルカラー」に取り込みます。\n実テクスチャの画素から直接取得するため、カラーピッカーのスポイトより正確です。\nもう一度押すと解除します。"
             : "Enters eyedropper mode; click the preview to load that pixel's color into this zone's Sample Color.\nIt reads the actual texture pixel directly, so it is more accurate than the color picker's eyedropper.\nClick again to cancel.";
         public static string Tolerance => IsJapanese ? "許容範囲" : "Tolerance";
-        public static string UVRect => IsJapanese ? "UV 範囲（0-1）" : "UV Rect (0-1)";
         public static string TargetColor => IsJapanese ? "変更先カラー" : "Target Color";
         public static string PatternPreserve => IsJapanese ? "模様保持" : "Pattern Preserve";
         public static string PatternPreserveTooltip => IsJapanese
@@ -739,18 +737,12 @@ namespace Iroca {
         public static string RemoveZoneTooltip => IsJapanese
             ? "このゾーンを削除します"
             : "Remove this zone";
-        public static string SelectionModeTooltip => IsJapanese
-            ? "ColorPick: サンプルカラーに近い色のピクセルを選択\nUVRect: UV 座標の矩形範囲内のピクセルを選択"
-            : "ColorPick: Select pixels matching the sampled color\nUVRect: Select pixels within a UV coordinate rectangle";
         public static string SampleColorTooltip => IsJapanese
             ? "選択する基準色。右の「スポイト」を押してプレビューをクリックすると、テクスチャの色を正確に取れます"
             : "Reference color for selection. Press Eyedropper next to it and click the preview to sample the exact texture color";
         public static string ToleranceTooltip => IsJapanese
             ? "色の許容範囲。値が大きいほど基準色から離れた色も選択されます（0〜1）"
             : "Color matching tolerance. Higher values select colors further from the sample (0-1)";
-        public static string UVRectTooltip => IsJapanese
-            ? "選択するテクスチャ上の矩形範囲を UV 座標で指定します（0〜1）\nX/Y: 左下の原点、W/H: 幅と高さ"
-            : "UV coordinate rectangle for the selected region (0-1)\nX/Y: bottom-left origin, W/H: width and height";
         public static string TargetColorTooltip => IsJapanese
             ? "色替え後の色。選んだ部分がこの色になります"
             : "The new color. The selected area is recolored to this color";

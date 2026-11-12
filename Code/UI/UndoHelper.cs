@@ -29,9 +29,6 @@ namespace Iroca {
             return n;
         }
 
-        public static float Slider(Object host, string label, float value, float min, float max, string undoName = DefaultUndoName)
-            => Slider(host, TempContent.Of(label), value, min, max, undoName);
-
         public static int IntSlider(Object host, GUIContent content, int value, int min, int max, string undoName = DefaultUndoName) {
             int n = EditorGUILayout.IntSlider(content, value, min, max);
             if (n != value) {
@@ -70,14 +67,6 @@ namespace Iroca {
         public static string TextField(Object host, GUIContent content, string value, params GUILayoutOption[] options) {
             string n = EditorGUILayout.TextField(content, value, options);
             if (n != value) {
-                Undo.RecordObject(host, DefaultUndoName);
-            }
-            return n;
-        }
-
-        public static T EnumPopup<T>(Object host, GUIContent content, T value) where T : System.Enum {
-            var n = (T)EditorGUILayout.EnumPopup(content, value);
-            if (!System.Object.Equals(n, value)) {
                 Undo.RecordObject(host, DefaultUndoName);
             }
             return n;

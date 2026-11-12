@@ -692,10 +692,8 @@ namespace Iroca {
             // ゾーン別マスクの編集は除外マスク欄の「編集対象」プルダウン＋「ブラシで編集」に
             // 一本化した（かつてここにあった専用ボタンは経路重複のため削除）。
 
-            // UV矩形モードは実装継続中のため当面 UI から非表示。
-            // zone.mode = UndoHelper.EnumPopup(UndoTarget,
-            //     new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
-            //     zone.mode);
+            // 選択モード(UV の矩形で選ぶ)の欄は出さない。0.1.0 のプリセットから来た矩形のゾーンは、画面には欄が無いまま、
+            // 保存されている矩形でそのまま動く(Core の SelectionMode.Rect の経路は互換のために残してある)。
 
             DrawZoneColorRows(zone);
 
@@ -715,21 +713,6 @@ namespace Iroca {
             zone.tolerance = UndoHelper.Slider(UndoTarget,
                 TempContent.Of(Localization.Tolerance, Localization.ToleranceTooltip),
                 zone.tolerance, 0f, 1f);
-
-            // UV矩形モードは実装継続中のため当面 UI から非表示。
-            // else
-            // {
-            //     EditorGUILayout.LabelField(
-            //         new GUIContent(Localization.UVRect, Localization.UVRectTooltip));
-            //     using (new EditorGUI.IndentLevelScope())
-            //     {
-            //         float x = UndoHelper.Slider(UndoTarget, "X", zone.uvRect.x, 0f, 1f);
-            //         float y = UndoHelper.Slider(UndoTarget, "Y", zone.uvRect.y, 0f, 1f);
-            //         float w = UndoHelper.Slider(UndoTarget, "W", zone.uvRect.width, 0f, 1f);
-            //         float h = UndoHelper.Slider(UndoTarget, "H", zone.uvRect.height, 0f, 1f);
-            //         zone.uvRect = new Rect(x, y, w, h);
-            //     }
-            // }
 
             // 変更先カラーは自動調整の入力なのでボタンの上（採色の直下）へ移した。
             // ここには自動調整が書き換える出力系スライダーだけを残す。
