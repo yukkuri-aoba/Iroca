@@ -630,6 +630,11 @@ namespace Iroca {
         [System.NonSerialized] private string _nextStepHint;
         // DrawTextureField がマスクを戻せなかった帯を出しているか（Layout ごとに取り直す）。
         [System.NonSerialized] private bool _showMaskUndoTooOld;
+        // Read/Write の案内と、辺が 8192 を超える元画像の案内を出すか(文面)。どちらも原本を読めたかで決まり、読み込みは
+        // どのイベントでも進む。Layout のときに決めて覚え、同じフレームのほかのイベントはそれで描く。
+        [System.NonSerialized] private bool _showReadWriteError;
+        [System.NonSerialized] private string _largeSourceNoticeText;
+        [System.NonSerialized] private string _largeSourceNoticeKey;
 
         /// <summary>
         /// マスクを戻せない版まで Undo して、ゾーンと設定だけが戻り、マスクは新しいままか(窓の帯で知らせる)。
@@ -808,10 +813,27 @@ namespace Iroca {
 
             // Read/Write を求めるのは、原本ファイルからも画素を取れないときだけ（PSD/TGA 等）。
             // PNG/JPG は原本を直接読めるので、インポート設定を書き換える必要はない。
-            if (SourceTexture != null && !CanReadSource(SourceTexture)) {
+            // 出すかどうかは Layout のときに決める。読めるかの答えは、別スレッドの読み込みが終わった所で変わる(PSD は
+            // 「読み込み中」→「読めない」)。Layout と Repaint の間で変わると、同じフレームでコントロールの数が食い違い、
+            // IMGUI のエラー(Getting control N's position…)になる。ほかのイベントで答えが変わっていたら、描き直しを頼む
+            // (読み込みの結果をここで受け取ると、読み終えた知らせ(再描画の依頼)は出ない)。
+            bool unreadable = SourceTexture != null && !CanReadSource(SourceTexture);
+            if (Event.current.type == EventType.Layout) {
+                _showReadWriteError = unreadable;
+            } else if (_showReadWriteError != unreadable) {
+                Repaint();
+            }
+            if (_showReadWriteError) {
                 if (NoticeBox.Draw(Localization.ReadWriteError, MessageType.Error,
                         TempContent.Of(Localization.EnableReadWrite, Localization.EnableReadWriteTooltip)) == 0) {
-                    TextureIO.EnableReadWrite(SourceTexture);
+                    // 確認画面と取り込み直しは、描画が終わってから行う。この場で取り込み直すと、同じイベントの残りの描画が
+                    // 取り込みの通知(原本の読み直し)の後の状態で走り、案内の出入りが Layout と食い違う。
+                    var texture = SourceTexture;
+                    EditorApplication.delayCall += () => {
+                        if (texture != null) {
+                            TextureIO.EnableReadWrite(texture);
+                        }
+                    };
                 }
             }
 
@@ -861,19 +883,40 @@ namespace Iroca {
         /// 閉じると、そのテクスチャでは Unity を閉じるまで出さない(上部の高さを奪い続けないため)。
         /// </summary>
         private void DrawLargeSourceNotice() {
-            if (SourceTexture == null || _previewView == null) {
+            // 出すかどうかと文面は Layout のときに決める(別スレッドの読み込みが Layout と Repaint の間に終わると、
+            // 同じフレームでコントロールの数が食い違う)。ほかのイベントで出す・出さないが変わっていたら、描き直しを頼む。
+            string text = LargeSourceNoticeText(out string key);
+            if (Event.current.type == EventType.Layout) {
+                _largeSourceNoticeText = text;
+                _largeSourceNoticeKey = key;
+            } else if ((text == null) != (_largeSourceNoticeText == null)) {
+                Repaint();
+            }
+            if (_largeSourceNoticeText == null) {
                 return;
+            }
+            if (NoticeBox.Draw(_largeSourceNoticeText, MessageType.Warning,
+                    TempContent.Of(Localization.LargeSourceDismiss, Localization.LargeSourceDismissTooltip)) == 0) {
+                SessionState.SetBool(_largeSourceNoticeKey, true);
+            }
+        }
+
+        // 辺が 8192 を超える元画像の案内の文面(出さないなら null)と、「閉じた」を覚える鍵。
+        private string LargeSourceNoticeText(out string key) {
+            key = null;
+            if (SourceTexture == null || _previewView == null) {
+                return null;
             }
             // Play 中のリロード直後で原本の読み直しを待っている間は、案内のために読まない。
             if (_previewView.SourceLoadDeferred) {
-                return;
+                return null;
             }
             // 別スレッドで読んでいる間は待たない(読み終えた後の再描画で出す)。
             if (_previewView.PollSource(SourceTexture) != SourceState.Ready) {
-                return;
+                return null;
             }
             if (!_previewView.TryGetTrueSourcePixels(SourceTexture, out _, out int ww, out int wh)) {
-                return;
+                return null;
             }
             // 元ファイルの寸法。取り込み済みテクスチャから読んでいる(PSD など)ときは、書き出しもその寸法。
             int w = ww, h = wh;
@@ -881,26 +924,20 @@ namespace Iroca {
                 SourceFileSize(SourceTexture, ref w, ref h);
             }
             if (!WorkingResolution.ExceedsLimit(w, h)) {
-                return;
+                return null;
             }
-            string key = LargeSourceDismissedKeyPrefix + CurrentTexturePath(SourceTexture);
+            key = LargeSourceDismissedKeyPrefix + CurrentTexturePath(SourceTexture);
             if (SessionState.GetBool(key, false)) {
-                return;
+                return null;
             }
 
             double needGB = (double)w * h * SourceBytesPerPixel / (1L << 30);
             // 搭載量は切り上げる。systemMemorySize は OS が使える量なので、32GB の PC でも 31.5GB 前後になる。
             double haveGB = System.Math.Ceiling(SystemInfo.systemMemorySize / 1024.0);
-            string text;
             if ((long)ww * wh < (long)w * h) {
-                text = string.Format(Localization.LargeSourceExportNoticeFormat, w, h, ww, wh, needGB, haveGB);
-            } else {
-                text = string.Format(Localization.LargeSourceNoticeFormat, w, h, needGB, haveGB);
+                return string.Format(Localization.LargeSourceExportNoticeFormat, w, h, ww, wh, needGB, haveGB);
             }
-            if (NoticeBox.Draw(text, MessageType.Warning,
-                    TempContent.Of(Localization.LargeSourceDismiss, Localization.LargeSourceDismissTooltip)) == 0) {
-                SessionState.SetBool(key, true);
-            }
+            return string.Format(Localization.LargeSourceNoticeFormat, w, h, needGB, haveGB);
         }
 
         // gAMA の案内の覚え(OnGUI ごとにファイルを開かないよう、テクスチャと取り込み結果(imageContentsHash。
