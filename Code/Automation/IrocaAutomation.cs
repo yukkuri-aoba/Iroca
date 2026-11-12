@@ -13,9 +13,12 @@ namespace Iroca {
     /// Unity MCP / AI エージェントから Iroca をヘッドレス駆動するための自動化 API。
     ///
     /// UI（IrocaWindow / ExportView）を介さず、テクスチャ読込 → 再着色 → PNG 出力までを
-    /// 静的メソッド一発で実行できる。原本を <see cref="ExportPipeline.ReadWorkingPixelsNative"/> で読み、
-    /// ゾーン・処理設定・マスクを編集状態（<see cref="IrocaSessionState"/>）にまとめて、非破壊ビルドと同じ入口
-    /// <see cref="SessionRecolor.Apply"/> に通すので、製品の出力と一致する。
+    /// 静的メソッド一発で実行できる。ゾーン・処理設定・マスクを編集状態（<see cref="IrocaSessionState"/>）にまとめて、
+    /// 非破壊ビルドと同じ入口 <see cref="SessionRecolor.Apply"/> に通すので、製品の出力と一致する。
+    /// 原本の読み方は経路で違う。静的 API とコマンドラインは、元ファイルを元の解像度で読む（製品の書き出しと同じ
+    /// <see cref="ExportService.ReadSource"/>。取り込み済みテクスチャへは落ちないので PNG・JPG だけ）。MCP の
+    /// <see cref="Recolor"/> は、窓のプレビューと同じ作業解像度で読む（<see cref="ExportPipeline.ReadWorkingPixelsNative"/>。
+    /// PSD・TGA は取り込み済みテクスチャから）。
     ///
     /// 呼び出し経路は 3 つ。1 と 3 は同じ中核（<see cref="RunRecolorCore"/>）を、2 は同じ <see cref="SessionRecolor.Apply"/> を通る:
     ///   1. 静的 API: <see cref="RecolorByPreset"/> / <see cref="RecolorWithZones"/> 等。戻り値は JSON 文字列。
@@ -181,16 +184,24 @@ namespace Iroca {
                     "パスは Assets 相対（Assets/...）・プロジェクト相対・絶対のいずれも可。出力は Assets/ の下の .png だけで、"
                         + "元のテクスチャそのものへは書かない。既にあるファイルは overwrite が true のときだけ置き換える"
                         + "（RecolorByPreset・RecolorWithZones の 3 引数の版は断る。コマンドラインは -irocaOverwrite、ジョブの JSON は overwrite）。",
-                    "色は [r,g,b]（0..1）。enabled なゾーンが 1 つも無いと error になる。",
                     "範囲の外・NaN の値（ゾーンの割合は 0..1、settings は窓のスライダーと同じ範囲）は断らずに範囲へ丸め、"
                         + "丸めた欄を warnings で知らせる（プリセットも同じ）。",
                     "プリセットに入っているマスク（除外・含める）も UI と同じく当てる。",
-                    "MCP 経路: iroca_inspect・iroca_recolor・iroca_open（引数は Inspect・Recolor の依頼 JSON・Open と同じ）。",
                     "結果には 'preview'（比較パネル PNG のパス。UserSettings/Iroca/mcp/preview に書き、Assets には置かない。"
-                        + "左=変換前 / 中=変換後 / 右=変化画素をマゼンタ表示）と "
-                        + "変化メトリクス（changedPixels / changedFraction / largestComponentFraction / changeComponentCount / changeBBox）が付く。",
-                    "検証ループ: 再着色 → 'preview' 画像を開いて意図通りか目視 → ずれていれば target/tolerance を調整して再実行。"
+                        + "左=変換前 / 中=変換後 / 右=変化画素をマゼンタ表示）と変化の指標が付く。"
                         + "largestComponentFraction が小さい・changeComponentCount が多い＝変化が散在＝過検出の疑い。",
+                    // ── 経路ごとの違い ──
+                    "RecolorByPreset・RecolorWithZones・コマンドライン: zones JSON の色は [r,g,b]（0..1）。enabled なゾーンが 1 つも無いと error。"
+                        + "元ファイルを元の解像度で読むので、PNG と JPG だけを受け付ける（PSD・TGA は読めない）。"
+                        + "指標は changedPixels / changedFraction / largestComponentFraction / changeComponentCount / changeBBox。"
+                        + "ずれていれば target・tolerance を調整して再実行する。",
+                    "Recolor（MCP の iroca_recolor）: 色は \"#RRGGBB\"（Unity の色名も可）。窓のプレビューと同じ作業解像度で読み、"
+                        + "PNG・JPG 以外（PSD・TGA）は取り込み済みテクスチャから読む（窓と同じく Read/Write が要る）。"
+                        + "指標は changedFraction / largestComponentFraction / changeComponentCount（changedPixels と changeBBox は無い）。"
+                        + "許容範囲などは自動調整が決め、依頼では指定しない。ずれていれば at・from を変える・masks を足して呼び直す。",
+                    "MCP の道具: iroca_inspect・iroca_recolor・iroca_open。iroca_recolor の引数は Recolor の依頼 JSON と同じ名前、"
+                        + "iroca_open は Open と同じ。iroca_inspect は target・max_colors・points（[[u,v],...] の入れ子）・coverage で、"
+                        + "Inspect の maxColors・pointsUv（u, v を平らに並べた配列）とは名前と形が違う。",
                 },
                 fieldDocs = new[] {
                     "sample: 変換元の色（このゾーンが拾う色）",
@@ -205,7 +216,8 @@ namespace Iroca {
                     "outputSaturation: 出力色の彩度スケール（<1 で全体的に脱彩）",
                     "highlightRecovery/highlightBandExpand/applyHighlightWash: ハイライト処理の切替",
                     "settings.edgeFeather: 全体エッジぼかし。原則 0",
-                    "settings.antiAliasCleanup / holeFill* / relaxedSat* / decontamination*: 後処理パラメータ",
+                    "settings.antiAliasCleanup / holeFill* / relaxedSatMin / decontamination*: 後処理パラメータ",
+                    "settings.relaxedSatRamp: 使われない（前の版の JSON との互換のために受け付けるだけ。値は結果に効かない）",
                 },
             };
             doc.jobExample = new JobRequest {
@@ -374,7 +386,8 @@ namespace Iroca {
 
         /// <summary>
         /// テクスチャ読込 → <see cref="SessionRecolor.Apply"/>（同期）→ PNG 書き出し。
-        /// 全経路がここを通る。原本は製品の書き出しと共有の <see cref="ExportService.ReadSource"/> を
+        /// 静的 API とコマンドラインの全経路がここを通る（MCP の <see cref="Recolor"/> は通らない。下の最後の段落）。
+        /// 原本は製品の書き出しと共有の <see cref="ExportService.ReadSource"/> を
         /// imported=null で呼んで読む（取り込み済みテクスチャへのフォールバックはしない。PNG/JPG のみ）。
         /// 画素はヒープの外に置く（色替え前の写しと、色替えした画素。0.4.0 の計画の A6）。
         /// 色替えは非破壊ビルドと同じ入口なので、有効なゾーンだけを並び順のまま、state のマスクを当てて処理する。

@@ -213,7 +213,10 @@ namespace Iroca {
             _askedAi = false;
         }
 
-        /// <summary>窓のプレビューと同じ形の埋め込みキャッシュのキー(PreviewView.TrueSourceCacheKey)。</summary>
+        /// <summary>
+        /// 窓のプレビューと同じ形の埋め込みキャッシュのキー(式は <see cref="PreviewPipeline.SourceCacheKey"/> と同じ。
+        /// 片方だけ変えると、窓と自動化が埋め込みを作り直し合う)。
+        /// </summary>
         internal static string CacheKey(Texture2D texture, int w, int h) {
             string path = AssetDatabase.GetAssetPath(texture);
             long ticks = 0;
