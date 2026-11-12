@@ -86,12 +86,17 @@ namespace Iroca {
             float x = box.xMax + boxMargin.right + m.left;
             float eachH = (box.height - (buttons.Length - 1) * gap) / buttons.Length;
             int pressed = -1;
+            // 案内のボタン(閉じる・後で・Read/Write を有効にする など)は、どれも編集内容を変えない。押すと立つ GUI.changed を
+            // 戻す。案内はテクスチャ欄(ChangeCheck の中)に出るので、立ったままだと「閉じる」を押すたびにプレビューの
+            // 作り直しと保存の試みが走っていた(呼び出し側で戻していたのは 9 か所のうち 2 か所)。
+            bool changedBefore = GUI.changed;
             for (int i = 0; i < buttons.Length; i++) {
                 var r = new Rect(x, box.y + i * (eachH + gap), columnW, eachH);
                 if (GUI.Button(r, buttons[i])) {
                     pressed = i;
                 }
             }
+            GUI.changed = changedBefore;
             return pressed;
         }
 

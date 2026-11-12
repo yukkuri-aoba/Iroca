@@ -518,7 +518,7 @@ namespace Iroca {
                 }
             }
 
-            if (GUILayout.Button(TempContent.Of(Localization.AddZone, Localization.AddZoneTooltip),
+            if (ButtonKeepingChanged(TempContent.Of(Localization.AddZone, Localization.AddZoneTooltip),
                     height, GUILayout.ExpandWidth(false))) {
                 _pendingAddZone = true;
                 Repaint();
@@ -533,6 +533,19 @@ namespace Iroca {
         /// 押されたときの処理（武装 id の付け替え・Repaint）は GUI.changed にも背景色にも触れないので、
         /// 戻した後に呼び出し側で行う。DisabledScope は呼び出し側に置く。
         /// </summary>
+        /// <summary>
+        /// 編集内容を変えないボタン(ソロ・×・「+ 空のゾーン」・自動調整)。押すと立つ GUI.changed を戻す
+        /// (<see cref="ArmedToggleButton"/> と同じ理由)。ソロは表示だけ、× と追加は次の Layout でゾーンを足し引きした所が
+        /// 変更を知らせ、自動調整は結果を当てた所が知らせるので、押した時点で立てる必要が無い。立ったままだと、押すたびに
+        /// プレビューの作り直しと 2 秒後の保存の試みが余分に走り、自動調整では解析と CPU を取り合っていた。
+        /// </summary>
+        private static bool ButtonKeepingChanged(GUIContent content, params GUILayoutOption[] options) {
+            bool prevChanged = GUI.changed;
+            bool clicked = GUILayout.Button(content, options);
+            GUI.changed = prevChanged;
+            return clicked;
+        }
+
         private static bool ArmedToggleButton(GUIContent content, bool armed, params GUILayoutOption[] options) {
             var prevBg = GUI.backgroundColor;
             if (armed) {
@@ -786,7 +799,7 @@ namespace Iroca {
                 if (soloed) {
                     GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
                 }
-                if (GUILayout.Button(s_zoneSoloContent, GUILayout.Width(IrocaUiConsts.Layout.SmallButtonWidth))) {
+                if (ButtonKeepingChanged(s_zoneSoloContent, GUILayout.Width(IrocaUiConsts.Layout.SmallButtonWidth))) {
                     zone.EnsureId();
                     SetSoloZone(soloed ? null : zone.id);
                     Repaint();
@@ -794,7 +807,7 @@ namespace Iroca {
                 GUI.backgroundColor = prevSoloBg;
             }
 
-            if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth))) {
+            if (ButtonKeepingChanged(s_removeZoneContent, GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth))) {
                 removeRequested = true;
             }
             // カードを押したときに × かを見分ける(DrawZoneList)。
@@ -922,7 +935,7 @@ namespace Iroca {
                 && zone.mode == SelectionMode.ColorPick
                 && zone.HasSampleColor;
             using (new EditorGUI.DisabledScope(!canTune)) {
-                if (GUILayout.Button(canTune ? s_autoTuneEnabledContent : s_autoTuneDisabledContent)) {
+                if (ButtonKeepingChanged(canTune ? s_autoTuneEnabledContent : s_autoTuneDisabledContent)) {
                     RunAutoTune(zone);
                 }
             }
