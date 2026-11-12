@@ -333,6 +333,25 @@ namespace Iroca {
             return added;
         }
 
+        /// <summary>
+        /// <paramref name="components"/> のどれかが、<paramref name="source"/> のレシピを持ち、<paramref name="material"/> の影の色を
+        /// 合わせる設定になっているか(<see cref="AddShadowMatch"/> で足したもの)。編集画面が「影の色も合わせる」の案内を
+        /// 出すかどうかを決めるのに使う。
+        /// </summary>
+        internal static bool HasShadowMatch(IrocaRecolor[] components, Material material, Texture2D source) {
+            foreach (var c in components) {
+                if (c.shadowMatchMaterials == null || !c.shadowMatchMaterials.Contains(material) || c.recipes == null) {
+                    continue;
+                }
+                foreach (var recipe in c.recipes) {
+                    if (recipe != null && recipe.sourceTexture == source) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         private static IEnumerable<IrocaRecipe> Recipes(IrocaRecolor[] components) {
             foreach (var c in components) {
                 if (c.recipes != null) {

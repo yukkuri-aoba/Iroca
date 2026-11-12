@@ -218,27 +218,12 @@ namespace Iroca {
                         continue;
                     }
                     components ??= Object.FindObjectsByType<IrocaRecolor>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-                    if (IsShadowMatched(components, m, source)) {
+                    if (RecipeRegistration.HasShadowMatch(components, m, source)) {
                         continue;
                     }
                     (_shadowMismatch ??= new List<Material>()).Add(m);
                 }
             }
-        }
-
-        // このテクスチャのレシピを持つコンポーネントが、このマテリアルの影の色を合わせる設定になっているか。
-        private static bool IsShadowMatched(IrocaRecolor[] components, Material material, Texture2D source) {
-            foreach (var c in components) {
-                if (c.shadowMatchMaterials == null || !c.shadowMatchMaterials.Contains(material) || c.recipes == null) {
-                    continue;
-                }
-                foreach (var recipe in c.recipes) {
-                    if (recipe != null && recipe.sourceTexture == source) {
-                        return true;
-                    }
-                }
-            }
-            return false;
         }
 
         /// <summary>
