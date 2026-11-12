@@ -61,8 +61,9 @@ namespace Iroca {
             float gap = Mathf.Max(m.top, m.bottom);
             float stackH = buttons.Length * buttonH + (buttons.Length - 1) * gap;
 
-            // 行の高さは本文の枠とボタンの積みの高い方。枠は少なくともボタンの積みの高さを取り、ボタンは枠の上下の中央に置く
-            // (ボタンを 2 つ積んだ案内で、枠の下端よりボタンがはみ出していた)。ボタンは自動の並べ方に任せず、取っておいた列に
+            // 行の高さは本文の枠とボタンの積み(ふつうの高さのボタン)の高い方。枠は少なくともボタンの積みの高さを取り、ボタンは
+            // 枠の高さを等分して上端から下端まで埋める(1 つなら枠と同じ高さ、2 つなら半分ずつ。2026-11-12 のユーザーの指定。
+            // 中央に寄せた小さなボタンは枠と端がそろわず落ち着かなかった)。ボタンは自動の並べ方に任せず、取っておいた列に
             // 枠の矩形から位置を決めて描く。FlexibleSpace で中央に寄せると、行が縦に伸びる扱いになってウィンドウの残りの
             // 高さを取った(ExpandHeight(false) を付けても止まらない)。
             EditorGUILayout.BeginHorizontal();
@@ -83,10 +84,10 @@ namespace Iroca {
             EditorGUI.HelpBox(box, text, type);
             // Layout のときの矩形は仮のものだが、ボタンは数と順番だけそろっていればよい(押した判定は Layout 以外で行われる)。
             float x = box.xMax + boxMargin.right + m.left;
-            float y = box.y + (box.height - stackH) * 0.5f;
+            float eachH = (box.height - (buttons.Length - 1) * gap) / buttons.Length;
             int pressed = -1;
             for (int i = 0; i < buttons.Length; i++) {
-                var r = new Rect(x, y + i * (buttonH + gap), columnW, buttonH);
+                var r = new Rect(x, box.y + i * (eachH + gap), columnW, eachH);
                 if (GUI.Button(r, buttons[i])) {
                     pressed = i;
                 }
