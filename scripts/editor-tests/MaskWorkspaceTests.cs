@@ -395,6 +395,87 @@ namespace Iroca.EditorTests {
             loaded.Clear();
         }
 
+        // 塗った画素 on(PW × PH の中)の記録。
+        private static MaskPatch PatchOf(params int[] on) {
+            var m = NativeBitMask.Allocate(PW, PH);
+            foreach (int i in on) {
+                m.Set(i, true);
+            }
+            try { return MaskPatch.Painted("z", false, m, null); } finally { m.Release(); }
+        }
+
+        // 保存形式の RLE の文字列を、ヘッダとラン列から組み立てる(わざと崩した形も作れる)。
+        private static string RleText(int w, int h, bool first, params uint[] runs) {
+            var bytes = new byte[9 + runs.Length * 4];
+            System.BitConverter.GetBytes(w).CopyTo(bytes, 0);
+            System.BitConverter.GetBytes(h).CopyTo(bytes, 4);
+            bytes[8] = first ? (byte)1 : (byte)0;
+            for (int i = 0; i < runs.Length; i++) {
+                System.BitConverter.GetBytes(runs[i]).CopyTo(bytes, 9 + i * 4);
+            }
+            return "R:" + System.Convert.ToBase64String(bytes);
+        }
+
+        // 旧 bitpack(前置きなし。1 画素 1 ビット)の文字列。
+        private static string BitpackText(int w, int h, params int[] on) {
+            var bytes = new byte[8 + (w * h + 7) / 8];
+            System.BitConverter.GetBytes(w).CopyTo(bytes, 0);
+            System.BitConverter.GetBytes(h).CopyTo(bytes, 4);
+            foreach (int i in on) {
+                bytes[8 + i / 8] |= (byte)(1 << (i % 8));
+            }
+            return System.Convert.ToBase64String(bytes);
+        }
+
+        [Test]
+        public void PatchText_IsTheStringOfEncodingItsPixels() {
+            var all = new int[PW * PH];
+            for (int i = 0; i < all.Length; i++) {
+                all[i] = i;
+            }
+            foreach (var on in new[] { new[] { 0 }, new[] { 31 }, new[] { 0, 1, 20, 31 }, new[] { 5, 6, 7, 9 }, all }) {
+                var patch = PatchOf(on);
+                var pixels = patch.Decode();
+                Assert.AreEqual(MaskRle.EncodeBits(pixels), patch.Text, string.Join(",", on));
+                pixels.Release();
+                patch.Release();
+            }
+        }
+
+        [Test]
+        public void PatchFromText_KeepsTheBytesOfAWellFormedString_AndRebuildsTheOthers() {
+            var patch = PatchOf(0, 1, 20, 31);
+            string text = patch.Text;
+            Assert.AreEqual(RleText(PW, PH, true, 2, 18, 1, 10, 1), text, "保存形式: 寸法・先頭の値・ランの長さ");
+
+            // Text が書いた形は、バイト列をそのまま持つ(全面へ展開しない)。読んだ文字列をそのまま返す。
+            var read = MaskPatch.FromText("z", false, text, PW, PH);
+            Assert.IsNotNull(read);
+            Assert.IsTrue(MaskPatch.SameRle(patch.Rle, read.Rle));
+            Assert.AreSame(text, read.Text);
+            read.Release();
+
+            // 同じ画素を表す別の書き方(末尾のランが画素数を超える・長さ 0 のランがある・旧 bitpack)は、展開して作り直す。
+            foreach (string other in new[] {
+                         RleText(PW, PH, true, 2, 18, 1, 10, 5),
+                         RleText(PW, PH, false, 0, 2, 18, 1, 10, 1),
+                         BitpackText(PW, PH, 0, 1, 20, 31) }) {
+                read = MaskPatch.FromText("z", false, other, PW, PH);
+                Assert.IsNotNull(read, other);
+                Assert.IsTrue(MaskPatch.SameRle(patch.Rle, read.Rle), other);
+                Assert.AreEqual(text, read.Text, other);
+                read.Release();
+            }
+
+            // 採らないもの: 寸法が違う・立っている画素が無い・ランが足りない・Base64 として読めない・空。
+            Assert.IsNull(MaskPatch.FromText("z", false, RleText(PW + 1, PH, true, (uint)((PW + 1) * PH)), PW, PH), "寸法が違う");
+            Assert.IsNull(MaskPatch.FromText("z", false, RleText(PW, PH, false, (uint)(PW * PH)), PW, PH), "全部 0");
+            Assert.IsNull(MaskPatch.FromText("z", false, RleText(PW, PH, true, 2, 18), PW, PH), "ランが足りない");
+            Assert.IsNull(MaskPatch.FromText("z", false, "R:###", PW, PH), "Base64 として読めない");
+            Assert.IsNull(MaskPatch.FromText("z", false, "", PW, PH));
+            patch.Release();
+        }
+
         [Test]
         public void Patches_GoWithTheirLayer() {
             var ws = Empty();

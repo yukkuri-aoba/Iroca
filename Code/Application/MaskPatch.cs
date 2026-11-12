@@ -106,15 +106,20 @@ namespace Iroca {
             return false;
         }
 
+        // 保存形式の文字列の前置き(MaskRle と同じ)。後ろは RLE のバイト列の Base64。
+        private const string RlePrefix = "R:";
+
         /// <summary>
         /// 保存形式の文字列(<see cref="MaskRle.EncodeBits"/> と同じ。マスクの層と同じ書き方)。中身は変わらないので、
-        /// 1 回作ったら使い回す。
+        /// 1 回作ったら使い回す。RLE のバイト列は保存形式の中身と同じ並びなので、全面へ展開せずに Base64 にするだけで済む
+        /// (展開すると 8K で 1 件 8MB の確保と全面の走査になる)。
         /// </summary>
         public string Text {
             get {
                 if (_text == null) {
-                    var m = Decode();
-                    try { _text = MaskRle.EncodeBits(m); } finally { m.Release(); }
+                    var bytes = new byte[Rle.Bytes];
+                    System.Runtime.InteropServices.Marshal.Copy(Rle.Ptr, bytes, 0, bytes.Length);
+                    _text = RlePrefix + Convert.ToBase64String(bytes);
                 }
                 return _text;
             }
@@ -123,9 +128,19 @@ namespace Iroca {
         /// <summary>
         /// 保存形式の文字列から読む。壊れている・寸法が width × height でない・立っている画素が無いなら null
         /// (読めない記録は捨てる。その場所の「ここのマスクを消す」が、つながったかたまりを消すだけになる)。
+        /// <para>
+        /// <see cref="Text"/> が書いた形(ラン列が全画素をちょうど覆い、長さ 0 のランが無い)なら、バイト列をそのまま持つ
+        /// (全面へ展開しない)。それ以外(旧 bitpack・余分なランのある RLE など)は、展開してから作り直す。
+        /// </para>
         /// </summary>
         public static MaskPatch FromText(string zoneId, bool include, string text, int width, int height) {
             if (string.IsNullOrEmpty(text)) {
+                return null;
+            }
+            if (TryAdoptWellFormed(text, width, height, out NativeBuffer adopted, out bool sizeMismatch)) {
+                return new MaskPatch(zoneId, include, adopted) { _text = text };
+            }
+            if (sizeMismatch) {
                 return null;
             }
             var m = MaskRle.DecodeBits(text);
@@ -141,6 +156,62 @@ namespace Iroca {
             } finally {
                 m.Release();
             }
+        }
+
+        // text が Text の書く形そのもので、寸法が width × height、立っている画素が 1 つ以上あれば、中身のバイト列を写した塊を返す。
+        // 形は合っているのに寸法だけ違うときは sizeMismatch(展開し直しても採らないので、呼び出し側はそこでやめる)。
+        // Base64 として読めない・形が違うときは false だけ返し、呼び出し側が展開の道(警告つき)で確かめ直す。
+        private static bool TryAdoptWellFormed(string text, int width, int height, out NativeBuffer rle, out bool sizeMismatch) {
+            rle = null;
+            sizeMismatch = false;
+            if (!text.StartsWith(RlePrefix, StringComparison.Ordinal)) {
+                return false;
+            }
+            byte[] bytes;
+            try {
+                bytes = Convert.FromBase64String(text.Substring(RlePrefix.Length));
+            } catch (FormatException) {
+                return false;
+            }
+            fixed (byte* b = bytes) {
+                if (!IsWellFormedRle(b, bytes.Length)) {
+                    return false;
+                }
+                if (*(int*)b != width || *(int*)(b + 4) != height) {
+                    sizeMismatch = true;
+                    return false;
+                }
+                // 立っている画素が無い(false のラン 1 本だけ)記録は持たない。
+                if (b[8] == 0 && bytes.Length == 13) {
+                    return false;
+                }
+                rle = new NativeBuffer(bytes.Length, NativeUsage.Mask);
+                Buffer.MemoryCopy(b, (void*)rle.Ptr, bytes.Length, bytes.Length);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// RLE のバイト列が <see cref="MaskRle.EncodeBitsNative"/> の書く形か(ヘッダの寸法が範囲の中・ランが 1 本以上・
+        /// 長さ 0 のランが無い・ランの合計が全画素ちょうど)。この形なら、同じマスクの RLE はこのバイト列 1 通りしかない。
+        /// </summary>
+        public static bool IsWellFormedRle(byte* b, long bytes) {
+            if (bytes < 13 || (bytes - 9) % 4 != 0) {
+                return false;
+            }
+            int w = *(int*)b, h = *(int*)(b + 4);
+            if (w <= 0 || h <= 0 || w > MaskRle.MaxSide || h > MaskRle.MaxSide) {
+                return false;
+            }
+            uint* run = (uint*)(b + 9);
+            long runs = (bytes - 9) / 4, covered = 0;
+            for (long i = 0; i < runs; i++) {
+                if (run[i] == 0) {
+                    return false;
+                }
+                covered += run[i];
+            }
+            return covered == (long)w * h;
         }
 
         /// <summary>

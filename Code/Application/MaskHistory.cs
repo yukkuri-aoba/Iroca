@@ -308,26 +308,8 @@ namespace Iroca {
         }
 
         // ヘッダとラン列の形(長さ・寸法の範囲・ランの合計が全画素)を確かめる。
-        private static unsafe bool IsValidRle(NativeBuffer rle) {
-            long bytes = rle.Bytes;
-            if (bytes < 13 || (bytes - 9) % 4 != 0) {
-                return false;
-            }
-            byte* b = (byte*)rle.Ptr;
-            int w = *(int*)b, h = *(int*)(b + 4);
-            if (w <= 0 || h <= 0 || w > MaskRle.MaxSide || h > MaskRle.MaxSide) {
-                return false;
-            }
-            uint* run = (uint*)(b + 9);
-            long runs = (bytes - 9) / 4, covered = 0;
-            for (long i = 0; i < runs; i++) {
-                if (run[i] == 0) {
-                    return false;
-                }
-                covered += run[i];
-            }
-            return covered == (long)w * h;
-        }
+        private static unsafe bool IsValidRle(NativeBuffer rle)
+            => MaskPatch.IsWellFormedRle((byte*)rle.Ptr, rle.Bytes);
 
         private void Drop(Version version) {
             foreach (var list in new[] { version.Entries, version.Patches }) {
