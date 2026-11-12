@@ -145,6 +145,34 @@ namespace Iroca.EditorTests {
             } finally { LogAssert.ignoreFailingMessages = false; }
         }
 
+        // 埋め込みの計算の進みは、百分率が変わったときだけ知らせる(知らせるたびに、開いている窓を描き直す)。
+        // AI 統合アセンブリの内部なので名前で呼ぶ。
+        [Test]
+        public void EncodeProgress_IsReportedOnlyWhenThePercentChanges() {
+            var pump = System.Type.GetType("Iroca.SentisIntegration.EditorIteratorPump, Iroca.SentisIntegration");
+            if (pump == null) {
+                Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
+            }
+            var changed = pump.GetMethod("PercentChanged",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(changed, "進みの判定の関数が見つからない（名前を変えたらこのテストも直す）");
+
+            int Reports(int totalSteps) {
+                var args = new object[] { 0, totalSteps, -1 };
+                int n = 0;
+                for (int step = 1; step < totalSteps; step++) {
+                    args[0] = step;
+                    if ((bool)changed.Invoke(null, args)) {
+                        n++;
+                    }
+                }
+                return n;
+            }
+            Assert.LessOrEqual(Reports(10000), 100, "1 万ステップの計算で、百分率より細かく知らせた");
+            Assert.AreEqual(100, Reports(10000), "百分率が変わるたびには知らせる");
+            Assert.AreEqual(2, Reports(3), "ステップが少ないときは、進むたびに知らせる");
+        }
+
         [Test]
         public void LeftoverModelImportFolders_OnlyIrocasOwnAreRemoved() {
             // モデルの変換の途中で Unity が落ちると Assets に一時フォルダが残る。次の変換の前に、

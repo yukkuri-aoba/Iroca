@@ -27,6 +27,8 @@ namespace Iroca.SentisIntegration {
         int _totalSteps;
         int _steps;
         int _ticks;
+        // 最後に知らせた進みの百分率(-1 = まだ知らせていない)。
+        int _reportedPercent;
         bool _running;
 
         // ─── 計測用(直近の実行分。Stop では消さないので onDone 内から読める) ───
@@ -47,6 +49,7 @@ namespace Iroca.SentisIntegration {
             _onProgress = onProgress;
             _steps = 0;
             _ticks = 0;
+            _reportedPercent = -1;
             _running = true;
             EditorApplication.update += Tick;
         }
@@ -79,7 +82,7 @@ namespace Iroca.SentisIntegration {
                     }
                     _steps++;
                 }
-                if (done == null && _totalSteps > 0) {
+                if (done == null && _totalSteps > 0 && PercentChanged(_steps, _totalSteps, ref _reportedPercent)) {
                     _onProgress?.Invoke(_steps / (float)_totalSteps);
                 }
             } catch (Exception e) {
@@ -93,6 +96,20 @@ namespace Iroca.SentisIntegration {
             if (done != null) {
                 CallGuarded(done);
             }
+        }
+
+        /// <summary>
+        /// 進みを知らせるか。整数の百分率が、前に知らせたときから変わったときだけ true(lastPercent を進める)。
+        /// 受け取る側は状態が変わったとして窓の描き直しを頼むので、更新のたびに知らせると、計算の間ずっと(CPU だと数十秒)
+        /// 開いている窓を全面で描き直し続ける。進みの棒は 1% より細かく動いても見分けられない。
+        /// </summary>
+        internal static bool PercentChanged(int steps, int totalSteps, ref int lastPercent) {
+            int percent = (int)(steps * 100L / totalSteps);
+            if (percent == lastPercent) {
+                return false;
+            }
+            lastPercent = percent;
+            return true;
         }
 
         // update から呼ばれる入口なので、通知先の例外はここで止める。漏らすと、同じフレームに並んだ

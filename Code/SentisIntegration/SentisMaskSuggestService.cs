@@ -893,10 +893,12 @@ namespace Iroca.SentisIntegration {
                 var it = _encoder.ScheduleIterable(_encInput);
                 int total = _encoderModel.layers != null ? _encoderModel.layers.Count : 0;
                 _pumpStartedAt = MaskSuggestPerf.Now;
+                // 進みは受け取らない: 進みの棒が出るのは全体のエンコードの間だけで、ここ(クリックの処理中)は出ない。
+                // 知らせると、見た目が何も変わらないのに、開いている窓を描き直すだけになる。
                 _pump.Start(it, total,
                     onDone: () => FinishZoomEncode(key, plan, u, v, granularity),
                     onError: e => { DisposeEncInput(); FallbackToStage1(plan, e); },
-                    onProgress: p => { _progress = p; StateChanged?.Invoke(); });
+                    onProgress: null);
             } catch (Exception e) {
                 DisposeEncInput();
                 FallbackToStage1(plan, e);
