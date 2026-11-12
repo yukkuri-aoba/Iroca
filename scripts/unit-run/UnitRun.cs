@@ -1632,9 +1632,14 @@ namespace Iroca.UnitRun {
 
         // ─── ColorTintLut（「アバターの色」表示: マテリアルのメインカラーの掛け算） ───
 
+        // 白の掛け算の表は、どの値もそのまま返す。
         public static void TintLut_WhiteIsIdentity() {
-            Check.True(ColorTintLut.IsIdentity(ColorTintLut.Build(1f, true)), "linear");
-            Check.True(ColorTintLut.IsIdentity(ColorTintLut.Build(1f, false)), "gamma");
+            foreach (bool linear in new[] { true, false }) {
+                var lut = ColorTintLut.Build(1f, linear);
+                for (int v = 0; v < 256; v++) {
+                    Check.Equal((byte)v, lut[v], $"{(linear ? "linear" : "gamma")} v={v}");
+                }
+            }
         }
 
         public static void TintLut_BlackGivesZero() {

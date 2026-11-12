@@ -27,16 +27,6 @@ namespace Iroca {
             return lut;
         }
 
-        /// <summary>表が何もしない(どの値もそのまま返す)か。白の掛け算を素通しするのに使う。</summary>
-        public static bool IsIdentity(byte[] lut) {
-            for (int v = 0; v < 256; v++) {
-                if (lut[v] != v) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         /// <summary>src の各画素の RGB を表で置き換えて dst へ書く(src と dst は同じでもよい)。</summary>
         // 確定のたび・ドラッグの追従のたびにメインスレッドで全画素を回すので、大きい画像は区間に分けて並列に当てる
         // (画素ごとに独立なので、どう分けても結果は同じ)。

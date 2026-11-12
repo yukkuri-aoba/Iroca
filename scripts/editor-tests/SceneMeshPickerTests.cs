@@ -170,12 +170,17 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(0.1f + 0.75f * 0.3f, hit.hitUv.y, 1e-3f);
         }
 
+        // 窓と同じ呼び方で、当たりから強調の中身を作る(塗りの下絵は頼まない)。
+        private static SceneClickHighlight Highlight(Texture2D tex, SceneMeshPicker.Hit hit, Vector2 scale, Vector2 offset)
+            => SceneClickHighlight.Compute(tex, hit.renderer != null ? hit.renderer.name : null, hit.uv, hit.submeshTriangles,
+                                           hit.triangle, hit.hitUv, scale, offset, 0, 0);
+
         [Test]
         public void HighlightCoversTheClickedIslandOnly() {
             MeshObject(Far, StandardMaterial());
             var hit = SceneMeshPicker.Pick(FromFront(Far, new Vector2(0.25f, 0.75f)));
             var tex = Track(new Texture2D(8, 8));
-            var h = SceneClickHighlight.Build(tex, hit, Vector2.one, Vector2.zero);
+            var h = Highlight(tex, hit, Vector2.one, Vector2.zero);
 
             Assert.AreSame(tex, h.texture);
             Assert.AreEqual(hit.hitUv.x, h.point.x, 1e-5f);
@@ -187,13 +192,13 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
-        public void BackgroundComputeMatchesBuildAndPreparesTheFill() {
-            // 窓は島の計算を背景のスレッドで行い(Compute)、塗りの下絵もそこで作る。同期の Build と同じ島・輪郭で、
+        public void BackgroundComputeMatchesTheMainThreadAndPreparesTheFill() {
+            // 窓は島の計算を背景のスレッドで行い(Compute)、塗りの下絵もそこで作る。メインスレッドで呼んだときと同じ島・輪郭で、
             // 下絵は描くときに作るもの(FillMaskOf)と同じ。
             MeshObject(Far, StandardMaterial());
             var hit = SceneMeshPicker.Pick(FromFront(Far, new Vector2(0.25f, 0.75f)));
             var tex = Track(new Texture2D(8, 8));
-            var built = SceneClickHighlight.Build(tex, hit, Vector2.one, Vector2.zero);
+            var built = Highlight(tex, hit, Vector2.one, Vector2.zero);
             SceneClickHighlight computed = null;
             string name = hit.renderer.name;
             System.Threading.Tasks.Task.Run(() => {
@@ -208,7 +213,7 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(24, computed.fillH);
             CollectionAssert.AreEqual(SceneClickHighlight.FillMaskOf(built.island, 32, 24), computed.fillMask);
             Assert.That(System.Array.IndexOf(computed.fillMask, true), Is.GreaterThanOrEqualTo(0), "島の内側の画素がある");
-            Assert.IsNull(built.fillMask, "同期の Build は下絵を作らない(描くときに作る)");
+            Assert.IsNull(built.fillMask, "下絵を頼まなければ作らない(描くときに作る)");
         }
 
         [Test]
@@ -217,7 +222,7 @@ namespace Iroca.EditorTests {
             // (0.7, 1.3) → 繰り返しで (0.7, 0.3)。島も同じだけ下げて、クリック位置と同じ場所に描く。
             MeshObject(Far, StandardMaterial());
             var hit = SceneMeshPicker.Pick(FromFront(Far, new Vector2(0.25f, 0.75f)));
-            var h = SceneClickHighlight.Build(Track(new Texture2D(8, 8)), hit, new Vector2(4f, 4f), Vector2.zero);
+            var h = Highlight(Track(new Texture2D(8, 8)), hit, new Vector2(4f, 4f), Vector2.zero);
 
             Assert.AreEqual(0.7f, h.point.x, 1e-4f);
             Assert.AreEqual(0.3f, h.point.y, 1e-4f);

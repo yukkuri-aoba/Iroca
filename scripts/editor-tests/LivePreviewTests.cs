@@ -22,7 +22,7 @@ namespace Iroca.EditorTests {
         public void DestroyedSource_IsReleased() {
             var tex = new Texture2D(2, 2);
             LivePreview.SetTarget(tex, null);
-            LivePreview.Push(tex, new Color32[4], 2, 2);
+            TestAssets.PushLive(tex, new Color32[4], 2, 2);
             int before = LivePreview.SlotCount;
             Assert.Greater(before, 0, "テストの前提: スロットがある");
             Object.DestroyImmediate(tex);
@@ -208,7 +208,7 @@ namespace Iroca.EditorTests {
             var rt = LivePreview.Acquire(previous);   // 前のテクスチャの借り手がまだ残っている
             try {
                 // 切り替え直後に届いた前のテクスチャの結果は書かない(画素が無いので元の見た目のまま)。
-                LivePreview.Push(previous, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
+                TestAssets.PushLive(previous, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
                 AssertPixelsIfGpu(rt, previous, expectRed: false);
             } finally {
                 LivePreview.Release(previous);
@@ -220,12 +220,12 @@ namespace Iroca.EditorTests {
             var tex = Tex("t");
             LivePreview.SetTarget(tex, null);
             // 借り手が現れる前に届いた結果も、借りたときに書かれる。
-            LivePreview.Push(tex, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
+            TestAssets.PushLive(tex, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
             var rt = LivePreview.Acquire(tex);
             try {
                 AssertPixelsIfGpu(rt, tex, expectRed: true);
                 // ドラッグ中の縮小版(寸法が違う)も同じ RenderTexture に引き伸ばして書く。
-                LivePreview.Push(tex, TestAssets.Solid(4, 4, new Color32(0, 255, 0, 255)), 4, 4);
+                TestAssets.PushLive(tex, TestAssets.Solid(4, 4, new Color32(0, 255, 0, 255)), 4, 4);
                 if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null) {
                     var c = ReadCenter((RenderTexture)rt);
                     Assert.Greater(c.g, 200, $"後の結果で置き換わっていない: {c}");
@@ -242,7 +242,7 @@ namespace Iroca.EditorTests {
             LivePreview.SetTarget(tex, null);
             var rt = LivePreview.Acquire(tex);
             try {
-                LivePreview.Push(tex, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
+                TestAssets.PushLive(tex, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
                 Assert.Greater(LivePreview.StagingCount(tex), 0, "テストの前提: 中継がある");
 
                 LivePreview.TrimStaging();
@@ -250,7 +250,7 @@ namespace Iroca.EditorTests {
                 Assert.IsTrue(rt != null, "RenderTexture まで捨てた");
                 AssertPixelsIfGpu(rt, tex, expectRed: true);   // 映っているものは変わらない
 
-                LivePreview.Push(tex, TestAssets.Solid(8, 8, new Color32(0, 255, 0, 255)), 8, 8);
+                TestAssets.PushLive(tex, TestAssets.Solid(8, 8, new Color32(0, 255, 0, 255)), 8, 8);
                 Assert.AreEqual(1, LivePreview.StagingCount(tex), "次の画素で中継を作り直していない");
                 if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null) {
                     Assert.Greater(ReadCenter((RenderTexture)rt).g, 200, "作り直した中継から映っていない");
@@ -267,7 +267,7 @@ namespace Iroca.EditorTests {
             LivePreview.SetTarget(tex, null);
             var rt = (RenderTexture)LivePreview.Acquire(tex);
             try {
-                LivePreview.Push(tex, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
+                TestAssets.PushLive(tex, TestAssets.Solid(8, 8, new Color32(255, 0, 0, 255)), 8, 8);
                 rt.Release();   // GPU 側だけ失われた(オブジェクトは同じ)
                 Assert.IsFalse(rt.IsCreated(), "テストの前提: GPU 側が無い");
 
@@ -291,9 +291,11 @@ namespace Iroca.EditorTests {
                 LivePreview.SetTarget(tex, null);
                 var rt = LivePreview.Acquire(tex);
                 try {
-                    var pixels = TestAssets.Solid(8, 8, new Color32(0, 200, 0, 128));
-                    LivePreview.Push(tex, pixels, 8, 8);
-                    Assert.AreEqual(128, pixels[0].a, "窓のプレビューも使う画素を書き換えた");
+                    var pixels = NativePixels.CopyOf(TestAssets.Solid(8, 8, new Color32(0, 200, 0, 128)), 8, 8);
+                    try {
+                        LivePreview.Push(tex, pixels);
+                        Assert.AreEqual(128, pixels.ToArray()[0].a, "窓のプレビューも使う画素を書き換えた");
+                    } finally { pixels.Release(); }
                     if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null) {
                         Assert.AreEqual(255, ReadCenter((RenderTexture)rt).a, "Alpha Source を当てていない");
                     }

@@ -52,10 +52,8 @@ namespace Iroca {
         private sealed class Slot {
             public RenderTexture rt;
             public int refs;
-            // 最後に届いた画素(行 0 = 画像下端)。借り手が現れたとき・作り直したときに書き込む。
-            // 編集画面から届くものは、ドラッグ中の縮小版も確定のフル解像度も Mono のヒープの外(native。参照を 1 つ持つ)。
-            // 管理配列(pixels)で届くのは、配列を渡す口(テストが使う)だけ。
-            public Color32[] pixels;
+            // 最後に届いた画素(行 0 = 画像下端。ドラッグ中の縮小版か、確定のフル解像度)。借り手が現れたとき・作り直したときに
+            // 書き込む。Mono のヒープの外にあり、参照を 1 つ持つ。
             public NativePixels native;
             public int width, height;
             // 画素を GPU へ上げる中継(RGBA32・ミップなし)。ドラッグの追従(表示寸法。長辺 384 以下)と確定(作業解像度)で
@@ -68,11 +66,10 @@ namespace Iroca {
             // Alpha Source を当てるときの取り込み設定(最後に届いた画素のテクスチャのもの)。
             public TextureImporter importer;
 
-            public bool HasPixels => pixels != null || native != null;
+            public bool HasPixels => native != null;
 
             // 持っている画素を手放す(native は参照を返す)。
             public void DropPixels() {
-                pixels = null;
                 var n = native;
                 native = null;
                 n?.Release();
@@ -163,29 +160,8 @@ namespace Iroca {
         internal static int ShadowColorsVersion { get; private set; }
 
         /// <summary>
-        /// 色替えの結果を置く。<paramref name="source"/> がいま編集中のものでなければ捨てる
-        /// (テクスチャを切り替えた直後に届いた前のテクスチャの結果)。借り手がいればすぐ書き込む。
-        /// </summary>
-        public static void Push(Texture2D source, Color32[] pixels, int width, int height) {
-            if (source == null || pixels == null || Current == null || Current.source != source) {
-                return;
-            }
-            if (pixels.Length != width * height) {
-                return;
-            }
-            var slot = SlotFor(source);
-            slot.DropPixels();
-            slot.pixels = pixels;
-            slot.width = width;
-            slot.height = height;
-            slot.importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(source)) as TextureImporter;
-            if (slot.rt != null) {
-                Upload(slot);
-            }
-        }
-
-        /// <summary>
-        /// <see cref="Push(Texture2D, Color32[], int, int)"/> の Mono のヒープの外に置いた画素版(確定段のフル解像度)。
+        /// 色替えの結果(Mono のヒープの外の画素。ドラッグ中の縮小版か、確定のフル解像度)を置く。<paramref name="source"/> が
+        /// いま編集中のものでなければ捨てる(テクスチャを切り替えた直後に届いた前のテクスチャの結果)。借り手がいればすぐ書き込む。
         /// 置いている間は参照を 1 つ持つ(次の Push・テクスチャの切り替え・閉じたときに返す)。
         /// </summary>
         public static void Push(Texture2D source, NativePixels pixels) {
@@ -399,12 +375,8 @@ namespace Iroca {
             }
             bool srgb = slot.rt.sRGB;
             SelectStaging(slot, srgb);
-            if (slot.native != null) {
-                // RGBA32 でミップなしなので、Color32 の並びがそのままテクスチャのデータになる(管理配列へ写さない)。
-                slot.staging.LoadRawTextureData((IntPtr)slot.native.Ptr, slot.native.Length * 4);
-            } else {
-                slot.staging.SetPixelData(slot.pixels, 0);
-            }
+            // RGBA32 でミップなしなので、Color32 の並びがそのままテクスチャのデータになる(管理配列へ写さない)。
+            slot.staging.LoadRawTextureData((IntPtr)slot.native.Ptr, slot.native.Length * 4);
             // ビルド(RecipeTextureBuilder)と同じく、出来上がりに取り込み設定の Alpha Source を当てる。届いた画素は窓のプレビューも
             // 使うので、写した先で当てる。
             RecipeTextureBuilder.ApplyAlphaSource(slot.staging, slot.importer);

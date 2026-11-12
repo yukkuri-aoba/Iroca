@@ -174,7 +174,7 @@ namespace Iroca.EditorTests {
                         var rt = (RenderTexture)LivePreview.Acquire(tex);
                         double acquireMs = sw.Elapsed.TotalMilliseconds;
                         sw.Restart();
-                        LivePreview.Push(tex, outPx, w, h);
+                        TestAssets.PushLive(tex, outPx, w, h);
                         double pushMs = sw.Elapsed.TotalMilliseconds;
                         // 1 画素読み戻して、GPU に色替え後の絵が載ったかを見る(縮小されているので中央付近の平均色)。
                         var prev = RenderTexture.active;

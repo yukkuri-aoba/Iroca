@@ -29,19 +29,10 @@ namespace Iroca {
         public int fillW, fillH;
 
         /// <summary>
-        /// 当たりから作る。scale / offset は当たったマテリアルのメインテクスチャの Tiling / Offset。
-        /// 島は右クリックの「この島」と同じまとまり(<see cref="IslandTriangles"/>)。
-        /// </summary>
-        public static SceneClickHighlight Build(Texture2D texture, SceneMeshPicker.Hit hit, Vector2 scale, Vector2 offset) {
-            var h = Compute(texture, hit.renderer != null ? hit.renderer.name : null, hit.uv, hit.submeshTriangles,
-                            hit.triangle, hit.hitUv, scale, offset, 0, 0);
-            h.shownAt = EditorApplication.timeSinceStartup;
-            return h;
-        }
-
-        /// <summary>
-        /// <see cref="Build"/> の中身のうち、Unity の API に触らない計算(島のチャート分け・輪郭と、fillW × fillH が
-        /// 正ならその寸法の塗りの下絵)。背景のスレッドで呼べる(Scene のクリックでメインスレッドを止めない)。
+        /// Scene でクリックした当たり(メッシュの UV・当たったサブメッシュの三角形・当たった三角形・その UV)から作る。
+        /// scale / offset は当たったマテリアルのメインテクスチャの Tiling / Offset。島は右クリックの「この島」と同じまとまり
+        /// (<see cref="IslandTriangles"/>)。Unity の API に触らない計算(島のチャート分け・輪郭と、fillW × fillH が正なら
+        /// その寸法の塗りの下絵)なので、背景のスレッドで呼べる(Scene のクリックでメインスレッドを止めない)。
         /// shownAt は呼び出し側がメインスレッドで入れる。
         /// </summary>
         internal static SceneClickHighlight Compute(Texture2D texture, string name, Vector2[] uv, int[] submeshTriangles,

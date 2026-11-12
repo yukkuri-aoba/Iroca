@@ -21,6 +21,15 @@ namespace Iroca.EditorTests {
         private TestAssets(string folder) { Folder = folder; }
 
         /// <summary>
+        /// シーンのプレビューへ色替えの結果を置く(<see cref="LivePreview.Push"/>)。製品と同じくヒープの外の画素で渡す
+        /// (LivePreview は自分の参照を足して持つので、ここの分は返す)。
+        /// </summary>
+        public static void PushLive(Texture2D source, Color32[] pixels, int width, int height) {
+            var native = NativePixels.CopyOf(pixels, width, height);
+            try { LivePreview.Push(source, native); } finally { native.Release(); }
+        }
+
+        /// <summary>
         /// 原本の画素を管理配列で読む(メインスレッド専用)。製品はヒープの外へ読むので
         /// (<see cref="ExportPipeline.ReadWorkingPixelsNative"/>・<see cref="ExportService.ReadSource"/>)、
         /// これは GetPixels32 の値と比べる基準と、配列のほうが書きやすいテストのためのもの。
