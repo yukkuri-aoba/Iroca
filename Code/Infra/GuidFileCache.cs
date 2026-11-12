@@ -113,7 +113,13 @@ namespace Iroca {
             if (File.Exists(path)) {
                 RetireToOrphan(path);
             }
-            foreach (var subAsset in Directory.GetFiles(CacheDir, guid + "_*" + _extension)) {
+            // アセットの削除のたびに呼ばれる(IrocaAssetWatcher)。列挙の失敗(入出力のエラー・権限)で削除を巻き込まない。
+            string[] subAssets;
+            try { subAssets = Directory.GetFiles(CacheDir, guid + "_*" + _extension); } catch (Exception ex) {
+                Debug.LogWarning($"[Iroca] {_label} cache scan failed: {ex.Message}");
+                return;
+            }
+            foreach (var subAsset in subAssets) {
                 RetireToOrphan(subAsset);
             }
         }

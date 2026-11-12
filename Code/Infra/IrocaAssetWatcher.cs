@@ -1,7 +1,9 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System;
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEngine;
 
 namespace Iroca {
     /// <summary>
@@ -14,6 +16,18 @@ namespace Iroca {
         // 削除確定前に GUID を解決する（OnPostprocessAllAssets まで待つと
         // GUIDToAssetPath が空を返す場合があり、特定が難しくなるため）。
         private static AssetDeleteResult OnWillDeleteAsset(string assetPath, RemoveAssetOptions options) {
+            // この入口は、いろかを使っていない人の削除でも、プロジェクトのどのアセットの削除でも呼ばれる。ここで投げると
+            // 削除の処理に例外が出る(ほかのツールの同じ入口も呼ばれない)ので、退避に失敗しても削除は止めない。
+            try {
+                RetireCachesOf(assetPath);
+            } catch (Exception ex) {
+                Debug.LogWarning($"[Iroca] Could not set aside the edits of {assetPath}: {ex.Message}");
+            }
+            // アセット本体の削除は Unity に続行させる。
+            return AssetDeleteResult.DidNotDelete;
+        }
+
+        private static void RetireCachesOf(string assetPath) {
             // フォルダなら中のアセット(下のフォルダも含む)の分も。窓を開くたびの掃除(CleanupOrphans)も GUID の引けない
             // ファイルを退避するが、窓を開かない間は残り続けていた。
             // フォルダのときは GUID をまとめて渡し、キャッシュのフォルダの列挙を 1 回で済ませる(中のアセットごとに
@@ -26,8 +40,6 @@ namespace Iroca {
             } else {
                 Retire(AssetDatabase.AssetPathToGUID(assetPath));
             }
-            // アセット本体の削除は Unity に続行させる。
-            return AssetDeleteResult.DidNotDelete;
         }
 
         private static void Retire(string guid) {
