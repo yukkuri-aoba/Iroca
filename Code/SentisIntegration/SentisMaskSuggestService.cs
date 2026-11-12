@@ -777,10 +777,10 @@ namespace Iroca.SentisIntegration {
                 onError(e);
                 return;
             }
-            _decodeReadback.Start(new Tensor[] { lo, sc },
-                () => {
-                    _logits = ReadInto(lo, _logits);
-                    _scores = ReadInto(sc, _scores);
+            _decodeReadback.Start(new[] { lo, sc },
+                read => {
+                    _logits = CopyInto(read[0], _logits);
+                    _scores = CopyInto(read[1], _scores);
                     DisposeDecoderPrompt();
                     var logits = _logits;
                     var scores = _scores;
@@ -793,12 +793,11 @@ namespace Iroca.SentisIntegration {
         }
 
         /// <summary>
-        /// 読み出し済みのテンソルの中身を dst へ写す(要素数が違えば作り直す)。値は以前の DownloadToArray と同じ
-        /// (どちらも形の要素数だけを先頭から読む)。
+        /// CPU へ写し終えたテンソル(<see cref="EditorReadbackPoller"/> が渡す)の中身を dst へ写す(要素数が違えば作り直す)。
+        /// 値は以前の DownloadToArray と同じ(どちらも形の要素数だけを先頭から読む)。
         /// </summary>
-        static float[] ReadInto(Tensor<float> tensor, float[] dst) {
-            using var clone = tensor.ReadbackAndClone();   // 読み出し済みなので待たない
-            var src = clone.DownloadToNativeArray();
+        static float[] CopyInto(Tensor<float> read, float[] dst) {
+            var src = read.DownloadToNativeArray();
             if (dst == null || dst.Length != src.Length) {
                 dst = new float[src.Length];
             }

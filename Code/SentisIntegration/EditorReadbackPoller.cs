@@ -18,6 +18,11 @@ namespace Iroca.SentisIntegration {
     /// ReadbackAndClone で回収する。CPU バックエンドでも ReadbackRequest は no-op /
     /// IsReadbackRequestDone は Burst fence 完了を見るため同一コードで動く。
     ///
+    /// 複数のテンソルを読むときは、済んだものから、その tick のうちに CPU へ写す。GPU からの読み出しの結果は、済んでから
+    /// 短い間(1 フレーム)しか読めない。以前は全部が済むのを待ってからまとめて読んでいたので、デコーダの 2 つの出力が
+    /// 別の tick で済むと、先に済んだ方が読めなくなり、「Cannot access the data as it is not available」で提案が失敗していた
+    /// (時々起きる。画面の無い実行で起きやすい)。
+    ///
     /// 不変条件: ポーリング中に同一 Worker へ新規 Schedule しないこと(PeekOutput の
     /// テンソルが無効化される)。サービスの Encoding/Decoding フェーズの単一実行が
     /// これを保証する。
@@ -29,8 +34,10 @@ namespace Iroca.SentisIntegration {
         // GPU ハング等での永久待ちを避ける安全弁。通常は数十〜数百 ms で完了する。
         const double TimeoutMs = 15000;
 
-        Tensor[] _tensors;
-        Func<Action> _read;
+        Tensor<float>[] _tensors;
+        // 読み出しが済んだものから CPU へ写したもの(_tensors と同じ並び。まだなら null)。読み終えたら捨てる。
+        Tensor<float>[] _copies;
+        Func<Tensor<float>[], Action> _read;
         Action<Exception> _onError;
         long _startedAt;
         bool _running;
@@ -38,11 +45,8 @@ namespace Iroca.SentisIntegration {
         /// <summary>読出リクエストを発行しポーリングを開始する。tensor は Worker 所有の
         /// PeekOutput 返しを想定(こちらでは Dispose しない)。</summary>
         public void Start(Tensor<float> tensor, Action<NativeBuffer> onDone, Action<Exception> onError) {
-            Start(new Tensor[] { tensor }, () => {
-                NativeBuffer data;
-                using (var t = tensor.ReadbackAndClone()) { // 完了済みなので非ブロッキング
-                    data = SamNativeOps.CopyFloats(t.DownloadToNativeArray());
-                }
+            Start(new[] { tensor }, copies => {
+                NativeBuffer data = SamNativeOps.CopyFloats(copies[0].DownloadToNativeArray());
                 if (onDone == null) {
                     data?.Release();
                     return null;
@@ -52,11 +56,12 @@ namespace Iroca.SentisIntegration {
         }
 
         /// <summary>
-        /// tensors すべての読出リクエストを発行し、すべて済んだら read をメインスレッドで呼ぶ(中の
-        /// ReadbackAndClone は待たない)。read は読んだ中身を受け取った通知を返し(null = 通知しない)、それを読み出しの
+        /// tensors すべての読出リクエストを発行し、済んだものから CPU へ写し(ReadbackAndClone。済んでいるので待たない)、
+        /// すべて済んだら read をメインスレッドで呼ぶ。read は CPU へ写したもの(tensors と同じ並び。read が返ったら捨てるので、
+        /// 中身は read の中で取り出す)を受け取り、読んだ中身を受け取った通知を返す(null = 通知しない)。通知は読み出しの
         /// 外で呼ぶ。read の例外と時間切れは onError へ。tensors は Worker 所有の PeekOutput 返しを想定(Dispose しない)。
         /// </summary>
-        public void Start(Tensor[] tensors, Func<Action> read, Action<Exception> onError) {
+        public void Start(Tensor<float>[] tensors, Func<Tensor<float>[], Action> read, Action<Exception> onError) {
             Stop();
             try {
                 foreach (var t in tensors) {
@@ -67,6 +72,7 @@ namespace Iroca.SentisIntegration {
                 return;
             }
             _tensors = tensors;
+            _copies = new Tensor<float>[tensors.Length];
             _read = read;
             _onError = onError;
             _startedAt = MaskSuggestPerf.Now;
@@ -83,6 +89,12 @@ namespace Iroca.SentisIntegration {
             // コールバックは埋め込み(4.2MB)や後続処理を捕捉したクロージャであり得る。
             // 参照を残すと次の Start まで解放されない(EditorIteratorPump と同じ規律)。
             _tensors = null;
+            if (_copies != null) {
+                foreach (var c in _copies) {
+                    c?.Dispose();
+                }
+            }
+            _copies = null;
             _read = null;
             _onError = null;
         }
@@ -90,16 +102,25 @@ namespace Iroca.SentisIntegration {
         void Tick() {
             Action done;
             try {
-                foreach (var t in _tensors) {
-                    if (t.IsReadbackRequestDone()) {
+                bool waiting = false;
+                for (int i = 0; i < _tensors.Length; i++) {
+                    if (_copies[i] != null) {
                         continue;
                     }
+                    if (_tensors[i].IsReadbackRequestDone()) {
+                        // 済んだものは、ほかを待たずに今ここで写す(済んだ結果を読めるのは短い間だけ)。
+                        _copies[i] = _tensors[i].ReadbackAndClone();
+                    } else {
+                        waiting = true;
+                    }
+                }
+                if (waiting) {
                     if (MaskSuggestPerf.MsSince(_startedAt) > TimeoutMs) {
                         throw new TimeoutException(Localization.AiErrReadbackTimeout);
                     }
                     return;
                 }
-                done = _read();
+                done = _read(_copies);
                 Stop();
             } catch (Exception e) {
                 var onError = _onError;
