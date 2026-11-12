@@ -142,10 +142,6 @@ namespace Iroca {
             }
 
             var detail = Detail.detailPreviewTexture;
-            // 拡大表示をやめたら、切り出し用の作業 RenderTexture(テクスチャ全体の寸法になり得る)は持たない。
-            if (detail == null) {
-                _appearance.ReleaseScratch();
-            }
             if (detail != null && DetailW > 0 && DetailH > 0
                 && (_appearanceDetailBuilt != _detailVersion || _appearanceDetailFor != sig)) {
                 _appearance.RenderRegion(report, detail, DetailUv(), DetailW, DetailH, ref _appearanceDetail);
@@ -153,9 +149,6 @@ namespace Iroca {
                 _appearanceDetailFor = sig;
             }
         }
-
-        /// <summary>切り出しを重ねなくなった(元の倍率へ戻した)。表示中の切り出しは残すが、切り出し用の作業 RenderTexture は持たない。</summary>
-        internal void ReleaseAppearanceScratch() => _appearance?.ReleaseScratch();
 
         // 拡大表示の切り出しが覆う範囲(土台の UV)。
         private Rect DetailUv() => new Rect(

@@ -87,8 +87,7 @@ namespace Iroca {
         private Material _baker;
         private Material _bakerAfter;
         private string _bakerFor;
-        // 切り出しを元の位置に貼る作業用(テクスチャ全体の寸法。拡大表示に重ね描きの層があるときだけ)と、貼るのに使うマテリアル。
-        private RenderTexture _scratch;
+        // 切り出しを元の位置に貼るのに使うマテリアル(貼る先の作業用の RenderTexture は BakeRegion がその場で借りて返す)。
         private Material _copy;
         // 色の掛け算の表(チャンネルごと)と、その作り元。
         private byte[] _lutR, _lutG, _lutB;
@@ -314,22 +313,26 @@ namespace Iroca {
             if (fullH > 0) {
                 sh = Mathf.Min(sh, fullH);
             }
-            EnsureScratch(sw, sh);
+            // 作業用はその場で借りて返す。以前はテクスチャ全体の寸法(4K で 64MB・8K で 256MB)を、拡大している間ずっと
+            // 持っていた。借りたものの中身は不定だが、読むのは貼った範囲(uvRect)の中だけ(点で読む)。
+            var scratch = RenderTexture.GetTemporary(sw, sh, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default);
+            scratch.filterMode = FilterMode.Point;
+            scratch.wrapMode = TextureWrapMode.Clamp;
             // 貼るのは Graphics.Blit が使う写しのシェーダー(裏面も描く)。RenderTexture へ描くと上下が返る環境で、
             // 裏面を落とすシェーダーだと四角が消える。
             if (_copy == null) {
                 _copy = new Material(Shader.Find("Hidden/BlitCopy") ?? Shader.Find("Unlit/Texture")) { hideFlags = HideFlags.HideAndDontSave };
             }
             _copy.mainTexture = crop;
-            DrawQuad(_scratch, _copy, uvRect, new Rect(0f, 0f, 1f, 1f));
+            DrawQuad(scratch, _copy, uvRect, new Rect(0f, 0f, 1f, 1f));
 
             var rt = RenderTexture.GetTemporary(crop.width, crop.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default);
-            _baker.mainTexture = _scratch;
+            _baker.mainTexture = scratch;
             if (_bakerAfter == null) {
                 DrawQuad(rt, _baker, new Rect(0f, 0f, 1f, 1f), uvRect);
             } else {
                 // 照明の前の分を作業用と同じ並び(元の位置)に描き、そこを指して照明の後の分を描く。
-                var mid = GetMidTemporary(sw, sh, _scratch);
+                var mid = GetMidTemporary(sw, sh, scratch);
                 DrawQuad(mid, _baker, uvRect, uvRect);
                 _bakerAfter.mainTexture = mid;
                 DrawQuad(rt, _bakerAfter, new Rect(0f, 0f, 1f, 1f), uvRect);
@@ -339,20 +342,7 @@ namespace Iroca {
             _baker.mainTexture = null;
             ReadBack(rt, crop.filterMode, ref dst);
             RenderTexture.ReleaseTemporary(rt);
-        }
-
-        private void EnsureScratch(int w, int h) {
-            if (_scratch != null && _scratch.width == w && _scratch.height == h && _scratch.IsCreated()) {
-                return;
-            }
-            ReleaseScratch();
-            _scratch = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default) {
-                name = TextureSlot.OwnedName("appearance"),
-                hideFlags = HideFlags.HideAndDontSave,
-                filterMode = FilterMode.Point,
-                wrapMode = TextureWrapMode.Clamp,
-            };
-            _scratch.Create();
+            RenderTexture.ReleaseTemporary(scratch);
         }
 
         /// <summary>
@@ -388,18 +378,7 @@ namespace Iroca {
         private static bool IsWhole(Rect uv)
             => uv.xMin <= 0f && uv.yMin <= 0f && uv.xMax >= 1f && uv.yMax >= 1f;
 
-        /// <summary>作業用の RenderTexture を手放す(拡大表示をやめた・テクスチャを替えたとき)。</summary>
-        public void ReleaseScratch() {
-            if (_scratch == null) {
-                return;
-            }
-            _scratch.Release();
-            Object.DestroyImmediate(_scratch);
-            _scratch = null;
-        }
-
         public void Dispose() {
-            ReleaseScratch();
             DestroyNow(ref _baker);
             DestroyNow(ref _bakerAfter);
             DestroyNow(ref _copy);
