@@ -434,6 +434,7 @@ namespace Iroca {
             _maskView.Initialize(this);
             _previewView ??= new PreviewView();
             _previewView.Initialize(this);
+            _savedAtDisable = false;
             // 編集の合図(プレビュー・重ね表示・自動保存)。この後の読み込みも編集として受ける。
             SubscribeEditChanges();
             EnsureAllZoneIds();
@@ -536,10 +537,15 @@ namespace Iroca {
             NativeMemoryLifecycle.ReleaseWhenIdle();
             _maskView?.SuspendTransientState();
             SavePersistedSessionForCurrentTexture();
+            _savedAtDisable = true;
             RememberLastEditedTexture();
             // 外すのは最後(閉じる途中の処理からは、まだ開いている編集として見える。型で探していたときと同じ)。
             EditingSessionRegistry.Unregister(this);
         }
+
+        // OnDisable で保存を済ませたか。窓を閉じると OnDisable の直後に OnDestroy が来るので、同じ保存(全マスクの符号化と
+        // 中身の比べ)をもう一度しない。OnEnable で下ろす。
+        [System.NonSerialized] private bool _savedAtDisable;
 
         private void CancelExportBeforeReload() => _exportView?.CancelForReload();
 
@@ -634,7 +640,9 @@ namespace Iroca {
             _previewView?.Dispose();
             _exportView?.Dispose();
             CancelAutoTune();
-            SavePersistedSessionForCurrentTexture();
+            if (!_savedAtDisable) {
+                SavePersistedSessionForCurrentTexture();
+            }
             RememberLastEditedTexture();
             _maskView?.ReleaseOverlayTextures();
             // 編集中のマスク(ヒープの外)も返す。手放すのはここだけで、マスクは直前に保存済み(OnDisable は保存より前に
