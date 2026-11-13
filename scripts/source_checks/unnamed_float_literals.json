@@ -149,7 +149,6 @@
     ],
     "Code/Core/ZoneAutoTuner.Tolerance.cs": [
       "0.01f",
-      "0.01f",
       "0.10f",
       "0.10f",
       "0.90f"

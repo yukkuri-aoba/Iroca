@@ -423,17 +423,7 @@ namespace Iroca {
         private static bool InAnyNearWindow(SampleHSV[] samples, float pH, float pS, float pV) {
             for (int si = 0; si < samples.Length; si++) {
                 var sm = samples[si];
-                float hd = Mathf.Abs(pH - sm.h);
-                if (hd > 0.5f) {
-                    hd = 1f - hd;
-                }
-                if (hd >= NearHueDist) {
-                    continue;
-                }
-                if (Mathf.Abs(pS - sm.s) >= NearSatDist) {
-                    continue;
-                }
-                if (Mathf.Abs(pV - sm.v) >= NearValDist) {
+                if (!InNearWindow(HueDistance(pH, sm.h), pS, pV, sm.s, sm.v)) {
                     continue;
                 }
                 if (pS < sm.s * ChromaClusterSatFrac) {

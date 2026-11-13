@@ -199,6 +199,38 @@ namespace Iroca {
         private const float CoreHueWindow = 0.03f;  // core 抽出: サンプルからの hue 窓
         private const float CoreSatWindow = 0.15f;  // core 抽出: 彩度窓
         private const float CoreValWindow = 0.20f;  // core 抽出: 明度窓
+
+        // ─────────────────── 照合の窓と距離(自動調整の中で共有。式はここだけ) ───────────────────
+
+        /// <summary>
+        /// サンプルの近く(同じパーツ相当)の窓: 色相・彩度・明度の差が NearHueDist・NearSatDist・NearValDist 未満。
+        /// hd は色相距離(<see cref="HueDistance"/>)。
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static bool InNearWindow(float hd, float pS, float pV, float sS, float sV) =>
+            hd < NearHueDist && Mathf.Abs(pS - sS) < NearSatDist && Mathf.Abs(pV - sV) < NearValDist;
+
+        /// <summary>
+        /// 芯(サンプルにごく近い画素)の窓: 無彩寄り(彩度がサンプルの ChromaClusterSatFrac 倍未満)でなく、色相・彩度・明度の
+        /// 差が CoreHueWindow・CoreSatWindow・CoreValWindow 未満。
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static bool InCoreWindow(float hd, float pS, float pV, float sS, float sV) =>
+            pS >= sS * ChromaClusterSatFrac && hd < CoreHueWindow
+            && Mathf.Abs(pS - sS) < CoreSatWindow && Mathf.Abs(pV - sV) < CoreValWindow;
+
+        /// <summary>
+        /// 近傍クラスタの距離 d = hd + |dS|·satDistWeight + |dV|·valueWeight·(1 − clamp(pS/sS))。本番(ColorZone の照合)の
+        /// HSV 側の項と同じ式で、本番が足す明部免除と、暗いサンプルでの RGB 距離との混合は入れていない(TryDeriveChromaticTolerance の説明)。
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static float NearClusterDistance(float hd, float pS, float pV, float sS, float sV,
+            float satDistW, float valueW) {
+            float sd = Mathf.Abs(pS - sS);
+            float vd = Mathf.Abs(pV - sV);
+            float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
+            return hd + sd * satDistW + vd * valueW * (1f - sRatio);
+        }
         private const float ForeignGateK = 2.5f;   // 許容 hue ゲート = K*coreSpread + floor
         private const float ForeignGateFloor = 0.015f;
         private const float ForeignGateMin = 0.03f;  // ゲート下限(締まった core でもこの幅は同パーツ扱い)
@@ -231,20 +263,8 @@ namespace Iroca {
                         continue;
                     }
                     float pH = gH[grow + gx], pS = gS[grow + gx], pV = gV[grow + gx];
-                    if (pS < sS * ChromaClusterSatFrac) {
-                        continue;
-                    }
-                    float hdc = Mathf.Abs(pH - sH);
-                    if (hdc > 0.5f) {
-                        hdc = 1f - hdc;
-                    }
-                    if (hdc >= CoreHueWindow) {
-                        continue;
-                    }
-                    if (Mathf.Abs(pS - sS) >= CoreSatWindow) {
-                        continue;
-                    }
-                    if (Mathf.Abs(pV - sV) >= CoreValWindow) {
+                    float hdc = HueDistance(pH, sH);
+                    if (!InCoreWindow(hdc, pS, pV, sS, sV)) {
                         continue;
                     }
                     int cb = Mathf.Clamp((int)(hdc / NearHueDist * ForeignHueBins), 0, ForeignHueBins - 1);
@@ -329,28 +349,16 @@ namespace Iroca {
                         continue; // マスク除外領域は対象外
                     }
                     float pH = gH[grow + gx], pS = gS[grow + gx], pV = gV[grow + gx];
-                    float hd = Mathf.Abs(pH - sH);
-                    if (hd > 0.5f) {
-                        hd = 1f - hd;
-                    }
+                    float hd = HueDistance(pH, sH);
                     // near-sample クラスタ(サンプルに似た画素=同パーツ相当)に限定
-                    if (hd >= NearHueDist) {
-                        continue;
-                    }
-                    if (Mathf.Abs(pS - sS) >= NearSatDist) {
-                        continue;
-                    }
-                    if (Mathf.Abs(pV - sV) >= NearValDist) {
+                    if (!InNearWindow(hd, pS, pV, sS, sV)) {
                         continue;
                     }
                     // 無彩寄り画素(背景/陰影のグレー, hue=0 で暖色サンプルに誤マッチ)を除外
                     if (pS < sS * ChromaClusterSatFrac) {
                         continue;
                     }
-                    float sd = Mathf.Abs(pS - sS);
-                    float vd = Mathf.Abs(pV - sV);
-                    float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
-                    float d = hd + sd * satDistW + vd * valueW * (1f - sRatio);
+                    float d = NearClusterDistance(hd, pS, pV, sS, sV, satDistW, valueW);
                     int bi = Mathf.Clamp((int)(d / DistMax * DistBins), 0, DistBins - 1);
                     local[bi]++;
                     local[oCount]++;
@@ -452,25 +460,13 @@ namespace Iroca {
                         continue;
                     }
                     float pH = gH[grow + gx], pS = gS[grow + gx], pV = gV[grow + gx];
-                    float hd0 = Mathf.Abs(pH - sH);
-                    if (hd0 > 0.5f) {
-                        hd0 = 1f - hd0;
-                    }
-                    if (hd0 >= NearHueDist) {
-                        continue;
-                    }
-                    if (Mathf.Abs(pS - sS) >= NearSatDist) {
-                        continue;
-                    }
-                    if (Mathf.Abs(pV - sV) >= NearValDist) {
+                    float hd0 = HueDistance(pH, sH);
+                    if (!InNearWindow(hd0, pS, pV, sS, sV)) {
                         continue;
                     }
                     int sb = Mathf.Clamp((int)(pS * AutoToneSatBins), 0, AutoToneSatBins - 1);
                     local[sb]++; local[oNear]++;
-                    if (pS >= sS * ChromaClusterSatFrac
-                        && hd0 < CoreHueWindow
-                        && Mathf.Abs(pS - sS) < CoreSatWindow
-                        && Mathf.Abs(pV - sV) < CoreValWindow) {
+                    if (InCoreWindow(hd0, pS, pV, sS, sV)) {
                         int cb = Mathf.Clamp((int)(hd0 / NearHueDist * ForeignHueBins), 0, ForeignHueBins - 1);
                         local[oCoreH + cb]++;
                         local[oCoreN]++;
@@ -660,27 +656,15 @@ namespace Iroca {
                     bool inAnyNear = false, isCore = false;
                     for (int si = 0; si < samples.Length; si++) {
                         var sm = samples[si];
-                        float hd = Mathf.Abs(pH - sm.h);
-                        if (hd > 0.5f) {
-                            hd = 1f - hd;
-                        }
-                        if (hd >= NearHueDist) {
-                            continue;
-                        }
-                        if (Mathf.Abs(pS - sm.s) >= NearSatDist) {
-                            continue;
-                        }
-                        if (Mathf.Abs(pV - sm.v) >= NearValDist) {
+                        float hd = HueDistance(pH, sm.h);
+                        if (!InNearWindow(hd, pS, pV, sm.s, sm.v)) {
                             continue;
                         }
                         if (pS < sm.s * ChromaClusterSatFrac) {
                             continue; // 無彩寄り画素を除外
                         }
                         inAnyNear = true;
-                        float sd = Mathf.Abs(pS - sm.s);
-                        float vd = Mathf.Abs(pV - sm.v);
-                        float sRatio = (sm.s > 0.01f) ? Mathf.Clamp01(pS / sm.s) : 1f;
-                        float d = hd + sd * satDistW + vd * valueW * (1f - sRatio);
+                        float d = NearClusterDistance(hd, pS, pV, sm.s, sm.v, satDistW, valueW);
                         if (d < minDist) {
                             minDist = d;
                         }

@@ -569,9 +569,7 @@ namespace Iroca {
                             loc.highlightCandidates++;
                         }
 
-                        if (hDist < NearHueDist &&
-                            Mathf.Abs(pS - sSs) < NearSatDist &&
-                            Mathf.Abs(pV - sVs) < NearValDist) {
+                        if (InNearWindow(hDist, pS, pV, sSs, sVs)) {
                             loc.nearSampleCount++;
                             loc.hBins[Mathf.Clamp((int)(pH * HistogramBins), 0, HistogramBins - 1)]++;
                             loc.sBins[Mathf.Clamp((int)(pS * HistogramBins), 0, HistogramBins - 1)]++;

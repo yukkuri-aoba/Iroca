@@ -137,7 +137,7 @@
 | `Code/Core/UvChartMap.cs` | 0 |
 | `Code/Core/ZoneAutoTuner.Evidence.cs` | 7 |
 | `Code/Core/ZoneAutoTuner.Normalize.cs` | 0 |
-| `Code/Core/ZoneAutoTuner.Tolerance.cs` | 5 |
+| `Code/Core/ZoneAutoTuner.Tolerance.cs` | 4 |
 | `Code/Core/ZoneAutoTuner.Verify.cs` | 0 |
 | `Code/Core/ZoneAutoTuner.cs` | 40 |
 | `Code/MaskSuggest/Ops/MaskSuggestGranularity.cs` | 0 |
