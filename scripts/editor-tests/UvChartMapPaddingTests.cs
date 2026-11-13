@@ -85,6 +85,53 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
+        public void Baked_PacksOwnersIntoTwoBytesPerPixel() {
+            // 焼き込んだ地図は窓が開いている間ずっと持つ。島の数が 65535 未満なら 1 画素 2 バイト(以前は 4 バイト)。
+            const int W = 128, H = 64;
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Other);
+            using var map = UvChartMap.Build(W, H, RandomSources(6));
+            map.AssignPaddingBaked(map.DefaultPaddingRadius);
+            Assert.AreEqual((long)W * H * sizeof(ushort), IrocaNativeMemory.LiveBytesOf(NativeUsage.Other) - before,
+                "焼き込んだ地図が 1 画素 2 バイトになっていない");
+            Assert.IsTrue(map.Owner == null, "詰め直した後も 4 バイトの持ち主が読める");
+        }
+
+        [Test]
+        public void Baked_WithTooManyChartsKeepsFourBytesAndMatches() {
+            // 島が 65535 以上あると 2 バイトに収まらないので、4 バイトのまま持つ。引いた結果は、詰め直さない道(AssignPadding)と同じ。
+            const int W = 600, H = 600, Side = 260;   // 260² = 67,600 個の離れた三角形 = 67,600 個の島
+            var uv = new Vector2[Side * Side * 3];
+            var tris = new int[Side * Side * 3];
+            float cell = 1f / Side;
+            for (int gy = 0; gy < Side; gy++) {
+                for (int gx = 0; gx < Side; gx++) {
+                    int b = (gy * Side + gx) * 3;
+                    float x = gx * cell, y = gy * cell;
+                    uv[b] = new Vector2(x + 0.1f * cell, y + 0.1f * cell);
+                    uv[b + 1] = new Vector2(x + 0.9f * cell, y + 0.1f * cell);
+                    uv[b + 2] = new Vector2(x + 0.1f * cell, y + 0.9f * cell);
+                    tris[b] = b; tris[b + 1] = b + 1; tris[b + 2] = b + 2;
+                }
+            }
+            var sources = new List<UvChartSource> { new UvChartSource { name = "many", uv = uv, triangles = tris } };
+            using var full = UvChartMap.Build(W, H, sources);
+            Assert.GreaterOrEqual(full.ChartCount, ushort.MaxValue, "テストの前提: 島が 65535 以上");
+            full.AssignPadding();
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Other);
+            using var baked = UvChartMap.Build(W, H, sources);
+            int radius = baked.DefaultPaddingRadius;
+            baked.AssignPaddingBaked(radius);
+            Assert.AreEqual((long)W * H * sizeof(int), IrocaNativeMemory.LiveBytesOf(NativeUsage.Other) - before,
+                "島が多い地図が 4 バイトのままでない");
+            for (int y = 0; y < H; y += 7) {
+                for (int x = 0; x < W; x += 5) {
+                    Assert.AreEqual(full.ChartAt(x, y, radius), baked.ChartAt(x, y, radius), $"({x}, {y})");
+                }
+            }
+            CollectionAssert.AreEqual(Take(full.MaskOf(c => c % 3 == 0, radius)), Take(baked.MaskOf(c => c % 3 == 0, radius)));
+        }
+
+        [Test]
         public void Baked_DropsArraysAndRejectsOtherRadius() {
             using var map = UvChartMap.Build(64, 64, RandomSources(5));
             map.AssignPaddingBaked(4);

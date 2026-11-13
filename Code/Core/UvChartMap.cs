@@ -34,7 +34,8 @@ namespace Iroca {
     /// 一番近いチャートに割り当てる。メッシュには乗らない画素だが、色の選択はそこまで及ぶので、
     /// 割り当てないと除外から漏れる(実測: パンツの除外で適合率 0.485 止まり → 割り当てて 1.000)。
     /// 引くにじみ代の半径が決まっているときは <see cref="AssignPaddingBaked"/> で、半径の外を落とした
-    /// 持ち主の配列だけを持つ(4K で Raster・Owner・OwnerDistance の 192MB → 64MB)。
+    /// 持ち主の配列だけを持つ(4K で Raster・Owner・OwnerDistance の 192MB → 64MB)。島の数が 65535 未満なら、
+    /// その配列を 1 画素 2 バイトに詰め直す(4K で 32MB・8K で 128MB。窓が開いている間ずっと持つので効く)。
     /// 画素ごとの配列はヒープの外に置くので、使い終わったら <see cref="Dispose"/> する。
     /// </summary>
     internal sealed unsafe class UvChartMap : System.IDisposable {
@@ -56,7 +57,8 @@ namespace Iroca {
         public int* Raster => _raster != null ? (int*)_raster.Ptr : null;
         /// <summary>
         /// 画素ごとの持ち主チャート(にじみ代を割り当てた後。-1 = 未割り当て)。AssignPadding 前は Raster と同じ。
-        /// AssignPaddingBaked の後は、焼き込んだ半径より遠い画素も -1。
+        /// AssignPaddingBaked の後は null のことがある(2 バイトに詰め直した持ち主は、この形では読めない)。焼き込んだ後の
+        /// 持ち主は <see cref="ChartAt"/> / <see cref="MaskOf"/> で引く。
         /// </summary>
         public int* Owner => _owner != null ? (int*)_owner.Ptr : Raster;
         /// <summary>
@@ -84,8 +86,12 @@ namespace Iroca {
 
         // チャート番号の配列。焼き込むと持ち主の配列になり(_owner へ移す)、null になる。
         private NativeBuffer _raster;
-        // 持ち主の配列。null = Raster と同じ(にじみ代を割り当てていない)。
+        // 持ち主の配列。null = Raster と同じ(にじみ代を割り当てていない)か、2 バイトに詰め直した(_owner16)。
         private NativeBuffer _owner;
+        // 焼き込んだ持ち主を 1 画素 2 バイト(ushort。NoChart16 = どのチャートでもない)に詰め直したもの。島の数が
+        // NoChart16 未満のときだけ。あるときは _raster・_owner・_distance は null。
+        private NativeBuffer _owner16;
+        private const ushort NoChart16 = ushort.MaxValue;
         // null = にじみ代を割り当てていない(内側 0・外側 int.MaxValue と同じ。OwnerDistance を読むと作る)か、焼き込み済み。
         private NativeBuffer _distance;
         // AssignPaddingBaked 済みか。済みなら Owner は半径 _bakedRadius の外を -1 にしたもので、距離は持たない。
@@ -103,8 +109,9 @@ namespace Iroca {
         public void Dispose() {
             _raster?.Release();
             _owner?.Release();
+            _owner16?.Release();
             _distance?.Release();
-            _raster = _owner = _distance = null;
+            _raster = _owner = _owner16 = _distance = null;
         }
 
         /// <summary>
@@ -302,6 +309,7 @@ namespace Iroca {
         /// <see cref="Owner"/> だけを残す。持ち主の配列は Raster を作り替えて使い、距離も捨てるので、
         /// 以降 Raster と OwnerDistance は null で、引けるのはこの半径だけになる(<see cref="ChartAt"/> /
         /// <see cref="MaskOf"/> に別の半径を渡すと例外)。結果は AssignPadding してから同じ半径で引いたのと同じ。
+        /// 島の数が 65535 未満なら、残した持ち主を 1 画素 2 バイトに詰め直す(そのとき <see cref="Owner"/> も null)。
         /// </summary>
         public void AssignPaddingBaked(int maxPadding) {
             if (_baked) {
@@ -325,9 +333,24 @@ namespace Iroca {
             }
             _owner?.Release();
             _distance?.Release();
-            _owner = _raster;
-            _raster = null;
+            _owner = null;
             _distance = null;
+            if (ChartCount < NoChart16) {
+                // 島の番号が 2 バイトに収まる: 詰め直して、4 バイトの配列を返す(常駐が半分になる)。
+                var packed = new NativeBuffer((long)len * sizeof(ushort), NativeUsage.Other);
+                ushort* dst = (ushort*)packed.Ptr;
+                ForRanges(len, (i0, i1) => {
+                    for (int i = i0; i < i1; i++) {
+                        int c = raster[i];
+                        dst[i] = c < 0 ? NoChart16 : (ushort)c;
+                    }
+                });
+                _owner16 = packed;
+                _raster.Release();
+            } else {
+                _owner = _raster;
+            }
+            _raster = null;
             _baked = true;
             _bakedRadius = maxPadding;
         }
@@ -407,6 +430,10 @@ namespace Iroca {
                 return -1;
             }
             int i = y * Width + x;
+            if (_owner16 != null) {
+                ushort packed = ((ushort*)_owner16.Ptr)[i];
+                return packed == NoChart16 ? -1 : packed;   // 焼き込み済み。半径の外はもう「どのチャートでもない」
+            }
             int c = Owner[i];
             if (_baked) {
                 return c;   // 半径の外はもう -1
@@ -422,6 +449,23 @@ namespace Iroca {
         /// </summary>
         public NativeBools MaskOf(System.Func<int, bool> select, int maxPadding) {
             RequireRadius(maxPadding);
+            if (_owner16 != null) {
+                // 焼き込んで詰め直した持ち主: 持ち主のある画素は半径の内側。
+                var chosen16 = new bool[ChartCount];
+                for (int c = 0; c < chosen16.Length; c++) {
+                    chosen16[c] = select(c);
+                }
+                var mask16 = NativeBools.AllocateUninitialized(Width, Height);
+                bool* m16 = mask16.Ptr;
+                ushort* owner16 = (ushort*)_owner16.Ptr;
+                ForRanges(Width * Height, (i0, i1) => {
+                    for (int i = i0; i < i1; i++) {
+                        ushort c = owner16[i];
+                        m16[i] = c != NoChart16 && chosen16[c];
+                    }
+                });
+                return mask16;
+            }
             int* owner = Owner;
             int* dist = _distance != null ? (int*)_distance.Ptr : null;
             // 距離を持たないとき、持ち主のある画素は半径の内側(焼き込み済み)かチャートの内側(距離 0)。
