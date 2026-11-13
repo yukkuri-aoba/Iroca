@@ -9,13 +9,13 @@ namespace Iroca {
     /// SAM 規約: 長辺を 1024 にリサイズ → (x-mean)/std 正規化 → 右下 0 パディングで
     /// 1024x1024 の CHW float テンソルを作る。パディング領域は正規化後 0(= SamPredictor と同一)。
     ///
-    /// 座標規約: 入力 Color32[] は GetPixels32 順(行 0 = 画像下端)。SAM は上原点画像を
+    /// 座標規約: 入力の画素列は GetPixels32 順(行 0 = 画像下端)。SAM は上原点画像を
     /// 前提とするため、ここで上下反転しながら読み出す。出力 CHW は行 0 = 画像上端。
     /// リサイズは縮小 = 面積平均(box)、拡大 = bilinear。float のまま量子化しない
     /// (uint8 経由の PIL/cv2 とは丸め差が出るが、点プロンプト推論には影響しない
     ///  ことを dev_safe/ml/onnx_parity.py の感度計測で確認して採用する)。
     /// </summary>
-    internal static unsafe class SamImageOps {
+    internal static unsafe partial class SamImageOps {
         /// <summary>SAM 入力正方形の一辺。</summary>
         public const int InputSize = 1024;
 
@@ -37,26 +37,10 @@ namespace Iroca {
         public const int EncoderInputLength = 3 * InputSize * InputSize;
 
         /// <summary>
-        /// 下原点 RGBA 画素列から [1,3,1024,1024] CHW float テンソル(平坦配列)を作る。
-        /// token はキャンセル観測のみ(完走時の出力には影響しない)。
-        /// </summary>
-        public static float[] BuildEncoderInput(Color32[] pixelsBottomUp, int w, int h,
-                                                System.Threading.CancellationToken token = default) {
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) {
-                throw new System.ArgumentException("pixelsBottomUp が w*h 画素に足りません", nameof(pixelsBottomUp));
-            }
-            var chw = new float[3 * InputSize * InputSize];
-            fixed (Color32* p = pixelsBottomUp)
-            fixed (float* d = chw) {
-                BuildEncoderInputInto(p, w, h, d, token);
-            }
-            return chw;
-        }
-
-        /// <summary>
-        /// <see cref="BuildEncoderInput(Color32[], int, int, System.Threading.CancellationToken)"/> の、画素がポインタで
-        /// 書き先(chw。<see cref="EncoderInputLength"/> 要素)を呼び出し側が持つ版。途中のリサイズの作業もヒープの外に置く
+        /// 下原点 RGBA 画素列(w*h 画素)から [1,3,1024,1024] CHW float テンソル(平坦配列)を、呼び出し側が持つ書き先
+        /// (chw。<see cref="EncoderInputLength"/> 要素)へ作る。途中のリサイズの作業もヒープの外に置く
         /// (4K の原本で 60MB 前後。0.4.0 の計画の B4)。
+        /// token はキャンセル観測のみ(完走時の出力には影響しない)。
         /// </summary>
         public static void BuildEncoderInputInto(Color32* pixelsBottomUp, int w, int h, float* chw,
                                                  System.Threading.CancellationToken token = default) {
@@ -85,7 +69,7 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 下原点 Color32[] → 上原点 RGB interleaved float(0..255)を dst(newW*newH*3 要素)へ書く。
+        /// 下原点の画素列 → 上原点 RGB interleaved float(0..255)を dst(newW*newH*3 要素)へ書く。
         /// 縮小軸は面積平均、拡大軸は bilinear(align_corners=False 相当)。
         /// </summary>
         internal static void ResizeTopDown(Color32* pixelsBottomUp, int w, int h, int newW, int newH, float* dst,

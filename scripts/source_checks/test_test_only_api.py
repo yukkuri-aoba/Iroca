@@ -8,7 +8,9 @@
 
 ので、一覧の口が `Code/` から参照されたら落とす。口を足す・消すときは、ここと、その口の説明（「テスト・ハーネス用」）を
 一緒に直す。名前で見分けられない多重定義（`MaskSnapshot.Pack(bool[])`・`MaskPaintView.ApplyRegion(bool[])`・
-`SelectionCache.Store` / `TryGet`・AI の後処理の配列版）は、ここでは見ない（説明に書いてあるだけ）。
+`SelectionCache.Store` / `TryGet`）は、ここでは見ない（説明に書いてあるだけ）。
+AI 提案の純計算（`Code/MaskSuggest/Ops`）の配列を受ける版は、製品のアセンブリに置かない（ハーネスの
+`scripts/headless-run/SamOps.Arrays.cs` が partial で足す）。製品から呼べばコンパイルが通らないので、ここでは見ない。
 
 C# ソースを直接読むだけなのでハーネス不要・常時実行。
 """

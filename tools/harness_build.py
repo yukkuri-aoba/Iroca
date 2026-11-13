@@ -42,6 +42,8 @@ HARNESS_DLL = f"{HEADLESS}/bin/Release/IrocaHeadless.dll"
 SAMOPS_CSPROJ = f"{HEADLESS}/SamOpsFingerprint/SamOpsFingerprint.csproj"
 SAMOPS_DLL = f"{HEADLESS}/SamOpsFingerprint/bin/Release/IrocaSamOpsFingerprint.dll"
 HARNESS_CS = f"{HEADLESS}/Harness.cs"
+# Ops の配列を受ける口(ハーネスだけが partial で足す)。samops のモードが通るので、鍵に Harness.cs と同じく中身で入れる。
+SAMOPS_ARRAYS_CS = f"{HEADLESS}/SamOps.Arrays.cs"
 # index・コミットから書き出すとき、ビルドに要るものが入るディレクトリ(ハーネスとそれが取り込む製品ソース)。
 EXPORT_DIRS = ("Code/Core", "Code/MaskSuggest/Ops", HEADLESS)
 
@@ -283,8 +285,12 @@ def _build_checked(root: Path, csproj_rel: str, dll_rel: str, sources: dict) -> 
 
 
 def _samops_digest(root: Path) -> str:
-    # 形は以前の fixtures.samops_digest と同じ(作業ツリーのビルドなら、今あるキャッシュの鍵が変わらない)
-    return "samops:" + file_sha256(root / SAMOPS_DLL) + ":" + file_sha256(root / HARNESS_CS)
+    # 形は以前の fixtures.samops_digest と同じ(作業ツリーのビルドなら、今あるキャッシュの鍵が変わらない)。
+    # 配列の口のファイルがある版では、その中身も足す(無い版 = 配列の口が Ops にあった版は、鍵用の DLL に入っている)。
+    digest = "samops:" + file_sha256(root / SAMOPS_DLL) + ":" + file_sha256(root / HARNESS_CS)
+    if (root / SAMOPS_ARRAYS_CS).is_file():
+        digest += ":" + file_sha256(root / SAMOPS_ARRAYS_CS)
+    return digest
 
 
 def _unity_reference(root: Path) -> list | None:

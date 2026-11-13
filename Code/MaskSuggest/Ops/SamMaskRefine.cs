@@ -18,7 +18,7 @@ namespace Iroca {
     /// このファイルは、段が共有する定数と下回り(格子の色の統計・切り出しの矩形の導出・距離変換)。
     /// 統計は対象テクスチャ自身から局所的に導出し、特定の色・座標・素材への
     /// 依存はない(デコンタミの局所ドナー統計と同じ思想)。
-    /// 配列を受ける口(各段の「配列版」)は製品では呼ばない。ハーネスとテストが使う(製品はポインタの版)。
+    /// 口はポインタで受ける。配列を受ける版は製品が呼ばないので、ハーネス(scripts/headless-run/SamOps.Arrays.cs)にだけ置く。
     ///
     /// 並列化について: 全画素ループは Parallel.For で行分割する(4K で数秒 → コア数分の一)。
     /// 出力の決定性は「各画素の書き込み先は自分のインデックスのみ・入力は読み取り専用・
@@ -162,21 +162,8 @@ namespace Iroca {
         /// 必ず収まる。ほかの段の読む範囲(9d・reach + strandHalf + 5d・AA の 3d + 9d)はこれより狭い。
         /// 距離変換(L1)は、マスクが矩形の中にあり、矩形の端(画像の端でない所)がマスク外なら、矩形の中で全画像と同じ値になる。
         /// セルの位置(x/d)を全画像と揃えるため、矩形の始点は d の倍数、終点はセルの終わりか画像の端にする。
-        /// 帯幅などの定数は全画像の寸法から決める(各段に sizeW・sizeH として渡す)。
+        /// 帯幅などの定数は全画像の寸法から決める(各段に sizeW・sizeH として渡す)。mask は w*h 個。
         /// </summary>
-        internal static bool TryDeriveRefineCropRect(bool[] mask, int w, int h, System.Threading.CancellationToken token,
-            out bool empty, out int rx0, out int ry0, out int rw, out int rh) {
-            rx0 = ry0 = rw = rh = 0;
-            empty = false;
-            if (mask == null || mask.Length != w * h) {
-                return false;
-            }
-            fixed (bool* m = mask) {
-                return TryDeriveRefineCropRect(m, w, h, token, out empty, out rx0, out ry0, out rw, out rh);
-            }
-        }
-
-        /// <summary><see cref="TryDeriveRefineCropRect(bool[], int, int, System.Threading.CancellationToken, out bool, out int, out int, out int, out int)"/> のポインタ版(mask は w*h 個)。</summary>
         internal static bool TryDeriveRefineCropRect(bool* mask, int w, int h, System.Threading.CancellationToken token,
             out bool empty, out int rx0, out int ry0, out int rw, out int rh) {
             rx0 = ry0 = rw = rh = 0;

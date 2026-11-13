@@ -7,22 +7,6 @@ using UnityEngine;
 namespace Iroca {
     // SamMaskRefine: AA 遷移帯の包含(IncludeAaTransition とその切り出し版)。クラスの説明と共通の定数・下回りは SamMaskRefine.cs。
     internal static unsafe partial class SamMaskRefine {
-        /// <summary><see cref="IncludeAaTransition(bool*, Color32*, int, int, System.Threading.CancellationToken, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
-        public static void IncludeAaTransition(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
-                                               System.Threading.CancellationToken token = default,
-                                               int dOverride = 0) {
-            if (mask == null || mask.Length != w * h) {
-                return;
-            }
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) {
-                return;
-            }
-            fixed (bool* m = mask)
-            fixed (Color32* p = pixelsBottomUp) {
-                IncludeAaTransition(m, p, w, h, token, dOverride);
-            }
-        }
-
         /// <summary>
         /// mask(下原点 w*h)の境界外側の AA 遷移帯(内側色と外側色の実混合画素)をマスクへ
         /// 含める(in-place)。SnapBoundary → ExtendFringe の後段で呼ぶ最終仕上げ。
@@ -73,22 +57,8 @@ namespace Iroca {
         ///   (最近接 mask/非 mask 画素がクロップ内にあるため)。
         /// → 要る余白は AaMaxPasses·(d+1) + (MaxWindowRadius+2)·d(今の定数で 13d+3)。切りのよい 15d と
         ///   大きい方を使う(定数を変えたときに余白が足りなくならないよう、式からも求める)。
-        /// rx0/ry0 は d の倍数に切り下げ、セル境界(x/d)を全画像実行と一致させる。
+        /// rx0/ry0 は d の倍数に切り下げ、セル境界(x/d)を全画像実行と一致させる。mask は w*h 個。
         /// </summary>
-        public static bool TryDeriveAaCropRect(bool[] mask, int w, int h,
-                                               out int rx0, out int ry0, out int rw, out int rh,
-                                               out int d) {
-            rx0 = ry0 = rw = rh = 0;
-            d = BandHalfWidth(w, h);
-            if (mask == null || mask.Length != w * h) {
-                return false;
-            }
-            fixed (bool* m = mask) {
-                return TryDeriveAaCropRect(m, w, h, out rx0, out ry0, out rw, out rh, out d);
-            }
-        }
-
-        /// <summary><see cref="TryDeriveAaCropRect(bool[], int, int, out int, out int, out int, out int, out int)"/> のポインタ版(mask は w*h 個)。</summary>
         public static bool TryDeriveAaCropRect(bool* mask, int w, int h,
                                                out int rx0, out int ry0, out int rw, out int rh,
                                                out int d) {
@@ -117,24 +87,7 @@ namespace Iroca {
         /// IncludeAaTransition(d は全画像値で上書き)を実行し、追加画素を fullMask へ書き戻す。
         /// cropPixels は同矩形の下原点画素列(呼び出し側が全体画素から行コピーで切り出す。GetPixels(rect) は使わない)。
         /// 出力は全画像実行とビット同一(根拠は TryDeriveAaCropRect のコメント)。
-        /// </summary>
-        public static void IncludeAaTransitionCropped(bool[] fullMask, int w, int h,
-                                                      Color32[] cropPixels,
-                                                      int rx0, int ry0, int rw, int rh, int d,
-                                                      System.Threading.CancellationToken token = default) {
-            if (fullMask == null || cropPixels == null || fullMask.Length != w * h ||
-                cropPixels.Length < rw * rh || rw <= 0 || rh <= 0) {
-                return;
-            }
-            fixed (bool* m = fullMask)
-            fixed (Color32* p = cropPixels) {
-                IncludeAaTransitionCropped(m, w, h, p, rx0, ry0, rw, rh, d, token);
-            }
-        }
-
-        /// <summary>
-        /// <see cref="IncludeAaTransitionCropped(bool[], int, int, Color32[], int, int, int, int, int, System.Threading.CancellationToken)"/>
-        /// のポインタ版(fullMask は w*h 個、cropPixels は rw*rh 画素)。切り出したマスクは作業配列のプールから借りる。
+        /// fullMask は w*h 個、cropPixels は rw*rh 画素。切り出したマスクは作業配列のプールから借りる。
         /// </summary>
         public static void IncludeAaTransitionCropped(bool* fullMask, int w, int h,
                                                       Color32* cropPixels,

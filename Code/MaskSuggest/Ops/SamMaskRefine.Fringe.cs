@@ -7,21 +7,6 @@ using UnityEngine;
 namespace Iroca {
     // SamMaskRefine: 房の外郭までの拡張(ExtendFringe)。クラスの説明と共通の定数・下回りは SamMaskRefine.cs。
     internal static unsafe partial class SamMaskRefine {
-        /// <summary><see cref="ExtendFringe(bool*, Color32*, int, int, System.Threading.CancellationToken, int, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
-        public static void ExtendFringe(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
-                                        System.Threading.CancellationToken token = default) {
-            if (mask == null || mask.Length != w * h) {
-                return;
-            }
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) {
-                return;
-            }
-            fixed (bool* m = mask)
-            fixed (Color32* p = pixelsBottomUp) {
-                ExtendFringe(m, p, w, h, token);
-            }
-        }
-
         /// <summary>
         /// mask(下原点 w*h)の境界を、房 strands を覆うように実テクスチャの信号で外郭まで拡張する(in-place)。
         /// SnapBoundary の後段で呼ぶ。房が無い部位ではほとんど成長しない(precision 影響 &lt;=0.004)。

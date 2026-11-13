@@ -11,7 +11,7 @@ namespace Iroca {
     ///   bilinear で元寸 → 閾値 0 で二値化。最後に下原点(GetPixels32 順)へ反転して返す。
     /// チャンネル選択は <see cref="SelectChannels"/> が正(妥当性判定 → 粒度規則の 2 段)。
     /// </summary>
-    internal static unsafe class SamMaskPostprocess {
+    internal static unsafe partial class SamMaskPostprocess {
         /// <summary>デコーダ低解像度マスクの一辺。</summary>
         public const int LowRes = 256;
 
@@ -181,27 +181,10 @@ namespace Iroca {
 
         /// <summary>
         /// logits: [4,256,256] 平坦配列(上原点・パディング込みキャンバス空間)。scores: [4]。
-        /// pixelsBottomUp を渡すと、拡大後に精密化(SamMaskRefine の 4 段: 境界の再分類 → 房の拡張 → AA 遷移帯の包含 →
-        /// 細い描き込みの地はがし)で、低解像度由来の階段状はみ出しを実テクスチャの色エッジへ合わせる。
+        /// pixelsBottomUp(texW*texH 画素)を渡すと、拡大後に精密化(SamMaskRefine の 4 段: 境界の再分類 → 房の拡張 →
+        /// AA 遷移帯の包含 → 細い描き込みの地はがし)で、低解像度由来の階段状はみ出しを実テクスチャの色エッジへ合わせる
+        /// (null なら精密化しない)。
         /// granularity: 採用規則(<see cref="SelectChannels"/> が正)。
-        /// </summary>
-        public static Result SelectAndUpscale(float[] logits, float[] scores, int texW, int texH,
-                                              float floodRejectFrac = DefaultFloodRejectFrac,
-                                              Color32[] pixelsBottomUp = null,
-                                              MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto,
-                                              System.Threading.CancellationToken token = default) {
-            // 各段は画素が足りなければ何もしない(配列版の約束)ので、足りないときは精密化しないのと同じ。
-            if (pixelsBottomUp != null && pixelsBottomUp.Length < texW * texH) {
-                pixelsBottomUp = null;
-            }
-            fixed (Color32* p = pixelsBottomUp) {
-                return SelectAndUpscale(logits, scores, texW, texH, floodRejectFrac, p, granularity, token);
-            }
-        }
-
-        /// <summary>
-        /// <see cref="SelectAndUpscale(float[], float[], int, int, float, Color32[], MaskSuggestGranularity, System.Threading.CancellationToken)"/>
-        /// の画素がポインタの版(null なら精密化しない。texW*texH 画素)。
         /// </summary>
         public static Result SelectAndUpscale(float[] logits, float[] scores, int texW, int texH,
                                               float floodRejectFrac,
@@ -229,27 +212,10 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 拡大済みマスクへの精密化 4 段(境界色スナップ → 房外郭拡張 → AA 遷移包含 → 細い描き込みの合わせ直し)を
+        /// 拡大済みマスク(texW*texH 個)への精密化 4 段(境界色スナップ → 房外郭拡張 → AA 遷移包含 → 細い描き込みの合わせ直し)を
         /// この順で適用する。SelectAndUpscale(pixelsBottomUp 付き) と同値になる唯一の
         /// 実行順の単一ソース。粗マスクを後から精密化する遅延実行(ズーム不発時)もここを通す。
         /// </summary>
-        public static void RefineInPlace(bool[] maskBottomUp, Color32[] pixelsBottomUp,
-                                         int texW, int texH,
-                                         System.Threading.CancellationToken token = default) {
-            // 各段は画素が足りなければ何もしない(配列版の約束)ので、足りないときは丸ごと飛ばしても同じ。
-            if (maskBottomUp == null || maskBottomUp.Length != texW * texH) {
-                return;
-            }
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < texW * texH) {
-                return;
-            }
-            fixed (bool* m = maskBottomUp)
-            fixed (Color32* p = pixelsBottomUp) {
-                RefineInPlace(m, p, texW, texH, token);
-            }
-        }
-
-        /// <summary><see cref="RefineInPlace(bool[], Color32[], int, int, System.Threading.CancellationToken)"/> のポインタ版(マスクは texW*texH 個)。</summary>
         public static void RefineInPlace(bool* maskBottomUp, Color32* pixelsBottomUp,
                                          int texW, int texH,
                                          System.Threading.CancellationToken token = default) {

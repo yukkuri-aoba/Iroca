@@ -424,7 +424,8 @@ $env:IROCA_NATIVE_GUARD = "1"; $env:IROCA_POOL_POISON = "1"
 時点で全エントリが自動的に無効化される（古い出力で緑になることはない）。
 例外は AI 提案の結果（`sam_proposal`・`measure_sam_e2e`）で、DLL 全体ではなく `fixtures.samops_digest` を鍵にする（2026-11-09）。
 `scripts/headless-run/SamOpsFingerprint/SamOpsFingerprint.csproj` が `Code/MaskSuggest/Ops` とそれが使う Core のファイルだけを
-コンパイルした DLL（鍵を作るためだけで実行しない）と `Harness.cs` のダイジェストで、選択や再着色だけを変えても提案（コールド 1 周で
+コンパイルした DLL（鍵を作るためだけで実行しない）と、`Harness.cs`・`SamOps.Arrays.cs`（Ops の配列を受ける口。製品が呼ばないので
+ハーネスだけが partial で足す）のダイジェストで、選択や再着色だけを変えても提案（コールド 1 周で
 約 50 件、1 件 1.2〜2.5 秒）を作り直さない。この DLL はハーネスのすぐ後に同じロックの中でビルドし、鍵はその場で計算して
 ハーネスの来歴に入れる（2026-11-10、点検 B-6。以前は最初に提案を計算するとき、数分後に別にビルドしていて、その間に Ops を
 編集すると、古い Ops で計算した提案が新しい鍵で保存されえた）。一覧から依存が漏れるとこの DLL がコンパイルできず、警告を出して DLL 全体の

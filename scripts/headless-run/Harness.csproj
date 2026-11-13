@@ -54,6 +54,8 @@
 
   <ItemGroup>
     <Compile Include="Harness.cs" />
+    <!-- AI 提案の純計算(Code/MaskSuggest/Ops)の配列を受ける口。製品は呼ばないので、配布物に入れずここで partial として足す。 -->
+    <Compile Include="SamOps.Arrays.cs" />
   </ItemGroup>
 
   <ItemGroup>

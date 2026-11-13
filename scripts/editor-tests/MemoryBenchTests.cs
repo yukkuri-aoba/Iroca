@@ -268,6 +268,20 @@ namespace Iroca.EditorTests {
             return h.ToString("x16");
         }
 
+        // AI 提案の精密化の 4 段を、製品(SamMaskPostprocess.RefineInPlace)と同じ順で全画像に回す。
+        // 配列を受ける口はハーネス側にしか無い(製品の配布物に入れない)ので、fixed してポインタの版を呼ぶ。
+        private static unsafe void RefineStages(bool[] mask, Color32[] px, int w, int h) {
+            Assert.AreEqual(w * h, mask.Length, "マスクの大きさ");
+            Assert.GreaterOrEqual(px.Length, w * h, "画素の数");
+            fixed (bool* m = mask)
+            fixed (Color32* p = px) {
+                SamMaskRefine.SnapBoundary(m, p, w, h);
+                SamMaskRefine.ExtendFringe(m, p, w, h);
+                SamMaskRefine.IncludeAaTransition(m, p, w, h);
+                SamMaskRefine.PeelThinSpill(m, p, w, h);
+            }
+        }
+
         [Test]
         public void PreviewMemory() {
             string casesPath = Environment.GetEnvironmentVariable("IROCA_MEM_CASES");
@@ -446,10 +460,7 @@ namespace Iroca.EditorTests {
                         for (int r = 0; r < c.refineRounds; r++) {
                             var rw = System.Diagnostics.Stopwatch.StartNew();
                             var mask = (bool[])proposal.Clone();
-                            SamMaskRefine.SnapBoundary(mask, src, w, h);
-                            SamMaskRefine.ExtendFringe(mask, src, w, h);
-                            SamMaskRefine.IncludeAaTransition(mask, src, w, h);
-                            SamMaskRefine.PeelThinSpill(mask, src, w, h);
+                            RefineStages(mask, src, w, h);
                             int on = 0;
                             for (int i = 0; i < mask.Length; i++) {
                                 if (mask[i]) {

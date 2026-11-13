@@ -7,21 +7,6 @@ using UnityEngine;
 namespace Iroca {
     // SamMaskRefine: 境界帯の再分類(SnapBoundary)。クラスの説明と共通の定数・下回りは SamMaskRefine.cs。
     internal static unsafe partial class SamMaskRefine {
-        /// <summary><see cref="SnapBoundary(bool*, Color32*, int, int, System.Threading.CancellationToken, int, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
-        public static void SnapBoundary(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
-                                        System.Threading.CancellationToken token = default) {
-            if (mask == null || mask.Length != w * h) {
-                return;
-            }
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) {
-                return;
-            }
-            fixed (bool* m = mask)
-            fixed (Color32* p = pixelsBottomUp) {
-                SnapBoundary(m, p, w, h, token);
-            }
-        }
-
         /// <summary>
         /// mask(下原点 w*h)の境界帯を pixels の色統計で再分類する(in-place)。
         /// </summary>

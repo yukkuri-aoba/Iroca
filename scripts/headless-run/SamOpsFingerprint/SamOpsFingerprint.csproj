@@ -1,6 +1,7 @@
 <!--
   AI 提案の純計算(ハーネスの samops 系のモード)の結果キャッシュの鍵を作るためだけの DLL。実行はしない。
-  dev_safe の fixtures.samops_digest が、この DLL と Harness.cs のダイジェストを提案の結果キャッシュの鍵にする
+  dev_safe の fixtures.samops_digest が、この DLL と Harness.cs・SamOps.Arrays.cs(Ops の配列を受ける口。ハーネスだけが
+  partial で足すのでここには入れない)のダイジェストを提案の結果キャッシュの鍵にする
   (以前は IrocaHeadless.dll 全体のダイジェストで、選択や再着色を変えるたびに提案を作り直していた)。
 
   取り込むのは Code/MaskSuggest/Ops と、それが使う Core のファイルだけ。Ops が新しい Core の型を使うと

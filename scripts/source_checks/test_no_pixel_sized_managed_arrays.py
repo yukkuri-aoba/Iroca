@@ -77,8 +77,6 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "タイル 3 枚の横並び。比較パネルのタイル。長辺は maxTile 以下に縮めるので、原本の大きさに依らない",
     ("Code/Core/RecolorPreview.cs", "new Color32[tw * th]"):
         "比較パネルのタイル。長辺は maxTile 以下に縮めるので、原本の大きさに依らない",
-    ("Code/MaskSuggest/Ops/SamImageOps.cs", "new float[3 * InputSize * InputSize]"):
-        "SAM の入力の固定の大きさ(InputSize は定数)",
     ("Code/UI/PreviewView.ContextMenu.cs", "new int[(x1 - x0 + 1) * (y1 - y0 + 1)]"):
         "クリック位置の周りの小さな窓(半径 PaintingProbeRadius)",
     ("Code/Infra/PngFileDecoder.cs", "new byte[stride * _rowsPerBlock]"):

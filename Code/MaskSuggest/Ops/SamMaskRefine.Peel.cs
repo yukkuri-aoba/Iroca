@@ -7,21 +7,6 @@ using UnityEngine;
 namespace Iroca {
     // SamMaskRefine: 細い描き込みから地を外す(PeelThinSpill)。クラスの説明と共通の定数・下回りは SamMaskRefine.cs。
     internal static unsafe partial class SamMaskRefine {
-        /// <summary><see cref="PeelThinSpill(bool*, Color32*, int, int, System.Threading.CancellationToken, int, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
-        public static void PeelThinSpill(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
-                                         System.Threading.CancellationToken token = default) {
-            if (mask == null || mask.Length != w * h) {
-                return;
-            }
-            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) {
-                return;
-            }
-            fixed (bool* m = mask)
-            fixed (Color32* p = pixelsBottomUp) {
-                PeelThinSpill(m, p, w, h, token);
-            }
-        }
-
         /// <summary>
         /// mask(下原点 w*h)の細い連結成分(画素の ThinBandFracMin 以上が境界から d 以内)を、地の上の描き込み
         /// そのものへ合わせ直す(in-place)。精密化の最後(SnapBoundary → ExtendFringe → IncludeAaTransition の後)に

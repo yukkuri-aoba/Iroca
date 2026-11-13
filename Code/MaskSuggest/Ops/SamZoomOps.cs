@@ -16,7 +16,7 @@ namespace Iroca {
     ///
     /// 座標規約: マスク・画素・クロップ矩形はすべて下原点(GetPixels32 順)。
     /// </summary>
-    internal static unsafe class SamZoomOps {
+    internal static unsafe partial class SamZoomOps {
         /// <summary>クロップ辺の下限(これ未満に絞っても利得がなく、文脈が減るだけ)。</summary>
         public const int MinCropSide = 256;
 
@@ -32,19 +32,8 @@ namespace Iroca {
         /// マスク全体の bbox、マスクが空なら 0 を返す。
         /// 計測はズーム判定に必要な精度に限る: bbox がテクスチャ長辺/ZoomFactor
         /// (=ズームがスキップされる大きさ)に達したら打ち切り、その時点の値を返す
-        /// (巨大成分でもフラッドフィルが窓内で止まり、コスト・メモリが有界になる)。
+        /// (巨大成分でもフラッドフィルが窓内で止まり、コスト・メモリが有界になる)。マスクは w*h 個。
         /// </summary>
-        public static int ClickComponentBBoxLong(bool[] maskBottomUp, int w, int h,
-                                                 int clickX, int clickY) {
-            if (maskBottomUp == null || maskBottomUp.Length != w * h) {
-                return 0;
-            }
-            fixed (bool* m = maskBottomUp) {
-                return ClickComponentBBoxLong(m, w, h, clickX, clickY);
-            }
-        }
-
-        /// <summary><see cref="ClickComponentBBoxLong(bool[], int, int, int, int)"/> のポインタ版(マスクは w*h 個)。</summary>
         public static int ClickComponentBBoxLong(bool* maskBottomUp, int w, int h,
                                                  int clickX, int clickY) {
             if (maskBottomUp == null) {
@@ -139,19 +128,8 @@ namespace Iroca {
             return true;
         }
 
-        /// <summary>下原点画素列からクロップ矩形を切り出す(下原点のまま)。</summary>
-        public static Color32[] ExtractCrop(Color32[] pixelsBottomUp, int w, int h,
-                                            int x0, int y0, int side) {
-            CheckCropInside(w, h, x0, y0, side);
-            var crop = new Color32[side * side];
-            for (int y = 0; y < side; y++) {
-                System.Array.Copy(pixelsBottomUp, (y0 + y) * w + x0, crop, y * side, side);
-            }
-            return crop;
-        }
-
         /// <summary>
-        /// <see cref="ExtractCrop(Color32[], int, int, int, int, int)"/> のポインタ版。切り出しは Mono のヒープの外
+        /// 下原点画素列(w*h 画素)からクロップ矩形を切り出す(下原点のまま)。切り出しは Mono のヒープの外
         /// (参照 1。受け取った側が手放す)。
         /// </summary>
         public static NativePixels ExtractCrop(Color32* pixelsBottomUp, int w, int h,
@@ -167,21 +145,9 @@ namespace Iroca {
             return crop;
         }
 
-        /// <summary>クロップマスク(下原点 side²)をフル寸(下原点 w*h)へ貼り戻す。
-        /// クロップ外は false。true の画素数も返す(areaFrac 再計算用)。</summary>
-        public static bool[] PasteCrop(bool[] cropMaskBottomUp, int side, int w, int h,
-                                       int x0, int y0, out int trueCount) {
-            var full = new bool[w * h];
-            fixed (bool* c = cropMaskBottomUp)
-            fixed (bool* f = full) {
-                trueCount = PasteCrop(c, side, w, h, x0, y0, f);
-            }
-            return full;
-        }
-
         /// <summary>
-        /// <see cref="PasteCrop(bool[], int, int, int, int, int, out int)"/> の、貼り戻した先を Mono のヒープの外に作る版
-        /// (参照 1。受け取った側が手放す)。
+        /// クロップマスク(下原点 side²)をフル寸(下原点 w*h)へ貼り戻す。クロップ外は false。true の画素数も返す
+        /// (areaFrac 再計算用)。貼り戻した先は Mono のヒープの外に作る(参照 1。受け取った側が手放す)。
         /// </summary>
         public static NativeBools PasteCrop(bool* cropMaskBottomUp, int side, int w, int h,
                                             int x0, int y0, out int trueCount) {
