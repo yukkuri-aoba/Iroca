@@ -46,7 +46,7 @@ namespace Iroca {
                     //  useDecontamination 時のみなので、ここは独立に埋める必要がある)。
                     bool* fringeExcluded = null;
                     if (commonMask != null || zoneMask != null) {
-                        fringeExcluded = rb.MaskExcludedOrRent(len);
+                        fringeExcluded = z.Buffers.MaskExcludedOrRent(len);
                         const int fm = AchromaFringeExclusionMargin;
                         int fy0 = Mathf.Max(0, rcMinY - fm), fy1 = Mathf.Min(h - 1, rcMaxY + fm);
                         int fx0 = Mathf.Max(0, rcMinX - fm), fx1 = Mathf.Min(w - 1, rcMaxX + fm);

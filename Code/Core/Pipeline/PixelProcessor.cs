@@ -298,7 +298,7 @@ namespace Iroca {
             float* pixH = null, pixS = null, pixV = null;
             int* pixIdx = null;
             bool hsvRented = false;
-            // ゾーンをまたいで使い回す作業配列(占有率・除外フラグ・混色帯。末尾の finally で返す)。
+            // ゾーンをまたいで持ち続ける作業配列(占有率。末尾の finally で返す)。
             // 占有率: 下位ゾーンは残り(1-claimed)の範囲だけ適用され、「重なった部分は上位ゾーンのみ適用」という
             // レイヤー排他を実現する。単一ゾーン/非重複ピクセルでは常に 0 のままで、従来挙動は不変。
             var rb = new RunBuffers();
@@ -347,11 +347,10 @@ namespace Iroca {
 
                 debug?.BeginCapture(w, h);
 
-                // デコンタミの 2 つのバッファはゾーンごとにプールから借りる(DecontamStage・ZoneBuffers)。借りた配列は
-                // ゼロ初期化されないが、どれも書いた位置しか読まない: aaMask は各ゾーン頭(DecontaminateAaBoundary)
-                // で全域クリア、decontaminatedPixels は aaMask=true / 混色帯の対象の位置だけ書いて読む、
-                // 除外フラグ(RunBuffers)は各ゾーンが自分の読む範囲を埋める(ゾーン間で使い回すので、もともと前のゾーンの
-                // 値が残っていても壊れない作り)。
+                // デコンタミの 2 つのバッファ・除外フラグ・混色帯の被覆率は、ゾーンごとにプールから借りる(ZoneBuffers)。
+                // 借りた配列はゼロ初期化されないが、どれも書いた位置しか読まない: aaMask は各ゾーン頭
+                // (DecontaminateAaBoundary)で全域クリア、decontaminatedPixels は aaMask=true / 混色帯の対象の位置だけ
+                // 書いて読む、除外フラグは各段が自分の読む範囲を埋める、被覆率は解析が書いた範囲だけを合成が読む。
 
                 // ゾーンをまたいで変わらない入力。選択・マスクの契約へ渡す(RunLegacySelection・ApplyMaskContract)。
                 var run = new RunContext {

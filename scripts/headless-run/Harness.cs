@@ -1487,8 +1487,60 @@ namespace Iroca {
             WorkPools.ReleaseFree();
             Check(Live() == start, $"after the histogram live={Live()}");
 
+            // 9) ゾーンの中で書いてから読む作業配列(除外フラグ・混色帯の被覆率)は、ゾーンの終わりに返す。2 ゾーン・
+            //    混色帯モード(境界クリーンアップ ON の有彩サンプル)・共通の除外マスクありで、各ゾーンの照合の直後
+            //    (デバッグ記録の最初の呼び出し)に借りている本数が同じ。2026-11-13 まで、2 つ目のゾーンの選択の間も
+            //    1 つ目のゾーンが借りた 2 本が寝ていた。
+            {
+                const int Z = 256;
+                var src = Flat(Z, 0);
+                var excl = new bool[Z * Z];
+                for (int y = 0; y < Z; y++) {
+                    for (int x = 0; x < Z; x++) {
+                        excl[y * Z + x] = x >= 100 && x < 110;
+                    }
+                }
+                var z2 = new ColorZone {
+                    name = "nativemem2",
+                    enabled = true,
+                    mode = SelectionMode.ColorPick,
+                    sampleColor = new Color(40 / 255f, 170 / 255f, 60 / 255f),
+                    targetColor = new Color(0.9f, 0.6f, 0.1f),
+                    tolerance = 0.3f,
+                };
+                z2.EnsureId();
+                z2.UpdateCacheIfNeeded();
+                var two = new List<ColorZone> { zone, z2 };
+                var probe = new RentedAtMatch(() => PoolRented());
+                var masks = new MaskSnapshot { common = NativeBitMask.FromBools(excl, Z, Z), width = Z, height = Z, zones = null };
+                var px = (Color32[])src.Clone();
+                PixelProcessor.ProcessPixelsArray(px, Z, Z, masks, two, settings, default, probe);
+                masks.Release();
+                Check(!Same(px, src), "zone buffers: the two-zone run recolors something");
+                Check(probe.Counts.Count == 2 && probe.Counts[0] == probe.Counts[1],
+                    $"zone buffers: the second zone starts with the same number of rented blocks ({string.Join(",", probe.Counts)})");
+                Check(PoolRented() == 0, $"zone buffers: all returned (rented={PoolRented()})");
+            }
+            PixelProcessor.ReleaseWorkBuffers();
+            Check(Live() == start, $"after the zone buffers live={Live()}");
+
             Console.WriteLine(fails == 0 ? "NATIVEMEMSELFTEST ALL PASS" : $"NATIVEMEMSELFTEST {fails} FAILED");
             return fails == 0 ? 0 : 4;
+        }
+
+        /// <summary>各ゾーンの照合の直後(その段の記録が最初に呼ばれた時)に、プールから借りている本数を控える。</summary>
+        private sealed class RentedAtMatch : IDebugCapture {
+            private readonly Func<int> _rented;
+            public readonly List<int> Counts = new List<int>();
+            public RentedAtMatch(Func<int> rented) { _rented = rented; }
+            public void BeginCapture(int width, int height) { }
+            public void RecordStage(string zoneId, string stageName, float[] strength, int width, int height) {
+                if (stageName == DebugStages.Match) {
+                    Counts.Add(_rented());
+                }
+            }
+            public void RecordDecontamination(string zoneId, bool[] aaMask, int width, int height) { }
+            public void RecordRecolorBranches(string zoneId, byte[] branchMap, int width, int height) { }
         }
 
         /// <summary>

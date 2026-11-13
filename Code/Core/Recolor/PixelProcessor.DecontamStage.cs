@@ -21,7 +21,6 @@ namespace Iroca {
                 int[] maskColOf = run.MaskColOf, maskRowBase = run.MaskRowBase;
                 bool useDecontamination = run.UseDecontamination;
                 int decontaminationRadius = run.DecontaminationRadius;
-                var rb = run.Buf;
                 var debug = run.Debug;
                 var _phaseTicks = run.PhaseTicks;
                 var _sub = run.Sub;
@@ -52,10 +51,10 @@ namespace Iroca {
                     // 誤色の点ノイズを塗るため、位置を渡してドナーから隠す(マスク中立化)。
                     bool* deconExcluded = null;
                     if (commonMask != null || zoneMask != null) {
-                        deconExcluded = rb.MaskExcludedOrRent(len);
+                        deconExcluded = z.Buffers.MaskExcludedOrRent(len);
                         // デコンタミが除外フラグを読むのは BG ドナー範囲(後段 bbox ± radius)だけ
                         // なので、そこだけ埋める。範囲外は読まれない=出力ビット不変
-                        // (バッファはゾーン間で使い回すが、各ゾーンが自分の読む範囲を必ず埋める)。
+                        // (バッファはこのゾーンの後の段も使うが、どの段も自分の読む範囲を必ず埋める)。
                         int exY0 = Mathf.Max(0, ppMinY - decontaminationRadius);
                         int exY1 = Mathf.Min(h - 1, ppMaxY + decontaminationRadius);
                         int exX0 = Mathf.Max(0, ppMinX - decontaminationRadius);

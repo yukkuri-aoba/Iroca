@@ -20,7 +20,6 @@ namespace Iroca {
                 ulong* commonMask = run.CommonBits;
                 int[] maskColOf = run.MaskColOf, maskRowBase = run.MaskRowBase;
                 int decontaminationRadius = run.DecontaminationRadius;
-                var rb = run.Buf;
                 var _sub = run.Sub;
                 var zone = z.Zone;
                 ulong* zoneMask = z.ZoneMask;
@@ -47,11 +46,11 @@ namespace Iroca {
                 // 下のループが読む。無彩サンプル(グレーモード相当)は色度で被覆率を測れないので従来の経路。
                 float* mixAlphaLocal = null;
                 if (zMixMode && rcMaxX >= 0) {
-                    float* mixAlpha = rb.MixAlphaOrRent(len);
+                    float* mixAlpha = z.Buffers.MixAlphaOrRent(len);
                     bool* mixExcluded = null;
                     if (commonMask != null || zoneMask != null) {
                         // 解析が読むのは bbox ± (2·探索半径 + 1)。その範囲の除外フラグを埋める。
-                        mixExcluded = rb.MaskExcludedOrRent(len);
+                        mixExcluded = z.Buffers.MaskExcludedOrRent(len);
                         int mm = 2 * Mathf.Max(MixBandRadius + 1, decontaminationRadius) + 1;
                         int my0 = Mathf.Max(0, rcMinY - mm), my1 = Mathf.Min(h - 1, rcMaxY + mm);
                         int mx0 = Mathf.Max(0, rcMinX - mm), mx1 = Mathf.Min(w - 1, rcMaxX + mm);
