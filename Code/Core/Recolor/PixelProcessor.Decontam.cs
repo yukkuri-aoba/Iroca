@@ -290,8 +290,11 @@ namespace Iroca {
                 DecontamCoverageByte(alpha));
         }
 
-        // DecontaminateAaBanded の帯の行数。帯ごとに窓の上下 radius 行ぶん余分に足すので、窓より十分に高くする。
+        // DecontaminateAaBanded の帯の行数の上限。帯ごとに窓の上下 radius 行ぶん余分に足すので、窓より十分に高くする。
         private const int DecontamBandRows = 128;
+        // 同、下限(窓の高さ 2·radius+1 の何倍か)。矩形が低いときは、並列度ぶんに分かれるように帯を低くするが、
+        // これより低くはしない(帯ごとの余分が、帯の行数の 1/4 を超えない)。
+        private const int DecontamBandMinWindows = 4;
 
         /// <summary>
         /// DecontaminateAaBoundary の候補が密なときの経路。背景(ドナー)の窓和を、行の帯ごとに列の和を
@@ -318,7 +321,14 @@ namespace Iroca {
             int cx0 = Mathf.Max(0, boxMinX - radius), cx1 = Mathf.Min(w - 1, boxMaxX + radius);
             int span = cx1 - cx0 + 1;
             int nch = solidifyOnly ? 1 : 4;
-            int bandCount = (boxMaxY - boxMinY + DecontamBandRows) / DecontamBandRows;
+            // 帯の行数は矩形の高さから決める: 並列度ぶんに分かれる高さを、下限(窓の高さの DecontamBandMinWindows 倍)と
+            // 上限(DecontamBandRows)の間に収める。固定の 128 行だと、横に長く低い矩形(高さ 128 行以下)が 1 本の帯に
+            // なって 1 スレッドで走っていた。窓和は整数なので、帯の分け方を変えても値は同じ(出力はビット単位で同じ)。
+            int boxRows = boxMaxY - boxMinY + 1;
+            int workers = Math.Max(1, po.MaxDegreeOfParallelism);
+            int bandRows = Math.Min(DecontamBandRows,
+                Math.Max(DecontamBandMinWindows * (2 * radius + 1), (boxRows + workers - 1) / workers));
+            int bandCount = (boxRows + bandRows - 1) / bandRows;
             Parallel.For(0, bandCount, po,
                 () => (IntPtr)s_intPool.Rent(span * nch),
                 (band, _, colsPtr) => {
@@ -330,8 +340,8 @@ namespace Iroca {
                     for (int k = 0; k < span * nch; k++) {
                         cols[k] = 0;
                     }
-                    int by0 = boxMinY + band * DecontamBandRows;
-                    int by1 = Math.Min(boxMaxY, by0 + DecontamBandRows - 1);
+                    int by0 = boxMinY + band * bandRows;
+                    int by1 = Math.Min(boxMaxY, by0 + bandRows - 1);
                     // 行 yy のドナーを列の和へ足す(sign = +1)・引く(-1)。
                     void AddRow(int yy, int sign) {
                         int rb = yy * w;
