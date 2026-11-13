@@ -119,19 +119,37 @@ namespace Iroca {
             UvChartMap chart = null;
             NativeMemoryLifecycle.WorkStarted();
             try {
+                // 読む画素: 割合を数える粗い格子(先頭の coverageCount 個)と、聞かれた場所(その後ろに 1 つずつ)。
+                // 選択は、この画素の値だけを控える(SelectionCache.ForSamples)。全画素を控えると、ゾーンの数 × 4K で 64MB・
+                // 8K で 256MB を持つ(8K・6 ゾーンで約 1.5GB だった)。控える値は計算した強さそのものなので、結果は同じ。
+                int[] samples = null;
+                int coverageCount = 0;
+                float[][] strengths = null;
                 if (input != null) {
+                    int[] coverage = CoverageIndices(work, w, h);
+                    coverageCount = coverage.Length;
+                    samples = new int[coverageCount + pointCount];
+                    System.Array.Copy(coverage, samples, coverageCount);
+                    for (int i = 0; i < pointCount; i++) {
+                        PreviewCoords.UvToPixel(pointsUv[i * 2], pointsUv[i * 2 + 1], w, h, out int sx, out int sy);
+                        samples[coverageCount + i] = sy * w + sx;
+                    }
                     after = Duplicate(work);
-                    selection = new SelectionCache();
+                    selection = SelectionCache.ForSamples(samples);
                     PixelProcessor.ProcessPixelsNative(after.Ptr, w, h, input.Masks, input.Zones, input.Settings,
                         selectionCache: selection, sourcePixels: work.Ptr);
                     masks = new MaskWorkspace();
                     if (state.maskState != null) {
                         masks.DecodeFrom(state.maskState);
                     }
+                    strengths = new float[input.Zones.Count][];
+                    for (int k = 0; k < input.Zones.Count; k++) {
+                        strengths[k] = ReadStrength(input.Zones[k], selection, masks, samples, w, h);
+                    }
                 }
 
                 if (input != null) {
-                    FillCoverage(r, info, input.Zones, selection, masks, work, w, h);
+                    FillCoverage(r, info, input.Zones, strengths, coverageCount);
                 }
 
                 if (pointCount > 0) {
@@ -161,7 +179,7 @@ namespace Iroca {
                             }
                         }
                         if (input != null) {
-                            FillPointZones(p, input.Zones, selection, masks, x, y, w, h);
+                            FillPointZones(p, input.Zones, strengths, coverageCount + i, masks, x, y, w, h);
                         }
                         info.points.Add(p);
                     }
@@ -177,9 +195,8 @@ namespace Iroca {
             }
         }
 
-        // 粗い格子の画素を、合成と同じく上のゾーンから順に取り合って、各ゾーンの取り分を数える(MaskRegionEdit.PaintingZoneAt と同じ考え方)。
-        private static unsafe void FillCoverage(InspectResult r, TextureInfo info, List<ColorZone> zones, SelectionCache selection,
-            MaskWorkspace masks, NativePixels work, int w, int h) {
+        // 割合を数える粗い格子の画素(不透明なものだけ。約 CoverageSamples 個)。
+        private static unsafe int[] CoverageIndices(NativePixels work, int w, int h) {
             int step = Mathf.Max(1, Mathf.CeilToInt(Mathf.Sqrt((float)((double)w * h / CoverageSamples))));
             var indices = new List<int>(CoverageSamples + 1024);
             for (int y = step / 2; y < h; y += step) {
@@ -189,18 +206,18 @@ namespace Iroca {
                     }
                 }
             }
-            if (indices.Count == 0) {
+            return indices.ToArray();
+        }
+
+        // 粗い格子の画素を、合成と同じく上のゾーンから順に取り合って、各ゾーンの取り分を数える(MaskRegionEdit.PaintingZoneAt と同じ考え方)。
+        // strengths[k] はゾーン k の、読む画素の強さ(先頭の count 個が粗い格子)。
+        private static void FillCoverage(InspectResult r, TextureInfo info, List<ColorZone> zones, float[][] strengths, int count) {
+            if (count == 0) {
                 return;
             }
 
-            var idx = indices.ToArray();
-            var strengths = new float[zones.Count][];
-            for (int k = 0; k < zones.Count; k++) {
-                strengths[k] = ReadStrength(zones[k], selection, masks, idx, w, h);
-            }
-
             var share = new double[zones.Count];
-            for (int i = 0; i < idx.Length; i++) {
+            for (int i = 0; i < count; i++) {
                 float room = 1f;
                 for (int k = 0; k < zones.Count && room > 0f; k++) {
                     if (strengths[k] == null) {
@@ -212,7 +229,7 @@ namespace Iroca {
                 }
             }
             for (int k = 0; k < zones.Count; k++) {
-                float coverage = (float)(share[k] / idx.Length);
+                float coverage = (float)(share[k] / count);
                 // 名前でなく id で突き合わせる。同じ名前のゾーンが 2 つあると、名前では先頭の欄に後のゾーンの値が上書きで入り、
                 // 後の欄は測っていない(-1)ままになる(同じ名前は窓・プリセットから入る)。
                 string id = zones[k].id;
@@ -229,15 +246,14 @@ namespace Iroca {
             }
         }
 
-        private static void FillPointZones(PointInfo p, List<ColorZone> zones, SelectionCache selection, MaskWorkspace masks,
+        // all[k] はゾーン k の、読む画素の強さ(無ければ null)。この場所は、その at 番目。
+        private static void FillPointZones(PointInfo p, List<ColorZone> zones, float[][] all, int at, MaskWorkspace masks,
             int x, int y, int w, int h) {
-            int index = y * w + x;
-            var idx = new[] { index };
             var strengths = new float[zones.Count][];
             p.commonExcluded = MaskBitAt(masks?.Common, x, y, w, h);
             for (int k = 0; k < zones.Count; k++) {
                 var z = zones[k];
-                strengths[k] = ReadStrength(z, selection, masks, idx, w, h);
+                strengths[k] = all[k] != null ? new[] { all[k][at] } : null;
                 p.zones.Add(new PointZoneInfo {
                     name = z.name,
                     strength = strengths[k] != null ? strengths[k][0] : 0f,
@@ -252,9 +268,10 @@ namespace Iroca {
         }
 
         // 選択の控えは含めるを掛ける前(除外は掛けて返す)なので、合成と同じく、除外されていない含めるの画素を全強度にする。
+        // selection は indices だけを控える作り(SelectionCache.ForSamples(indices))で、返す並びも indices と同じ。
         private static float[] ReadStrength(ColorZone zone, SelectionCache selection, MaskWorkspace masks, int[] indices, int w, int h) {
             var s = new float[indices.Length];
-            if (!selection.TryReadLatest(zone.id, w, h, indices, s)) {
+            if (!selection.TryReadSamples(zone.id, w, h, s)) {
                 return null;
             }
             var include = masks?.Layer(true, zone.id);

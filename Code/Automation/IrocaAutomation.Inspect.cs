@@ -119,7 +119,8 @@ namespace Iroca {
 
         /// <summary>
         /// <see cref="Inspect(string, int)"/> に、今の色替えの分析を足す(テクスチャ・マテリアル・レシピのとき)。
-        /// 窓を開かずに色替えを 1 回走らせるので、そのぶん時間とメモリを使う(ゾーンごとに画素数 × 4 バイト)。
+        /// 窓を開かずに色替えを 1 回走らせるので、そのぶん時間とメモリを使う(色替え 1 回ぶんの作業配列。選択は、読む画素の
+        /// 値だけを控えるので、ゾーンの数だけ全画素の控えを持つことは無い)。
         /// </summary>
         /// <param name="pointsUv">聞きたい場所(u, v の繰り返し。左下原点、0..1。最大 <see cref="MaxInspectPoints"/> か所)。null = 無し。</param>
         /// <param name="coverage">true なら、各ゾーンが塗るおおよその割合(approxCoverage)を返す。points があれば同じ結果が付く。</param>

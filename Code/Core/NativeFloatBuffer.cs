@@ -63,6 +63,27 @@ namespace Iroca {
 
         public void CopyTo(float* dst, int count) => Copy(dst, count, toNative: false);
 
+        /// <summary>
+        /// src(長さ srcLength)のうち、indices の位置の値だけを先頭から順に写す(このバッファの長さは indices の数以上)。
+        /// 範囲外の添字は例外。
+        /// </summary>
+        public void GatherFrom(float* src, long srcLength, int[] indices) {
+            float* mine = (float*)_mem.Ptr;
+            if (mine == null) {
+                throw new ObjectDisposedException(nameof(NativeFloatBuffer));
+            }
+            if (indices.Length > Length) {
+                throw new ArgumentOutOfRangeException(nameof(indices));
+            }
+            for (int i = 0; i < indices.Length; i++) {
+                int k = indices[i];
+                if ((uint)k >= (ulong)srcLength) {
+                    throw new ArgumentOutOfRangeException(nameof(indices));
+                }
+                mine[i] = src[k];
+            }
+        }
+
         // 少数の画素だけを読む(右クリックの宛先を決める 5×5 画素など)。範囲外は例外。
         public void ReadAt(int[] indices, float[] dst) {
             float* mine = (float*)_mem.Ptr;

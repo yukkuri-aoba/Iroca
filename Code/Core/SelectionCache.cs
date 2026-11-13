@@ -59,6 +59,28 @@ namespace Iroca {
         }
 
         private readonly Dictionary<string, Entry> _byZone = new Dictionary<string, Entry>();
+        // 標本だけを控える作り(ForSamples)のときの、控える画素の添字。null なら全画素を控える通常の作り。
+        private readonly int[] _samples;
+
+        public SelectionCache() { }
+
+        private SelectionCache(int[] samples) {
+            _samples = samples;
+        }
+
+        /// <summary>
+        /// 選択の強さを、画素 <paramref name="indices"/>(作業座標の y*w+x)の値だけ控える作り。全画素の控え(1 ゾーンで 4K 64MB・
+        /// 8K 256MB)を持たずに、決まった画素の強さを知りたいときに使う(自動化の調査が、粗い格子と聞かれた場所だけを読む)。
+        /// 控えるのは計算した強さそのものなので、<see cref="TryReadSamples"/> が返す値は、全画素を控えて
+        /// <see cref="TryReadLatest"/> で同じ画素を読んだ値とビットまで同じ。
+        /// この作りでは選択を使い回せない(<see cref="TryCopy"/> はいつも外れ、選択は毎回計算する)。<see cref="TryReadLatest"/> も使えない。
+        /// </summary>
+        public static SelectionCache ForSamples(int[] indices) {
+            if (indices == null) {
+                throw new ArgumentNullException(nameof(indices));
+            }
+            return new SelectionCache(indices);
+        }
         // 計算はバックグラウンドスレッドで走り、Clear・RetainOnly・Dispose はメインスレッドから来る。
         // 辞書・世代はこの lock の中でだけ触る。写す側が参照を足すのも lock の中(辞書にある間に足す)。
         private readonly object _gate = new object();
@@ -101,8 +123,8 @@ namespace Iroca {
         public bool TryCopy(string zoneId, string key, int w, int h, float* strengthDst,
             NativeBitMask common, NativeBitMask zoneMask, MaskReuseCheck reusable, out PostBox box) {
             box = default;
-            if (string.IsNullOrEmpty(zoneId)) {
-                return false;
+            if (string.IsNullOrEmpty(zoneId) || _samples != null) {
+                return false;   // 標本だけの控えからは選択を復元できない
             }
             Entry e;
             NativeBitMask storedCommon, storedZone;
@@ -170,10 +192,11 @@ namespace Iroca {
         public void StoreFrom(string zoneId, string key, float* strength,
             in PostBox box, NativeBitMask common, NativeBitMask zoneMask, int maskW, int maskH, int w, int h,
             CancellationToken ct = default) {
-            if (string.IsNullOrEmpty(zoneId)) {
+            if (string.IsNullOrEmpty(zoneId) || (_samples != null && _samples.Length == 0)) {
                 return;
             }
-            int len = w * h;
+            // 標本だけを控える作りでは、控える長さは標本の数。
+            int len = _samples != null ? _samples.Length : w * h;
             int epoch;
             NativeFloatBuffer buf = null;
             lock (_gate) {
@@ -197,7 +220,11 @@ namespace Iroca {
             Entry pending = null;
             try {
                 buf ??= new NativeFloatBuffer(len);
-                buf.CopyFrom(strength, len);
+                if (_samples != null) {
+                    buf.GatherFrom(strength, (long)w * h, _samples);
+                } else {
+                    buf.CopyFrom(strength, len);
+                }
                 var entry = new Entry {
                     Key = key,
                     Strength = buf,
@@ -251,22 +278,48 @@ namespace Iroca {
                 return false;
             }
             lock (_gate) {
-                if (_disposed || !_byZone.TryGetValue(zoneId, out var e) || e.W != w || e.H != h || e.Strength == null) {
+                if (_samples != null || _disposed || !_byZone.TryGetValue(zoneId, out var e) || e.W != w || e.H != h
+                    || e.Strength == null) {
                     return false;
                 }
                 e.Strength.ReadAt(indices, dst);
-                if ((e.Common != null || e.ZoneMask != null) && e.MaskW > 0 && e.MaskH > 0) {
-                    // 座標の対応は PixelProcessor.BuildMaskIndexMap と同じ
-                    for (int k = 0; k < indices.Length; k++) {
-                        int x = indices[k] % w, y = indices[k] / w;
-                        int mi = Math.Min(Math.Max(y * e.MaskH / h, 0), e.MaskH - 1) * e.MaskW
-                               + Math.Min(Math.Max(x * e.MaskW / w, 0), e.MaskW - 1);
-                        if (MaskSnapshot.GetBit(NativeBitMask.BitsOf(e.Common), mi) || MaskSnapshot.GetBit(NativeBitMask.BitsOf(e.ZoneMask), mi)) {
-                            dst[k] = 0f;
-                        }
-                    }
-                }
+                ZeroExcluded(e, indices, dst, w, h);
                 return true;
+            }
+        }
+
+        /// <summary>
+        /// 標本だけを控える作り(<see cref="ForSamples"/>)で、ゾーンの最後に保存した選択の強さを、標本の並びのまま dst へ写す
+        /// (dst の長さは標本の数以上)。<see cref="TryReadLatest"/> と同じく、除外の画素は 0 にして返す(含めるマスクは掛けない)。
+        /// 通常の作り・寸法が w×h でない・まだ保存が無いときは false。
+        /// </summary>
+        public bool TryReadSamples(string zoneId, int w, int h, float[] dst) {
+            if (string.IsNullOrEmpty(zoneId) || dst == null || _samples == null) {
+                return false;
+            }
+            lock (_gate) {
+                if (_disposed || !_byZone.TryGetValue(zoneId, out var e) || e.W != w || e.H != h || e.Strength == null) {
+                    return false;
+                }
+                e.Strength.CopyTo(dst, _samples.Length);
+                ZeroExcluded(e, _samples, dst, w, h);
+                return true;
+            }
+        }
+
+        // 保存したときの除外マスク(共通 ∪ ゾーン)の画素を 0 にする。indices[k] が dst[k] の画素。lock の中で呼ぶ。
+        private static void ZeroExcluded(Entry e, int[] indices, float[] dst, int w, int h) {
+            if ((e.Common == null && e.ZoneMask == null) || e.MaskW <= 0 || e.MaskH <= 0) {
+                return;
+            }
+            // 座標の対応は PixelProcessor.BuildMaskIndexMap と同じ
+            for (int k = 0; k < indices.Length; k++) {
+                int x = indices[k] % w, y = indices[k] / w;
+                int mi = Math.Min(Math.Max(y * e.MaskH / h, 0), e.MaskH - 1) * e.MaskW
+                       + Math.Min(Math.Max(x * e.MaskW / w, 0), e.MaskW - 1);
+                if (MaskSnapshot.GetBit(NativeBitMask.BitsOf(e.Common), mi) || MaskSnapshot.GetBit(NativeBitMask.BitsOf(e.ZoneMask), mi)) {
+                    dst[k] = 0f;
+                }
             }
         }
 
