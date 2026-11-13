@@ -202,8 +202,10 @@ namespace Iroca {
             //  1 パス逐次走査しており、そのパスを丸ごと削減する)。
             bool* growZone = scratch.Bool(w * h, clear: true);
             var rowSeeds = new System.Collections.Generic.List<int>[h];
+            var rowGrow = new int[h];   // 行ごとの growZone の画素数(下のキューの長さを決める)
             Parallel.For(0, h, po, y => {
                 int row = y * w;
+                int grow = 0;
                 System.Collections.Generic.List<int> seeds = null;
                 for (int x = 0; x < w; x++) {
                     int i = row + x;
@@ -219,12 +221,14 @@ namespace Iroca {
                         continue;
                     }
                     growZone[i] = true;
+                    grow++;
                     if ((x > 0 && mask[i - 1]) || (x < w - 1 && mask[i + 1]) ||
                         (y > 0 && mask[i - w]) || (y < h - 1 && mask[i + w])) {
                         (seeds ??= new System.Collections.Generic.List<int>()).Add(x);
                     }
                 }
                 rowSeeds[y] = seeds;
+                rowGrow[y] = grow;
             });
 
             // grow_zone を mask 境界から 4 連結でフラッドして房を覆う(順序非依存の fixpoint)。
@@ -232,7 +236,17 @@ namespace Iroca {
             // 種化していた画素は BFS で到達するため、最終集合はビット同一。
             // キュー要素は (y<<16)|x のパック座標(デキューごとの %w・/w を除去。Unity の
             // 最大テクスチャ 16384 でも 16bit に収まる)。
-            var queue = new System.Collections.Generic.Queue<int>();
+            // キューは作業配列から借りた並び(頭と尻の添字で先入れ先出し。取り出す順は以前の Queue<int> と同じ)。
+            // 積むのは growZone の画素を 1 回ずつ(積むときに印を下ろす)なので、長さはその画素数で足りる。
+            long growTotal = 0;
+            for (int y = 0; y < h; y++) {
+                growTotal += rowGrow[y];
+            }
+            if (growTotal == 0) {
+                return;
+            }
+            int* queue = scratch.Int((int)growTotal, clear: false);   // 積んだ所だけ読む
+            int qHead = 0, qTail = 0;
             for (int y = 0; y < h; y++) {
                 var seeds = rowSeeds[y];
                 if (seeds == null) {
@@ -242,18 +256,18 @@ namespace Iroca {
                 for (int k = 0; k < seeds.Count; k++) {
                     int x = seeds[k];
                     int i = row + x;
-                    mask[i] = true; growZone[i] = false; queue.Enqueue((y << 16) | x);
+                    mask[i] = true; growZone[i] = false; queue[qTail++] = (y << 16) | x;
                 }
             }
             int visited = 0;
-            while (queue.Count > 0) {
-                int packed = queue.Dequeue();
+            while (qHead < qTail) {
+                int packed = queue[qHead++];
                 int x = packed & 0xFFFF, y = packed >> 16;
                 int i = y * w + x;
-                if (x > 0 && growZone[i - 1]) { mask[i - 1] = true; growZone[i - 1] = false; queue.Enqueue((y << 16) | (x - 1)); }
-                if (x < w - 1 && growZone[i + 1]) { mask[i + 1] = true; growZone[i + 1] = false; queue.Enqueue((y << 16) | (x + 1)); }
-                if (y > 0 && growZone[i - w]) { mask[i - w] = true; growZone[i - w] = false; queue.Enqueue(((y - 1) << 16) | x); }
-                if (y < h - 1 && growZone[i + w]) { mask[i + w] = true; growZone[i + w] = false; queue.Enqueue(((y + 1) << 16) | x); }
+                if (x > 0 && growZone[i - 1]) { mask[i - 1] = true; growZone[i - 1] = false; queue[qTail++] = (y << 16) | (x - 1); }
+                if (x < w - 1 && growZone[i + 1]) { mask[i + 1] = true; growZone[i + 1] = false; queue[qTail++] = (y << 16) | (x + 1); }
+                if (y > 0 && growZone[i - w]) { mask[i - w] = true; growZone[i - w] = false; queue[qTail++] = ((y - 1) << 16) | x; }
+                if (y < h - 1 && growZone[i + w]) { mask[i + w] = true; growZone[i + w] = false; queue[qTail++] = ((y + 1) << 16) | x; }
                 if ((++visited & 0xFFFF) == 0) {
                     token.ThrowIfCancellationRequested();
                 }

@@ -77,12 +77,15 @@ namespace Iroca {
             // 窓は画像の 1/ZoomFactor 四方の 2 倍まで(4K で 2048²)なので、作業配列のプールから借りる。
             using var scratch = new WorkScratch();
             bool* visited = scratch.Bool(ww * wh, clear: true);
-            var stack = new System.Collections.Generic.Stack<int>(256);
+            // スタックも作業配列から借りる(以前は Stack<int>。大きい成分で数百万個まで伸び、Mono のヒープに残っていた)。
+            // 積むのは窓の中の画素を 1 回ずつ(積むときに印を付ける)なので、長さは窓の画素数で足りる。取り出す順は同じ。
+            int* stack = scratch.Int(ww * wh, clear: false);   // 積んだ所だけ読む
+            int top = 0;
             visited[(sy - wy0) * ww + (sx - wx0)] = true;
-            stack.Push(sy * w + sx); // フル座標のまま積む(近傍判定が単純になる)
+            stack[top++] = sy * w + sx; // フル座標のまま積む(近傍判定が単純になる)
             int minX = sx, maxX = sx, minY = sy, maxY = sy;
-            while (stack.Count > 0) {
-                int i = stack.Pop();
+            while (top > 0) {
+                int i = stack[--top];
                 int y = i / w, x = i - y * w;
                 if (x < minX) {
                     minX = x;
@@ -100,10 +103,10 @@ namespace Iroca {
                     return Mathf.Max(maxX - minX + 1, maxY - minY + 1); // ズーム対象外確定
                 }
 
-                if (x > wx0 && mask[i - 1] && !visited[(y - wy0) * ww + (x - 1 - wx0)]) { visited[(y - wy0) * ww + (x - 1 - wx0)] = true; stack.Push(i - 1); }
-                if (x < wx1 && mask[i + 1] && !visited[(y - wy0) * ww + (x + 1 - wx0)]) { visited[(y - wy0) * ww + (x + 1 - wx0)] = true; stack.Push(i + 1); }
-                if (y > wy0 && mask[i - w] && !visited[(y - 1 - wy0) * ww + (x - wx0)]) { visited[(y - 1 - wy0) * ww + (x - wx0)] = true; stack.Push(i - w); }
-                if (y < wy1 && mask[i + w] && !visited[(y + 1 - wy0) * ww + (x - wx0)]) { visited[(y + 1 - wy0) * ww + (x - wx0)] = true; stack.Push(i + w); }
+                if (x > wx0 && mask[i - 1] && !visited[(y - wy0) * ww + (x - 1 - wx0)]) { visited[(y - wy0) * ww + (x - 1 - wx0)] = true; stack[top++] = i - 1; }
+                if (x < wx1 && mask[i + 1] && !visited[(y - wy0) * ww + (x + 1 - wx0)]) { visited[(y - wy0) * ww + (x + 1 - wx0)] = true; stack[top++] = i + 1; }
+                if (y > wy0 && mask[i - w] && !visited[(y - 1 - wy0) * ww + (x - wx0)]) { visited[(y - 1 - wy0) * ww + (x - wx0)] = true; stack[top++] = i - w; }
+                if (y < wy1 && mask[i + w] && !visited[(y + 1 - wy0) * ww + (x - wx0)]) { visited[(y + 1 - wy0) * ww + (x - wx0)] = true; stack[top++] = i + w; }
             }
             return Mathf.Max(maxX - minX + 1, maxY - minY + 1);
         }
