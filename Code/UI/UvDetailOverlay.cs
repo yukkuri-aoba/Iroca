@@ -115,11 +115,12 @@ namespace Iroca {
         private Texture2D _texture;
         private Baked _shown;                 // いま表示している焼き(テクスチャと対)
         private object _shownFor;             // 焼いたときのメッシュの結果(同じものなら焼き直さない)
-        private Task<Baked> _task;
+        // 焼きの計算(背景のスレッド)。新しい焼きを頼むと前のものを取り消し、結果はメインスレッドで受け取る。
+        private readonly PreviewJob<Baked> _job = new PreviewJob<Baked>();
+        // いま頼んでいる焼きの条件(同じ条件なら頼み直さない)。
         private object _taskFor;
         private int _taskW, _taskH;
         private Layers _taskLayers;
-        private CancellationTokenSource _cts;
         // 焼きに失敗したときの条件(メッシュの結果・寸法・層)。同じ条件では焼き直さない。覚えないと、描き直しのたびに
         // 焼き直しと警告が続く。条件が変わるか、表示を切って入れ直す(Release)と、もう一度試す。
         private object _failedFor;
@@ -145,20 +146,19 @@ namespace Iroca {
                             && _shown.w == w && _shown.h == h && _shown.layers == layers;
             bool failedBefore = ReferenceEquals(_failedFor, found) && _failedW == w && _failedH == h && _failedLayers == layers;
             if (!upToDate && !failedBefore) {
-                bool taskMatches = _task != null && ReferenceEquals(_taskFor, found)
+                bool taskMatches = _job.IsRunning && ReferenceEquals(_taskFor, found)
                                    && _taskW == w && _taskH == h && _taskLayers == layers;
                 if (!taskMatches) {
                     StartBake(found, w, h, layers);
                 }
-                if (_task.IsCompleted) {
-                    TakeBake();
-                }
+            } else if (_job.IsRunning) {
+                _job.Cancel();   // いま出ているもので足りる(条件が戻った)。焼いている途中のものは要らない
             }
 
             if (_texture != null && _shown != null && layers != Layers.None) {
                 GUI.DrawTexture(previewRect, _texture, ScaleMode.StretchToFill, true);
             }
-            return _task != null && !_task.IsCompleted;
+            return _job.IsRunning;
         }
 
         /// <summary>カーソルの下の島の情報を、カーソルのそばに出す。Repaint のときに、ほかの目印の後で呼ぶ。</summary>
@@ -196,9 +196,8 @@ namespace Iroca {
 
         /// <summary>焼いたもの・作業中のものを手放す。</summary>
         public void Release() {
-            _cts?.Cancel();
-            _cts = null;
-            DiscardTask();
+            _job.Cancel();
+            _taskFor = null;
             _shown?.Release();
             _shown = null;
             _shownFor = null;
@@ -213,42 +212,29 @@ namespace Iroca {
         }
 
         private void StartBake(MeshUvLocator.Result found, int w, int h, Layers layers) {
-            _cts?.Cancel();
-            DiscardTask();
-            _cts = new CancellationTokenSource();
-            var token = _cts.Token;
             var sources = found.Sources();
             _taskFor = found;
             _taskW = w;
             _taskH = h;
             _taskLayers = layers;
-            NativeMemoryLifecycle.WorkStarted();
-            _task = Task.Run(() => {
-                try {
-                    return Bake(sources, w, h, layers, token);
-                } finally {
-                    NativeMemoryLifecycle.WorkEnded();
-                }
-            });
+            _job.Schedule(
+                token => Bake(sources, w, h, layers, token),
+                baked => Show(baked, found),
+                ex => {
+                    Debug.LogWarning($"[Iroca] UV detail overlay failed: {ex.GetBaseException().Message}");
+                    _failedFor = found;
+                    _failedW = w;
+                    _failedH = h;
+                    _failedLayers = layers;
+                },
+                discard: baked => baked?.Release());
         }
 
-        // 焼き終わったものを引き取り、テクスチャへ写す(メインスレッド)。失敗・取り消しなら何も出さない。
-        private void TakeBake() {
-            var task = _task;
-            object forResult = _taskFor;
-            _task = null;
-            _taskFor = null;
-            if (task.Status != TaskStatus.RanToCompletion || task.Result == null) {
-                if (task.IsFaulted) {
-                    Debug.LogWarning($"[Iroca] UV detail overlay failed: {task.Exception?.GetBaseException().Message}");
-                    _failedFor = forResult;
-                    _failedW = _taskW;
-                    _failedH = _taskH;
-                    _failedLayers = _taskLayers;
-                }
+        // 焼き終わったものを引き取り、テクスチャへ写す(メインスレッド。PreviewJob が呼ぶ)。
+        private void Show(Baked baked, object forResult) {
+            if (baked == null) {
                 return;
             }
-            var baked = task.Result;
             _shown?.Release();
             _shown = baked;
             _shownFor = forResult;
@@ -260,18 +246,6 @@ namespace Iroca {
             _texture.Apply(false, false);
             baked.rgba.Release();
             baked.rgba = null;
-        }
-
-        // 使わない焼きを捨てる(作っている途中のものは止められないので、終わってから手放す)。
-        private void DiscardTask() {
-            var task = _task;
-            _task = null;
-            _taskFor = null;
-            task?.ContinueWith(t => {
-                if (t.Status == TaskStatus.RanToCompletion) {
-                    t.Result?.Release();
-                }
-            }, TaskScheduler.Default);
         }
 
         // ── 焼く(背景のスレッド。Unity の API は使わない) ──
@@ -292,30 +266,11 @@ namespace Iroca {
                 new System.Span<int>(chart, (int)n).Fill(-1);
                 new System.Span<byte>(count, (int)n).Clear();
 
+                // 島の番号と頂点の座標は、地図づくりと同じ下ごしらえから受け取る(番号の振り方が地図とずれない)。
                 var chartSource = new List<int>();
                 var chartLocal = new List<int>();
-                for (int s = 0; s < sources.Count; s++) {
-                    var src = sources[s];
-                    if (src?.uv == null || src.triangles == null || src.triangles.Length < 3) {
-                        continue;
-                    }
-                    int[] local = UvChartMap.ComputeCharts(src.uv, src.triangles, out int chartCount);
-                    int baseId = chartSource.Count;
-                    for (int c = 0; c < chartCount; c++) {
-                        chartSource.Add(s);
-                        chartLocal.Add(c);
-                    }
-                    int triCount = src.triangles.Length / 3;
-                    for (int t = 0; t < triCount; t++) {
-                        if ((t & 1023) == 0) {
-                            token.ThrowIfCancellationRequested();
-                        }
-                        if (!TriangleCorners(src, t, w, h, out var a, out var b, out var c3)) {
-                            continue;
-                        }
-                        Rasterize(chart, count, w, h, a, b, c3, baseId + local[t]);
-                    }
-                }
+                UvChartMap.ForEachTriangle(sources, w, h, chartSource, chartLocal,
+                    (id, a, b, c3) => Rasterize(chart, count, w, h, a, b, c3, id), token);
                 baked.chartSource = chartSource.ToArray();
                 baked.chartLocal = chartLocal.ToArray();
 

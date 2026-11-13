@@ -139,41 +139,10 @@ namespace Iroca {
             try {
                 int* raster = (int*)mem.Ptr;
                 ForRanges(w * h, (i0, i1) => new System.Span<int>(raster + i0, i1 - i0).Fill(-1));
-                // チャート分けはメッシュごとに独立(UV と三角形だけで決まる)なので、先に全メッシュの分を並列に求める。
                 // 描くのは元の順のまま(後の source・後の三角形が勝つ)。
-                var charts = new int[sources.Count][];
-                var chartCounts = new int[sources.Count];
-                Parallel.For(0, sources.Count, new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, s => {
-                    var src = sources[s];
-                    if (src?.uv == null || src.triangles == null || src.triangles.Length < 3) {
-                        return;
-                    }
-                    charts[s] = ComputeCharts(src.uv, src.triangles, out chartCounts[s]);
-                });
                 var chartSource = new List<int>();
-                for (int s = 0; s < sources.Count; s++) {
-                    var src = sources[s];
-                    int[] local = charts[s];
-                    if (local == null) {
-                        continue;
-                    }
-                    int n = chartCounts[s];
-                    int baseId = chartSource.Count;
-                    for (int c = 0; c < n; c++) {
-                        chartSource.Add(s);
-                    }
-
-                    int triCount = src.triangles.Length / 3;
-                    for (int t = 0; t < triCount; t++) {
-                        int a = src.triangles[t * 3], b = src.triangles[t * 3 + 1], c = src.triangles[t * 3 + 2];
-                        if ((uint)a >= (uint)src.uv.Length || (uint)b >= (uint)src.uv.Length
-                            || (uint)c >= (uint)src.uv.Length) {
-                            continue;
-                        }
-                        RasterizeTriangle(raster, w, h, Map(src, a, w, h), Map(src, b, w, h), Map(src, c, w, h),
-                                          baseId + local[t]);
-                    }
-                }
+                ForEachTriangle(sources, w, h, chartSource, null,
+                    (chart, a, b, c) => RasterizeTriangle(raster, w, h, a, b, c, chart));
                 return new UvChartMap(w, h, mem, chartSource.ToArray());
             } catch {
                 mem.Release();
@@ -181,7 +150,57 @@ namespace Iroca {
             }
         }
 
-        private static Vector2 Map(UvChartSource s, int i, int w, int h) => s.TileToPixel(s.uv[i], w, h);
+        /// <summary>三角形 1 つ: 島の通し番号(全メッシュを通した番号)と、3 頂点の画素の座標(下原点)。</summary>
+        internal delegate void TriangleVisitor(int chart, Vector2 a, Vector2 b, Vector2 c);
+
+        /// <summary>
+        /// sources の三角形を、地図を描く順(メッシュの順 → その中の三角形の順)で 1 つずつ <paramref name="visit"/> へ渡す。
+        /// 島の通し番号の振り方(メッシュごとの <see cref="ComputeCharts"/> の番号に、それまでの島の数を足す)と、頂点の画素の
+        /// 座標(Tiling / Offset を掛けた UV × 寸法)を、地図(<see cref="Build"/>)と開発者向けの重ね表示(UvDetailOverlay)で
+        /// 同じにするための下ごしらえ(以前は両方が同じ手順を別々に書いていた)。
+        /// UV か三角形の無いメッシュと、頂点番号が範囲の外の三角形は飛ばす。chartSource に「島の通し番号 → メッシュの番号」を、
+        /// chartLocal(null でよい)に「島の通し番号 → そのメッシュの中での島の番号」を足す。
+        /// </summary>
+        internal static void ForEachTriangle(IReadOnlyList<UvChartSource> sources, int w, int h,
+            List<int> chartSource, List<int> chartLocal, TriangleVisitor visit, CancellationToken token = default) {
+            // チャート分けはメッシュごとに独立(UV と三角形だけで決まる)なので、先に全メッシュの分を並列に求める。
+            var charts = new int[sources.Count][];
+            var chartCounts = new int[sources.Count];
+            Parallel.For(0, sources.Count,
+                new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = token }, s => {
+                    var src = sources[s];
+                    if (src?.uv == null || src.triangles == null || src.triangles.Length < 3) {
+                        return;
+                    }
+                    charts[s] = ComputeCharts(src.uv, src.triangles, out chartCounts[s]);
+                });
+            for (int s = 0; s < sources.Count; s++) {
+                var src = sources[s];
+                int[] local = charts[s];
+                if (local == null) {
+                    continue;
+                }
+                int baseId = chartSource.Count;
+                for (int c = 0; c < chartCounts[s]; c++) {
+                    chartSource.Add(s);
+                    chartLocal?.Add(c);
+                }
+
+                var uv = src.uv;
+                int triCount = src.triangles.Length / 3;
+                for (int t = 0; t < triCount; t++) {
+                    if ((t & 1023) == 0) {
+                        token.ThrowIfCancellationRequested();
+                    }
+                    int a = src.triangles[t * 3], b = src.triangles[t * 3 + 1], c = src.triangles[t * 3 + 2];
+                    if ((uint)a >= (uint)uv.Length || (uint)b >= (uint)uv.Length || (uint)c >= (uint)uv.Length) {
+                        continue;
+                    }
+                    visit(baseId + local[t], src.TileToPixel(uv[a], w, h), src.TileToPixel(uv[b], w, h),
+                        src.TileToPixel(uv[c], w, h));
+                }
+            }
+        }
 
         /// <summary>
         /// 三角形 → チャート番号(0 始まり、チャートの最小三角形番号の昇順 = 決定的)。
