@@ -178,6 +178,117 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
+        public void ToSnapshot_OfTheWindow_AndOfTheSavedForm_PassTheSameMasks() {
+            // 窓は編集中のマスクから(ToSnapshot)、非破壊ビルドは保存形式から(MaskStateCodec.ToSnapshot)スナップショットを作る。
+            // 違いは 1 つだけ: 窓は全部 0 の除外の層も載せ、保存形式は全部 0 の層を書かないので載らない。全部 0 の層は何も
+            // 除外しないので、色替えの結果は同じ(下で画素を比べる)。
+            var ws = Fill(out _, out var zones, out _);
+            var window = ws.ToSnapshot();
+            var ms = new MaskState();
+            ws.EncodeTo(ms);
+            var saved = MaskStateCodec.ToSnapshot(ms);
+            try {
+                Assert.AreEqual(window.width, saved.width);
+                Assert.AreEqual(window.height, saved.height);
+                CollectionAssert.AreEqual(window.common.ToWords(), saved.common.ToWords());
+                foreach (var kv in window.zones) {
+                    if (saved.zones.TryGetValue(kv.Key, out var s)) {
+                        CollectionAssert.AreEqual(kv.Value.ToWords(), s.ToWords(), kv.Key);
+                    } else {
+                        Assert.IsFalse(kv.Value.Any(), $"{kv.Key}: 保存形式に無い除外の層は、全部 0 のものだけ");
+                    }
+                }
+                foreach (var key in saved.zones.Keys) {
+                    Assert.IsTrue(window.zones.ContainsKey(key), $"{key}: 保存形式にだけある除外の層");
+                }
+                CollectionAssert.AreEquivalent(window.zoneIncludes.Keys, saved.zoneIncludes.Keys);
+                foreach (var kv in window.zoneIncludes) {
+                    CollectionAssert.AreEqual(kv.Value.ToWords(), saved.zoneIncludes[kv.Key].ToWords(), kv.Key);
+                }
+
+                // 同じ画像・同じゾーンを両方のスナップショットで色替えして、画素が同じ。ゾーンの id はマスクの層の id に合わせる。
+                var src = new UnityEngine.Color32[W * H];
+                for (int i = 0; i < src.Length; i++) {
+                    src[i] = (i / W) % 2 == 0 ? new UnityEngine.Color32(200, 40, 40, 255) : new UnityEngine.Color32(40, 90, 200, 255);
+                }
+                var list = new List<ColorZone>();
+                foreach (var id in new[] { "za", "zb", "zc" }) {
+                    var z = new ColorZone {
+                        name = id, id = id, sampleColorSet = true, targetColorSet = true, tolerance = 0.3f,
+                        sampleColor = id == "zb" ? new UnityEngine.Color(40 / 255f, 90 / 255f, 200 / 255f) : new UnityEngine.Color(200 / 255f, 40 / 255f, 40 / 255f),
+                        targetColor = id == "za" ? new UnityEngine.Color(0.1f, 0.7f, 0.2f) : new UnityEngine.Color(0.9f, 0.8f, 0.1f),
+                    };
+                    z.UpdateCacheIfNeeded();
+                    list.Add(z);
+                }
+                var a = (UnityEngine.Color32[])src.Clone();
+                var b = (UnityEngine.Color32[])src.Clone();
+                PixelProcessor.ProcessPixelsArray(a, W, H, window, list, RecolorSettings.Default, default, null, null, src);
+                PixelProcessor.ProcessPixelsArray(b, W, H, saved, list, RecolorSettings.Default, default, null, null, src);
+                CollectionAssert.AreEqual(a, b, "窓のマスクと保存形式から作り直したマスクで、色替えの結果が違う");
+                CollectionAssert.AreNotEqual(src, a, "色替えが空振り(テストの場面が効いていない)");
+            } finally {
+                window.Release();
+                saved.Release();
+                ws.Clear();
+            }
+        }
+
+        [Test]
+        public void MaskState_DropZonesExcept_CoversEveryListKeyedByZone() {
+            // MaskState の「zoneId を持つ項目のリスト」を反射で全部拾い、消したゾーンの項目がどの欄にも残らないことを見る。
+            // 欄を足して DropZonesExcept に足し忘れると、ここで落ちる(消したゾーンのマスクや記録がレシピに残り、同じ id の
+            // ゾーンが戻ると黙って効き直す)。
+            var ms = new MaskState();
+            int lists = 0;
+            foreach (var field in typeof(MaskState).GetFields()) {
+                if (!field.FieldType.IsGenericType || field.FieldType.GetGenericTypeDefinition() != typeof(List<>)) {
+                    continue;
+                }
+                var entryType = field.FieldType.GetGenericArguments()[0];
+                var zoneId = entryType.GetField("zoneId");
+                if (zoneId == null) {
+                    continue;
+                }
+                lists++;
+                var list = (System.Collections.IList)field.GetValue(ms);
+                foreach (var id in new[] { "keep", "drop", "keep", "gone" }) {
+                    var entry = System.Activator.CreateInstance(entryType);
+                    zoneId.SetValue(entry, id);
+                    list.Add(entry);
+                }
+                list.Add(null);
+            }
+            Assert.GreaterOrEqual(lists, 3, "zoneId を持つ項目のリストが見つからない(欄の形が変わった?)");
+            // 全ゾーン共通の除外の記録(zoneId が空)は残す。
+            ms.patches.Add(new MaskPatchEntry { zoneId = "" });
+
+            ms.DropZonesExcept(new HashSet<string> { "keep" });
+
+            foreach (var field in typeof(MaskState).GetFields()) {
+                if (!(field.GetValue(ms) is System.Collections.IList list) || !field.FieldType.IsGenericType) {
+                    continue;
+                }
+                var zoneId = field.FieldType.GetGenericArguments()[0].GetField("zoneId");
+                if (zoneId == null) {
+                    continue;
+                }
+                int kept = 0;
+                foreach (var entry in list) {
+                    Assert.IsNotNull(entry, $"{field.Name}: null の項目が残った");
+                    string id = (string)zoneId.GetValue(entry);
+                    Assert.IsTrue(id == "keep" || (id == "" && field.Name == nameof(MaskState.patches)),
+                        $"{field.Name}: 消したゾーン '{id}' の項目が残った");
+                    if (id == "keep") {
+                        kept++;
+                    }
+                }
+                Assert.AreEqual(2, kept, $"{field.Name}: 残すゾーンの項目が減った");
+            }
+            Assert.AreEqual(3, ms.patches.Count, "共通の除外の記録(zoneId が空)が消えた");
+        }
+
+        [Test]
         public void ToSnapshot_SharesLayers_AndWritersCopyFirst() {
             var ws = Fill(out _, out var zones, out _);
             string id = null;

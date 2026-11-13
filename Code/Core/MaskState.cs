@@ -44,5 +44,17 @@ namespace Iroca {
         public List<MaskZoneEntry> zoneIncludes = new List<MaskZoneEntry>();
         // 範囲の操作が塗った画素の記録(古い順)。塗った画素が残っている操作の分だけを持つ。
         public List<MaskPatchEntry> patches = new List<MaskPatchEntry>();
+
+        /// <summary>
+        /// <paramref name="keep"/> に無いゾーンの項目(除外・含める・塗った範囲の記録)を外す。全ゾーン共通の除外の記録
+        /// (zoneId が空)は残す。ゾーンを消した後、保存形式に死んだ項目を残さないために呼ぶ(残っていても色替えには
+        /// 使われないが、同じ id のゾーンが戻ると黙って効き直す)。編集中のマスク(MaskWorkspace.RetainZones)と同じ規則。
+        /// zoneId を持つ項目の欄を足したら、ここにも足すこと(漏れは EditMode の MaskWorkspaceTests が、欄を反射で拾って見張る)。
+        /// </summary>
+        public void DropZonesExcept(ICollection<string> keep) {
+            zones?.RemoveAll(e => e == null || !keep.Contains(e.zoneId));
+            zoneIncludes?.RemoveAll(e => e == null || !keep.Contains(e.zoneId));
+            patches?.RemoveAll(e => e == null || (!string.IsNullOrEmpty(e.zoneId) && !keep.Contains(e.zoneId)));
+        }
     }
 }

@@ -1245,10 +1245,8 @@ namespace Iroca {
         // 消したゾーンのマスク(除外・含める)を落とす(残っていても使われないが、レシピに死んだ項目を残さない)。
         private static void DropOrphanMasks(IrocaSessionState state) {
             var ids = new HashSet<string>(state.zones.Where(z => z != null && !string.IsNullOrEmpty(z.id)).Select(z => z.id));
-            state.maskState.zones?.RemoveAll(e => e == null || !ids.Contains(e.zoneId));
-            state.maskState.zoneIncludes?.RemoveAll(e => e == null || !ids.Contains(e.zoneId));
-            // 塗った範囲の記録も、ゾーンと一緒に外す(全ゾーン共通の除外の記録はゾーンの id が空)。
-            state.maskState.patches?.RemoveAll(e => e == null || (!string.IsNullOrEmpty(e.zoneId) && !ids.Contains(e.zoneId)));
+            // どの欄を外すかの規則は Core に 1 つだけ(塗った範囲の記録も一緒に外れる)。
+            state.maskState.DropZonesExcept(ids);
         }
 
         private static string WriteRecolorPanel(Comparison c, string texturePath, List<string> warnings) {

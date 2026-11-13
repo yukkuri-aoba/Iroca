@@ -145,6 +145,7 @@ namespace Iroca {
 
         /// <summary>
         /// <paramref name="zoneIds"/> に無いゾーンの層(除外・含める)を外す。全ゾーン共通の除外は残す。外したら true。
+        /// 保存形式の側の同じ規則は <see cref="MaskState.DropZonesExcept"/>。
         /// 外すのはどのゾーンにも効いていない層だけなので、色替えの結果は変わらない(残すと保存とその後のプリセットへ運ばれ、同じ id の
         /// ゾーンが戻ると黙って効き直す)。
         /// </summary>
