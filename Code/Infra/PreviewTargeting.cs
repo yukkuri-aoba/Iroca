@@ -54,6 +54,26 @@ namespace Iroca {
                 => shadowMatch != null && System.Array.IndexOf(shadowMatch, material) >= 0;
         }
 
+        /// <summary>
+        /// 部品(「Iroca Recolor」)のレシピだけから計画を作る(ウィンドウの編集中は見ない)。レシピは並び順のまま入れる
+        /// (同じテクスチャのレシピが重なったら先が勝つ。ビルドと同じ)。インスペクタが、範囲の内側の部品の受け持ちを数えるのに使う
+        /// (<see cref="Plan.TryFindOwner"/>)。シーンのプレビューは、変更の監視を挟みながら同じ形の一覧を自分で組む(IrocaPreviewFilter)。
+        /// </summary>
+        internal static Plan PlanOf(IEnumerable<IrocaRecolor> components) {
+            var registered = new List<Registered>();
+            foreach (var component in components) {
+                if (component == null || component.recipes == null) {
+                    continue;
+                }
+                foreach (var recipe in component.recipes) {
+                    if (recipe != null && recipe.sourceTexture != null) {
+                        registered.Add(new Registered(component.gameObject, recipe, recipe.sourceTexture));
+                    }
+                }
+            }
+            return new Plan(registered, null);
+        }
+
         internal sealed class Plan {
             private readonly Dictionary<GameObject, List<Registered>> _byOwner = new Dictionary<GameObject, List<Registered>>();
             private readonly HashSet<Texture> _registeredSources = new HashSet<Texture>();
@@ -121,6 +141,29 @@ namespace Iroca {
             public bool IsLive(Texture texture) => texture != null && texture == _liveSource;
 
             /// <summary>
+            /// <paramref name="texture"/> の「持ち主」: <paramref name="renderer"/> の祖先(自分を含む)のうち、元テクスチャが
+            /// <paramref name="texture"/> のレシピを持つ、最も深い登録(深い方が勝つ。同じ GameObject では並びの先)。居なければ false。
+            /// 「深い方が勝つ」をたどるのはここだけで、シーンのプレビュー(<see cref="TryResolve"/>)とインスペクタの範囲の数え方が使う。
+            /// ビルド(<see cref="NonDestructiveApplier"/>)は深い順に当てていく別の作り(MA が移した Renderer も見る)なので、
+            /// 同じ結果になることはテストで守る(Applier_AndThePreview_PickTheSameOwnerForEveryRenderer)。
+            /// </summary>
+            public bool TryFindOwner(Transform renderer, Texture texture, out Registered owner) {
+                for (var t = renderer; t != null; t = t.parent) {
+                    if (!_byOwner.TryGetValue(t.gameObject, out var list)) {
+                        continue;
+                    }
+                    foreach (var c in list) {
+                        if (c.source == texture) {
+                            owner = c;
+                            return true;
+                        }
+                    }
+                }
+                owner = default;
+                return false;
+            }
+
+            /// <summary>
             /// <paramref name="renderer"/> が使う <paramref name="texture"/> の差し替え先。差し替えないなら false。
             /// </summary>
             public bool TryResolve(Transform renderer, Texture texture, out Replacement replacement) {
@@ -129,18 +172,10 @@ namespace Iroca {
                     return false;
                 }
 
-                for (var t = renderer; t != null; t = t.parent) {
-                    if (!_byOwner.TryGetValue(t.gameObject, out var list)) {
-                        continue;
-                    }
-                    foreach (var c in list) {
-                        if (c.source != texture) {
-                            continue;
-                        }
-                        bool live = texture == _liveSource && _liveRecipe != null && c.recipe == _liveRecipe;
-                        replacement = new Replacement(c.source, live ? null : c.recipe, c.shadowMatch);
-                        return true;
-                    }
+                if (TryFindOwner(renderer, texture, out var c)) {
+                    bool live = texture == _liveSource && _liveRecipe != null && c.recipe == _liveRecipe;
+                    replacement = new Replacement(c.source, live ? null : c.recipe, c.shadowMatch);
+                    return true;
                 }
 
                 if (texture == _liveSource && !_registeredSources.Contains(texture)) {

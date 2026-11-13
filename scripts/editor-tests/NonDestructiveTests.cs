@@ -807,6 +807,44 @@ namespace Iroca.EditorTests {
             Assert.IsEmpty(host.Reports);
         }
 
+        // 「深い Iroca Recolor が勝つ」は、シーンのプレビューとインスペクタ(PreviewTargeting.Plan.TryFindOwner)と、ビルド(深い順に
+        // 当てていく)で作りが違う。3 段の入れ子で、プレビューが引く持ち主のレシピと、ビルドが実際に当てたレシピが、Renderer ごとに
+        // 同じことを見る。
+        [Test]
+        public void Applier_AndThePreview_PickTheSameOwnerForEveryRenderer() {
+            var src = Tex("src");
+            var root = Node("avatar", null);
+            var body = Node("body", root.transform, Mat("body", src));
+            var outfit = Node("outfit", root.transform);
+            var jacket = Node("jacket", outfit.transform, Mat("jacket", src));
+            var accessory = Node("accessory", outfit.transform);
+            var charm = Node("charm", accessory.transform, Mat("charm", src));
+            var rOuter = Recipe("outer", src);
+            var rMid = Recipe("mid", src);
+            var rDeep = Recipe("deep", src);
+            var components = new[] { AddRecolor(root, rOuter), AddRecolor(outfit, rMid), AddRecolor(accessory, rDeep) };
+
+            // プレビューとインスペクタの側(ビルドは部品を外すので、先に引いておく)。
+            var plan = PreviewTargeting.PlanOf(components);
+            var expected = new Dictionary<GameObject, IrocaRecipe>();
+            foreach (var go in new[] { body, jacket, charm }) {
+                Assert.IsTrue(plan.TryResolve(go.transform, src, out var replacement), go.name);
+                Assert.IsTrue(plan.TryFindOwner(go.transform, src, out var owner), go.name);
+                Assert.AreSame(owner.recipe, replacement.recipe, go.name);
+                expected[go] = replacement.recipe;
+            }
+            Assert.AreSame(rOuter, expected[body]);
+            Assert.AreSame(rMid, expected[jacket]);
+            Assert.AreSame(rDeep, expected[charm], "いちばん深い部品のレシピが持ち主になっていない");
+
+            var host = new FakeHost();
+            NonDestructiveApplier.Apply(root, host);
+            foreach (var kv in expected) {
+                Assert.AreSame(host.Textures[kv.Value], kv.Key.GetComponent<Renderer>().sharedMaterial.mainTexture,
+                    kv.Key.name + ": ビルドが当てたレシピが、プレビューの持ち主と違う");
+            }
+        }
+
         // 内側のレシピのゾーンがすべて無効なら、その範囲は元の色のまま(外側の色で塗らない)。シーンのプレビュー
         // (いちばん深い持ち主を引いて、作れないので元の色)とインスペクタ(何も色替えしない)と同じ意味。
         [Test]

@@ -325,6 +325,47 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // インスペクタの範囲の数: 内側(深い)の「Iroca Recolor」が同じテクスチャのレシピを持つ所は、そちらの受け持ちとして分けて数える
+        // (シーンのプレビュー・ビルドと同じ「深い方が勝つ」。持ち主の決め方は PreviewTargeting.Plan.TryFindOwner)。
+        [Test]
+        public void Inspector_CountsTheScopeOfInnerComponentsSeparately() {
+            var src = Tex("src");
+            GameObject Child(string name, GameObject parent, bool usesSource) {
+                var go = Track(new GameObject(name));
+                go.transform.SetParent(parent.transform, false);
+                if (usesSource) {
+                    go.AddComponent<MeshRenderer>().sharedMaterial =
+                        Track(new Material(Shader.Find("Standard")) { name = name, mainTexture = src });
+                }
+                return go;
+            }
+            var avatar = Avatar();
+            Child("body", avatar, true);
+            Child("hat", avatar, true);
+            var outfit = Child("outfit", avatar, false);
+            Child("jacket", outfit, true);
+            var accessory = Child("accessory", outfit, false);
+            Child("charm", accessory, true);
+            Child("ring", accessory, true);
+            var outer = RecipeRegistration.Attach(avatar, Recipe("outer", src));
+            var mid = RecipeRegistration.Attach(outfit, Recipe("mid", src));
+            RecipeRegistration.Attach(accessory, Recipe("deep", src));
+            // 同じ GameObject に付いた別の部品は、内側ではない(範囲が同じ)。
+            var sibling = avatar.AddComponent<IrocaRecolor>();
+            sibling.recipes.Add(Recipe("sibling", src));
+
+            var info = IrocaRecolorEditor.CountScope(outer, src);
+            Assert.AreEqual(2, info.materials, "外側の部品が受け持つマテリアル(body・hat)");
+            Assert.AreEqual(2, info.renderers);
+            CollectionAssert.AreEquivalent(
+                new[] { new KeyValuePair<string, int>("outfit", 1), new KeyValuePair<string, int>("accessory", 2) }, info.inner,
+                "内側の部品ごとの受け持ち(いちばん深い部品が勝つ)");
+
+            var midInfo = IrocaRecolorEditor.CountScope(mid, src);
+            Assert.AreEqual(1, midInfo.materials, "中の部品が受け持つのは jacket だけ");
+            CollectionAssert.AreEquivalent(new[] { new KeyValuePair<string, int>("accessory", 2) }, midInfo.inner);
+        }
+
         // インスペクタは、消えたレシピ(Missing)の欄を、利用者が外した空の欄とは別の文で知らせる(消えた欄はビルドを止める)。
         [Test]
         public void Inspector_TellsLostSlotsApartFromEmptySlots() {

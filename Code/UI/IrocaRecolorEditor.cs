@@ -27,7 +27,8 @@ namespace Iroca {
         private double _scopesAt;
         private const double ScopeRefreshSeconds = 0.5;
 
-        private sealed class ScopeInfo {
+        // internal は RecipeRegistrationTests が、範囲の数え方(CountScope)を画面を出さずに見るため。
+        internal sealed class ScopeInfo {
             public int materials;
             public int renderers;
             public readonly List<KeyValuePair<string, int>> inner = new List<KeyValuePair<string, int>>();
@@ -229,14 +230,17 @@ namespace Iroca {
         }
 
         // 子の全 Renderer を 1 回だけ走査して、範囲の数(DrawScope)と影の色を合わせられる素材(DrawShadowMatch)を求める。
-        private static ScopeInfo CountScope(IrocaRecolor component, Texture2D source) {
+        internal static ScopeInfo CountScope(IrocaRecolor component, Texture2D source) {
             var info = new ScopeInfo();
             var materials = new HashSet<Material>();
             // 内側(深い)の「Iroca Recolor」が同じテクスチャのレシピを持つ所は、そちらが受け持つ(ビルドでもシーンの
             // プレビューでも深い方が勝ち、内側のゾーンがすべて無効ならそこは元の色のまま)。このコンポーネントの数から除く。
-            var inner = new Dictionary<IrocaRecolor, HashSet<Material>>();
+            // 持ち主の決め方は、シーンのプレビューと同じもの(PreviewTargeting.Plan.TryFindOwner)。内側 = このコンポーネントの
+            // GameObject より下に付いた部品。
+            var innerPlan = PreviewTargeting.PlanOf(InnerComponents(component));
+            var inner = new Dictionary<GameObject, HashSet<Material>>();
             foreach (var r in component.GetComponentsInChildren<Renderer>(true)) {
-                var owner = InnerOwner(component, r.transform, source);
+                GameObject owner = innerPlan.TryFindOwner(r.transform, source, out var registered) ? registered.owner : null;
                 bool any = false;
                 foreach (var m in r.sharedMaterials) {
                     if (m == null) {
@@ -271,21 +275,13 @@ namespace Iroca {
             return info;
         }
 
-        // t から component の手前までの間で、source のレシピを持つ最も近い「Iroca Recolor」(無ければ null)。
-        private static IrocaRecolor InnerOwner(IrocaRecolor component, Transform t, Texture2D source) {
-            for (; t != null && t != component.transform; t = t.parent) {
-                foreach (var c in t.GetComponents<IrocaRecolor>()) {
-                    if (c == component || c.recipes == null) {
-                        continue;
-                    }
-                    foreach (var recipe in c.recipes) {
-                        if (recipe != null && recipe.sourceTexture == source) {
-                            return c;
-                        }
-                    }
+        // component の GameObject より下に付いた「Iroca Recolor」(同じ GameObject のものは内側ではない)。
+        private static IEnumerable<IrocaRecolor> InnerComponents(IrocaRecolor component) {
+            foreach (var c in component.GetComponentsInChildren<IrocaRecolor>(true)) {
+                if (c.transform != component.transform) {
+                    yield return c;
                 }
             }
-            return null;
         }
     }
 
