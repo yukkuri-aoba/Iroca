@@ -252,8 +252,8 @@ namespace Iroca {
             // 組んだゾーンなので、利用者の状態は書き換えない。範囲の中の値は触らない(出力はビット単位で同じ)。
             for (int zi = 0; zi < sortedZones.Count; zi++) {
                 ColorZone zone = sortedZones[zi];
-                if (zone != null && RecolorValueRanges.ClampZone(zone)) {
-                    zone.UpdateCacheIfNeeded();
+                if (zone != null) {
+                    RecolorValueRanges.ClampZone(zone);
                 }
             }
             long lenLong = (long)w * h;

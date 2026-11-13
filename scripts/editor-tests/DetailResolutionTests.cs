@@ -292,7 +292,6 @@ namespace Iroca.EditorTests {
 
             // 確定段の出力が新しくなったら、同じ並びでも作り直す(前の出力のタイルは使わない)。
             _win.Session.zones[0].targetColor = new Color(0.9f, 0.8f, 0.1f);
-            _win.Session.zones[0].UpdateCacheIfNeeded();
             RunFullStage(preview);
             Show(dv, 16, 16, 40, 40);
             Assert.AreEqual(34 + 9 + 16, cache.ComputedTiles, "新しい出力のタイルを並べる 9 枚と先読みの 16 枚");

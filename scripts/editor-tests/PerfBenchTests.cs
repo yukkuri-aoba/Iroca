@@ -114,7 +114,6 @@ namespace Iroca.EditorTests {
                                 var t = Color.HSVToRGB(Mathf.Repeat(hh + 0.05f * k, 1f), ss, vv);
                                 t.a = baseTargets[zi].a;
                                 input.Zones[zi].targetColor = t;
-                                input.Zones[zi].UpdateCacheIfNeeded();
                             }
                             work.CopyFrom(src);
                             reset();

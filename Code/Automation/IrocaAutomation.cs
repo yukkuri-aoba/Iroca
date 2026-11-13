@@ -412,7 +412,7 @@ namespace Iroca {
 
             int enabledCount = RecolorInput.CountEnabled(state.zones);
             if (enabledCount == 0) { result.error = "no enabled zones."; return result; }
-            foreach (var z in state.zones) { if (z != null && z.enabled) { z.EnsureId(); z.UpdateCacheIfNeeded(); } }
+            foreach (var z in state.zones) { if (z != null && z.enabled) { z.EnsureId(); } }
 
             // ── ディスクの PNG を直接読む（import 設定/readable に依存せず製品経路と一致させる） ──
             // imported が null なら ExportPipeline のフォールバックは起きず PNG/JPG のみを受け付ける。
@@ -518,7 +518,6 @@ namespace Iroca {
                     ? new Vector2(z.sampleUV[0], z.sampleUV[1]) : new Vector2(-1f, -1f),
             };
             zone.EnsureId();
-            zone.UpdateCacheIfNeeded();
             return zone;
         }
 
@@ -572,7 +571,6 @@ namespace Iroca {
                 if (!RecolorValueRanges.ClampZone(zone, names)) {
                     continue;
                 }
-                zone.UpdateCacheIfNeeded();
                 warnings.Add($"zone '{zone.name}': values out of range (or NaN) were clamped to their allowed range: "
                     + string.Join(", ", names) + ".");
             }

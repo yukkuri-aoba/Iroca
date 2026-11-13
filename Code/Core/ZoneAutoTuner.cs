@@ -200,7 +200,6 @@ namespace Iroca {
                 // 代わりにアルゴリズムがパーツの濃淡を自動取得した結果で、選択（マッチング）の和集合に
                 // 使われる。出力色は主サンプル基準のまま変わらない。
                 zone.extraSamples = autoSamples ?? new List<Color>();
-                zone.UpdateCacheIfNeeded();
             }
         }
 

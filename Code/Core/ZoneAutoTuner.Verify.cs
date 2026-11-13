@@ -49,7 +49,7 @@ namespace Iroca {
         }
 
         // 実マッチャーで画素を数えるループ(閉ループ検証・証拠の被覆と全画面選択)の並列化。
-        // どのループもセルごとの判定は他のセルに依らず(照合は UpdateCacheIfNeeded 済みのキャッシュを
+        // どのループもセルごとの判定は他のセルに依らず(照合は作ってから書き換えない ColorZone.Matcher を
         // 読むだけ)、集計は整数の数え上げとセルごとのフラグだけなので、格子の行(または区間)ごとに
         // 並列に数え、行ごとの数を最後に順に足せば逐次と同じ値になる(整数の和は順序に依らない)。
         // 逐次のままだと自動調整 1 回のうち 4096² で 1〜1.5 秒をこのループが占めていた(2026-10-17 実測)。
@@ -69,6 +69,7 @@ namespace Iroca {
             ColorZone zone, bool* excluded, int maskW, int maskH, HsvGrid hsv,
             bool* evidence, int evW, int evH, BaseSelection baseOut, ref TuneResult result) {
             var sim = BuildSimZone(zone, result);
+            var matcher = new ColorZone.Matcher(sim);
             bool* selGrid = hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true);
 
             // 帯拡張(GrowHighlightBand)の候補条件は同じ判定(PixelProcessor.IsHighlightBandCandidate)を呼ぶ。
@@ -106,7 +107,7 @@ namespace Iroca {
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                     var col = new Color(r, g, b, 1f);
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
-                    sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
+                    matcher.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                         out float strength, out float hlPot, out _);
                     if (strength > 0f) { nBase++; selGrid[grow + gx] = true; continue; }
                     // セグメントの内側の増加はパーツ自身のツヤなので数えない(上の説明)。
@@ -153,12 +154,7 @@ namespace Iroca {
             ref TuneResult result) {
             var sim = BuildSimZone(zone, result);
             sim.highlightRecovery = false;  // ハイライト復元は成長テスト側で扱う(基底マッチのみ測る)
-            sim.simDisableBrightForgiveness = false;
-            // 免除なしの数え直しは別のゾーンで行う(1 つのゾーンのフラグを画素ごとに切り替えると
-            // 行ごとの並列化ができない)。免除の有無以外は sim と同じ設定。
-            var simNoForgive = BuildSimZone(zone, result);
-            simNoForgive.highlightRecovery = false;
-            simNoForgive.simDisableBrightForgiveness = true;
+            // 免除ありと免除なしは、同じゾーンから別々の照合を作って数える(下の Eval。免除の有無以外は同じ設定)。
             // near 窓に入るか(0=未判定, 1=入る, 2=入らない)。サンプルの窓だけで決まり tolerance に依らないので、
             // tolerance を変えて数え直すときもセルごとに 1 回だけ判定する。
             byte* nearState = hsv.scratch.Byte(hsv.gw * hsv.gh, clear: true);
@@ -168,9 +164,8 @@ namespace Iroca {
             // 免除ありの選択は、導出 tolerance なら基礎選択(baseSel)そのもの。まだ誰も数えていなければここで数えて残す。
             void Eval(float tol, out int selWith, out int selWithout, out int evCov) {
                 sim.tolerance = tol;
-                sim.UpdateCacheIfNeeded();
-                simNoForgive.tolerance = tol;
-                simNoForgive.UpdateCacheIfNeeded();
+                var withForgive = new ColorZone.Matcher(sim);
+                var withoutForgive = new ColorZone.Matcher(sim, disableBrightForgiveness: true);
                 bool* known = baseSel.sel != null && baseSel.tolerance == tol ? baseSel.sel : null;
                 bool* record = known == null && baseSel.sel == null && tol == derived
                     ? hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true) : null;
@@ -205,7 +200,7 @@ namespace Iroca {
                         if (known != null) {
                             selectedWith = true;
                         } else {
-                            sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
+                            withForgive.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                                 out float sWith, out _, out _);
                             selectedWith = sWith > 0f;
                         }
@@ -214,7 +209,7 @@ namespace Iroca {
                             if (record != null) {
                                 record[cell] = true;
                             }
-                            simNoForgive.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
+                            withoutForgive.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                                 out float sWithout, out _, out _);
                             if (sWithout > 0f) {
                                 swo++;
@@ -309,6 +304,7 @@ namespace Iroca {
 
             var sim = BuildSimZone(zone, result);
             sim.highlightRecovery = false; // 基底マッチのみ測る(ハイライト系は成長テスト側の管轄)
+            var matcher = new ColorZone.Matcher(sim);
 
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
             float satSigFloor = sS * ChromaClusterSatFrac;
@@ -342,7 +338,7 @@ namespace Iroca {
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                         var col = new Color(r, g, b, 1f);
                         float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
-                        sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
+                        matcher.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                             out float s0, out _, out _);
                         if (s0 > 0f) { baseSel[grow + gx] = true; n++; }
                     }
@@ -362,7 +358,7 @@ namespace Iroca {
                     break; // 上限到達でこれ以上伸ばせない
                 }
                 sim.tolerance = t;
-                sim.UpdateCacheIfNeeded();
+                var grown = new ColorZone.Matcher(sim);
                 var rowAdded = new int[hsv.gh];
                 var rowSig = new int[hsv.gh];
                 Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
@@ -384,7 +380,7 @@ namespace Iroca {
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                         var col = new Color(r, g, b, 1f);
                         float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
-                        sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
+                        grown.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                             out float st, out _, out _);
                         if (st <= 0f) {
                             continue;
@@ -458,7 +454,6 @@ namespace Iroca {
             sim.chromaCeiling = result.chromaCeiling;
             sim.holeFillMargin = result.holeFillMargin;
             sim.extraSamples = result.autoSamples ?? new List<Color>();
-            sim.UpdateCacheIfNeeded();
             return sim;
         }
     }

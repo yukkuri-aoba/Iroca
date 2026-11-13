@@ -38,8 +38,6 @@ namespace Iroca {
             }
             ulong* zoneInclude = NativeBitMask.BitsOf(zoneIncludeLayer);
 
-            // Parallel.For に入る前にキャッシュを確定させてホットループ内の条件分岐を排除
-            zone.UpdateCacheIfNeeded();
             // 混色帯モード(境界クリーンアップ ON かつ有彩サンプル): 選択は主マッチの結果だけにして(緩和マッチの
             // 穴埋め・境界回復は行わない)、境界の混色は再着色の直前に被覆率で塗る(PixelProcessor.MixtureBand.cs の
             // AnalyzeMixtureBand)。緩和マッチは選択を縁から一定の幅だけ広げるので、素材でない地まで拾うと

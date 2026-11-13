@@ -81,6 +81,8 @@ namespace Iroca {
                 var strengthLocal = strength;
                 var highlightPotLocal = highlightPot;
                 var matchConfLocal = matchConf;
+                // 照合は、このゾーンのいまの設定から作る(書き換えないので、下の並列のループからそのまま呼べる)。
+                var matcher = new ColorZone.Matcher(zone);
                 _sub.Mark(SpAlloc);
                 // ColorPick のマッチは画素の色(と色から求めた HSV)だけで決まる(位置を見るのは
                 // Rect モードだけ)ので、色の表があれば色ごとに 1 回だけ求めて配る。
@@ -97,7 +99,7 @@ namespace Iroca {
                         float* outS = palStrength, outPot = palPot, outConf = palConf;
                         ForEachPaletteChunk(pc, po, (k0, k1) => {
                             for (int k = k0; k < k1; k++) {
-                                zone.GetMatchScoresPrecomputedHSV(pH[k], pS[k], pV[k], (Color)pCol[k],
+                                matcher.GetMatchScoresPrecomputedHSV(pH[k], pS[k], pV[k], (Color)pCol[k],
                                     0, 0, w, h, out float ks, out float kp, out float kc);
                                 outS[k] = ks;
                                 outPot[k] = kp;
@@ -125,13 +127,13 @@ namespace Iroca {
                             if (zone.mode == SelectionMode.ColorPick
                                 && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc)) {
                                 Color.RGBToHSV(qc, out float qh, out float qs, out float qv);
-                                zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x, y, w, h,
+                                matcher.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x, y, w, h,
                                     out s, out hPot, out mc);
                             } else if (palStrength != null) {
                                 int k = palIdxMatch[i];
                                 s = palStrength[k]; hPot = palPot[k]; mc = palConf[k];
                             } else {
-                                zone.GetMatchScoresPrecomputedHSV(pixH[HsvSlot(pixIdx, i)], pixS[HsvSlot(pixIdx, i)], pixV[HsvSlot(pixIdx, i)], (Color)originalPixels[i], x, y, w, h, out s, out hPot, out mc);
+                                matcher.GetMatchScoresPrecomputedHSV(pixH[HsvSlot(pixIdx, i)], pixS[HsvSlot(pixIdx, i)], pixV[HsvSlot(pixIdx, i)], (Color)originalPixels[i], x, y, w, h, out s, out hPot, out mc);
                             }
                             strengthLocal[i] = s;
                             if (highlightPotLocal != null) {

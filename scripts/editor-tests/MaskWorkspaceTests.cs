@@ -228,7 +228,6 @@ namespace Iroca.EditorTests {
                         sampleColor = id == "zb" ? new UnityEngine.Color(40 / 255f, 90 / 255f, 200 / 255f) : new UnityEngine.Color(200 / 255f, 40 / 255f, 40 / 255f),
                         targetColor = id == "za" ? new UnityEngine.Color(0.1f, 0.7f, 0.2f) : new UnityEngine.Color(0.9f, 0.8f, 0.1f),
                     };
-                    z.UpdateCacheIfNeeded();
                     list.Add(z);
                 }
                 var a = (UnityEngine.Color32[])src.Clone();

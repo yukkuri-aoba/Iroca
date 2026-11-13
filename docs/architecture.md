@@ -69,7 +69,7 @@ Code/Core/
   Color/       色空間（OkLab）・画素の HSV・色の表
   Pipeline/    PixelProcessor（入口）・ゾーン 1 つ分の流れ・RunContext / RunBuffers / ZoneState / ZoneBuffers・
                SelectionResult（選択と再着色の境目）・強度の範囲
-  Selection/   Legacy（今の選択の段。`ColorZone` の照合・選択キャッシュの鍵）
+  Selection/   Legacy（今の選択の段。`ColorZone` の照合 `ColorZone.Matcher`・選択キャッシュの鍵）
   Masks/       除外・含めるの適用（製品の契約）。除外は照合・連結成分の直前・最後の 3 か所で効く
                （連結成分の直前の掛け直しで、除外の線が連結を切る壁になる。閉領域の復帰は除外を通れる。
                除外が変われば、選択キャッシュは使い回さず選択を計算し直す。中身が同じなら使い回す）
@@ -82,7 +82,7 @@ Code/Core/
 選択の再設計（T5。領域・素材の模型・尤度比の 3 層）は 0.4.0 から外した。枝 `dev-0.4.0-t5` に残っていて、再開するときの
 手がかりは dev_safe の `docs/t5_lessons.md`。下の `Selection/Legacy` の名前はそのときの名残りで、今の選択そのもの。
 
-各フォルダの中身: `Selection/Legacy/`（旧の選択の段・`ColorZone` の照合・選択キャッシュの鍵）、
+各フォルダの中身: `Selection/Legacy/`（旧の選択の段・`ColorZone` の照合・選択キャッシュの鍵。照合は `ColorZone.Matcher` = 作ったときのゾーンの設定の写しと導いた値を持つ、書き換えないスナップショットで、使う所（選択の段・自動調整の検証）が作る。ゾーンは設定だけを持ち、導いた値のキャッシュは持たない。`test_zone_matcher_snapshot` が見張る）、
 `Masks/`（マスクの契約と除外・含めるの判定）、`Filters/`（ぼかし）、`Foundation/`（並列度・画素の決まり・使っていない
 メモリを返す窓口・ヒストグラムの集計と分位点 `Histogram`・ビット数 `Bits`・連結成分のラベル付け `RunLabeler`（行の run と union-find。選択・無彩・ハイライトの帯・閉領域・AI 提案の後処理が、どの画素を run にするかだけを渡して使う）。`PixelProcessor` の `OpaqueAlphaMin`・
 `ReleaseWorkBuffers` は、ここへの転送役。並列度は `CoreParallelism` を直接呼ぶ）、`Color/`（色空間の `OkLab`。自動化の手がかりも同じ変換を使う。画素の HSV と色の表は `PixelProcessor` の

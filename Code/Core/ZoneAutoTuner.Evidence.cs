@@ -810,7 +810,7 @@ namespace Iroca {
             }
             var sim = BuildSimZone(aZone, result);
             sim.highlightRecovery = false;
-            sim.UpdateCacheIfNeeded();
+            var matcher = new ColorZone.Matcher(sim);
             // 区間ごとに並列に数えて足す(整数の和なので逐次と同じ値。MatcherLoopOptions の説明)。
             const int Chunk = 4096;
             int n = domain.Count;
@@ -822,7 +822,7 @@ namespace Iroca {
                     var p = domain[i];
                     Color32 c = pixels[p.y * w + p.x];
                     var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
-                    sim.GetMatchScoresPrecomputedHSV(hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col,
+                    matcher.GetMatchScoresPrecomputedHSV(hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col,
                         p.x, p.y, w, h, out float strength, out _, out _);
                     if (strength > 0f) {
                         k++;
@@ -868,11 +868,11 @@ namespace Iroca {
             var sumR = new double[VB];
             var sumG = new double[VB];
             var sumB = new double[VB];
-            sim.UpdateCacheIfNeeded();
+            var matcher = new ColorZone.Matcher(sim);
             foreach (var p in domain) {
                 Color32 c = pixels[p.y * w + p.x];
                 var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
-                sim.GetMatchScoresPrecomputedHSV(hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col,
+                matcher.GetMatchScoresPrecomputedHSV(hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col,
                     p.x, p.y, w, h, out float strength, out _, out _);
                 if (strength > 0f) {
                     continue;
@@ -909,7 +909,7 @@ namespace Iroca {
             Color32* pixels, int w, int h, bool* excluded, int maskW, int maskH) {
             var sim = BuildSimZone(aZone, result);
             sim.highlightRecovery = false;
-            sim.UpdateCacheIfNeeded();
+            var matcher = new ColorZone.Matcher(sim);
             int stride = hsv.stride;
             var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
             // 行ごとに並列に数えて足す(整数の和なので逐次と同じ値。MatcherLoopOptions の説明)。
@@ -929,7 +929,7 @@ namespace Iroca {
                     }
                     int gi = grow + gx;
                     var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
-                    sim.GetMatchScoresPrecomputedHSV(hsv.h[gi], hsv.s[gi], hsv.v[gi], col,
+                    matcher.GetMatchScoresPrecomputedHSV(hsv.h[gi], hsv.s[gi], hsv.v[gi], col,
                         x, y, w, h, out float strength, out _, out _);
                     if (strength > 0f) {
                         k++;

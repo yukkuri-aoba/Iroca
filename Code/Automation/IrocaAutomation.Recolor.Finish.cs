@@ -20,11 +20,6 @@ namespace Iroca {
         /// </summary>
         private static void StartCompare(RecolorJob job) {
             var state = job.state;
-            foreach (var z in state.zones) {
-                if (z != null) {
-                    z.UpdateCacheIfNeeded();
-                }
-            }
             var work = job.work.AddRef();   // 背景の比較が読む間の参照
             var ct = job.cts.Token;
             NativeMemoryLifecycle.WorkStarted();   // 手を止めたときの縮小と、全部返す予約がこの計算を待つように
@@ -192,11 +187,6 @@ namespace Iroca {
         /// </summary>
         private static unsafe string StartPngExport(RecolorJob job) {
             var state = job.state;
-            foreach (var z in state.zones) {
-                if (z != null) {
-                    z.UpdateCacheIfNeeded();
-                }
-            }
             NativePixels full = null;
             if (!job.workIsFullResolution) {
                 // 「適用して保存」と同じ読み方(ExportService。PNG/JPG はファイルを直接、ほかは取り込み済みテクスチャ)。

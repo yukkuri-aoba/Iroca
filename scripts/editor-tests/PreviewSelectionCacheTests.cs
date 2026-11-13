@@ -102,7 +102,6 @@ namespace Iroca.EditorTests {
 
             // 目標の色だけを変えた次の操作(選択は変わらない)。
             _win.Session.zones[0].targetColor = new Color(0.90f, 0.80f, 0.10f);
-            _win.Session.zones[0].UpdateCacheIfNeeded();
             preview.GeneratePreviewAsync();
             Assert.IsTrue(HasSelection(preview.Pipeline.Selection), "同じ原本なのに、縮めた控えが無いだけで選択キャッシュを捨てた");
 

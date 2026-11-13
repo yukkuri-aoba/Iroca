@@ -81,7 +81,7 @@ namespace Iroca {
         private static IrocaSessionState Normalized(IrocaSessionState state) {
             state.zones ??= new List<ColorZone>();
             foreach (var z in state.zones) {
-                if (z != null) { z.EnsureId(); z.UpdateCacheIfNeeded(); }
+                z?.EnsureId();
             }
             return state;
         }

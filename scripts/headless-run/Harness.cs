@@ -300,7 +300,6 @@ namespace Iroca {
                     ? new Vector2(z.sampleUV[0], z.sampleUV[1]) : new Vector2(-1f, -1f),
             };
             zone.EnsureId();
-            zone.UpdateCacheIfNeeded();
             return zone;
         }
 
@@ -1180,7 +1179,6 @@ namespace Iroca {
                 tolerance = 0.3f,
             };
             zone.EnsureId();
-            zone.UpdateCacheIfNeeded();
             var zones = new List<ColorZone> { zone };
             var settings = new SettingsCfg().ToRecolorSettings();
             Color32[] Run(Color32[] src, int n, System.Threading.CancellationToken ct = default) {
@@ -1509,7 +1507,6 @@ namespace Iroca {
                     tolerance = 0.3f,
                 };
                 z2.EnsureId();
-                z2.UpdateCacheIfNeeded();
                 var two = new List<ColorZone> { zone, z2 };
                 var probe = new RentedAtMatch(() => PoolRented());
                 var masks = new MaskSnapshot { common = NativeBitMask.FromBools(excl, Z, Z), width = Z, height = Z, zones = null };
@@ -1960,7 +1957,7 @@ namespace Iroca {
             Color32[] input, int w, int h, MaskSnapshot masks, List<ColorZone> zonesIn, SettingsCfg st,
             bool withMaskChanges) {
             var zones = new List<ColorZone>();
-            foreach (var z in zonesIn) { var c = z.Clone(); c.UpdateCacheIfNeeded(); zones.Add(c); }
+            foreach (var z in zonesIn) { zones.Add(z.Clone()); }
 
             void Run(Color32[] px, SelectionCache cache) {
                 PixelProcessor.ProcessPixelsArray(px, w, h, masks, zones, st.ToRecolorSettings(),
@@ -1995,7 +1992,7 @@ namespace Iroca {
             int dHit = Diff(o2, o2c);
 
             // 3) tolerance 変更(選択キー変化)→ キャッシュ MISS。フル再計算と一致すべき。
-            foreach (var z in zones) { z.tolerance = Mathf.Clamp01(z.tolerance + 0.05f); z.UpdateCacheIfNeeded(); }
+            foreach (var z in zones) { z.tolerance = Mathf.Clamp01(z.tolerance + 0.05f); }
             var o3c = (Color32[])input.Clone(); Run(o3c, cache);
             var o3 = (Color32[])input.Clone(); Run(o3, null);
             int dMiss = Diff(o3, o3c);

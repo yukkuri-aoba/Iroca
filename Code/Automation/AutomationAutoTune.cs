@@ -91,7 +91,6 @@ namespace Iroca {
                 switch (run.Status) {
                     case AutoTuneService.Status.Done:
                         run.ApplyTo(zone, _state);
-                        zone.UpdateCacheIfNeeded();
                         How[zone.id ?? ""] = run.Method;
                         break;
                     case AutoTuneService.Status.Failed:

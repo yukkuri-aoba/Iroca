@@ -295,7 +295,7 @@ $env:IROCA_AUTOTUNE_GATE_FULL = "1"
 golden は `IROCA_GOLDEN_TOLERANT=1` でハッシュ不一致を `scripts/golden/expected/*.png` との
 画素比較（最大差 2・差のある画素 1% まで）で判定し、`IROCA_REQUIRE_HARNESS=1` で
 「ハーネスが無いので skip」を fail にしている。ソース構造検査（`test_autotune_apply_single_source` /
-`test_event_subscription_symmetry` / `test_zone_cache_invalidation` など）は資産を使わないので
+`test_event_subscription_symmetry` / `test_zone_matcher_snapshot` など）は資産を使わないので
 dev_safe から `scripts/source_checks/` へ移した。資産を要らない検査はこちらに置くこと。
 
 `test_algorithm_constants`（2026-10-24〜）は、出力に効くファイル（`ColorZone*`・`PixelProcessor*`・`ZoneAutoTuner*`・

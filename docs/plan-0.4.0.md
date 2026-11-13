@@ -145,7 +145,7 @@ headless ハーネス（.NET 8）には Unity の実行環境が無いので、*
 
 - `Harness.csproj` は Core のファイルを名前で取り込む。
 - `test_algorithm_constants` は `Code/Core` 直下の決まったファイルだけを見る。
-- `test_autotune_apply_single_source` / `test_zone_cache_invalidation` / `test_recolor_settings` /
+- `test_autotune_apply_single_source` / `test_zone_matcher_snapshot`（旧 `test_zone_cache_invalidation`）/ `test_recolor_settings` /
   `test_zone_dto_mapping` は、ファイルの場所とメソッド名を正規表現で読む。
 - `test_selection_key_audit` と一部の EditMode テストは、private メソッドを名前の文字列で反射して呼ぶ。
 - `tools/harness_scope.py` の `_glob_to_regex` は `**` を 1 階層として扱う。サブフォルダへ移したファイルは、

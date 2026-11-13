@@ -141,7 +141,7 @@ namespace Iroca.EditorTests {
                 if (zone == null || !zone.enabled) {
                     continue;
                 }
-                zone.EnsureId(); zone.UpdateCacheIfNeeded();
+                zone.EnsureId();
                 zones.Add(zone);
             }
             var settingsDto = req.settings ?? Activator.CreateInstance(settingsFrom.GetParameters()[0].ParameterType);
@@ -209,7 +209,6 @@ namespace Iroca.EditorTests {
                 for (int k = 0; k < cfg.steps; k++) {
                     for (int i = 0; i < zones.Count; i++) {
                         zones[i].tolerance = baseTol[i] + 0.002f * (k + 1);
-                        zones[i].UpdateCacheIfNeeded();
                     }
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     gen.Invoke(pv, new object[] { false });
@@ -340,7 +339,6 @@ namespace Iroca.EditorTests {
                                 var t = baseTarget[i];
                                 zones[i].targetColor = new Color(Mathf.Repeat(t.r + 0.05f * k, 1f), t.g, t.b, t.a);
                             }
-                            zones[i].UpdateCacheIfNeeded();
                         }
                         var sw = System.Diagnostics.Stopwatch.StartNew();
                         Color32[] pixels;

@@ -221,19 +221,13 @@ namespace Iroca {
             }
         }
 
-        // 照合のキャッシュ(Selection/Legacy の ColorZone.Match.cs)を複製から切り離す。
-        static partial void ResetMatchCache(ColorZone clone);
-
         /// <summary>
-        /// このゾーンのコピーを返します。
-        /// 照合の [NonSerialized] のキャッシュ(Selection/Legacy の ColorZone.Match.cs)は複製へ持ち越しません
-        /// (<see cref="ResetMatchCache"/> が未構築に戻し、複製は最初の UpdateCacheIfNeeded で作り直します)。
+        /// このゾーンのコピーを返します。ゾーンは設定だけを持つ(照合が導く値は <see cref="Matcher"/> が持ち、ゾーンには残らない)。
         /// extraSamples は可変リストなので、クローン間で共有しないよう深いコピーにします。
         /// </summary>
         public ColorZone Clone() {
             var c = (ColorZone)MemberwiseClone();
             c.extraSamples = (extraSamples != null) ? new List<Color>(extraSamples) : new List<Color>();
-            ResetMatchCache(c);
             return c;
         }
 

@@ -37,7 +37,6 @@ namespace Iroca.EditorTests {
                 edgeSoftness = 0.4f,
             };
             z.EnsureId();
-            z.UpdateCacheIfNeeded();
             return z;
         }
 
