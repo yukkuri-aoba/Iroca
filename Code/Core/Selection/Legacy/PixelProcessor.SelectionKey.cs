@@ -20,7 +20,7 @@ namespace Iroca {
         // internal はハーネスの --selkey-audit が直接呼ぶため(名前の文字列で反射して呼ぶと、改名がコンパイルで分からない)。
         internal static string BuildSelectionKey(
             ColorZone z, float edgeFeather, int aaCleanup, int holeFillPasses, int holeFillMinNeighbors,
-            float relaxedSatMin, float relaxedSatRamp, int maskW, int maskH, bool mixtureBand) {
+            float relaxedSatMin, int maskW, int maskH, bool mixtureBand) {
             var sb = new StringBuilder(320);
             void F(float v) { sb.Append(BitConverter.SingleToInt32Bits(v)); sb.Append(','); }
             void I(int v) { sb.Append(v); sb.Append(','); }
@@ -42,7 +42,8 @@ namespace Iroca {
             F(z.holeFillMargin);
             B(z.highlightRecovery); B(z.highlightBandExpand);
             F(edgeFeather); I(aaCleanup); I(holeFillPasses); I(holeFillMinNeighbors);
-            F(relaxedSatMin); F(relaxedSatRamp);
+            // 全体設定の relaxedSatRamp は入れない: 保存形式の互換のためだけに残る値で、処理はどこも読まない。
+            F(relaxedSatMin);
             // 混色帯モード(IsMixtureBandZone)では穴埋め・境界回復を行わない = 選択そのものが変わる。
             // 境界クリーンアップの ON/OFF で切り替わるので、キーに入れる。
             B(mixtureBand);

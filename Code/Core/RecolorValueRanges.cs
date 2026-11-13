@@ -36,7 +36,7 @@ namespace Iroca {
         // 緩和マッチの彩度の下限。彩度は 0..1(UI は 0.2 までしか出さない)。
         public const float RelaxedSatMinMin = 0f;
         public const float RelaxedSatMinMax = 1f;
-        // 緩和マッチの彩度のランプ。照合では使っていない(選択キャッシュの鍵と保存形式の互換のために残る値)ので、
+        // 緩和マッチの彩度のランプ。処理はどこも読まない(保存形式の互換のためだけに残る値)ので、
         // 有限の値にするだけ。
         public const float RelaxedSatRampMin = 0f;
         public const float RelaxedSatRampMax = 1f;

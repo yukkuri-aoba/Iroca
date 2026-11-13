@@ -957,7 +957,7 @@ namespace Iroca {
             // 直接呼ぶ(2026-10-27 まで名前の文字列で反射して呼んでいた。改名・引数の変更はコンパイルで分かる)。
             string KeyOf(ColorZone z) => PixelProcessor.BuildSelectionKey(
                 z, edgeFeather: 0f, aaCleanup: 3, holeFillPasses: 5, holeFillMinNeighbors: 4,
-                relaxedSatMin: 0.02f, relaxedSatRamp: 0.08f, maskW: 0, maskH: 0, mixtureBand: false);
+                relaxedSatMin: 0.02f, maskW: 0, maskH: 0, mixtureBand: false);
 
             var baseline = new ColorZone();
             baseline.extraSamples = new List<Color> { new Color(0.3f, 0.4f, 0.5f, 1f) };

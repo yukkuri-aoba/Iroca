@@ -31,7 +31,7 @@ namespace Iroca {
             public int MaskW, MaskH;
             public int[] MaskColOf, MaskRowBase;
             // 全体設定(RecolorSettings を展開したもの)。
-            public float EdgeFeather, RelaxedSatMin, RelaxedSatRamp;
+            public float EdgeFeather, RelaxedSatMin;
             public int AntiAliasCleanup, HoleFillPasses, HoleFillMinNeighbors;
             public bool UseDecontamination;
             public int DecontaminationRadius;

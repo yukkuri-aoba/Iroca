@@ -40,6 +40,8 @@ namespace Iroca {
         public readonly int holeFillPasses;
         public readonly int holeFillMinNeighbors;
         public readonly float relaxedSatMin;
+        // 読むだけで効かない: 緩和マッチが使わなくなり、処理はどこも読まない。セッション・レシピ・プリセット・zones JSON の
+        // 欄との往復(古いデータの値を落とさない)のためだけに持ち回る。選択キャッシュの鍵にも入れない。
         public readonly float relaxedSatRamp;
         public readonly bool useDecontamination;
         public readonly int decontaminationRadius;

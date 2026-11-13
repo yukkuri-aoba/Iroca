@@ -372,7 +372,6 @@ namespace Iroca {
         private int holeFillPasses { get => Session.holeFillPasses; set => Session.holeFillPasses = value; }
         private int holeFillMinNeighbors { get => Session.holeFillMinNeighbors; set => Session.holeFillMinNeighbors = value; }
         private float relaxedSatMin { get => Session.relaxedSatMin; set => Session.relaxedSatMin = value; }
-        private float relaxedSatRamp { get => Session.relaxedSatRamp; set => Session.relaxedSatRamp = value; }
 
         // ShowWindow が確保する既定サイズ（内訳は ShowWindow 内のコメント参照）。
         private const float DefaultWindowWidth = IrocaUiConsts.Layout.LeftColumnMin + IrocaUiConsts.Layout.PreviewColumnReserve; // 320 + 408 = 728

@@ -30,7 +30,7 @@ namespace Iroca {
             ulong* zoneMask = NativeBitMask.BitsOf(zoneMaskLayer);
             int maskW = run.MaskW, maskH = run.MaskH;
             int[] maskColOf = run.MaskColOf, maskRowBase = run.MaskRowBase;
-            float edgeFeather = run.EdgeFeather, relaxedSatMin = run.RelaxedSatMin, relaxedSatRamp = run.RelaxedSatRamp;
+            float edgeFeather = run.EdgeFeather, relaxedSatMin = run.RelaxedSatMin;
             int antiAliasCleanup = run.AntiAliasCleanup, holeFillPasses = run.HoleFillPasses;
             int holeFillMinNeighbors = run.HoleFillMinNeighbors;
             var debug = run.Debug;
@@ -50,7 +50,7 @@ namespace Iroca {
             bool selCached = false;
             if (selectionCache != null) {
                 selKey = BuildSelectionKey(zone, edgeFeather, antiAliasCleanup, holeFillPasses,
-                    holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, maskW, maskH, zMixMode);
+                    holeFillMinNeighbors, relaxedSatMin, maskW, maskH, zMixMode);
             }
 
             // 1. 元のピクセルカラーを使用した強度マップを構築(キャッシュヒット時は復元のみ)

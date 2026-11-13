@@ -1062,7 +1062,7 @@ namespace Iroca {
                         TempContent.Of(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
                         relaxedSatMin, 0f, 0.2f);
                     // relaxedSatRamp は出さない。緩和マッチで使わなくなり、動かしても何も変わらないため。
-                    // 値は選択キャッシュのキーと、プリセット・セッションの保存形式の互換のために残している。
+                    // 値はプリセット・セッションの保存形式の互換のためにだけ残している(処理は読まない)。
                     using (new EditorGUI.DisabledScope(!useDecontamination)) {
                         decontaminationRadius = UndoHelper.IntSlider(UndoTarget,
                             TempContent.Of(Localization.DecontaminationRadius, Localization.DecontaminationRadiusTooltip),

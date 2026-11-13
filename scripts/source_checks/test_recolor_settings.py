@@ -241,6 +241,13 @@ def test_settings_are_clamped_in_one_place():
 SELECTION_IRRELEVANT_SETTINGS = {
     "useDecontamination",     # AA 境界の α 分解。選択キャッシュの保存より後の段
     "decontaminationRadius",  # 同上
+    "relaxedSatRamp",         # 処理がどこも読まない（下の UNREAD_SETTINGS）
+}
+
+# 処理がどこも読まない全体設定。保存形式（セッション・レシピ・プリセット・zones JSON）の欄との往復のためだけに
+# RecolorSettings が持ち回る。ProcessPixelsArrayCore はローカルへ展開しない。
+UNREAD_SETTINGS = {
+    "relaxedSatRamp",  # 緩和マッチが使わなくなった。古いデータの値を落とさないために欄だけ残す
 }
 
 
@@ -255,8 +262,14 @@ def test_selection_key_covers_selection_settings():
     assert call, "BuildSelectionKey の呼び出しが見つかりません（改名?）"
     args = set(re.findall(r"\b([a-z]\w*)\b", call.group(1)))
     for f in _settings_fields():
+        if f in UNREAD_SETTINGS:
+            assert not re.search(rf"settings\.{f}\b", src), (
+                f"処理が読まないと分類した設定 {f} を ProcessPixelsArrayCore が読んでいます（UNREAD_SETTINGS から外すこと）")
+            continue
         assert re.search(rf"\b\w+\s+{f}\s*=\s*settings\.{f}\s*;", src), (
             f"ProcessPixelsArrayCore が設定 {f} を同じ名前のローカルへ展開していません")
+    stale_unread = sorted(UNREAD_SETTINGS - set(_settings_fields()))
+    assert not stale_unread, f"UNREAD_SETTINGS に実在しない設定: {stale_unread}"
     unclassified = [f for f in _settings_fields() if f not in args and f not in SELECTION_IRRELEVANT_SETTINGS]
     assert not unclassified, (
         f"選択キャッシュの鍵に入らず、選択に効かないとも分類されていない全体設定: {unclassified}\n"

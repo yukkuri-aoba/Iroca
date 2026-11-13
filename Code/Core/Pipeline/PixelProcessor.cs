@@ -243,7 +243,6 @@ namespace Iroca {
             int holeFillPasses = settings.holeFillPasses;
             int holeFillMinNeighbors = settings.holeFillMinNeighbors;
             float relaxedSatMin = settings.relaxedSatMin;
-            float relaxedSatRamp = settings.relaxedSatRamp;
             bool useDecontamination = settings.useDecontamination;
             int decontaminationRadius = settings.decontaminationRadius;
 
@@ -377,7 +376,6 @@ namespace Iroca {
                     MaskRowBase = maskRowBase,
                     EdgeFeather = edgeFeather,
                     RelaxedSatMin = relaxedSatMin,
-                    RelaxedSatRamp = relaxedSatRamp,
                     AntiAliasCleanup = antiAliasCleanup,
                     HoleFillPasses = holeFillPasses,
                     HoleFillMinNeighbors = holeFillMinNeighbors,
