@@ -218,8 +218,9 @@ namespace Iroca {
             // 意図した変更では両経路を同時に直すこと(色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる)。
             float* okL = null;
             int* pIdx = null; int* binOf = null;
-            // 行 run 方式の連結成分ラベリングで使う配列(確保は run 数 R が確定してから)。
-            int* runX0 = null, runX1 = null, runY = null, parent = null, comp = null, rootComp = null, order = null;
+            // 行 run 方式の連結成分ラベリングで使う配列(確保は run 数 R が確定してから)。run そのものは RunLabeler が持つ。
+            RunLabels runs = default;
+            int* comp = null, order = null;
             int* compStart = null, fillPos = null;
             float* med = null, up = null;
             try {
@@ -260,37 +261,10 @@ namespace Iroca {
                 // 変わるが、出力は「成分ごとの L の P80 をその成分の全画素へ配る」だけで番号に
                 // 依存せず、ヒストグラムは整数加算なので集計順にも依存しない = 出力ビット不変。
 
-                var runCount = new int[bh];
-                Parallel.For(0, bh, bboxPo, ly => {
+                // run = 外接矩形の行の中で、強度がしきい値を超えて不透明な画素が並ぶ区間(手順は RunLabeler)。
+                runs = RunLabeler.Label(bh, (ly, rx0, rx1) => {
                     int grb = (ly + minY) * w + minX;
-                    int n = 0;
-                    bool prev = false;
-                    for (int lx = 0; lx < bw; lx++) {
-                        int gi = grb + lx;
-                        bool m = strength[gi] > thr && px[gi].a >= OpaqueAlphaMin;
-                        if (m && !prev) {
-                            n++;
-                        }
-                        prev = m;
-                    }
-                    runCount[ly] = n;
-                });
-                var rowOff = new int[bh + 1];
-                for (int ly = 0; ly < bh; ly++) {
-                    rowOff[ly + 1] = rowOff[ly] + runCount[ly];
-                }
-                int R = rowOff[bh];
-                if (R == 0) {
-                    return null;   // マッチ皆無(bbox はあるが α などで全て落ちた)
-                }
-
-                runX0 = s_intPool.Rent(R);
-                runX1 = s_intPool.Rent(R);
-                runY = s_intPool.Rent(R);
-                Parallel.For(0, bh, bboxPo, ly => {
-                    int grb = (ly + minY) * w + minX;
-                    int k = rowOff[ly];
-                    int lx = 0;
+                    int n = 0, lx = 0;
                     while (lx < bw) {
                         int gi = grb + lx;
                         if (!(strength[gi] > thr && px[gi].a >= OpaqueAlphaMin)) { lx++; continue; }
@@ -298,51 +272,21 @@ namespace Iroca {
                         while (lx < bw && strength[grb + lx] > thr && px[grb + lx].a >= OpaqueAlphaMin) {
                             lx++;
                         }
-                        runX0[k] = s0; runX1[k] = lx - 1; runY[k] = ly; k++;
+                        if (rx0 != null) { rx0[n] = s0; rx1[n] = lx - 1; }
+                        n++;
                     }
-                });
+                    return n;
+                }, bboxPo, ct, withRows: true);
+                int R = runs.Count;
+                if (R == 0) {
+                    return null;   // マッチ皆無(bbox はあるが α などで全て落ちた)
+                }
+                int[] rowOff = runs.RowStart;
+                int* runX0 = runs.X0, runX1 = runs.X1, runY = runs.Y;
 
-                parent = s_intPool.Rent(R);
-                for (int r = 0; r < R; r++) {
-                    parent[r] = r;
-                }
-                var par = parent;
-                int Find(int x) {
-                    while (par[x] != x) { par[x] = par[par[x]]; x = par[x]; }
-                    return x;
-                }
-                for (int ly = 0; ly + 1 < bh; ly++) {
-                    if ((ly & 1023) == 0) {
-                        ct.ThrowIfCancellationRequested();
-                    }
-                    int i = rowOff[ly], iEnd = rowOff[ly + 1];
-                    int j = rowOff[ly + 1], jEnd = rowOff[ly + 2];
-                    while (i < iEnd && j < jEnd) {
-                        if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i]) {
-                            int a = Find(i), b = Find(j);
-                            if (a != b) { if (b < a) { int t = a; a = b; b = t; } par[b] = a; }
-                        }
-                        if (runX1[i] < runX1[j]) {
-                            i++;
-                        } else {
-                            j++;
-                        }
-                    }
-                }
-
-                // 根(run 番号)→ 成分番号。番号の付き方は出力に影響しない(成分ごとの値を配るだけ)。
+                // 成分番号。番号の付き方は出力に影響しない(成分ごとの値を配るだけ)。
                 comp = s_intPool.Rent(R);
-                rootComp = s_intPool.Rent(R);
-                for (int r = 0; r < R; r++) {
-                    rootComp[r] = -1;
-                }
-                int compCount = 0;
-                for (int r = 0; r < R; r++) {
-                    int root = Find(r);
-                    int c = rootComp[root];
-                    if (c < 0) { c = compCount++; rootComp[root] = c; }
-                    comp[r] = c;
-                }
+                int compCount = RunLabeler.NumberComponents(runs, comp);
 
                 // run を成分ごとに並べ(計数ソート)、成分ごとに並列でヒストグラムを取って代表 L を出す。
                 // ヒストグラムは整数加算なので、run を辿る順序に依存しない(旧: 全画素の逐次ループ)。
@@ -453,24 +397,10 @@ namespace Iroca {
                 if (order != null) {
                     s_intPool.Return(order);
                 }
-                if (rootComp != null) {
-                    s_intPool.Return(rootComp);
-                }
                 if (comp != null) {
                     s_intPool.Return(comp);
                 }
-                if (parent != null) {
-                    s_intPool.Return(parent);
-                }
-                if (runY != null) {
-                    s_intPool.Return(runY);
-                }
-                if (runX1 != null) {
-                    s_intPool.Return(runX1);
-                }
-                if (runX0 != null) {
-                    s_intPool.Return(runX0);
-                }
+                runs.Dispose();
                 if (okL != null) {
                     s_floatPool.Return(okL);
                 }

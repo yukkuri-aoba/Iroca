@@ -551,78 +551,27 @@ namespace Iroca {
             // union-find の連結成分で「画像端に触れる成分」を求め、その run を塗る(旧: 単一スレッドの
             // 深さ優先探索で背景全体=数百万画素を辿っていた)。
             // run は行内の左右連結そのもの、上下に x 範囲が重なる run の結合は縦の 4 近傍連結そのもの
-            // なので、成分の分割は探索と厳密に同じ=open の集合はビット単位で同じ。
-            // 結合では小さい方の根を親にするので、成分の根はその成分で最も小さい run(= 最初の画素を含む run)になる。
+            // なので、成分の分割は探索と厳密に同じ=open の集合はビット単位で同じ(RunLabeler)。
+            // 成分の根はその成分で最も小さい run(= 最初の画素を含む run)になる。
             var result = new EnclosedComponents();
             var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
-            var runCount = new int[h];
-            Parallel.For(0, h, po, y => {
-                int rb = y * w, n = 0, x = 0;
-                while (x < w) {
-                    if (!free[rb + x]) { x++; continue; }
-                    n++;
-                    while (x < w && free[rb + x]) {
-                        x++;
-                    }
-                }
-                runCount[y] = n;
-            });
-            var rowOff = new int[h + 1];
-            for (int y = 0; y < h; y++) {
-                rowOff[y + 1] = rowOff[y] + runCount[y];
-            }
-            int R = rowOff[h];
+            var runs = RunLabeler.Label(free, w, 0, 0, w, h, po, ct);
+            int R = runs.Count;
             if (R == 0) {
                 return result;
             }
-            int* runX0 = s_intPool.Rent(R), runX1 = s_intPool.Rent(R), parent = s_intPool.Rent(R);
+            int[] rowOff = runs.RowStart;
+            // parent は確定済みの根(読むだけ)。
+            int* runX0 = runs.X0, runX1 = runs.X1, parent = runs.Root;
             int* encOf = null;
             try {
-                Parallel.For(0, h, po, y => {
-                    int rb = y * w, k = rowOff[y], x = 0;
-                    while (x < w) {
-                        if (!free[rb + x]) { x++; continue; }
-                        int s0 = x;
-                        while (x < w && free[rb + x]) {
-                            x++;
-                        }
-                        runX0[k] = s0; runX1[k] = x - 1; k++;
-                    }
-                });
-                for (int r = 0; r < R; r++) {
-                    parent[r] = r;
-                }
-                int Find(int a) {
-                    while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; }
-                    return a;
-                }
-                for (int y = 0; y + 1 < h; y++) {
-                    if ((y & 255) == 0) {
-                        ct.ThrowIfCancellationRequested();
-                    }
-                    int i = rowOff[y], iEnd = rowOff[y + 1];
-                    int j = rowOff[y + 1], jEnd = rowOff[y + 2];
-                    while (i < iEnd && j < jEnd) {
-                        if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i]) {
-                            int a = Find(i), b = Find(j);
-                            if (a != b) { if (b < a) { int t = a; a = b; b = t; } parent[b] = a; }
-                        }
-                        if (runX1[i] < runX1[j]) {
-                            i++;
-                        } else {
-                            j++;
-                        }
-                    }
-                }
-                // 全 run の根を確定させ(以降は読むだけ)、画像端に触れる run の根に印を付ける。
+                // 画像端に触れる run の根に印を付ける。
                 var touches = new bool[R];
                 for (int y = 0; y < h; y++) {
                     bool edgeRow = y == 0 || y == h - 1;
                     for (int k = rowOff[y]; k < rowOff[y + 1]; k++) {
-                        int root = Find(k);
-                        parent[k] = root;
                         if (edgeRow || runX0[k] == 0 || runX1[k] == w - 1) {
-                            touches[root] = true;
+                            touches[parent[k]] = true;
                         }
                     }
                 }
@@ -702,9 +651,7 @@ namespace Iroca {
                 if (encOf != null) {
                     s_intPool.Return(encOf);
                 }
-                s_intPool.Return(runX0);
-                s_intPool.Return(runX1);
-                s_intPool.Return(parent);
+                runs.Dispose();
             }
         }
 

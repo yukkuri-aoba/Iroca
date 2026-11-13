@@ -98,38 +98,14 @@ namespace Iroca {
             // そのものなので、成分の分割は DFS と厳密に同一。ラベル番号の付き方は変わるが、
             // 判定に使うのは「その成分にコアがあるか」と「シードの属する成分か」だけで
             // 番号に依存しない = 出力ビット不変。
-            int* runX0 = null, runX1 = null, parent = null, comp = null;
+            // 手順は RunLabeler(run の抽出・結合・根の確定)。ここは、どの画素を run にするかと、成分ごとの判定を持つ。
+            int* comp = null;
+            RunLabels runs = default;
             try {
-                var runCount = new int[bh];
-                Parallel.For(0, bh, ccPo, ly => {
+                // run = 外接矩形の行の中で、選択の強度があって不透明な画素が並ぶ区間。
+                runs = RunLabeler.Label(bh, (ly, rx0, rx1) => {
                     int grb = (ly + minY) * w + minX;
-                    int n = 0;
-                    bool prev = false;
-                    for (int lx = 0; lx < bw; lx++) {
-                        int gi = grb + lx;
-                        bool m = strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin;
-                        if (m && !prev) {
-                            n++;
-                        }
-                        prev = m;
-                    }
-                    runCount[ly] = n;
-                });
-                var rowOff = new int[bh + 1];
-                for (int ly = 0; ly < bh; ly++) {
-                    rowOff[ly + 1] = rowOff[ly] + runCount[ly];
-                }
-                int R = rowOff[bh];
-                if (R == 0) {
-                    return;   // 上の外接矩形が取れていれば run は必ずある(ここは通らない。守りとして残す)
-                }
-
-                runX0 = s_intPool.Rent(R);
-                runX1 = s_intPool.Rent(R);
-                Parallel.For(0, bh, ccPo, ly => {
-                    int grb = (ly + minY) * w + minX;
-                    int k = rowOff[ly];
-                    int lx = 0;
+                    int n = 0, lx = 0;
                     while (lx < bw) {
                         int gi = grb + lx;
                         if (!(strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin)) { lx++; continue; }
@@ -137,47 +113,21 @@ namespace Iroca {
                         while (lx < bw && strength[grb + lx] > 0f && px[grb + lx].a >= OpaqueAlphaMin) {
                             lx++;
                         }
-                        runX0[k] = s0; runX1[k] = lx - 1; k++;
+                        if (rx0 != null) { rx0[n] = s0; rx1[n] = lx - 1; }
+                        n++;
                     }
-                });
+                    return n;
+                }, ccPo, ct);
+                int R = runs.Count;
+                if (R == 0) {
+                    return;   // 上の外接矩形が取れていれば run は必ずある(ここは通らない。守りとして残す)
+                }
+                int[] rowOff = runs.RowStart;
+                int* runX0 = runs.X0, runX1 = runs.X1;
 
-                parent = s_intPool.Rent(R);
-                for (int r = 0; r < R; r++) {
-                    parent[r] = r;
-                }
-                var par = parent;
-                int Find(int x) {
-                    while (par[x] != x) { par[x] = par[par[x]]; x = par[x]; }
-                    return x;
-                }
-                for (int ly = 0; ly + 1 < bh; ly++) {
-                    if ((ly & 1023) == 0) {
-                        ct.ThrowIfCancellationRequested();
-                    }
-                    int i = rowOff[ly], iEnd = rowOff[ly + 1];
-                    int j = rowOff[ly + 1], jEnd = rowOff[ly + 2];
-                    while (i < iEnd && j < jEnd) {
-                        if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i]) {
-                            int a = Find(i), b = Find(j);
-                            if (a != b) { if (b < a) { int t = a; a = b; b = t; } par[b] = a; }
-                        }
-                        if (runX1[i] < runX1[j]) {
-                            i++;
-                        } else {
-                            j++;
-                        }
-                    }
-                }
-
-                // 成分番号: 結合では小さい方の根を親にするので、成分の根はその成分で最も小さい run の番号になる。
-                // r の小さい順に見れば、根に出会うのは成分の中で最初(Find(r) == r)で、残りの run は根より後に来る。
-                // 根に出会った順に番号を振るのは、以前の辞書(根 → 番号を初出の順に)と同じ番号になる。
+                // 成分番号: 成分の最初の画素(ラスタ順)の順。以前の辞書(根 → 番号を初出の順に)と同じ番号になる。
                 comp = s_intPool.Rent(R);
-                int compCount = 0;
-                for (int r = 0; r < R; r++) {
-                    int root = Find(r);
-                    comp[r] = root == r ? compCount++ : comp[root];
-                }
+                int compCount = RunLabeler.NumberComponents(runs, comp);
 
                 // コアの有無と包絡の内側の画素数は、run ごとに行並列で数えてから成分へ足す(整数の和なので
                 // 足す順に依らない)。以前は全 run の画素を 1 スレッドでなめていた(肌のような大きい成分で律速)。
@@ -357,15 +307,7 @@ namespace Iroca {
                 if (comp != null) {
                     s_intPool.Return(comp);
                 }
-                if (parent != null) {
-                    s_intPool.Return(parent);
-                }
-                if (runX1 != null) {
-                    s_intPool.Return(runX1);
-                }
-                if (runX0 != null) {
-                    s_intPool.Return(runX0);
-                }
+                runs.Dispose();
             }
             DropDetachedTranslucent(strength, px, w, h,
                 seedX >= 0 ? seedX : anchorX, seedX >= 0 ? seedY : anchorY, ct);

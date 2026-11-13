@@ -65,7 +65,7 @@ headless ハーネス（`scripts/headless-run/Harness.csproj`、.NET 8）は Cor
 
 ```
 Code/Core/
-  Foundation/  並列度・画素の決まり・使っていないメモリを返す窓口・ヒストグラム・ビット数
+  Foundation/  並列度・画素の決まり・使っていないメモリを返す窓口・ヒストグラム・ビット数・連結成分のラベル付け
   Color/       色空間（OkLab）・画素の HSV・色の表
   Pipeline/    PixelProcessor（入口）・ゾーン 1 つ分の流れ・RunContext / RunBuffers / ZoneState / ZoneBuffers・
                SelectionResult（選択と再着色の境目）・強度の範囲
@@ -84,7 +84,7 @@ Code/Core/
 
 各フォルダの中身: `Selection/Legacy/`（旧の選択の段・`ColorZone` の照合・選択キャッシュの鍵）、
 `Masks/`（マスクの契約と除外・含めるの判定）、`Filters/`（ぼかし）、`Foundation/`（並列度・画素の決まり・使っていない
-メモリを返す窓口・ヒストグラムの集計と分位点 `Histogram`・ビット数 `Bits`。`PixelProcessor` の `OpaqueAlphaMin`・
+メモリを返す窓口・ヒストグラムの集計と分位点 `Histogram`・ビット数 `Bits`・連結成分のラベル付け `RunLabeler`（行の run と union-find。選択・無彩・ハイライトの帯・閉領域・AI 提案の後処理が、どの画素を run にするかだけを渡して使う）。`PixelProcessor` の `OpaqueAlphaMin`・
 `ReleaseWorkBuffers` は、ここへの転送役。並列度は `CoreParallelism` を直接呼ぶ）、`Color/`（色空間の `OkLab`。自動化の手がかりも同じ変換を使う。画素の HSV と色の表は `PixelProcessor` の
 partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・ゾーン 1 つ分の流れ `RunZone`・`RunContext` /
 `RunBuffers` / `ZoneState` / `ZoneBuffers` / `SelectionResult`・強度の範囲）、`Recolor/`（再着色の段 6 つ

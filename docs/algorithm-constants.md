@@ -111,6 +111,7 @@
 | `Code/Core/Foundation/CoreParallelism.cs` | 0 |
 | `Code/Core/Foundation/Histogram.cs` | 0 |
 | `Code/Core/Foundation/PixelRules.cs` | 0 |
+| `Code/Core/Foundation/RunLabeler.cs` | 0 |
 | `Code/Core/Recolor/HighlightSampleCorrector.cs` | 0 |
 | `Code/Core/Masks/PixelProcessor.Masks.cs` | 0 |
 | `Code/Core/Pipeline/PixelProcessor.Bounds.cs` | 0 |
@@ -234,6 +235,13 @@
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
 | `Chunk` | `1 << 14` | 計算 | — | ワーカーごとの集計を足し込むとき、ビンを並列に分ける区間。整数の和なので出力に効かない |
+
+## `Code/Core/Foundation/RunLabeler.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `BandMinRuns` | `1 << 14` | 計算 | — | 連結成分のラベル付けで、行間の結合を帯に分けて並列にする run の数の下限。これ未満は並列の起動のほうが高い。根は成分でいちばん小さい run 番号に決まるので、結ぶ順(帯の分け方)は出力に効かない |
+| `BandMinRows` | `64` | 計算 | — | 同、1 つの帯の行数の下限(帯の数 = 並列度と 行数 ÷ これ の小さい方)。出力に効かない |
 
 ## `Code/Core/Recolor/HighlightSampleCorrector.cs`
 

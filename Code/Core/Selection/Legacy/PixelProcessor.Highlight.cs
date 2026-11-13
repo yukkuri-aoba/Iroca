@@ -330,7 +330,7 @@ namespace Iroca {
             bool* candByColor = null;
             int* pIdx = palette != null ? palette.Index : null;
             bool* candidate = null, touchesCore = null, reach = null;
-            int* runX0 = null, runX1 = null, parent = null;
+            RunLabels runs = default;
             try {
                 if (palette != null) {
                     bool* byColor = candByColor = s_boolPool.Rent(palette.Count);
@@ -382,34 +382,9 @@ namespace Iroca {
                 // 塗る(旧: core の全画素=数百万を種にした単一スレッドの幅優先探索)。集合は探索と同じなので
                 // 出力はビット単位で同じ。core の判定は書き換える前の strength で行う(探索も同じ)。
                 // 条件の形(!(s >= THR)、s < 1 のときだけ 1 にする)も探索と同じにしてある。
-                var runCount = new int[h];
-                Parallel.For(0, h, hlbPo, y => {
+                // run = 行の中で、core でない候補の画素が並ぶ区間(手順は RunLabeler。根は確定済みで読むだけ)。
+                runs = RunLabeler.Label(h, (y, ox0, ox1) => {
                     int rb = y * w, n = 0, x = 0;
-                    while (x < w) {
-                        int i = rb + x;
-                        if (!candLocal[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
-                        n++;
-                        while (x < w && candLocal[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) {
-                            x++;
-                        }
-                    }
-                    runCount[y] = n;
-                });
-                var rowOff = new int[h + 1];
-                for (int y = 0; y < h; y++) {
-                    rowOff[y + 1] = rowOff[y] + runCount[y];
-                }
-                int R = rowOff[h];
-                if (R == 0) {
-                    return;
-                }
-                runX0 = s_intPool.Rent(R);
-                runX1 = s_intPool.Rent(R);
-                parent = s_intPool.Rent(R);
-                bool* touches = touchesCore = s_boolPool.Rent(R);   // 下のループが全 run に書く
-                var rx0 = runX0; var rx1 = runX1;
-                Parallel.For(0, h, hlbPo, y => {
-                    int rb = y * w, k = rowOff[y], x = 0;
                     while (x < w) {
                         int i = rb + x;
                         if (!candLocal[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
@@ -417,8 +392,22 @@ namespace Iroca {
                         while (x < w && candLocal[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) {
                             x++;
                         }
-                        int s1 = x - 1;
-                        rx0[k] = s0; rx1[k] = s1;
+                        if (ox0 != null) { ox0[n] = s0; ox1[n] = x - 1; }
+                        n++;
+                    }
+                    return n;
+                }, hlbPo, ct);
+                int R = runs.Count;
+                if (R == 0) {
+                    return;
+                }
+                int[] rowOff = runs.RowStart;
+                int* rx0 = runs.X0, rx1 = runs.X1, par = runs.Root;
+                bool* touches = touchesCore = s_boolPool.Rent(R);   // 下のループが全 run に書く
+                Parallel.For(0, h, hlbPo, y => {
+                    int rb = y * w;
+                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++) {
+                        int s0 = rx0[k], s1 = rx1[k];
                         // この run が core に 4 近傍で接するか(左右の隣、上下の行の同じ x 範囲)。
                         bool t = (s0 > 0 && strength[rb + s0 - 1] >= HlBandCoreThreshold)
                               || (s1 < w - 1 && strength[rb + s1 + 1] >= HlBandCoreThreshold);
@@ -435,45 +424,14 @@ namespace Iroca {
                             }
                         }
                         touches[k] = t;
-                        k++;
                     }
                 });
-                for (int r = 0; r < R; r++) {
-                    parent[r] = r;
-                }
-                var par = parent;
-                int Find(int a) {
-                    while (par[a] != a) { par[a] = par[par[a]]; a = par[a]; }
-                    return a;
-                }
-                for (int y = 0; y + 1 < h; y++) {
-                    if ((y & 255) == 0) {
-                        ct.ThrowIfCancellationRequested();
-                    }
-                    int i = rowOff[y], iEnd = rowOff[y + 1];
-                    int j = rowOff[y + 1], jEnd = rowOff[y + 2];
-                    while (i < iEnd && j < jEnd) {
-                        if (rx0[i] <= rx1[j] && rx0[j] <= rx1[i]) {
-                            int a = Find(i), b = Find(j);
-                            if (a != b) {
-                                par[a] = b;
-                            }
-                        }
-                        if (rx1[i] < rx1[j]) {
-                            i++;
-                        } else {
-                            j++;
-                        }
-                    }
-                }
-                // 全 run の根を確定させ(以降は読むだけ)、core に接する run の根に印を付ける。
+                // core に接する run の根に印を付ける。
                 bool* reached = reach = s_boolPool.Rent(R);
                 ClearWork(reached, 0, R);
                 for (int r = 0; r < R; r++) {
-                    int root = Find(r);
-                    par[r] = root;
                     if (touches[r]) {
-                        reached[root] = true;
+                        reached[par[r]] = true;
                     }
                 }
                 Parallel.For(0, h, hlbPo, y => {
@@ -490,15 +448,7 @@ namespace Iroca {
                     }
                 });
             } finally {
-                if (parent != null) {
-                    s_intPool.Return(parent);
-                }
-                if (runX1 != null) {
-                    s_intPool.Return(runX1);
-                }
-                if (runX0 != null) {
-                    s_intPool.Return(runX0);
-                }
+                runs.Dispose();
                 if (reach != null) {
                     s_boolPool.Return(reach);
                 }
