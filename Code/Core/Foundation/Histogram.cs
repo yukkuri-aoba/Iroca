@@ -10,7 +10,7 @@ using UnityEngine;
 namespace Iroca {
     /// <summary>
     /// 整数のヒストグラムの並列集計と分位点(0.4.0 の計画の 3-5 で PixelProcessor から切り出した)。
-    /// 再着色の統計(アンカー)・無彩パスの地色・スポイト補正・旧の選択が使う。
+    /// 再着色の統計(アンカー)・無彩パスの地色・スポイト補正・選択が使う。
     /// </summary>
     internal static unsafe class Histogram {
         /// <summary>集計対象が行レンジ [yFrom,yTo) のデリゲート。戻り値は集計した画素数。</summary>

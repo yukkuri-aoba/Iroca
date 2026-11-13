@@ -41,7 +41,8 @@ namespace Iroca {
         /// 確信できるコアが一つも無い(全体が弱マッチ)
         /// 場合は recall 保護のため絞り込まない(=連結制約 OFF と同挙動)。
         /// seedX&gt;=0 のときはその成分だけを残す上書きモード(無効シード=bleed/背景上 なら自動へフォールバック)。
-        /// 連結予測子(strength&gt;0 &amp;&amp; α&gt;=128)・4近傍は BuildComponentMedianLMap と一致させ成分定義を統一する。
+        /// 連結の述語は strength&gt;0 &amp;&amp; α&gt;=128 の 4 近傍。無彩パスの成分の地図(BuildComponentMedianLMap)は
+        /// 強度のしきいが違う(MatchStrengthFloor を超える画素)ので、成分の分け方は同じとは限らない。
         ///
         /// 陰影の明度下限(shadowValueFloor &gt; 0 のとき): 明度(pixV)がこの値以上の画素が成分の
         /// ShadowFloorKeepFrac に満たない成分 = 「大半がこの素材の陰影レンジより暗い、同色相の離れた

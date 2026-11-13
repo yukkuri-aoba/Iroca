@@ -253,6 +253,8 @@ Code/Core/
   AutoTune/
     Legacy/    旧の自動調整（ZoneAutoTuner。入力は専用の記録、出力は項目の列挙にするだけ）。T5 の P3 で消す
                （T5 では自動調整は L2 の推定そのものになる）
+               ※ 2026-11-13 追記: T5 を 0.4.0 から外したので、このフォルダは作っていない。ZoneAutoTuner は
+               Code/Core の直下にあり、今の自動調整そのもの（docs/architecture.md）。
   Diagnostics/ 時間計測・デバッグ記録（段の境目で呼ぶ観察者。既定は何もしない）
   Preview/     座標変換・縮小・RecolorPreview
   Uv/          UvChartMap
@@ -841,6 +843,10 @@ T5 で消える部分は作り直さない（1.5）。
   - 穴埋めと境界のリスト（`List<int>` の起点と書き込み）は移さなかった: 件数は穴と縁の画素の数で、全部の場面の Mono の増えが 50MB 以下（フェーズ 7 の結果）に収まるので、手間に見合わない。
 - 前の版の計画にあった次の手順は、T5 で旧ごと消えるのでやらない: 照合の作り直し（`ZoneMatcher`）、`ZoneAutoTuner` の
   中身の作り直し（`SelectionSimulator` など）、FloodFill と Achroma の連結成分のラベル付けの一本化。
+  - 2026-11-13 追記: T5 を 0.4.0 から外した（10-31）ので、`Selection/Legacy` は今の選択そのもので、消えない。
+    上の 3 つのうち、照合の作り直し（`ZoneMatcher`）と連結成分のラベル付けの一本化は、出荷前のレビュー（11-12）の
+    後の整理でやる（Core のほかの整理を入れた後）。フォルダとメソッドの名前（`Legacy`・`RunLegacySelection`）の
+    付け替えは、その最後に行う。
 
 ### フェーズ 3B: 選択・自動調整の再設計（T5）
 

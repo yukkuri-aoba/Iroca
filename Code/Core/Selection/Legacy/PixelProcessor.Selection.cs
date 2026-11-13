@@ -857,6 +857,14 @@ namespace Iroca {
         /// 白装飾の周囲などにピンク/赤の残留ピクセルが見える原因になっていた。
         /// 純白装飾はそのまま残すため、relaxedSatMin による「最低彩度ゲート」だけは保持する。
         /// 全体設定の relaxedSatRamp は緩和マッチでは使わない（BuildSelectionKey と保存形式の互換のためだけに残る）。
+        ///
+        /// 主の照合(ColorZone.MatchOneSample)の写しではない。意図して無い段(明部の免除・ハイライトの補助・内部サンプル)の
+        /// ほかに、同じに見えて結果が違う所が 3 つある。そろえると出力が変わるので、違いをここに書いて残す
+        /// (式を共有するなら、照合を不変のスナップショットに作り直すときに合わせる):
+        ///   ・確信度(呼び出し側の relaxedChromaConf)の割る数が、主と 1 ulp 違うことがある。
+        ///   ・グレーモードの輝度の超過の罰を、主は暗いサンプル(V が GrayModeDarkSampleValue 未満)にだけ掛けるが、
+        ///     ここはどのサンプルにも掛ける。
+        ///   ・RGB 距離との混合を、主はいつも行うが、ここは確信度が 0.999 未満のときだけ行う。
         /// </remarks>
         private static float GetRelaxedMatchStrength(
             float pH, float pS, float pV,
@@ -890,7 +898,8 @@ namespace Iroca {
                 float darknessFactor = Mathf.Clamp01((ColorZone.GrayModeDarkSampleValue - sV) / ColorZone.GrayModeDarkSampleValue);
                 float effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
                 // 輝度盲対策: 純黒サンプルで純白まで距離0マッチするのを防ぐ。ヘッドルーム超えの
-                // 明るさに輝度超過ペナルティを加える。ColorZone.MatchOneSample のグレーモードと同期。
+                // 明るさに輝度超過ペナルティを加える。定数は ColorZone.MatchOneSample のグレーモードと共有するが、
+                // 主は暗いサンプルにだけ掛け、ここはどのサンプルにも掛ける(上の説明)。
                 float lumExcess = Mathf.Max(0f, (pV - sV) - ColorZone.GrayHighlightHeadroom);
                 effectiveDist += lumExcess * ColorZone.GrayLumExcessWeight;
                 // 彩度整合ゲート(主経路 MatchOneSample と共有ヘルパー)。サンプルが微小な tint を
@@ -932,8 +941,9 @@ namespace Iroca {
             // 低彩度サンプル(白/灰)では HSV 距離が hue 支配になり、同色相だが彩度だけが大きく違う別色
             // (オフホワイトの地の隣にある鮮やかな布地など)を弾けず、境界回復が別色を周囲へ大量にスピル
             // させる。
-            // プライマリ(CalculateHybridDistance)と同じ RGB 距離ブレンドで整合させる:
-            // dist = lerp(rgbDist, hsvDist, chromaConfidence)。有彩サンプルは cc≈1 で従来式と一致。
+            // プライマリ(CalculateHybridDistance)と同じ考えの RGB 距離ブレンド:
+            // dist = lerp(rgbDist, hsvDist, chromaConfidence)。主はいつも混ぜるが、ここは cc が 0.999 未満のときだけ
+            // (有彩サンプルは cc≈1 で HSV 距離のまま)。
             if (chromaConfidence < 0.999f) {
                 float dr = pR - sR, dg = pG - sG, db = pB - sB;
                 float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;

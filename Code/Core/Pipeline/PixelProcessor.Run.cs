@@ -156,7 +156,7 @@ namespace Iroca {
             public SelectionCache.PostBox Box;
             // 無彩の固め: 無彩サンプル/極端無彩ターゲットの重み(ComputeAchromaWeight)。
             public float AchromaWeight;
-            // デコンタミ: AA 縁とした画素と、そこへ塗る色(設定が無効なら null。指す先は RunBuffers)。
+            // デコンタミ: AA 縁とした画素と、そこへ塗る色(設定が無効なら null。指す先は ZoneBuffers)。
             public bool* AaMask;
             public Color32* Decontaminated;
             // 再着色の統計: ゾーン不変の再着色パラメータと、無彩パスの領域 L(全体の中央値と、成分ごとの地図。
@@ -170,8 +170,8 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 選択と再着色の境目(0.4.0 の計画の 3-7a)。再着色の段が選択から読むのはこれだけ。旧の選択
-        /// (<see cref="RunLegacySelection"/>)も、T5 の新しい選択も、この形で出す。
+        /// 選択と再着色の境目(0.4.0 の計画の 3-7a)。再着色の段が選択から読むのはこれだけ。選択
+        /// (<see cref="RunLegacySelection"/>)の作りを替えるときも、この形で出す。
         /// </summary>
         private struct SelectionResult {
             /// <summary>
@@ -182,7 +182,8 @@ namespace Iroca {
 
             /// <summary>
             /// 後段(穴埋め・境界回復・ぼかし・デコンタミ・再着色の統計)が走査する範囲。選択の画素に余白を足したもので、
-            /// この外の強度は 0。Has = false なら選択の画素が無い。
+            /// 選択が返した時点では、この外の強度は 0。Has = false なら選択の画素が無い。マスクの契約の後は、
+            /// 含めるマスクの画素がこの外にも強度 1 で立ちうる(ForceIncluded)ので、「外は 0」を前提に読み飛ばさないこと。
             /// </summary>
             public SelectionCache.PostBox Box;
         }

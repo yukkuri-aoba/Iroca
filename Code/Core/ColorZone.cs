@@ -13,7 +13,7 @@ namespace Iroca {
     [Serializable]
     public partial class ColorZone {
         // 選択済み判定の strength 床。PixelProcessor 側の後段ゲート
-        // (ApplyChromaCeilingGate / RecoverEnclosedNeutral / NeutralReject / SolidifyAchromaInterior)が
+        // (ApplyChromaCeilingGate / RecoverEnclosedNeutral / SolidifyAchromaInterior)が
         // それぞれローカル const 0.05f を持っていたため一本化(値の意味: これ以下は「未選択」扱い)。
         internal const float MatchStrengthFloor = 0.05f;
 
@@ -221,15 +221,14 @@ namespace Iroca {
             }
         }
 
-        // 照合のキャッシュ(Selection/Legacy の ColorZone.Match.cs)を複製から切り離す。旧の照合を消したら呼ばれない。
+        // 照合のキャッシュ(Selection/Legacy の ColorZone.Match.cs)を複製から切り離す。
         static partial void ResetMatchCache(ColorZone clone);
 
         /// <summary>
         /// このゾーンのコピーを返します。
-        /// 照合の [NonSerialized] のキャッシュ(Selection/Legacy の ColorZone.Match.cs)もコピーされますが、
-        /// 値の変更は UpdateCacheIfNeeded で再計算されるため安全です。
-        /// extraSamples は可変リストなので、クローン間で共有しないよう深いコピーにし、
-        /// キャッシュのスナップショット参照も切り離して各クローンが独立に再計算するようにします。
+        /// 照合の [NonSerialized] のキャッシュ(Selection/Legacy の ColorZone.Match.cs)は複製へ持ち越しません
+        /// (<see cref="ResetMatchCache"/> が未構築に戻し、複製は最初の UpdateCacheIfNeeded で作り直します)。
+        /// extraSamples は可変リストなので、クローン間で共有しないよう深いコピーにします。
         /// </summary>
         public ColorZone Clone() {
             var c = (ColorZone)MemberwiseClone();

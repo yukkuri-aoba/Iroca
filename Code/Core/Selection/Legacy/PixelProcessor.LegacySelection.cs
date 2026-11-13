@@ -8,9 +8,10 @@ using UnityEngine;
 namespace Iroca {
     internal static unsafe partial class PixelProcessor {
         /// <summary>
-        /// 旧の選択(照合 → 彩度の天井・閉領域の中性 → ハイライト → 連結成分 → 穴埋め → 境界回復 → ぼかし →
+        /// 選択(照合 → 彩度の天井・閉領域の中性 → ハイライト → 連結成分 → 穴埋め → 境界回復 → ぼかし →
         /// 選択キャッシュへの保存)。ProcessPixelsArrayCore から中身を書き換えずに切り出したもの(0.4.0 の計画の 3-7a)。
-        /// T5 で新しい選択に置き換える(P3 で消す)。マスクを掛ける前の強度と後段の範囲を返す(<see cref="SelectionResult"/>)。
+        /// 名前とフォルダの Legacy は、選択の再設計(T5)を 0.4.0 から外す前の名残りで、今の選択はこれだけ
+        /// (docs/architecture.md)。マスクを掛ける前の強度と後段の範囲を返す(<see cref="SelectionResult"/>)。
         /// 借りた作業配列は <paramref name="zb"/> に入れる(途中で抜けてもゾーンの終わりに返る)。
         /// 計測の時刻は run.Tp で受け渡す。
         /// </summary>
@@ -299,7 +300,9 @@ namespace Iroca {
             // chromaConfidence と sample RGB。低彩度サンプル(白/灰)で同色相の高彩度色を弾き、
             // 境界回復が無関係な色を周囲へスピルさせる(対象の縁に別色のハローが出る)のを防ぐ。
             // 有彩は cc≈1 で従来式。
-            // 式は ColorZone.BuildSampleCache の chromaConfidence と同じ(定数も共有する)。
+            // 定数は ColorZone.BuildSampleCache の chromaConfidence と共有するが、割る数の作り方が違う: 主の照合は
+            // (chromaThreshold + ChromaConfidenceSpan) − chromaThreshold で、丸めで ChromaConfidenceSpan と 1 ulp 違うことが
+            // ある。そろえると出力が動くので、そのまま残している(違いの一覧は GetRelaxedMatchStrength の説明)。
             // 緩和マッチ(穴埋めの許可・境界回復)は主サンプルだけを見て、内部サンプル(extraSamples)は見ない。
             // 全サンプルの最大に変えて測った(2026-11-11。回帰 33 被写体 × クリック 3 点、証拠つき自動調整の経路):
             //   既定(混色帯): 変化 8 件、設計 IoU 0.7626→0.7625、見える塗り残し 29,200→29,198、明部の再現率 0.8126→0.8129。

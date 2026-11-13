@@ -70,9 +70,8 @@ namespace Iroca {
         private static readonly NativeWorkPool<byte> s_bytePool = WorkPools.Byte;
         // デコンタミの書き込み先(decontamPixels)と、書き出しのときの入力の控え(originalPixels)。
         private static readonly NativeWorkPool<Color32> s_color32Pool = WorkPools.Rgba32;
-        // 連結成分ラベリング(label / BFS スタック)用。従来は呼び出しごとに new int[bw*bh]
-        // (4K 全面マッチで 67MB)を LOH へ確保していた。Rent はゼロ初期化しないので label は
-        // 使用前にクリアすること。
+        // int の作業配列: 連結成分のラベル付け(行の run の端・union-find の親・成分の番号)、閉領域の探索の印とキュー、
+        // 距離の地図、デコンタミの窓の和など。Rent はゼロ初期化しないので、読む前に書くこと。
         private static readonly NativeWorkPool<int> s_intPool = WorkPools.Int;
 
         // 使っていないメモリをまとめて返す窓口は Foundation の CoreMemory。ここは今の名前を残す転送役(3-4)。
@@ -143,10 +142,8 @@ namespace Iroca {
             IDebugCapture debug = null,
             SelectionCache selectionCache = null,
             Color32[] sourcePixels = null) {
-            // 引数検証。ここが無いと、不正な引数（null / 長さ不足）で Array.Copy が投げたとき
-            // 直前に Rent したプール配列（4K で 64MB）が返却されずリークする。Rent は
-            // finally が守る try の外にあるため、例外が出るなら Rent の前に出さないといけない
-            // （レビュー §4 低）。
+            // 引数検証。長さの足りない配列をポインタで読み書きすると範囲の外を触るので、固定する前に確かめる。
+            // 作業配列を借りるより前に投げるので、借りたものが返らないままになることも無い。
             if (pixels == null) {
                 throw new System.ArgumentNullException(nameof(pixels));
             }
@@ -303,7 +300,7 @@ namespace Iroca {
             float* pixH = null, pixS = null, pixV = null;
             int* pixIdx = null;
             bool hsvRented = false;
-            // ゾーンをまたいで使い回す作業配列(占有率・デコンタミ・除外フラグ・混色帯。末尾の finally で返す)。
+            // ゾーンをまたいで使い回す作業配列(占有率・除外フラグ・混色帯。末尾の finally で返す)。
             // 占有率: 下位ゾーンは残り(1-claimed)の範囲だけ適用され、「重なった部分は上位ゾーンのみ適用」という
             // レイヤー排他を実現する。単一ゾーン/非重複ピクセルでは常に 0 のままで、従来挙動は不変。
             var rb = new RunBuffers();

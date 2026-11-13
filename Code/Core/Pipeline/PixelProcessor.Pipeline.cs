@@ -9,7 +9,7 @@ namespace Iroca {
         /// <summary>
         /// 1 つのゾーンの処理。ここがパイプラインの仕様(0.4.0 の計画の 3-7b で ProcessPixelsArrayCore のゾーンの
         /// ループの中身を書き換えずに切り出した)。ゾーンの入力(マスク・混色帯モード・サンプルの HSV・含めるマスク)を
-        /// 揃え、旧の選択 → マスクの契約 → 再着色の段(無彩の固め → デコンタミ → 再着色の統計 → 混色帯 → 合成 →
+        /// 揃え、選択 → マスクの契約 → 再着色の段(無彩の固め → デコンタミ → 再着色の統計 → 混色帯 → 合成 →
         /// 無彩のフチ消し)の順に呼ぶ。段どうしは <see cref="ZoneState"/> で値を受け渡す。
         /// 段の順と条件は出力のビット一致に効くので、変えるときは abcheck で確かめる。
         /// </summary>
@@ -57,14 +57,14 @@ namespace Iroca {
             var zb = new ZoneBuffers();
             try {
                 // サンプル色の HSV(ゾーン内で不変。彩度天井ゲート・別パーツの色相幅・緩和マッチ・
-                // 中性リジェクト・再着色パラメータが同じ値を使う)。
+                // 再着色パラメータが同じ値を使う)。
                 Color.RGBToHSV(zone.sampleColor, out float sampH, out float sampS, out float sampV);
 
                 // 含めるマスクをテクスチャ解像度の bool[] へ展開する(除外優先を焼き込む)。
                 // 用途は 3 つ: (a) 選択への強制適用(マスク再適用の直後・キャッシュ保存の前)
                 // (b) 大域統計(再着色アンカー/領域Lレンジ)からの除外 — 手動追加した画素が
                 //     地色統計を汚し、ゾーン全体の再着色が遠隔で変わるのを防ぐ
-                // (c) 中性リジェクト等 target 依存ヒューリスティック後の再主張
+                // (c) 塗り先の色で決まる後段(無彩の固め・デコンタミ)が強度を書き換えた後の再主張
                 // キャッシュヒット時も (b)(c) で必要になるため selCached と無関係に作る。
                 // 含めるマスクが無ければ null のまま = 以降の全分岐が no-op(出力ビット不変)。
                 if (zoneInclude != null) {
@@ -81,7 +81,7 @@ namespace Iroca {
                 }
                 bool* includedPx = zb.IncludedPx;
 
-                // 選択(旧の選択)。マスクを掛ける前の強度と後段の範囲を返す。強度の配列はゾーンの作業配列(zb)の
+                // 選択。マスクを掛ける前の強度と後段の範囲を返す。強度の配列はゾーンの作業配列(zb)の
                 // 持ち物で、ゾーンの終わりに返す。
                 var sel = RunLegacySelection(run, zone, zb, zoneMaskLayer, zMixMode, sampH, sampS, sampV);
                 float* strength = sel.Strength;

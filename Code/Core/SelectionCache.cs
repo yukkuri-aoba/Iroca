@@ -23,7 +23,7 @@ namespace Iroca {
     ///
     /// strength は作業配列のプールから借りた領域で後段が破壊的に書き換えるため、Store では必ずコピーを取る。
     /// 復元結果が「同一入力でフル計算した strength」と完全一致するので出力はビット不変。
-    /// テクスチャ/寸法変更時は呼び出し側(PreviewView)が Clear する。
+    /// テクスチャ/寸法変更時は呼び出し側(PreviewPipeline)が Clear する。
     ///
     /// strength のコピーは Mono のヒープの外(<see cref="NativeFloatBuffer"/>)に置く(1 ゾーン 4K で 64MB・8K で 256MB)。
     /// Mono のヒープは縮まないので、ヒープに置くとテクスチャを替えてもウィンドウを閉じても OS へ戻らない。
@@ -78,6 +78,8 @@ namespace Iroca {
         /// <summary>
         /// 除外マスクなしで保存したものを引く(<see cref="TryCopy"/> の配列版)。キャッシュにあれば true を返し、
         /// strengthDst があればそこへ strength を写す(長さ w*h 以上)。strengthDst が null なら有無だけを見る。
+        /// 製品は呼ばない。<see cref="Store"/> と組で、検証(ハーネスの自己検査と、出力の不変を確かめる道具。後者は反射で
+        /// 名前を引く)が、選択キャッシュの入れ替え・残す規則を画素なしで確かめるのに使う口なので、消さない。
         /// </summary>
         public bool TryGet(string zoneId, string key, int w, int h, float[] strengthDst = null) {
             if (strengthDst == null) {
@@ -146,7 +148,10 @@ namespace Iroca {
             return true;
         }
 
-        /// <summary>除外マスクなし・bbox なしで保存する(<see cref="StoreFrom"/> の配列版)。</summary>
+        /// <summary>
+        /// 除外マスクなし・bbox なしで保存する(<see cref="StoreFrom"/> の配列版)。製品は呼ばない。
+        /// <see cref="TryGet"/> と組の、検証だけが使う口(消さない理由はそちらに書いた)。
+        /// </summary>
         public void Store(string zoneId, string key, float[] strength, int w, int h,
             CancellationToken ct = default) {
             if (strength.Length < w * h) {

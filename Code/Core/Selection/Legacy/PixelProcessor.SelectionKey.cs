@@ -7,8 +7,7 @@ using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Iroca {
-    // 旧の選択の、選択キャッシュを使ってよいかの判定: 選択に効く入力の鍵、除外が変わっても照合が同じかの
-    // 確かめ、保存する「残す」のビット。
+    // 選択キャッシュを使ってよいかの判定: 選択に効く入力の鍵と、除外マスクが保存したときから変わっていないかの確かめ。
     internal static unsafe partial class PixelProcessor {
         // 「選択(マッチ→ブラー)に影響する入力だけ」から決定論的なキーを作る。
         // 出力彩度・シャドウ脱彩・wash・autoRecolorAnchor は **含めない**(再着色のみに効くので、変えてもキーは

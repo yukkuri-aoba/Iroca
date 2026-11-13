@@ -4,7 +4,7 @@ using System;
 using UnityEngine;
 
 namespace Iroca {
-    // ColorZone: マッチングエンジン(サンプル派生キャッシュとピクセル一致スコア計算)。旧の選択の一部で、照合の定数と
+    // ColorZone: マッチングエンジン(サンプル派生キャッシュとピクセル一致スコア計算)。選択の一部で、照合の定数と
     // キャッシュの欄もここに置く(0.4.0 の 3-7a。ColorZone.cs はゾーンのデータだけ)。
     public partial class ColorZone {
         // ハイライト補助マッチで対象ピクセルとみなす「鏡面反射/ハイライトらしさ」の閾値。

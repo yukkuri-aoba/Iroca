@@ -82,7 +82,6 @@ namespace Iroca {
             return n;
         }
 
-        /// <summary>中身を管理配列へ写す(旧の自動調整・テスト・ハーネスとの境目用)。</summary>
         /// <summary>中身を写した新しいマスク(持ち主は呼び出し側)。</summary>
         public NativeBools Clone() {
             var copy = AllocateUninitialized(Width, Height);
@@ -90,6 +89,7 @@ namespace Iroca {
             return copy;
         }
 
+        /// <summary>中身を管理配列へ写す(テスト・ハーネス・デバッグの記録との境目用)。</summary>
         public bool[] ToArray() {
             var a = new bool[Length];
             fixed (bool* d = a) {
