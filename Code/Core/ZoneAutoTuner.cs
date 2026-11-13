@@ -196,6 +196,41 @@ namespace Iroca {
             /// <summary>解析の間だけ使う作業配列(ヒープの外)。格子と一緒に返す。並列ループの中から借りないこと。</summary>
             public readonly WorkScratch scratch = new WorkScratch();
 
+            // CoreHueGate の控え。同じ解析(同じ画素・同じ格子)の中では、サンプルの HSV と除外マスクが同じなら結果は同じ。
+            // 単一サンプルと複数サンプルの許容範囲の導出・証拠つきの導き直しが、同じサンプルに全格子の走査をくり返していた
+            // (1 回の解析で、違う入力は数個なのに 20 回前後)。除外マスクは解析の間に書き換えない(入力か、最初に 1 回だけ
+            // 作る作業配列)ので、ポインタと寸法で見分ける。件数は数個なので並べて探す。
+            private struct HueGateMemo {
+                public float sH, sS, sV;
+                public IntPtr excluded;
+                public int maskW, maskH;
+                public float gate;
+            }
+            private readonly List<HueGateMemo> _hueGates = new List<HueGateMemo>();
+
+            internal bool TryGetHueGate(float sH, float sS, float sV, bool* excluded, int maskW, int maskH, out float gate) {
+                lock (_hueGates) {
+                    for (int i = 0; i < _hueGates.Count; i++) {
+                        var m = _hueGates[i];
+                        if (m.sH == sH && m.sS == sS && m.sV == sV
+                            && m.excluded == (IntPtr)excluded && m.maskW == maskW && m.maskH == maskH) {
+                            gate = m.gate;
+                            return true;
+                        }
+                    }
+                }
+                gate = 0f;
+                return false;
+            }
+
+            internal void RememberHueGate(float sH, float sS, float sV, bool* excluded, int maskW, int maskH, float gate) {
+                lock (_hueGates) {
+                    _hueGates.Add(new HueGateMemo {
+                        sH = sH, sS = sS, sV = sV, excluded = (IntPtr)excluded, maskW = maskW, maskH = maskH, gate = gate,
+                    });
+                }
+            }
+
             public void Dispose() => scratch.Dispose();
         }
 

@@ -24,15 +24,16 @@ namespace Iroca {
             if (excluded == null || maskW <= 0 || maskH <= 0) {
                 return false;
             }
-            // 何も除外していない / 全部除外 のマスクは「パーツ分離」として使えない。
+            // 何も除外していない / 全部除外 のマスクは「パーツ分離」として使えない。除外と非除外の両方が見つかった所で
+            // 抜ける(以前は全画素を数えていた。答えは「1 つ以上 かつ 全部ではない」で同じ)。
             int total = maskW * maskH;
-            int ex = 0;
-            for (int i = 0; i < total; i++) {
-                if (excluded[i]) {
-                    ex++;
+            bool first = excluded[0];
+            for (int i = 1; i < total; i++) {
+                if (excluded[i] != first) {
+                    return true;
                 }
             }
-            return ex > 0 && ex < total;
+            return false;
         }
 
         // ピクセル (x,y) がマスクで除外されているか。excluded==null なら常に false(マスク無し)。
@@ -71,7 +72,9 @@ namespace Iroca {
         }
 
         // マスクの除外を、格子の列ごとのマスクの列番号と、行ごとのマスクの行の先頭で引く表(IsMaskExcluded と同じ式を
-        // 前もって計算したもの。画素ごとの割り算 2 回を省く)。excluded が null なら null。
+        // 前もって計算したもの。画素ごとの割り算 2 回を省く)。excluded が null なら null。格子をなめるループは、どれも
+        // これで引く(除外マスクに限らず、証拠などの bool のマスクを最近傍で引くのにも使う)。IsMaskExcluded は、格子でない
+        // 1 点を引く所のためだけに残している。
         private sealed class GridMaskLookup {
             internal int[] Col;   // 格子の列 gx → マスクの列
             internal int[] Row;   // 格子の行 gy → マスクの行 × maskW
@@ -245,6 +248,10 @@ namespace Iroca {
         // 「同パーツの色相」とみなし、それを超える画素を foreign(別パーツ)候補にする。
         private static float CoreHueGate(Color32* pixels, int w, int h, bool* excluded, int maskW, int maskH,
             HsvGrid hsv, float sH, float sS, float sV) {
+            // 同じ解析の中で同じ入力なら、控えを返す(HsvGrid の説明)。
+            if (hsv.TryGetHueGate(sH, sS, sV, excluded, maskW, maskH, out float known)) {
+                return known;
+            }
             int stride = hsv.stride;
             float* gH = hsv.h, gS = hsv.s, gV = hsv.v;
             int gw = hsv.gw;
@@ -272,7 +279,9 @@ namespace Iroca {
                     local[ForeignHueBins]++;
                 }
             });
-            return HueGateFromCoreHist(Slice(acc, 0, ForeignHueBins), acc[ForeignHueBins]);
+            float gate = HueGateFromCoreHist(Slice(acc, 0, ForeignHueBins), acc[ForeignHueBins]);
+            hsv.RememberHueGate(sH, sS, sV, excluded, maskW, maskH, gate);
+            return gate;
         }
 
         // core の hue ヒストグラム([0,NearHueDist] を ForeignHueBins 分割)の P90 を core の広がりとし、

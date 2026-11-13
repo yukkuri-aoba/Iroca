@@ -86,6 +86,8 @@ namespace Iroca {
             float bandSatFloor = bSS * PixelProcessor.HlBandMinSatFrac;
 
             int stride = hsv.stride;
+            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
+            var evl = GridMaskLookup.Build(evidence, evW, evH, w, h, stride, hsv.gw, hsv.gh);   // 証拠が無ければ null
             var rowBase = new int[hsv.gh];
             var rowHlOnly = new int[hsv.gh];
             Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
@@ -98,7 +100,7 @@ namespace Iroca {
                     if (c.a < PixelProcessor.OpaqueAlphaMin) {
                         continue;
                     }
-                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
                         continue;
                     }
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
@@ -108,8 +110,8 @@ namespace Iroca {
                         out float strength, out float hlPot, out _);
                     if (strength > 0f) { nBase++; selGrid[grow + gx] = true; continue; }
                     // セグメントの内側の増加はパーツ自身のツヤなので数えない(上の説明)。
-                    // IsMaskExcluded はマスクの値を最近傍で引くだけの関数で、ここでは「証拠の内側か」を引く。
-                    if (evidence != null && IsMaskExcluded(evidence, evW, evH, x, y, w, h)) {
+                    // 表(GridMaskLookup)はマスクの値を最近傍で引くだけなので、ここでは「証拠の内側か」を引くのに使う。
+                    if (evl != null && evidence[evl.Row[gy] + evl.Col[gx]]) {
                         continue;
                     }
                     if (hlPot > 0f) { nHlOnly++; continue; }
@@ -174,6 +176,7 @@ namespace Iroca {
                     ? hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true) : null;
                 var caches = SampleWindows(sim);
                 int stride = hsv.stride;
+                var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
                 var rowSw = new int[hsv.gh];
                 var rowSwo = new int[hsv.gh];
                 var rowEc = new int[hsv.gh];
@@ -191,7 +194,7 @@ namespace Iroca {
                         if (c.a < PixelProcessor.OpaqueAlphaMin) {
                             continue;
                         }
-                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                        if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
                             continue;
                         }
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
@@ -314,6 +317,7 @@ namespace Iroca {
             float sheenVMax = (vConnHiBin + 1 + SheenVConnMarginBins) / (float)AutoToneValueBins;
 
             int stride = hsv.stride;
+            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
 
             // ── 基礎選択(導出 tolerance)のビットマスク ──
             // 先の検証が同じ tolerance で数えていればそれを使う(読むだけ)。
@@ -332,7 +336,7 @@ namespace Iroca {
                         if (c.a < PixelProcessor.OpaqueAlphaMin) {
                             continue;
                         }
-                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                        if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
                             continue;
                         }
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
@@ -374,7 +378,7 @@ namespace Iroca {
                         if (c.a < PixelProcessor.OpaqueAlphaMin) {
                             continue;
                         }
-                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                        if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
                             continue;
                         }
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;

@@ -607,6 +607,8 @@ namespace Iroca {
             bool* mask, int mW, int mH, bool* excluded, int maskW, int maskH) {
             var list = new List<GridPt>();
             int stride = hsv.stride;
+            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
+            var mkl = GridMaskLookup.Build(mask, mW, mH, w, h, stride, hsv.gw, hsv.gh);   // mask は必ずある
             for (int y = 0, gy = 0; y < h; y += stride, gy++) {
                 int rowStart = y * w;
                 int grow = gy * hsv.gw;
@@ -614,12 +616,10 @@ namespace Iroca {
                     if (pixels[rowStart + x].a < PixelProcessor.OpaqueAlphaMin) {
                         continue;
                     }
-                    int mx = Mathf.Clamp(x * mW / w, 0, mW - 1);
-                    int my = Mathf.Clamp(y * mH / h, 0, mH - 1);
-                    if (!mask[my * mW + mx]) {
+                    if (!mask[mkl.Row[gy] + mkl.Col[gx]]) {
                         continue;
                     }
-                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
                         continue;
                     }
                     list.Add(new GridPt { x = x, y = y, gi = grow + gx });
@@ -899,6 +899,7 @@ namespace Iroca {
             sim.highlightRecovery = false;
             sim.UpdateCacheIfNeeded();
             int stride = hsv.stride;
+            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
             // 行ごとに並列に数えて足す(整数の和なので逐次と同じ値。MatcherLoopOptions の説明)。
             var rowCount = new int[hsv.gh];
             Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
@@ -911,7 +912,7 @@ namespace Iroca {
                     if (c.a < PixelProcessor.OpaqueAlphaMin) {
                         continue;
                     }
-                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
                         continue;
                     }
                     int gi = grow + gx;

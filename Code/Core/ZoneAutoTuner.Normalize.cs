@@ -169,6 +169,7 @@ namespace Iroca {
             int opaque = 0;                      // 除外されていない不透明画素(minPopFrac の分母)
 
             int stride = hsv.stride;
+            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
             for (int y = 0, gy = 0; y < h; y += stride, gy++) {
                 int rowStart = y * w;
                 int grow = gy * hsv.gw;
@@ -177,7 +178,7 @@ namespace Iroca {
                     if (c.a < PixelProcessor.OpaqueAlphaMin) {
                         continue;
                     }
-                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) {
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
                         continue;
                     }
                     opaque++;
