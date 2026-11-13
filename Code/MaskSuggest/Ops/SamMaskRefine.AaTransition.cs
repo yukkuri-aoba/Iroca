@@ -98,26 +98,7 @@ namespace Iroca {
                 return false;
             }
 
-            int bx0 = int.MaxValue, by0 = int.MaxValue, bx1 = -1, by1 = -1;
-            for (int y = 0; y < h; y++) {
-                int row = y * w;
-                for (int x = 0; x < w; x++) {
-                    if (!mask[row + x]) {
-                        continue;
-                    }
-                    if (x < bx0) {
-                        bx0 = x;
-                    }
-                    if (x > bx1) {
-                        bx1 = x;
-                    }
-                    if (y < by0) {
-                        by0 = y;
-                    }
-                    by1 = y;
-                }
-            }
-            if (bx1 < 0) {
+            if (!TryMaskBounds(mask, w, h, MakeParallelOptions(), out int bx0, out int by0, out int bx1, out int by1)) {
                 return false; // true 画素なし → AA 包含は no-op
             }
 

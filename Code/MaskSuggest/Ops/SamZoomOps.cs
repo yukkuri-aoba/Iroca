@@ -58,28 +58,8 @@ namespace Iroca {
             }
 
             // クリックがマスク外(境界ぎわ等): マスク全体の bbox
-            int minX = int.MaxValue, maxX = int.MinValue, minY = int.MaxValue, maxY = int.MinValue;
-            for (int y = 0; y < h; y++) {
-                int row = y * w;
-                for (int x = 0; x < w; x++) {
-                    if (!maskBottomUp[row + x]) {
-                        continue;
-                    }
-                    if (x < minX) {
-                        minX = x;
-                    }
-                    if (x > maxX) {
-                        maxX = x;
-                    }
-                    if (y < minY) {
-                        minY = y;
-                    }
-                    if (y > maxY) {
-                        maxY = y;
-                    }
-                }
-            }
-            if (maxX < minX) {
+            if (!SamMaskRefine.TryMaskBounds(maskBottomUp, w, h, SamMaskRefine.MakeParallelOptions(),
+                    out int minX, out int minY, out int maxX, out int maxY)) {
                 return 0;
             }
             return Mathf.Max(maxX - minX + 1, maxY - minY + 1);

@@ -43,6 +43,52 @@ namespace Iroca {
         };
 
         /// <summary>
+        /// mask(w*h 個)の true の画素の外接矩形。1 つも無ければ false。行ごとに並列に左右の端を求めて、行の順にまとめる
+        /// (整数の比較だけなので、逐次に全画素を見たのと同じ答え)。精密化の切り出しの矩形・Peel・AA の切り出し・ズームの
+        /// 判定が、それぞれ同じ走査を持っていた(うち 2 つは 1 スレッドで全画素を見ていた)のを、ここへ寄せた。
+        /// </summary>
+        internal static bool TryMaskBounds(bool* mask, int w, int h, ParallelOptions po,
+            out int x0, out int y0, out int x1, out int y1) {
+            var rowMin = new int[h];
+            var rowMax = new int[h];
+            Parallel.For(0, h, po, y => {
+                // 左から最初の true まで、右から最後の true までだけ読む(間は端に効かない)。
+                int row = y * w, mn = 0;
+                while (mn < w && !mask[row + mn]) {
+                    mn++;
+                }
+                if (mn == w) {
+                    rowMin[y] = -1;
+                    rowMax[y] = -1;
+                    return;
+                }
+                int mx = w - 1;
+                while (!mask[row + mx]) {
+                    mx--;
+                }
+                rowMin[y] = mn;
+                rowMax[y] = mx;
+            });
+            x0 = w; y0 = h; x1 = -1; y1 = -1;
+            for (int y = 0; y < h; y++) {
+                if (rowMin[y] < 0) {
+                    continue;
+                }
+                if (rowMin[y] < x0) {
+                    x0 = rowMin[y];
+                }
+                if (rowMax[y] > x1) {
+                    x1 = rowMax[y];
+                }
+                if (y < y0) {
+                    y0 = y;
+                }
+                y1 = y;
+            }
+            return x1 >= 0;
+        }
+
+        /// <summary>
         /// 単一グリッドセルを色モードとして扱う最小画素数。確信領域の色は窓プール平均だと
         /// 多峰背景(白ギャップ+隣接する別パーツ等)で実在しない中間色に潰れ、素の背景画素が
         /// 「背景から遠い」と誤判定される(実測: 隣接パーツ脇のギャップへ提案が成長)。
@@ -140,39 +186,10 @@ namespace Iroca {
             if (mask == null) {
                 return false;
             }
-            var rowMin = new int[h];
-            var rowMax = new int[h];
-            Parallel.For(0, h, MakeParallelOptions(token), y => {
-                int row = y * w, mn = -1, mx = -1;
-                for (int x = 0; x < w; x++) {
-                    if (!mask[row + x]) {
-                        continue;
-                    }
-                    if (mn < 0) {
-                        mn = x;
-                    }
-                    mx = x;
-                }
-                rowMin[y] = mn;
-                rowMax[y] = mx;
-            });
-            int bx0 = w, by0 = h, bx1 = -1, by1 = -1;
-            for (int y = 0; y < h; y++) {
-                if (rowMin[y] < 0) {
-                    continue;
-                }
-                if (rowMin[y] < bx0) {
-                    bx0 = rowMin[y];
-                }
-                if (rowMax[y] > bx1) {
-                    bx1 = rowMax[y];
-                }
-                if (y < by0) {
-                    by0 = y;
-                }
-                by1 = y;
+            if (!TryMaskBounds(mask, w, h, MakeParallelOptions(token), out int bx0, out int by0, out int bx1, out int by1)) {
+                empty = true;
+                return false;
             }
-            if (bx1 < 0) { empty = true; return false; }
 
             int d = BandHalfWidth(w, h);
             int pad = d + FringeReach(w, h, d) + AaMaxPasses * (d + 1) + PeelRectMargin(d);

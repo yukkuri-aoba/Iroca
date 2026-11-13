@@ -58,39 +58,7 @@ namespace Iroca {
             int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
 
             // マスクの外接矩形を、足す探索の届く距離と地色の窓(最大半径のセル)の分だけ広げた矩形の中で扱う。
-            var rowMin = new int[h];
-            var rowMax = new int[h];
-            Parallel.For(0, h, po, y => {
-                int row = y * w, mn = -1, mx = -1;
-                for (int x = 0; x < w; x++) {
-                    if (!mask[row + x]) {
-                        continue;
-                    }
-                    if (mn < 0) {
-                        mn = x;
-                    }
-                    mx = x;
-                }
-                rowMin[y] = mn;
-                rowMax[y] = mx;
-            });
-            int x0 = w, y0 = h, x1 = -1, y1 = -1;
-            for (int y = 0; y < h; y++) {
-                if (rowMin[y] < 0) {
-                    continue;
-                }
-                if (rowMin[y] < x0) {
-                    x0 = rowMin[y];
-                }
-                if (rowMax[y] > x1) {
-                    x1 = rowMax[y];
-                }
-                if (y < y0) {
-                    y0 = y;
-                }
-                y1 = y;
-            }
-            if (x1 < 0) {
+            if (!TryMaskBounds(mask, w, h, po, out int x0, out int y0, out int x1, out int y1)) {
                 return;
             }
             int margin = PeelRectMargin(d);
