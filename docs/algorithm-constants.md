@@ -129,7 +129,7 @@
 | `Code/Core/Recolor/PixelProcessor.RecolorBranchRecorder.cs` | 1 |
 | `Code/Core/Recolor/PixelProcessor.RecolorStatsStage.cs` | 1 |
 | `Code/Core/Selection/Legacy/ColorZone.Match.cs` | 6 |
-| `Code/Core/Selection/Legacy/PixelProcessor.FloodFill.cs` | 1 |
+| `Code/Core/Selection/Legacy/PixelProcessor.FloodFill.cs` | 0 |
 | `Code/Core/Selection/Legacy/PixelProcessor.Highlight.cs` | 6 |
 | `Code/Core/Selection/Legacy/PixelProcessor.LegacySelection.cs` | 0 |
 | `Code/Core/Selection/Legacy/PixelProcessor.Selection.cs` | 2 |
@@ -289,7 +289,6 @@
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
-| `CoreAbsoluteFloor` | `0.6f` | 不明 | CR | matchConf が無いときのコア閾値の床。製品経路では matchConf が常にあり、ここに来ない |
 | `ShadowFloorKeepFrac` | `0.5f` | 実測 | — | 包絡の内側が過半なら成分を残す。57 件で 1/4〜0.75 を試し、崩れる 0.75 から離した |
 | `PartHueKeepFrac` | `0.25f` | 実測 | PH | 色相帯は 1/4 で残す。過半にすると茶髪の房が落ちた（再現率 1.000→0.965） |
 

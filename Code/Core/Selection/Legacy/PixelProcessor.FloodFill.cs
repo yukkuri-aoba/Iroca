@@ -11,8 +11,6 @@ using UnityEngine;
 
 namespace Iroca {
     internal static unsafe partial class PixelProcessor {
-        // 連結成分アンカリングの確信度コア絶対床(matchConf 不在時のフォールバック専用)。
-        private const float CoreAbsoluteFloor = 0.6f;
         // 陰影の明度下限(shadowValueFloor)と別パーツの彩度上限(partSatCeiling)で成分を残す条件:
         // 成分の画素の過半が包絡の内側(下限以上・上限以下)なら「本体+その陰影」とみなす。包絡自体が
         // クリック島の広がりより 25% 外に置かれる(ZoneAutoTuner.Evidence.cs の EvShadowFloorMarginFrac・
@@ -29,9 +27,9 @@ namespace Iroca {
 
         /// <summary>
         /// 連結成分アンカリング: strength&gt;0 の画素を4連結でラベリングし、確信度コアを含む成分のみ残す。
-        /// コア = matchConf &gt; 0(= マッチ距離が固定半径 ColorZone.CoreMatchDistance 未満 = サンプル色に
-        /// 確信できる近さ。matchConf が null のときのみ従来の strength&gt;=max(P75,CoreAbsoluteFloor) に
-        /// フォールバック)。matchConf は strength(有彩では彩度ゲートのみ/edgeSoftness=0 で二値)と違い
+        /// コア = matchConf が立っている画素(= マッチ距離が固定半径 ColorZone.CoreMatchDistance 未満 = サンプル色に
+        /// 確信できる近さ。matchConf は必須で、呼び出し側は連続領域が有効なときに必ず借りて埋める)。
+        /// matchConf は strength(有彩では彩度ゲートのみ/edgeSoftness=0 で二値)と違い
         /// 「色がどれだけ近いか」を表すため:
         ///   ・色は遠いが彩度が高い別素材の塊 → matchConf=0 → コアにならず落ちる(過選択ノイズを除去)
         ///   ・色は近いが strength が中位の分離領域(陰影/別アイランド) → matchConf&gt;0 → 残る(取りこぼし防止)
@@ -71,6 +69,9 @@ namespace Iroca {
             float partHueBand = 0f, float sampleH = 0f, float hueMinSat = 0f,
             int anchorX = -1, int anchorY = -1,
             CancellationToken ct = default) {
+            if (matchConf == null) {
+                throw new ArgumentNullException(nameof(matchConf));
+            }
             float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             bool useValueFloor = shadowValueFloor > 0f && pixV != null;
             bool useSatCeil = partSatCeiling > 0f && pixS != null;
@@ -80,26 +81,6 @@ namespace Iroca {
             if (!TryComputeMatchedBBox(strength, px, w, h, 0f,
                     out int minX, out int minY, out int maxX, out int maxY, ct)) {
                 return; // マッチ皆無
-            }
-
-            // フォールバック用コア閾値(matchConf 不在時のみ使用)= 正の strength 群の P75 と絶対床の
-            // 大きい方。matchConf があるときは固定半径ベースの色一致確信度で判定するので不要。
-            float coreThreshold = 0f;
-            int posCount = 0;
-            if (matchConf == null) {
-                var sHist = new int[256];
-                for (int y = minY; y <= maxY; y++) {
-                    int rb = y * w;
-                    for (int x = minX; x <= maxX; x++) {
-                        int gi = rb + x;
-                        if (strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin) {
-                            sHist[Mathf.Clamp((int)(strength[gi] * 255f), 0, 255)]++;
-                            posCount++;
-                        }
-                    }
-                }
-                coreThreshold = Mathf.Max(
-                    Histogram.ValueAtPercentile(sHist, posCount, 0.75f, 1f), CoreAbsoluteFloor);
             }
 
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
@@ -116,10 +97,6 @@ namespace Iroca {
             // 番号に依存しない = 出力ビット不変。
             int* runX0 = null, runX1 = null, parent = null, comp = null;
             try {
-                // 連結予測子。bbox 内の隣接判定でしか使わないので gi は呼び出し側が算出済みの値を渡す。
-                // コア判定: matchConf があれば色一致確信度(>0 = 固定半径内)で、無ければ strength 閾値で判定。
-                bool useConf = matchConf != null;
-
                 var runCount = new int[bh];
                 Parallel.For(0, bh, ccPo, ly => {
                     int grb = (ly + minY) * w + minX;
@@ -205,7 +182,6 @@ namespace Iroca {
                 byte* runCore = s_bytePool.Rent(R);
                 try {
                     var runCoreL = runCore; var runX0C = runX0; var runX1C = runX1;
-                    float coreThr = coreThreshold;
                     Parallel.For(0, bh, ccPo, ly => {
                         int grb = (ly + minY) * w + minX;
                         for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++) {
@@ -213,7 +189,7 @@ namespace Iroca {
                             int x1 = runX1C[k];
                             for (int lx = runX0C[k]; lx <= x1; lx++) {
                                 int gi = grb + lx;
-                                if (useConf ? matchConf[gi] : strength[gi] >= coreThr) { found = 1; break; }
+                                if (matchConf[gi]) { found = 1; break; }
                             }
                             runCoreL[k] = found;
                         }
