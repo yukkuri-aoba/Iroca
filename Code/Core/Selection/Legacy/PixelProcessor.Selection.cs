@@ -173,8 +173,33 @@ namespace Iroca {
                     }
                 });
 
-            // パスの書き込みをまとめて行い、埋めた画素を次のパスの起点にする。同じ画素が複数の起点から
-            // 見つかっても値は同じ(パス開始時の近傍だけで決まる)なので、最初の 1 回だけ書く。
+            // パス 1 の書き込みと 2 パス目以降(直前のパスで埋めた画素の隣だけを調べる)。同じ画素が複数の起点から
+            // 見つかっても値は同じ(パス開始時の近傍だけで決まる)。
+            WriteAndGrowFrontier(strength, w, found, foundLock, passes,
+                boxMinX, boxMinY, boxMaxX, boxMaxY, fillPo, ct,
+                (int nx, int ny, int idx, out float v) => {
+                    if (allowedMask != null && !allowedMask[idx]) {
+                        v = 0f;
+                        return false;
+                    }
+                    return TryFill(nx, ny, out v);
+                });
+        }
+
+        /// <summary>未選択の画素 (x, y)(添字 idx)に、このパスで書く値があるか(パス開始時の状態だけで決めること)。</summary>
+        private delegate bool FrontierCandidate(int x, int y, int idx, out float value);
+
+        /// <summary>
+        /// 穴埋め(<see cref="FillSmallHoles"/>)と境界回復(<see cref="RecoverBoundaryEdges"/>)の、パスの終わりの書き込みと
+        /// 2 パス目以降。found(パス 1 が矩形の走査で見つけた「画素と値」)を強度へ書き、書いた画素を次のパスの起点にする。
+        /// 2 パス目以降は、直前のパスで書いた画素の 8 近傍(矩形の中)の未選択の画素だけを <paramref name="candidate"/> で
+        /// 調べる。どのパスも書き込みは終わりにまとめるので、読むのはパス開始時の状態。同じ画素が複数の起点から見つかっても
+        /// 値は同じなので、最初の 1 回だけ書く(見つかる順は並列の都合で変わるが、結果は変わらない)。
+        /// </summary>
+        private static void WriteAndGrowFrontier(float* strength, int w,
+            List<(int idx, float v)[]> found, object foundLock, int passes,
+            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
+            ParallelOptions po, CancellationToken ct, FrontierCandidate candidate) {
             var frontier = new List<int>();
             void Apply() {
                 frontier.Clear();
@@ -196,7 +221,7 @@ namespace Iroca {
                 int[] fr = frontier.ToArray();
                 const int Chunk = 4096;
                 int nChunks = (fr.Length + Chunk - 1) / Chunk;
-                Parallel.For(0, nChunks, fillPo, () => new List<(int, float)>(), (ci, _, hits) => {
+                Parallel.For(0, nChunks, po, () => new List<(int, float)>(), (ci, _, hits) => {
                     int k1 = Math.Min(fr.Length, (ci + 1) * Chunk);
                     for (int k = ci * Chunk; k < k1; k++) {
                         int q = fr[k];
@@ -207,12 +232,9 @@ namespace Iroca {
                             for (int nx = nx0; nx <= nx1; nx++) {
                                 int idx = ny * w + nx;
                                 if (strength[idx] > 0f) {
-                                    continue;   // q 自身も(埋まったので)ここで外れる
+                                    continue;   // q 自身も(書いたので)ここで外れる
                                 }
-                                if (allowedMask != null && !allowedMask[idx]) {
-                                    continue;
-                                }
-                                if (TryFill(nx, ny, out float v)) {
+                                if (candidate(nx, ny, idx, out float v)) {
                                     hits.Add((idx, v));
                                 }
                             }
@@ -789,60 +811,14 @@ namespace Iroca {
                     }
                 });
 
-            // パスの書き込みをまとめて行い、書いた画素を次のパスの起点にする。同じ画素が複数の起点から
-            // 見つかっても値は同じ(色だけで決まる)なので、最初の 1 回だけ書いて残りは捨てる。
-            var frontier = new List<int>();
-            void Apply() {
-                frontier.Clear();
-                foreach (var arr in found) {
-                    foreach (var (idx, v) in arr) {
-                        if (strength[idx] > 0f) {
-                            continue;
-                        }
-                        strength[idx] = v;
-                        frontier.Add(idx);
-                    }
-                }
-                found.Clear();
-            }
-            Apply();
-
-            for (int pass = 1; pass < passes && frontier.Count > 0; pass++) {
-                ct.ThrowIfCancellationRequested();
-                int[] fr = frontier.ToArray();
-                const int Chunk = 4096;
-                int nChunks = (fr.Length + Chunk - 1) / Chunk;
-                Parallel.For(0, nChunks, recoverPo, () => new List<(int, float)>(), (ci, _, hits) => {
-                    int k1 = Math.Min(fr.Length, (ci + 1) * Chunk);
-                    for (int k = ci * Chunk; k < k1; k++) {
-                        int q = fr[k];
-                        int qy = q / w, qx = q - qy * w;
-                        int ny0 = Math.Max(boxMinY, qy - 1), ny1 = Math.Min(boxMaxY, qy + 1);
-                        int nx0 = Math.Max(boxMinX, qx - 1), nx1 = Math.Min(boxMaxX, qx + 1);
-                        for (int ny = ny0; ny <= ny1; ny++) {
-                            for (int nx = nx0; nx <= nx1; nx++) {
-                                int idx = ny * w + nx;
-                                if (strength[idx] > 0f) {
-                                    continue;   // q 自身も(選択済みなので)ここで外れる
-                                }
-                                float rel = RelaxedAt(idx);
-                                if (rel > 0f) {
-                                    hits.Add((idx, rel));
-                                }
-                            }
-                        }
-                    }
-                    return hits;
-                },
-                hits => {
-                    if (hits.Count > 0) {
-                        lock (foundLock) {
-                            found.Add(hits.ToArray());
-                        }
-                    }
+            // パス 1 の書き込みと 2 パス目以降(直前のパスで書いた画素の隣だけを調べる)。同じ画素が複数の起点から
+            // 見つかっても値は同じ(色だけで決まる)。
+            WriteAndGrowFrontier(strength, w, found, foundLock, passes,
+                boxMinX, boxMinY, boxMaxX, boxMaxY, recoverPo, ct,
+                (int nx, int ny, int idx, out float v) => {
+                    v = RelaxedAt(idx);
+                    return v > 0f;
                 });
-                Apply();
-            }
         }
 
         /// <summary>

@@ -382,8 +382,7 @@
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
 | `QuantSmoothLevels` | `1` | 量子化 | QS | 8bit で 1 階調以内の隣だけ平均する（量子化誤差の幅そのもの） |
-| `Chunk` | `4096` | 計算 | FH | 穴埋め 2 パス目以降の並列の分割単位。書き込みはパスの最後なので出力は不変 |
-| `Chunk` | `4096` | 計算 | BE | 境界回復 2 パス目以降の並列の分割単位。出力は不変 |
+| `Chunk` | `4096` | 計算 | FH | 穴埋めと境界回復（段 BE）の 2 パス目以降（共通の WriteAndGrowFrontier）の並列の分割単位。書き込みはパスの最後なので出力は不変 |
 | `ChromaCeilProtectRadius` | `12` | 実測 | CC | 素材自身の高彩度の帯を守る半径。実測で GT の高彩度画素の 99%+ を覆う幅 |
 | `matchThr` | `ColorZone.MatchStrengthFloor` | 設計 | CC | MatchStrengthFloor の局所別名 |
 | `matchThr` | `ColorZone.MatchStrengthFloor` | 設計 | EN | MatchStrengthFloor の局所別名 |
