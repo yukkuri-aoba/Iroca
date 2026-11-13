@@ -59,35 +59,49 @@ namespace Iroca {
             }
 
             // ── 登録先と土台 ──
+            // 使うレシピ(UI の登録と同じ順。登録先が無い書き出し・比較画像では、このテクスチャのレシピがちょうど 1 つならそれ)。
+            // 登録では、ほかのアバターが使っているレシピを流用しない。流用して書き換えると、そのアバターの色も
+            // 一緒に変わる(別のシーンにいると気付きにくく、窓を閉じていれば Ctrl+Z でも戻らなかった)。
+            IrocaRecipe notShared;
+            List<IrocaRecolor> notSharedUsers;
+            bool recipeUnreadable;
             if (r.apply == ApplyAvatar) {
                 string blocked = AvatarApplyBlocked(EditorApplication.isPlayingOrWillChangePlaymode, NdmfStateForApply);
                 if (blocked != null) {
                     return blocked;
                 }
+                GameObject asked = null;
                 if (!string.IsNullOrWhiteSpace(req.avatar)) {
-                    job.target = FindSceneObject(req.avatar, out string findError);
-                    if (job.target == null) {
+                    asked = FindSceneObject(req.avatar, out string findError);
+                    if (asked == null) {
                         return findError;
                     }
-                    if (!RecipeRegistration.IsInsideAvatar(job.target.transform)) {
+                }
+                // 登録できるか・登録先・使うレシピは、窓の登録と同じ順・同じ判断(RegistrationService.Prepare)。再生中は上で
+                // 断ってあり(NDMF の有無と一緒に文にする)、ゾーンはこの依頼が足す。
+                var prep = RegistrationService.Prepare(tex, asked, null, hasEnabledZones: true, playing: false,
+                    shareWithOtherAvatars: false);
+                switch (prep.refusal) {
+                    case RegistrationService.Refusal.NotInScene:
+                    case RegistrationService.Refusal.OutsideAvatar:
                         return $"'{req.avatar}' is not inside an avatar (no VRC Avatar Descriptor on it or its parents). "
                             + "Registered there, the recolor would show in the scene preview but not in the upload. "
                             + "Pass the avatar or an object under it.";
-                    }
-                } else {
-                    job.target = RecipeRegistration.SuggestTarget(tex, null);
-                    if (job.target == null) {
+                    case RegistrationService.Refusal.Undecided:
                         return "could not decide which object to register on (the texture is used by no "
                             + "scene object, by several avatars, or only by objects outside any avatar). Pass 'avatar' (a scene object path).";
-                    }
                 }
+                job.target = prep.target;
                 r.avatar = HierarchyPath(job.target.transform);
+                job.recipe = prep.recipe;
+                notShared = prep.notShared;
+                notSharedUsers = prep.notSharedUsers;
+                recipeUnreadable = prep.refusal == RegistrationService.Refusal.RecipeUnreadable;
+            } else {
+                job.recipe = RegistrationService.ChooseRecipe(null, tex, null, shareWithOtherAvatars: false,
+                    out notShared, out notSharedUsers);
+                recipeUnreadable = RegistrationService.IsUnreadable(job.recipe);
             }
-            // 使うレシピ(UI の登録と同じ順。登録先が無い書き出し・比較画像では、このテクスチャのレシピがちょうど 1 つならそれ)。
-            // 登録では、ほかのアバターが使っているレシピを流用しない。流用して書き換えると、そのアバターの色も
-            // 一緒に変わる(別のシーンにいると気付きにくく、窓を閉じていれば Ctrl+Z でも戻らなかった)。
-            job.recipe = RegistrationService.ChooseRecipe(job.target, tex, null, shareWithOtherAvatars: false,
-                out var notShared, out var notSharedUsers);
             if (notShared != null) {
                 var users = notSharedUsers.ConvertAll(c => HierarchyPath(c.transform));
                 users.Sort(StringComparer.Ordinal);
@@ -96,7 +110,7 @@ namespace Iroca {
                     + "(the zones of that recipe are not carried over).");
             }
             // 読めないレシピ(新しい版のいろかで作られた等)は土台にも書き込み先にもしない(UI と同じ)。
-            if (RegistrationService.IsUnreadable(job.recipe)) {
+            if (recipeUnreadable) {
                 return $"the existing recipe cannot be read (made by a newer Iroca?): {AssetDatabase.GetAssetPath(job.recipe)}";
             }
 

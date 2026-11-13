@@ -5,11 +5,86 @@ using UnityEngine;
 
 namespace Iroca {
     /// <summary>
-    /// 「アバターに非破壊で登録」の判断(0.4.0 の計画の 4-3)。どのレシピを使うか・登録で何が起きるかを
-    /// 「計画」(<see cref="Plan"/>)にまとめ、ウィンドウは確認画面に、自動化(MCP)は警告にする。同じ判断を 2 か所に書かない。
+    /// 「アバターに非破壊で登録」の判断(0.4.0 の計画の 4-3)。登録できるか・登録先・どのレシピを使うか
+    /// (<see cref="Prepare"/>)と、登録で何が起きるか(「計画」<see cref="Plan"/>)をまとめ、ウィンドウは確認画面に、
+    /// 自動化(MCP)は警告とエラーにする。同じ判断を 2 か所に書かない。
     /// 登録先の候補選び・コンポーネントの付与・マテリアルの戻し方そのものは <see cref="RecipeRegistration"/>(Infra)。
     /// </summary>
     internal static class RegistrationService {
+        /// <summary>登録を始められない理由(<see cref="Prepare"/>)。文は呼ぶ側が持つ(ウィンドウは確認画面、自動化は返すエラー)。</summary>
+        internal enum Refusal {
+            None,
+            /// <summary>再生中。付けたコンポーネントは再生を止めると消え、書き出した画像から元へ戻したマテリアル(アセット)だけが残る。</summary>
+            Playing,
+            /// <summary>有効なゾーンが無い(登録するものが無い)。</summary>
+            NoZones,
+            /// <summary>指した登録先がシーンの中に無い(Prefab のアセットなど)。</summary>
+            NotInScene,
+            /// <summary>指した登録先がアバターの外。そこに付けると、シーンのプレビューでは色が変わるのに、アップロードでは変わらない。</summary>
+            OutsideAvatar,
+            /// <summary>登録先を指していなくて、テクスチャの使われ方からも決まらない(使っていない・複数のアバター・アバターの外だけ)。</summary>
+            Undecided,
+            /// <summary>使うレシピの中身を読めない(新しい版のいろかで作られた・壊れた)。上書きすると戻せない。</summary>
+            RecipeUnreadable,
+            /// <summary>結び付いているレシピが外(git など)で書き換わっている。窓の古い内容で上書きせず、読み直してからにする。</summary>
+            RecipeChangedOutside,
+        }
+
+        /// <summary>登録の下ごしらえ(<see cref="Prepare"/>)の結果。</summary>
+        internal sealed class Preparation {
+            public Refusal refusal;
+            /// <summary>登録先。決まる前に断ったときは null。</summary>
+            public GameObject target;
+            /// <summary>使うレシピ(null = 新しく作る)。レシピが理由で断ったときは、そのレシピ。</summary>
+            public IrocaRecipe recipe;
+            /// <summary>ほかのアバターが使っているので流用しなかったレシピ(<see cref="ChooseRecipe"/>。無ければ null)。</summary>
+            public IrocaRecipe notShared;
+            /// <summary><see cref="notShared"/> を使っている所。</summary>
+            public List<IrocaRecolor> notSharedUsers;
+        }
+
+        /// <summary>
+        /// 登録の下ごしらえ: 登録できるかを決まった順に確かめ、登録先と使うレシピを決める。ウィンドウの「アバターに非破壊で登録」と
+        /// 自動化(apply='avatar')が、同じ順・同じ判断を使う。断るときは理由を返し、文は呼ぶ側が出す。
+        /// 順: 再生中 → 有効なゾーンが無い → 指した登録先がシーンに無い → アバターの外 → 登録先が決まらない → レシピを読めない →
+        /// 結び付いているレシピが外で書き換わっている。
+        /// </summary>
+        /// <param name="selected">利用者が指した登録先(無ければ null。テクスチャを使っている Renderer の共通の親にする)。</param>
+        /// <param name="bound">ウィンドウが結び付いているレシピ(無ければ null)。</param>
+        /// <param name="shareWithOtherAvatars"><see cref="ChooseRecipe"/> と同じ(確認を取れない自動化は false)。</param>
+        internal static Preparation Prepare(Texture2D source, GameObject selected, IrocaRecipe bound, bool hasEnabledZones,
+            bool playing, bool shareWithOtherAvatars) {
+            var p = new Preparation();
+            if (playing) {
+                p.refusal = Refusal.Playing;
+                return p;
+            }
+            if (!hasEnabledZones) {
+                p.refusal = Refusal.NoZones;
+                return p;
+            }
+            if (selected != null && !RecipeRegistration.IsSceneObject(selected)) {
+                p.refusal = Refusal.NotInScene;
+                return p;
+            }
+            if (selected != null && !RecipeRegistration.IsInsideAvatar(selected.transform)) {
+                p.refusal = Refusal.OutsideAvatar;
+                return p;
+            }
+            p.target = RecipeRegistration.SuggestTarget(source, selected);
+            if (p.target == null) {
+                p.refusal = Refusal.Undecided;
+                return p;
+            }
+            p.recipe = ChooseRecipe(p.target, source, bound, shareWithOtherAvatars, out p.notShared, out p.notSharedUsers);
+            if (IsUnreadable(p.recipe)) {
+                p.refusal = Refusal.RecipeUnreadable;
+            } else if (p.recipe != null && p.recipe == bound && SessionPersistence.RecipeChangedOutside(p.recipe)) {
+                p.refusal = Refusal.RecipeChangedOutside;
+            }
+            return p;
+        }
+
         /// <summary>
         /// 使うレシピ: <paramref name="preferred"/>(ウィンドウが結び付いているもの) → 登録先に既にある
         /// <paramref name="source"/> のレシピ(登録し直し = 更新) → このテクスチャのレシピがプロジェクトにちょうど 1 つならそれ。

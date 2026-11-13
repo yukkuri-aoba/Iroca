@@ -54,6 +54,80 @@ namespace Iroca.EditorTests {
         private IrocaRecipe ProjectRecipe(Texture2D source)
             => RecipeStore.Create(source, IrocaSessionState.CreateDefault(), _assets.Folder);
 
+        // アバターのルート。VRChat SDK があれば Avatar Descriptor を付ける(テストは SDK を参照しないので名前で探す)。
+        // SDK の無いホストでは、登録先がアバターの内側かは見分けない。
+        private GameObject AvatarRoot(string name) {
+            var go = Make(name);
+            foreach (var a in System.AppDomain.CurrentDomain.GetAssemblies()) {
+                var t = a.GetType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor", false);
+                if (t != null) {
+                    go.AddComponent(t);
+                    break;
+                }
+            }
+            return go;
+        }
+
+        // 登録の下ごしらえ: 断る理由を決まった順に返し、通れば登録先と使うレシピを決める(ウィンドウは確認画面に、自動化はエラーにする)。
+        [Test]
+        public void Prepare_RefusesInAFixedOrder_ThenChoosesTargetAndRecipe() {
+            var src = Png("costume");
+            var avatar = AvatarRoot("avatar");
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = src };
+            AssetDatabase.CreateAsset(mat, _assets.Folder + "/costume.mat");
+            Make("mesh", avatar).AddComponent<MeshRenderer>().sharedMaterial = mat;
+            var outside = Make("outside");
+            var prefab = PrefabUtility.SaveAsPrefabAsset(Make("asset"), _assets.Folder + "/asset.prefab");
+
+            RegistrationService.Refusal Of(GameObject selected, IrocaRecipe bound = null, bool zones = true, bool playing = false)
+                => RegistrationService.Prepare(src, selected, bound, zones, playing, shareWithOtherAvatars: true).refusal;
+
+            Assert.AreEqual(RegistrationService.Refusal.Playing, Of(prefab, zones: false, playing: true), "再生中がいちばん先");
+            Assert.AreEqual(RegistrationService.Refusal.NoZones, Of(prefab, zones: false));
+            Assert.AreEqual(RegistrationService.Refusal.NotInScene, Of(prefab), "Prefab のアセットは登録先にできない");
+            if (RecipeRegistration.CanTellAvatars) {
+                Assert.AreEqual(RegistrationService.Refusal.OutsideAvatar, Of(outside));
+            }
+            Assert.AreEqual(RegistrationService.Refusal.Undecided,
+                RegistrationService.Prepare(Png("unused"), null, null, true, false, true).refusal, "どこにも使われていないテクスチャ");
+
+            // 登録先を指していなければ、テクスチャを使っている Renderer から決める。レシピが無ければ新しく作る(null)。
+            var auto = RegistrationService.Prepare(src, null, null, true, false, true);
+            Assert.AreEqual(RegistrationService.Refusal.None, auto.refusal);
+            Assert.IsNotNull(auto.target);
+            Assert.IsTrue(auto.target.transform.IsChildOf(avatar.transform));
+            Assert.IsNull(auto.recipe);
+
+            // 結び付いているレシピが外で書き換わっていたら(同期したことが無いものも)断る。同期済みなら通る。
+            var bound = ProjectRecipe(src);
+            Assert.AreEqual(RegistrationService.Refusal.RecipeChangedOutside, Of(avatar, bound));
+            SessionPersistence.MarkRecipeSynced(bound);
+            var ok = RegistrationService.Prepare(src, avatar, bound, true, false, true);
+            Assert.AreEqual(RegistrationService.Refusal.None, ok.refusal);
+            Assert.AreSame(avatar, ok.target);
+            Assert.AreSame(bound, ok.recipe);
+
+            // 読めないレシピは使わない(外での書き換えより先に見る。断ったレシピは返す = 文に出す)。
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            try {
+                bound.sessionJson = "{ not a recipe";
+                Assert.IsTrue(RegistrationService.IsUnreadable(bound), "テストの前提: 読めないレシピ");
+                var unreadable = RegistrationService.Prepare(src, avatar, bound, true, false, true);
+                Assert.AreEqual(RegistrationService.Refusal.RecipeUnreadable, unreadable.refusal);
+                Assert.AreSame(bound, unreadable.recipe);
+            } finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
+        }
+
+        // 断る理由のどれにも、窓が出す文がある(理由を足して文を足し忘れると、空の確認画面が出る)。
+        [Test]
+        public void RegisterRefusalMessage_HasATextForEveryReason() {
+            foreach (RegistrationService.Refusal r in System.Enum.GetValues(typeof(RegistrationService.Refusal))) {
+                if (r != RegistrationService.Refusal.None) {
+                    Assert.IsNotEmpty(IrocaWindow.RegisterRefusalMessage(r, null, "recipe"), r.ToString());
+                }
+            }
+        }
+
         [Test]
         public void ChooseRecipe_BoundThenTargetsOwnThenTheOnlyOneInTheProject() {
             var src = Png("costume");

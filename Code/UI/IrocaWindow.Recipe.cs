@@ -401,53 +401,27 @@ namespace Iroca {
             if (SourceTexture == null) {
                 return;
             }
-            // Play 中に付けたコンポーネントは Play を止めると消え、書き出した画像から元へ戻したマテリアル(アセット)
-            // だけが残る。
-            if (EditorApplication.isPlayingOrWillChangePlaymode) {
-                EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterInPlayMode, Localization.OK);
-                return;
-            }
-            if (RecolorInput.CountEnabled(Session?.zones) == 0) {
-                EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNoZones, Localization.OK);
-                return;
-            }
-            var selected = Selection.activeGameObject;
-            if (selected != null && !RecipeRegistration.IsSceneObject(selected)) {
-                EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNotInScene, Localization.OK);
-                return;
-            }
-            // アバターの外に付けると、シーンのプレビューでは色が変わるのに、アップロードでは変わらない。
-            if (selected != null && !RecipeRegistration.IsInsideAvatar(selected.transform)) {
-                EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
-                    string.Format(Localization.RegisterOutsideAvatarFormat, selected.name), Localization.OK);
-                return;
-            }
-            var target = RecipeRegistration.SuggestTarget(SourceTexture, selected);
-            if (target == null) {
-                EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNoTarget, Localization.OK);
-                return;
-            }
-
+            // 登録できるかの確かめ・登録先・使うレシピは RegistrationService.Prepare が決める(自動化と同じ順・同じ判断)。
+            // ここは、断る理由と確認を画面に出すだけ。
             // 使うレシピ: 結び付いているもの → 登録先に既にあるこのテクスチャのレシピ(登録し直し = 更新)
             // → このテクスチャのレシピがプロジェクトにちょうど 1 つならそれ → 新しく作る。ほかのアバターが使うレシピも
             // 流用する(確認画面で知らせる。確認できない自動化は流用しない)。
-            var recipe = RegistrationService.ChooseRecipe(target, SourceTexture, BoundRecipe,
-                shareWithOtherAvatars: true, out _, out _);
+            var selected = Selection.activeGameObject;
+            var prep = RegistrationService.Prepare(SourceTexture, selected, BoundRecipe,
+                hasEnabledZones: RecolorInput.CountEnabled(Session?.zones) > 0,
+                playing: EditorApplication.isPlayingOrWillChangePlaymode, shareWithOtherAvatars: true);
+            var target = prep.target;
+            var recipe = prep.recipe;
             string recipeLabel = recipe != null
                 ? AssetDatabase.GetAssetPath(recipe)
                 : string.Format(Localization.RegisterRecipeNew, RecipeStore.PathForNew(SourceTexture));
-            // 読めないレシピ(新しい版のいろかで作られた・壊れた)は上書きしない(戻せないため。自動化 API と同じ判定)。
-            if (RegistrationService.IsUnreadable(recipe)) {
+            if (prep.refusal != RegistrationService.Refusal.None) {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
-                    string.Format(Localization.RegisterRecipeUnreadableFormat, recipeLabel), Localization.OK);
-                return;
-            }
-            // 保存先のレシピが外(git など)で書き換わっていたら、窓の古い内容で上書きせず、読み直してから
-            // 確かめてもらう。
-            if (recipe != null && recipe == BoundRecipe && SessionPersistence.RecipeChangedOutside(recipe)) {
-                EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
-                    string.Format(Localization.RegisterRecipeChangedOutsideFormat, recipeLabel), Localization.OK);
-                ScheduleRecipeReload();
+                    RegisterRefusalMessage(prep.refusal, selected, recipeLabel), Localization.OK);
+                // 保存先のレシピが外(git など)で書き換わっていたら、窓の古い内容で上書きせず、読み直してから確かめてもらう。
+                if (prep.refusal == RegistrationService.Refusal.RecipeChangedOutside) {
+                    ScheduleRecipeReload();
+                }
                 return;
             }
 
@@ -466,6 +440,32 @@ namespace Iroca {
             var component = CommitRegistration(plan, recipe, choice);
             EditorGUIUtility.PingObject(component);
             ShowNotification(new GUIContent(string.Format(Localization.RegisterDoneFormat, target.name)));
+        }
+
+        /// <summary>
+        /// 登録を断るときの文(理由は <see cref="RegistrationService.Prepare"/> が決める)。<paramref name="selected"/> は利用者が
+        /// 指していた登録先、<paramref name="recipeLabel"/> は使うはずだったレシピの呼び名。internal はテストが画面を出さずに文を見るため。
+        /// </summary>
+        internal static string RegisterRefusalMessage(RegistrationService.Refusal refusal, GameObject selected, string recipeLabel) {
+            switch (refusal) {
+                case RegistrationService.Refusal.Playing:
+                    return Localization.RegisterInPlayMode;
+                case RegistrationService.Refusal.NoZones:
+                    return Localization.RegisterNoZones;
+                case RegistrationService.Refusal.NotInScene:
+                    return Localization.RegisterNotInScene;
+                case RegistrationService.Refusal.OutsideAvatar:
+                    return string.Format(Localization.RegisterOutsideAvatarFormat, selected != null ? selected.name : "");
+                case RegistrationService.Refusal.Undecided:
+                    return Localization.RegisterNoTarget;
+                case RegistrationService.Refusal.RecipeUnreadable:
+                    // 読めないレシピ(新しい版のいろかで作られた・壊れた)は上書きしない(戻せないため)。
+                    return string.Format(Localization.RegisterRecipeUnreadableFormat, recipeLabel);
+                case RegistrationService.Refusal.RecipeChangedOutside:
+                    return string.Format(Localization.RegisterRecipeChangedOutsideFormat, recipeLabel);
+                default:
+                    return "";
+            }
         }
 
         /// <summary>
