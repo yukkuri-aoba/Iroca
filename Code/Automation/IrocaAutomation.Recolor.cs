@@ -618,9 +618,9 @@ namespace Iroca {
             // ── 原本の画素 ──
             // ここより前の断りは画素を使わない。以前は依頼の頭でデコードしていたので、断る依頼でも、窓が同じテクスチャを
             // 開いていなければ元の画像を丸ごと読んでいた(8K で数百 ms と 256MB)。下のゾーンの変更は、at の画素を読む。
-            var kind = ReadWorkingPixels(abs, tex, out job.work);
+            var kind = ReadWorkingPixels(abs, tex, out job.work, out string openError);
             if (!ExportPipeline.HasPixels(kind)) {
-                return "could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).";
+                return UnreadablePixels(kind, openError);
             }
             job.w = job.work.Width;
             job.h = job.work.Height;
@@ -940,8 +940,13 @@ namespace Iroca {
             if (!job.workIsFullResolution) {
                 // 「適用して保存」と同じ読み方(ExportService。PNG/JPG はファイルを直接、ほかは取り込み済みテクスチャ)。
                 string srcAbs = PhysicalPath(job.r.texture);
-                if (srcAbs == null || !ExportPipeline.HasPixels(ExportService.ReadSource(srcAbs, job.tex, out full))) {
+                if (srcAbs == null) {
                     return "failed to read the source texture at its original resolution.";
+                }
+                var fullKind = ExportPipeline.ReadSource(srcAbs, job.tex, workingSize: false, out full, out string openError);
+                if (!ExportPipeline.HasPixels(fullKind)) {
+                    return fullKind == ExportPipeline.SourceKind.Locked ? UnreadablePixels(fullKind, openError)
+                        : "failed to read the source texture at its original resolution.";
                 }
             }
             var work = job.work.AddRef();   // 背景の仕上げが読む間の参照
@@ -1147,22 +1152,32 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 作業解像度の原本を読む(<see cref="ExportPipeline.ReadWorkingPixelsNative"/>。参照 1 で返すので呼んだ側が Release する)。
+        /// 作業解像度の原本を読む(<see cref="ExportPipeline.ReadSource"/>。参照 1 で返すので呼んだ側が Release する)。
         /// いろかの窓が同じ元ファイルを読んだ画素を持っていて、読んだ後にファイルが変わっていなければ、デコードし直さずに
         /// それを共有する(同じデコーダ・同じ作業解像度なので同じ画素。呼ぶたびにメインスレッドで 4K を読み直していた)。
         /// 共有した画素は窓のプレビューも読んでいるので書き換えない(色替えは写してから。<see cref="Compare"/>)。
+        /// ファイルを開けなければ Locked で、<paramref name="openError"/> に OS の理由(<see cref="UnreadablePixels"/> で文にする)。
         /// </summary>
-        private static ExportPipeline.SourceKind ReadWorkingPixels(string abs, Texture2D tex, out NativePixels pixels) {
+        private static ExportPipeline.SourceKind ReadWorkingPixels(string abs, Texture2D tex, out NativePixels pixels,
+            out string openError) {
+            openError = null;
             pixels = EditingWindows.Current?.ShareSourcePixels(tex);
             if (pixels != null) {
                 return ExportPipeline.SourceKind.File;
             }
-            return ExportPipeline.ReadWorkingPixelsNative(abs, tex, out pixels);
+            return ExportPipeline.ReadSource(abs, tex, workingSize: true, out pixels, out openError);
         }
 
+        // 画素を読めなかった理由(依頼した側へ返す文)。開けなかったときは、取り込み済みテクスチャ(縮小・圧縮済み)では代えない。
+        private static string UnreadablePixels(ExportPipeline.SourceKind kind, string openError) =>
+            kind == ExportPipeline.SourceKind.Locked
+                ? $"could not open the source file ({openError}). Another app may have it open, or it may be an online-only "
+                    + "file of a sync service. Try again once the file can be opened."
+                : "could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).";
+
         /// <summary>
-        /// 作業解像度で読んだ画素(<see cref="ExportPipeline.ReadWorkingPixelsNative"/>)が、書き出しで読む
-        /// 元の解像度の画素(<see cref="ExportService.ReadSource"/>)と同じになるか。取り込み済みテクスチャから読んだとき(PSD・TGA など)は
+        /// 作業解像度で読んだ画素(<see cref="ExportPipeline.ReadSource"/> の workingSize)が、書き出しで読む
+        /// 元の解像度の画素と同じになるか。取り込み済みテクスチャから読んだとき(PSD・TGA など)は
         /// どちらも同じ画素を読む。ファイルから読んだときは、寸法が元のファイルと同じなら縮めていない
         /// (<see cref="WorkingResolution.NativePixelsOf"/> は寸法が同じならデコードした画素をそのまま写す)。
         /// </summary>

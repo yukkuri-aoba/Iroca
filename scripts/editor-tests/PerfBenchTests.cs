@@ -99,7 +99,7 @@ namespace Iroca.EditorTests {
             Assert.IsNotNull(state, $"{c.name}: {error}");
             var input = RecolorInput.FromSaved(state);
             Assert.IsNotNull(input, $"{c.name}: 有効なゾーンがありません");
-            Assert.IsTrue(ExportPipeline.HasPixels(ExportService.ReadSource(c.png, null, out NativePixels src)),
+            Assert.IsTrue(ExportPipeline.HasPixels(ExportPipeline.ReadSource(c.png, null, workingSize: false, out NativePixels src, out _)),
                 $"{c.name}: PNG を読めません: {c.png}");
             NativePixels work = null;
             try {

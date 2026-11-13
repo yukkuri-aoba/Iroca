@@ -10,30 +10,10 @@ namespace Iroca {
     /// 書き出し(「適用して保存」と自動化 API。0.4.0 の計画の 4-3、A3): 原本を元の解像度で読む → 色替え → PNG →
     /// 書き込みと取り込み。画素も PNG も Mono のヒープの外に置く(以前は管理配列で、8K で原本 256MB と PNG が載った。
     /// 広がった Mono のヒープは OS へ返らない)。PNG のバイト列は、管理配列の版(<see cref="ExportPipeline.EncodePng"/>。
-    /// いまは比較画像などの小さい PNG に使う)と同じ(TextureIOTests・WindowOutputParityTests)。出力先などの決まりごとは
-    /// <see cref="ExportPipeline"/>。
+    /// いまは比較画像などの小さい PNG に使う)と同じ(TextureIOTests・WindowOutputParityTests)。出力先などの決まりごとと、
+    /// 原本を読む口(<see cref="ExportPipeline.ReadSource"/>。書き出しは元の解像度で読む)は <see cref="ExportPipeline"/>。
     /// </summary>
     internal static unsafe class ExportService {
-        /// <summary>
-        /// 書き出しの原本を元の解像度で読む(メインスレッド専用。参照 1 で返すので、呼ぶ側が Release する)。
-        /// PNG/JPG はファイルを直接デコードするので取り込み設定(Max Size・圧縮・Read/Write)の影響を受けない。
-        /// PSD/TGA/EXR 等は Unity が取り込み時に変換しているので LoadImage で読めず、取り込み済みテクスチャの画素を使う
-        /// (縮小・圧縮を受けている)。どちらも読めなければ <see cref="ExportPipeline.SourceKind.Unavailable"/> か
-        /// <see cref="ExportPipeline.SourceKind.Undecodable"/>(原本が壊れた PNG/JPG)で、画素は null。
-        /// </summary>
-        internal static ExportPipeline.SourceKind ReadSource(string srcPath, Texture2D imported, out NativePixels pixels) {
-            pixels = TextureIO.ReadSourceFile(srcPath, imported, workingSize: false);
-            if (pixels != null) {
-                return ExportPipeline.SourceKind.File;
-            }
-            if (!TextureIO.IsReadable(imported)) {
-                return ExportPipeline.Unreadable(srcPath);
-            }
-            // 取り込み済みテクスチャの寸法のまま(GetPixels32 と同じ値。非圧縮の形式は管理配列を経由しない)。
-            pixels = WorkingResolution.NativePixelsOf(imported, null);
-            return ExportPipeline.SourceKind.ImportedTexture;
-        }
-
         /// <summary>
         /// <paramref name="pixels"/> をその場で色替えする(背景のスレッドで呼んでよい)。有効なゾーンが無ければ何もしない。
         /// </summary>

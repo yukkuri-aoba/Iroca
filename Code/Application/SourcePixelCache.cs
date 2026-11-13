@@ -244,36 +244,44 @@ namespace Iroca {
             return LoadOnMainThread(tex);
         }
 
-        // 可能ならディスク上の元ファイルをデコードして作業解像度にそろえ、PNG/JPG 以外や生成テクスチャ等で失敗した場合は
-        // インポート済みテクスチャの画素にフォールバックする。
+        // 原本を読む口(ExportPipeline.ReadSource。書き出し・ビルド・自動化と同じ)で、作業解像度の画素を読む。PNG/JPG 以外と
+        // その場で作ったテクスチャは、取り込み済みテクスチャ(要 Read/Write)の画素になる。元ファイルを開けなかったときは、ここだけが
+        // 取り込み済みテクスチャの画素で代える(書き出しとビルドは止まる): 編集は続けられるようにし、開けなかったことを覚える
+        // (窓が案内を出し、開けるようになったら読み直す)。
         private bool LoadOnMainThread(Texture2D tex) {
             string path = AssetDatabase.GetAssetPath(tex);
-            if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path)) {
-                try {
-                    var stamp = FileStamp.Of(path);
-                    var decoded = TextureIO.DecodeSourceFile(path, tex);
-                    if (decoded != null) {
-                        Set(tex, decoded, fromFile: true, stamp);
-                        return true;
-                    }
-                } catch (System.Exception ex) {
-                    Debug.LogWarning($"[Iroca] Source file load failed, falling back to imported texture: {ex.Message}");
-                    // 開けない・読めないのは、ほかのアプリ(同期のツール・ウイルス対策・画像の編集ソフト)が一時的につかんでいる
-                    // ことが多い。覚えておいて、開けるようになったら読み直す。以前は、取り込み済みテクスチャの画素(縮小・圧縮済み)に
-                    // 切り替わったまま、テクスチャを開き直すまで戻らなかった。
-                    if (ex is System.IO.IOException || ex is UnauthorizedAccessException) {
-                        _fileLockedFor = tex;
-                        _fileRetryAt = EditorApplication.timeSinceStartup + LockedFileRetrySeconds;
-                    }
+            // アセットでないテクスチャと、Unity の外で消されたファイルは、テクスチャそのものの画素を読む。
+            bool hasFile = !string.IsNullOrEmpty(path) && System.IO.File.Exists(path);
+            var stamp = hasFile ? FileStamp.Of(path) : default;
+            NativePixels pixels = null;
+            string openError = null;
+            ExportPipeline.SourceKind kind;
+            try {
+                if (hasFile) {
+                    kind = ExportPipeline.ReadSource(path, tex, workingSize: true, out pixels, out openError);
+                } else {
+                    kind = ExportPipeline.ReadImported(path, tex, out pixels);
                 }
+            } catch (System.Exception ex) {
+                // デコードの途中の思わぬ失敗。開けなかったのとは違うので、読み直しは待たない。
+                Debug.LogWarning($"[Iroca] Source file load failed, falling back to imported texture: {ex.Message}");
+                kind = ExportPipeline.ReadImported(path, tex, out pixels);
             }
-
-            // フォールバック: インポート済みテクスチャ（要 Read/Write）。
-            if (!TextureIO.IsReadable(tex)) {
+            if (kind == ExportPipeline.SourceKind.Locked) {
+                // 開けないのは、ほかのアプリ(同期のツール・ウイルス対策・画像の編集ソフト)が一時的につかんでいることが多い。
+                // 覚えておいて、開けるようになったら読み直す。以前は、取り込み済みテクスチャの画素(縮小・圧縮済み)に切り替わった
+                // まま、テクスチャを開き直すまで戻らなかった。
+                Debug.LogWarning($"[Iroca] Source file could not be opened (using the imported texture's pixels if they are readable; will retry): {openError}");
+                _fileLockedFor = tex;
+                _fileRetryAt = EditorApplication.timeSinceStartup + LockedFileRetrySeconds;
+                kind = ExportPipeline.ReadImported(path, tex, out pixels);
+            }
+            if (!ExportPipeline.HasPixels(kind)) {
                 _failedFor = tex;
                 return false;
             }
-            Set(tex, WorkingResolution.NativePixelsOf(tex, null), fromFile: false, default);
+            bool fromFile = kind == ExportPipeline.SourceKind.File;
+            Set(tex, pixels, fromFile, fromFile ? stamp : default);
             return true;
         }
 
@@ -316,7 +324,7 @@ namespace Iroca {
             }
             try {
                 using (new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read, 1)) { }
-            } catch (Exception e) when (e is System.IO.IOException || e is UnauthorizedAccessException) {
+            } catch (Exception e) when (ExportPipeline.IsOpenFailure(e)) {
                 return false;
             }
             _fileLockedFor = null;

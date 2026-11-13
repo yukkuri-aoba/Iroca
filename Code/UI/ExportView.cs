@@ -420,18 +420,25 @@ namespace Iroca {
             // プレビューが同じ元ファイルを元の解像度のまま読んで持っていれば、読み直さずにそれを写して使う(ジョブの中で)。
             NativePixels shared = null;
             int texW = 0, texH = 0;
-            bool readInJob;
+            bool readInJob = false;
+            string openError = null;
             try {
                 readInJob = readInJobAllowed && PngFileDecoder.CanDecode(srcPath);
                 if (readInJob) {
                     shared = ShareFullResolutionSource(sourceTexture, srcPath);
                 }
                 if (!readInJob) {
-                    source = ExportService.ReadSource(srcPath, sourceTexture, out pixels);
+                    source = ExportPipeline.ReadSource(srcPath, sourceTexture, workingSize: false, out pixels, out openError);
                 }
-            } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) {
-                // ほかのソフトが開いている・オンライン専用のファイルなど。例外のままだと欄に理由が出ない。
-                NotifyError(string.Format(Localization.ExportSourceReadFailedFormat, e.Message));
+            } catch (System.Exception e) when (ExportPipeline.IsOpenFailure(e)) {
+                // PNG かどうかを確かめる所で開けなかった。
+                source = ExportPipeline.SourceKind.Locked;
+                openError = e.Message;
+            }
+            if (source == ExportPipeline.SourceKind.Locked) {
+                // ほかのソフトが開いている・オンライン専用のファイルなど。取り込み済みテクスチャ(縮小・圧縮済み)では書き出さず、
+                // 理由を欄に出して止める。
+                NotifyError(string.Format(Localization.ExportSourceReadFailedFormat, openError));
                 return;
             }
             if (!ExportPipeline.HasPixels(source)) {
@@ -490,7 +497,7 @@ namespace Iroca {
                     } else if (readInJob) {
                         try {
                             pixels = TextureIO.TryDecodePngOffMainThread(srcPath, 0, 0, ct);
-                        } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) {
+                        } catch (System.Exception e) when (ExportPipeline.IsOpenFailure(e)) {
                             throw new System.Exception(string.Format(Localization.ExportSourceReadFailedFormat, e.Message), e);
                         }
                         // 見出しは読めたが画素の途中で壊れている。メインスレッドで読み直す(onError)。
@@ -603,7 +610,7 @@ namespace Iroca {
                 if (!PngFileDecoder.TryReadSize(srcPath, out fileW, out fileH)) {
                     return null;
                 }
-            } catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) {
+            } catch (System.Exception e) when (ExportPipeline.IsOpenFailure(e)) {
                 return null;
             }
             if (sources.Width != fileW || sources.Height != fileH) {

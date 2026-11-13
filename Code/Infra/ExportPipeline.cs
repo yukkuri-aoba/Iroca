@@ -9,10 +9,10 @@ using UnityEngine.Experimental.Rendering;
 
 namespace Iroca {
     /// <summary>
-    /// 「適用して保存」と自動化 API が共有する、書き出しの決まりごと: 原本を読めるかの種類(<see cref="SourceKind"/>)・
-    /// 出力先のパス・取り込み設定の引き継ぎ・同じファイルかの判定と、作業解像度の原本の読み込み、比較画像などの小さい PNG 化
-    /// (管理配列の版)。書き出しそのものの手順(元の解像度で読む → 色替え → PNG 化 → 書き込みと取り込み。画素も PNG も
-    /// ヒープの外)は、Application の ExportService が持つ。
+    /// 「適用して保存」と自動化 API が共有する、書き出しの決まりごと: 原本を読む口(<see cref="ReadSource"/>。窓のプレビュー・
+    /// 書き出し・非破壊ビルド・自動化が、これ 1 つで読む)と読めたかの種類(<see cref="SourceKind"/>)・出力先のパス・
+    /// 取り込み設定の引き継ぎ・同じファイルかの判定、比較画像などの小さい PNG 化(管理配列の版)。書き出しそのものの手順
+    /// (元の解像度で読む → 色替え → PNG 化 → 書き込みと取り込み。画素も PNG もヒープの外)は、Application の ExportService が持つ。
     /// 複数のテクスチャへの一括適用の画面は外した(当面出さないまま残っていた。2026-11-13)。出力先の重なりを見つける計画
     /// (<see cref="PlanBatch{T}"/>)は、次に一括の入口を作るときのために残してある(いま呼ぶのはテストだけ)。
     /// UI（ダイアログ・進捗・通知）は持たないので、EditMode テスト（scripts/editor-tests）から直接呼べる。
@@ -30,17 +30,35 @@ namespace Iroca {
             /// Read/Write を有効にすると後者が使える）。
             /// </summary>
             Undecodable,
+            /// <summary>
+            /// 原本ファイルを開けない(ほかのアプリがつかんでいる・同期サービスのオンライン専用のファイル・権限・Unity の外で消した)。
+            /// 画素は読んでいない。取り込み済みテクスチャ(縮小・圧縮済み)で代えるかは、呼ぶ側が決める: 書き出し・ビルド・自動化は
+            /// 代えずに止め(粗い画素を黙って出さない)、窓は代えて案内を出し、開けるようになったら読み直す(<see cref="ReadImported"/>)。
+            /// </summary>
+            Locked,
         }
 
         /// <summary>画素を読めたか(<see cref="SourceKind.File"/> か <see cref="SourceKind.ImportedTexture"/>)。</summary>
         public static bool HasPixels(SourceKind kind) => kind == SourceKind.File || kind == SourceKind.ImportedTexture;
 
         /// <summary>
-        /// 原本も取り込み側も読めなかったときの区別。原本が PNG/JPG なのにデコードできなければ <see cref="SourceKind.Undecodable"/>、
-        /// それ以外(PSD・TGA など Unity が取り込みで変換する形式)は <see cref="SourceKind.Unavailable"/>。
+        /// 原本ファイルを開けなかった例外か(共有の違反・権限・無い)。原本を読む口はこれを <see cref="SourceKind.Locked"/> にして
+        /// 返す。口の外でファイルを開く所(PNG かどうかの確かめ・別スレッドの読み込み)も、同じ見分けを使う。
         /// </summary>
-        internal static SourceKind Unreadable(string srcPath) =>
-            TextureIO.IsPngOrJpeg(srcPath) ? SourceKind.Undecodable : SourceKind.Unavailable;
+        internal static bool IsOpenFailure(Exception ex) => ex is IOException || ex is UnauthorizedAccessException;
+
+        // 原本も取り込み側も読めなかったときの区別。原本が PNG/JPG なのにデコードできなければ Undecodable、それ以外(PSD・TGA など
+        // Unity が取り込みで変換する形式、ファイルの無いテクスチャ、いま開けないファイル)は Unavailable。
+        private static SourceKind Unreadable(string srcPath) {
+            if (string.IsNullOrEmpty(srcPath)) {
+                return SourceKind.Unavailable;
+            }
+            try {
+                return TextureIO.IsPngOrJpeg(srcPath) ? SourceKind.Undecodable : SourceKind.Unavailable;
+            } catch (Exception ex) when (IsOpenFailure(ex)) {
+                return SourceKind.Unavailable;
+            }
+        }
 
         /// <summary>元のファイルへ上書きして書き出せるか。書くのは Assets の下だけ(パッケージの中は取り込まれず、更新で消える)。</summary>
         public static bool CanOverwriteInPlace(string srcPath) =>
@@ -164,20 +182,48 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 原本を編集の作業解像度(<see cref="WorkingResolution"/>。既定は取り込み後の寸法)で、Mono のヒープの外
-        /// (<see cref="NativePixels"/>。参照 1 で返すので、呼び出し側が Release する)へ読む(メインスレッド専用)。
-        /// PNG/JPG はファイルを直接デコードするので取り込み設定(maxTextureSize・圧縮・Read/Write)の影響を受けない。
-        /// PSD/TGA/EXR 等は Unity が取り込み時に変換しているので LoadImage で読めず、取り込み済みテクスチャの画素を使う。
-        /// 非破壊ビルドはいろかのウィンドウを閉じた後にも走るので、管理配列で読むとその分(4K で 64MB)Mono のヒープに残る。
+        /// 原本の画素を読む、ただ 1 つの口(メインスレッド専用。Mono のヒープの外へ読み、参照 1 で返すので、呼ぶ側が Release する)。
+        /// 窓のプレビュー・「適用して保存」・非破壊ビルド・自動化が、同じ順・同じ区別で読む(2026-11-13 まで同じ手順が 4 か所にあり、
+        /// ファイルを開けなかったときの扱いが食い違っていた: 窓は取り込み済みの画素に黙って切り替わり、ビルドと書き出しは止まった)。
+        /// <para>
+        /// 順: PNG/JPG はファイルを直接デコードする(取り込み設定の Max Size・圧縮・Read/Write の影響を受けない)。PSD/TGA/EXR など
+        /// Unity が取り込みで変換する形式と、壊れた PNG/JPG は、取り込み済みテクスチャの画素を使う(縮小・圧縮を受けている。
+        /// Read/Write が要る)。ファイルを開けなければ <see cref="SourceKind.Locked"/> で、画素は読まない
+        /// (<paramref name="openError"/> に OS の理由)。パスが空(ファイルの無いテクスチャ)なら、テクスチャそのものの画素を読む。
+        /// </para>
+        /// <paramref name="workingSize"/> なら編集の作業解像度(<see cref="WorkingResolution"/>。既定は取り込み後の寸法)、
+        /// そうでなければ元の解像度(書き出し)。<paramref name="imported"/> が null なら、読むのはファイルだけ。
         /// </summary>
-        public static SourceKind ReadWorkingPixelsNative(string srcPath, Texture2D imported, out NativePixels pixels) {
-            pixels = TextureIO.DecodeSourceFile(srcPath, imported);
-            if (pixels != null) {
-                return SourceKind.File;
+        internal static SourceKind ReadSource(string srcPath, Texture2D imported, bool workingSize,
+            out NativePixels pixels, out string openError) {
+            pixels = null;
+            openError = null;
+            if (!string.IsNullOrEmpty(srcPath)) {
+                try {
+                    pixels = TextureIO.DecodeSourceFile(srcPath, workingSize ? imported : null);
+                } catch (Exception ex) when (IsOpenFailure(ex)) {
+                    openError = ex.Message;
+                    return SourceKind.Locked;
+                }
+                if (pixels != null) {
+                    return SourceKind.File;
+                }
             }
+            return ReadImported(srcPath, imported, out pixels);
+        }
+
+        /// <summary>
+        /// 取り込み済みテクスチャの画素を読む(原本ファイルから読めなかったときの代わり。寸法は取り込み後のまま。メインスレッド専用)。
+        /// Read/Write が無ければ読めず、<see cref="SourceKind.Unavailable"/> か、原本が PNG/JPG なのに読めなかったなら
+        /// <see cref="SourceKind.Undecodable"/>。ふつうは <see cref="ReadSource"/> が呼ぶ。じかに呼ぶのは、開けなかった原本の
+        /// 代わりを取る窓だけ。
+        /// </summary>
+        internal static SourceKind ReadImported(string srcPath, Texture2D imported, out NativePixels pixels) {
+            pixels = null;
             if (!TextureIO.IsReadable(imported)) {
                 return Unreadable(srcPath);
             }
+            // 取り込み済みテクスチャの寸法のまま(GetPixels32 と同じ値。非圧縮の形式は管理配列を経由しない)。
             pixels = WorkingResolution.NativePixelsOf(imported, null);
             return SourceKind.ImportedTexture;
         }

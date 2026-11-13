@@ -291,7 +291,7 @@ namespace Iroca.EditorTests {
                 var owner = new object();
                 NativePixels pixels = null;
                 try {
-                    var kind = ExportPipeline.ReadWorkingPixelsNative(Path.GetFullPath(assetPath), tex, out pixels);
+                    var kind = ExportPipeline.ReadSource(Path.GetFullPath(assetPath), tex, workingSize: true, out pixels, out _);
                     Assert.AreNotEqual(ExportPipeline.SourceKind.Unavailable, kind);
                     Mark(tag + "pixels");
                     Assert.IsTrue(svc.TryEnsureModels(), $"モデルのロード失敗: {svc.ErrorMessage}");

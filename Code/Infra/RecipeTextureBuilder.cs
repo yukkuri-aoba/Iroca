@@ -236,7 +236,12 @@ namespace Iroca {
                     // プールへ返して OperationCanceledException で抜ける(画素はここで手放す)。
                     ct.ThrowIfCancellationRequested();
                     if (pixels == null) {
-                        pixels = TextureIO.TryDecodePngOffMainThread(srcPath, importW, importH, ct);
+                        try {
+                            pixels = TextureIO.TryDecodePngOffMainThread(srcPath, importW, importH, ct);
+                        } catch (Exception ex) when (ExportPipeline.IsOpenFailure(ex)) {
+                            // 開けなかった(順番を待つ間に、ほかのアプリがつかんだ)。下と同じくメインスレッドで読み直し、そこでも
+                            // 開けなければ、同期のビルドと同じ理由を記録して止める(TryReadPixels)。
+                        }
                         if (pixels == null) {
                             // 見出しは読めたが、画素の途中で壊れている。窓・同期のビルドと同じ画素にするため、メインスレッドで
                             // 読み直す(FinishAsync。LoadImage と取り込み済みテクスチャ)。
@@ -266,10 +271,12 @@ namespace Iroca {
         // 最後に投げた計算(メインスレッドからしか触らない)。
         private static Task s_lastCompute = Task.CompletedTask;
 
-        // 別スレッドで読める PNG か。ファイルを開けないときは false(TryReadPixels が理由を記録して失敗にする)。
+        // 別スレッドで読める PNG か。ファイルが無い・開けないときは false(TryReadPixels が理由を記録して失敗にする)。
         private static bool CanReadOffMainThread(string srcPath) {
-            try { return PngFileDecoder.CanDecode(srcPath); } catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
-                                                                                         || ex is ArgumentException || ex is NotSupportedException) {
+            if (string.IsNullOrEmpty(srcPath)) {
+                return false;
+            }
+            try { return PngFileDecoder.CanDecode(srcPath); } catch (Exception ex) when (ExportPipeline.IsOpenFailure(ex)) {
                 return false;
             }
         }
@@ -304,7 +311,7 @@ namespace Iroca {
                 return;
             }
             if (t.Status == TaskStatus.RanToCompletion && pixels == null) {
-                // 計算のスレッドで PNG の画素を読めなかった(見出しは読めたが途中で壊れている)。同期のビルドと同じく
+                // 計算のスレッドで PNG の画素を読めなかった(見出しは読めたが途中で壊れている・開けなかった)。同期のビルドと同じく
                 // メインスレッドで読み直し(LoadImage・取り込み済みテクスチャ)、同じ計算の列へもう一度積む。読めなければ作らない。
                 if (like == null || !TryReadPixels(like, out var reread, out _)) {
                     done(null);
@@ -421,15 +428,12 @@ namespace Iroca {
         private static bool TryReadPixels(Texture2D src, out NativePixels pixels, out Failure failure) {
             failure = Failure.None;
             string srcPath = AssetDatabase.GetAssetPath(src);
-            ExportPipeline.SourceKind kind;
-            try {
-                kind = ExportPipeline.ReadWorkingPixelsNative(srcPath, src, out pixels);
-            } catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
-                                         || ex is ArgumentException || ex is NotSupportedException) {
+            var kind = ExportPipeline.ReadSource(srcPath, src, workingSize: true, out pixels, out string openError);
+            if (kind == ExportPipeline.SourceKind.Locked) {
                 // 原本のファイルを開けない(ほかのアプリが掴んでいる・同期サービスのオンライン専用ファイル・
-                // Unity の外で消した等)。ビルドでは「元テクスチャを読めません」として報告する。
-                Debug.LogWarning($"[Iroca] 元テクスチャのファイルを読めませんでした: {srcPath}\n{ex.Message}");
-                pixels = null;
+                // Unity の外で消した等)。取り込み済みテクスチャ(縮小・圧縮済み)では代えず、ビルドでは「元テクスチャを
+                // 読めません」として報告する。
+                Debug.LogWarning($"[Iroca] 元テクスチャのファイルを読めませんでした: {srcPath}\n{openError}");
                 failure = Failure.SourceUnreadable;
                 return false;
             }
@@ -695,7 +699,7 @@ namespace Iroca {
 
         /// <summary>
         /// 原本ファイル(PNG・JPG)から読んだ画素に、取り込み設定の Alpha Source を取り込みと同じく当てる。原本ファイルは
-        /// 取り込み設定を通さずに読む(<see cref="ExportPipeline.ReadWorkingPixelsNative"/>)ので、当てないと None でも PNG の
+        /// 取り込み設定を通さずに読む(<see cref="ExportPipeline.ReadSource"/>)ので、当てないと None でも PNG の
         /// アルファが戻り、アルファを使うシェーダーで元には無かった透けや穴が出る。None ならアルファを捨てて不透明に、
         /// From Gray Scale なら RGB の平均をアルファにする(Unity の説明どおり)。色替えはアルファも見て選ぶので、
         /// 色替えの後(出来上がり)に当てる。色替えした画像を同じ取り込み設定で取り込んだとき(書き出し)と同じになる。
@@ -723,7 +727,7 @@ namespace Iroca {
             tex.Apply(updateMipmaps: tex.mipmapCount > 1, makeNoLongerReadable: false);
         }
 
-        // 原本ファイルをそのまま読む形式か(PNG・JPG。原本の読み込み = ExportPipeline.ReadWorkingPixelsNative が、取り込み済みの
+        // 原本ファイルをそのまま読む形式か(PNG・JPG。原本の読み込み = ExportPipeline.ReadSource が、取り込み済みの
         // テクスチャでなくファイルを読む形式)。ここは拡張子で見るが、読む側は中身で見る(中身が PNG の .tga では食い違う)。
         private static bool ReadsSourceFile(string assetPath) {
             string ext = Path.GetExtension(assetPath).ToLowerInvariant();

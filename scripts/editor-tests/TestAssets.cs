@@ -31,7 +31,7 @@ namespace Iroca.EditorTests {
 
         /// <summary>
         /// 原本の画素を管理配列で読む(メインスレッド専用)。製品はヒープの外へ読むので
-        /// (<see cref="ExportPipeline.ReadWorkingPixelsNative"/>・<see cref="ExportService.ReadSource"/>)、
+        /// (<see cref="ExportPipeline.ReadSource"/>)、
         /// これは GetPixels32 の値と比べる基準と、配列のほうが書きやすいテストのためのもの。
         /// </summary>
         public static ExportPipeline.SourceKind ReadSourcePixels(string srcPath, Texture2D imported,

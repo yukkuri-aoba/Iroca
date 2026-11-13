@@ -19,9 +19,9 @@ namespace Iroca.EditorTests {
         [SetUp] public void SetUp() => _assets = TestAssets.Create();
         [TearDown] public void TearDown() => _assets.Dispose();
 
-        [TestCase(false, TestName = "ReadSourceFile_EqualsTheManagedPath(OriginalSize)")]
-        [TestCase(true, TestName = "ReadSourceFile_EqualsTheManagedPath(WorkingSize)")]
-        public void ReadSourceFile_EqualsTheManagedPath(bool workingSize) {
+        [TestCase(false, TestName = "DecodeSourceFile_EqualsTheManagedPath(OriginalSize)")]
+        [TestCase(true, TestName = "DecodeSourceFile_EqualsTheManagedPath(WorkingSize)")]
+        public void DecodeSourceFile_EqualsTheManagedPath(bool workingSize) {
             const int W = 37, H = 29;
             string path = _assets.WritePng("src", Pattern(W, H), W, H);
             var importer = (TextureImporter)AssetImporter.GetAtPath(path);
@@ -31,7 +31,7 @@ namespace Iroca.EditorTests {
 
             Assert.AreEqual(ExportPipeline.SourceKind.File,
                 TestAssets.ReadSourcePixels(path, imported, out var expected, out int ew, out int eh, workingSize));
-            var native = TextureIO.ReadSourceFile(path, imported, workingSize);
+            var native = TextureIO.DecodeSourceFile(path, workingSize ? imported : null);
             Assert.IsNotNull(native, "元ファイルを読めない");
             try {
                 Assert.AreEqual((ew, eh), (native.Width, native.Height));

@@ -196,9 +196,10 @@ namespace Iroca.EditorTests {
                 TestAssets.ReadSourcePixels(path, imported, out _, out _, out _));
         }
 
-        // 書き出し(「適用して保存」・一括)はヒープの外へ読む(ExportService.ReadSource)。上の管理配列の読み方と同じ画素・同じ区別。
+        // 書き出し(「適用して保存」)はヒープの外へ、元の解像度で読む(ExportPipeline.ReadSource)。上の管理配列の読み方と同じ画素・
+        // 同じ区別。
         [Test]
-        public void ExportServiceReadSource_EqualsTheManagedRead() {
+        public void ReadSource_EqualsTheManagedRead() {
             var px = Pattern(64, 64);
             string png = _assets.WritePng("src", px, 64, 64);
             var imp = (TextureImporter)AssetImporter.GetAtPath(png);
@@ -210,7 +211,7 @@ namespace Iroca.EditorTests {
             foreach (var path in new[] { png, tga }) {
                 var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
                 var expectedKind = TestAssets.ReadSourcePixels(path, imported, out var expected, out int w, out int h);
-                var kind = ExportService.ReadSource(path, imported, out NativePixels got);
+                var kind = ExportPipeline.ReadSource(path, imported, workingSize: false, out NativePixels got, out _);
                 try {
                     Assert.AreEqual(expectedKind, kind, path);
                     Assert.AreEqual((w, h), (got.Width, got.Height), path);
@@ -226,9 +227,49 @@ namespace Iroca.EditorTests {
                     }
                 } finally { got.Release(); }
             }
-            Assert.AreEqual(ExportPipeline.SourceKind.Unavailable,
-                ExportService.ReadSource(locked, AssetDatabase.LoadAssetAtPath<Texture2D>(locked), out var none));
+            Assert.AreEqual(ExportPipeline.SourceKind.Unavailable, ExportPipeline.ReadSource(locked,
+                AssetDatabase.LoadAssetAtPath<Texture2D>(locked), workingSize: false, out var none, out _));
             Assert.IsNull(none);
+        }
+
+        // 原本のファイルをほかのアプリがつかんでいて開けないとき: 取り込み済みテクスチャ(縮小・圧縮済み)が読めても、黙って代えない。
+        // Locked と OS の理由を返し、代えるかは呼ぶ側が決める(窓だけが代える。書き出し・ビルド・自動化は止まる)。
+        [TestCase(false, TestName = "ReadSource_FileHeldByAnotherApp_ReportsLocked(OriginalSize)")]
+        [TestCase(true, TestName = "ReadSource_FileHeldByAnotherApp_ReportsLocked(WorkingSize)")]
+        public void ReadSource_FileHeldByAnotherApp_ReportsLocked(bool workingSize) {
+            string png = _assets.WritePng("held", Pattern(8, 8), 8, 8, readable: true);
+            var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(png);
+            using (new FileStream(TestAssets.Abs(png), FileMode.Open, FileAccess.Read, FileShare.None)) {
+                Assert.AreEqual(ExportPipeline.SourceKind.Locked,
+                    ExportPipeline.ReadSource(png, imported, workingSize, out var none, out string openError));
+                Assert.IsNull(none, "開けないのに画素を返した(取り込み済みテクスチャで代えた)");
+                Assert.IsFalse(string.IsNullOrEmpty(openError), "開けなかった理由が無い");
+                Assert.IsFalse(ExportPipeline.HasPixels(ExportPipeline.SourceKind.Locked));
+                // 代わりを取るのは、呼ぶ側が選んだときだけ(窓)。
+                Assert.AreEqual(ExportPipeline.SourceKind.ImportedTexture, ExportPipeline.ReadImported(png, imported, out var fallback));
+                fallback.Release();
+            }
+            Assert.AreEqual(ExportPipeline.SourceKind.File,
+                ExportPipeline.ReadSource(png, imported, workingSize, out var pixels, out string noError));
+            pixels.Release();
+            Assert.IsNull(noError);
+        }
+
+        // ファイルの無いテクスチャ(その場で作ったもの)は、テクスチャそのものの画素を読む。
+        [Test]
+        public void ReadSource_TextureWithoutAFile_ReadsTheTextureItself() {
+            var tex = new Texture2D(4, 4, TextureFormat.RGBA32, false);
+            try {
+                tex.SetPixels32(Pattern(4, 4));
+                tex.Apply();
+                Assert.AreEqual(ExportPipeline.SourceKind.ImportedTexture,
+                    ExportPipeline.ReadSource(AssetDatabase.GetAssetPath(tex), tex, workingSize: true, out var pixels, out _));
+                CollectionAssert.AreEqual(Pattern(4, 4), pixels.ToArray());
+                pixels.Release();
+                Assert.AreEqual(ExportPipeline.SourceKind.Unavailable,
+                    ExportPipeline.ReadSource("", null, workingSize: true, out var none, out _));
+                Assert.IsNull(none);
+            } finally { UnityEngine.Object.DestroyImmediate(tex); }
         }
 
         // 原本の PNG の画素(IDAT)だけが壊れたとき: 取り込み済みが読めればそれを使い、読めなければ「壊れているか扱えない形式」と
@@ -241,14 +282,14 @@ namespace Iroca.EditorTests {
             TestAssets.BreakPngDeflate(TestAssets.Abs(noReadWrite));
             UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
             try {
-                Assert.AreEqual(ExportPipeline.SourceKind.ImportedTexture,
-                    ExportService.ReadSource(readable, AssetDatabase.LoadAssetAtPath<Texture2D>(readable), out var pixels));
+                Assert.AreEqual(ExportPipeline.SourceKind.ImportedTexture, ExportPipeline.ReadSource(readable,
+                    AssetDatabase.LoadAssetAtPath<Texture2D>(readable), workingSize: false, out var pixels, out _));
                 pixels.Release();
-                Assert.AreEqual(ExportPipeline.SourceKind.Undecodable,
-                    ExportService.ReadSource(noReadWrite, AssetDatabase.LoadAssetAtPath<Texture2D>(noReadWrite), out var none));
+                Assert.AreEqual(ExportPipeline.SourceKind.Undecodable, ExportPipeline.ReadSource(noReadWrite,
+                    AssetDatabase.LoadAssetAtPath<Texture2D>(noReadWrite), workingSize: false, out var none, out _));
                 Assert.IsNull(none);
-                Assert.AreEqual(ExportPipeline.SourceKind.Undecodable, ExportPipeline.ReadWorkingPixelsNative(noReadWrite,
-                    AssetDatabase.LoadAssetAtPath<Texture2D>(noReadWrite), out var noneWorking));
+                Assert.AreEqual(ExportPipeline.SourceKind.Undecodable, ExportPipeline.ReadSource(noReadWrite,
+                    AssetDatabase.LoadAssetAtPath<Texture2D>(noReadWrite), workingSize: true, out var noneWorking, out _));
                 Assert.IsNull(noneWorking);
             } finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
         }

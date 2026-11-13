@@ -63,18 +63,9 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 原本の画素をヒープの外へ読む(メインスレッド専用。参照 1 で返すので、呼び出し側が Release する)。
-        /// <paramref name="workingSize"/> なら
-        /// 編集の作業解像度(<see cref="WorkingResolution"/>)、そうでなければ元の解像度(書き出し)。
-        /// 元ファイルを直接デコードできなければ(PSD・TGA・EXR など Unity が取り込みで変換するもの)null。そのときは
-        /// 呼び出し側が取り込み済みテクスチャから読む。
-        /// </summary>
-        // 取り込み済みテクスチャを渡さなければ作業解像度は元ファイルのまま(元の解像度)。
-        public static NativePixels ReadSourceFile(string srcPath, Texture2D imported, bool workingSize) =>
-            DecodeSourceFile(srcPath, workingSize ? imported : null);
-
-        /// <summary>
-        /// 元ファイルをデコードして、<paramref name="workingFor"/> の作業解像度(null なら元の解像度)の画素を返す(メインスレッド専用)。
+        /// 元ファイルをデコードして、<paramref name="workingFor"/> の作業解像度(null なら元の解像度)の画素を返す(メインスレッド専用。
+        /// 参照 1 で返すので、呼ぶ側が Release する)。製品が呼ぶのは原本を読む口(<see cref="ExportPipeline.ReadSource"/>)だけで、
+        /// 読めなかったとき・開けなかったときの扱いはそちらが決める(ここは、開けなければ IOException などをそのまま投げる)。
         /// PNG・JPG でなければ、ファイルの中身を読まずに null(PSD・TGA・EXR は数百 MB あることがあり、LoadImage は読めないのに、
         /// 全部を管理配列へ読んでいた)。PNG はヒープの外へ直接デコードする(<see cref="PngFileDecoder"/>)。JPG と、PNG のうち
         /// 扱わない形式は LoadImage で読む(管理配列しか受け取らないので、ファイルの大きさの配列を作る)。
@@ -108,8 +99,9 @@ namespace Iroca {
         /// <summary>
         /// PNG を別スレッドで読む口(どのスレッドからでもよい。参照 1 で返す)。寸法は取り込み後の寸法から
         /// <see cref="WorkingResolution"/> の規則で決める(0 を渡すと元の解像度)。
-        /// PNG でない・扱わない形式・壊れたファイルは null で、そのときはメインスレッドで <see cref="DecodeSourceFile"/> か
-        /// 取り込み済みテクスチャから読む(LoadImage と GPU の展開はメインスレッド専用)。読んでいる間、Mono のヒープには
+        /// PNG でない・扱わない形式・壊れたファイルは null で、そのときはメインスレッドで原本を読む口
+        /// (<see cref="ExportPipeline.ReadSource"/>)で読む(LoadImage と GPU の展開はメインスレッド専用)。開けなければ
+        /// IOException などを投げる(<see cref="ExportPipeline.IsOpenFailure"/>)。読んでいる間、Mono のヒープには
         /// 行の控えしか置かない。取り消されたら画素を手放して OperationCanceledException を投げる。
         /// </summary>
         public static NativePixels TryDecodePngOffMainThread(string srcPath, int importW, int importH, CancellationToken cancel) {

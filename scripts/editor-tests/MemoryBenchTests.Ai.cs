@@ -60,7 +60,7 @@ namespace Iroca.EditorTests {
             try {
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                 sb.Append(Sample(c.name, "start", 0, 0)).Append('\n');
-                var kind = ExportPipeline.ReadWorkingPixelsNative(Path.GetFullPath(assetPath), tex, out pixels);
+                var kind = ExportPipeline.ReadSource(Path.GetFullPath(assetPath), tex, workingSize: true, out pixels, out _);
                 Assert.AreNotEqual(ExportPipeline.SourceKind.Unavailable, kind, $"{c.name}: 原本を読めません");
                 Assert.IsTrue(svc.TryEnsureModels(), $"{c.name}: モデルのロード失敗: {svc.ErrorMessage}");
 
