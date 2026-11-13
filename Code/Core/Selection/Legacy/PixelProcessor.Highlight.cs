@@ -755,39 +755,8 @@ namespace Iroca {
 
                         // 4) リング(成分境界から Chebyshev 距離 2..R の選択画素)の平均 V/S。
                         //    成分に 8 隣接する画素(距離 1 = AA 混色帯)は除く。
-                        double sumV = 0, sumS = 0; int ringN = 0;
-                        const int R = EnclosedHlRingRadius;
-                        for (int k = 0; k < qTail; k++) {
-                            int packed = queue[k];
-                            int x = packed & 0xFFFF, y = packed >> 16;
-                            int i = y * w + x;
-                            bool boundary = x == 0 || y == 0 || x == w - 1 || y == h - 1
-                                || stamp[i - 1] != compId || stamp[i + 1] != compId
-                                || stamp[i - w] != compId || stamp[i + w] != compId;
-                            if (!boundary) {
-                                continue;
-                            }
-                            int yLo = Mathf.Max(0, y - R), yHi = Mathf.Min(h - 1, y + R);
-                            int xLo = Mathf.Max(0, x - R), xHi = Mathf.Min(w - 1, x + R);
-                            for (int yy = yLo; yy <= yHi; yy++) {
-                                int rowJ = yy * w;
-                                for (int xx = xLo; xx <= xHi; xx++) {
-                                    int j = rowJ + xx;
-                                    int sj = stamp[j];
-                                    if (sj == compId || sj == -compId) {
-                                        continue;
-                                    }
-                                    stamp[j] = -compId;   // この成分については判定済み
-                                    if (strength[j] <= matchThr || pixels[j].a < OpaqueAlphaMin) {
-                                        continue;
-                                    }
-                                    if (IsAdjacent8ToStamp(stamp, compId, xx, yy, w, h)) {
-                                        continue;
-                                    }
-                                    sumV += pixV[HsvSlot(pixIdx, j)]; sumS += pixS[HsvSlot(pixIdx, j)]; ringN++;
-                                }
-                            }
-                        }
+                        SumRing(queue, qTail, compId, stamp, strength, pixels, pixV, pixS, pixIdx, w, h, false,
+                            out double sumV, out double sumS, out int ringN, out _, out _);
                         if (ringN == 0) {
                             continue;
                         }
@@ -1032,42 +1001,8 @@ namespace Iroca {
                     }
 
                     // 周り(成分境界から Chebyshev 距離 2..R の選択画素)の平均 V・S。距離 1 は混色帯なので除く。
-                    double sumV = 0, sumS = 0; int ringN = 0, boundaryN = 0, solidN = 0;
-                    for (int k = 0; k < qTail; k++) {
-                        int packed = queue[k];
-                        int x = packed & 0xFFFF, y = packed >> 16;
-                        int i = y * w + x;
-                        bool boundary = x == 0 || y == 0 || x == w - 1 || y == h - 1
-                            || stamp[i - 1] != compId || stamp[i + 1] != compId
-                            || stamp[i - w] != compId || stamp[i + w] != compId;
-                        if (!boundary) {
-                            continue;
-                        }
-                        boundaryN++;
-                        int yLo = Mathf.Max(0, y - EnclosedHlRingRadius), yHi = Mathf.Min(h - 1, y + EnclosedHlRingRadius);
-                        int xLo = Mathf.Max(0, x - EnclosedHlRingRadius), xHi = Mathf.Min(w - 1, x + EnclosedHlRingRadius);
-                        for (int yy = yLo; yy <= yHi; yy++) {
-                            int rowJ = yy * w;
-                            for (int xx = xLo; xx <= xHi; xx++) {
-                                int j = rowJ + xx;
-                                int sj = stamp[j];
-                                if (sj == compId || sj == -compId) {
-                                    continue;
-                                }
-                                stamp[j] = -compId;   // この成分については判定済み
-                                if (strength[j] <= ColorZone.MatchStrengthFloor || pixels[j].a < OpaqueAlphaMin) {
-                                    continue;
-                                }
-                                if (IsAdjacent8ToStamp(stamp, compId, xx, yy, w, h)) {
-                                    continue;
-                                }
-                                sumV += pixV[HsvSlot(pixIdx, j)]; sumS += pixS[HsvSlot(pixIdx, j)]; ringN++;
-                                if (IsSolidSelected(strength, stamp, compId, xx, yy, w, h)) {
-                                    solidN++;
-                                }
-                            }
-                        }
-                    }
+                    SumRing(queue, qTail, compId, stamp, strength, pixels, pixV, pixS, pixIdx, w, h, true,
+                        out double sumV, out double sumS, out int ringN, out int boundaryN, out int solidN);
                     if (ringN == 0 || sumV / ringN < ColorZone.HighlightValueMin || sumS / ringN >= ringSatMax) {
                         continue;
                     }
@@ -1098,6 +1033,58 @@ namespace Iroca {
                 }
             }
             return recovered;
+        }
+
+        /// <summary>
+        /// 閉領域の 1 成分(queue[0..qTail) のパック座標。stamp == compId)の周りの輪の集計。成分の境界の画素から Chebyshev 距離
+        /// EnclosedHlRingRadius 以内にある選択画素(強度が MatchStrengthFloor を超え、不透明)のうち、成分に 8 隣接するもの
+        /// (距離 1 = AA 混色帯)を除いた画素の V・S の和と数を返す。見た画素は stamp に −compId を書いて 2 度数えない。
+        /// countSolid なら、輪のうち実際に塗られる画素(<see cref="IsSolidSelected"/>)の数も数える(数えないときは 0)。
+        /// boundaryN は成分の境界の画素数。走査の順(キューの順 → 行 → 列)は和を足す順なので変えないこと
+        /// (double の和は足す順で変わる)。
+        /// </summary>
+        private static void SumRing(int* queue, int qTail, int compId, int* stamp, float* strength, Color32* pixels,
+            float* pixV, float* pixS, int* pixIdx, int w, int h, bool countSolid,
+            out double sumV, out double sumS, out int ringN, out int boundaryN, out int solidN) {
+            double accV = 0, accS = 0;
+            int n = 0, nBoundary = 0, nSolid = 0;
+            const int R = EnclosedHlRingRadius;
+            for (int k = 0; k < qTail; k++) {
+                int packed = queue[k];
+                int x = packed & 0xFFFF, y = packed >> 16;
+                int i = y * w + x;
+                bool boundary = x == 0 || y == 0 || x == w - 1 || y == h - 1
+                    || stamp[i - 1] != compId || stamp[i + 1] != compId
+                    || stamp[i - w] != compId || stamp[i + w] != compId;
+                if (!boundary) {
+                    continue;
+                }
+                nBoundary++;
+                int yLo = Mathf.Max(0, y - R), yHi = Mathf.Min(h - 1, y + R);
+                int xLo = Mathf.Max(0, x - R), xHi = Mathf.Min(w - 1, x + R);
+                for (int yy = yLo; yy <= yHi; yy++) {
+                    int rowJ = yy * w;
+                    for (int xx = xLo; xx <= xHi; xx++) {
+                        int j = rowJ + xx;
+                        int sj = stamp[j];
+                        if (sj == compId || sj == -compId) {
+                            continue;
+                        }
+                        stamp[j] = -compId;   // この成分については判定済み
+                        if (strength[j] <= ColorZone.MatchStrengthFloor || pixels[j].a < OpaqueAlphaMin) {
+                            continue;
+                        }
+                        if (IsAdjacent8ToStamp(stamp, compId, xx, yy, w, h)) {
+                            continue;
+                        }
+                        accV += pixV[HsvSlot(pixIdx, j)]; accS += pixS[HsvSlot(pixIdx, j)]; n++;
+                        if (countSolid && IsSolidSelected(strength, stamp, compId, xx, yy, w, h)) {
+                            nSolid++;
+                        }
+                    }
+                }
+            }
+            sumV = accV; sumS = accS; ringN = n; boundaryN = nBoundary; solidN = nSolid;
         }
 
         // 閉領域の 1 成分を、最初の画素 seed から 4 近傍の幅優先で辿り、画素を queue(パック座標)に並べて数を返す。
