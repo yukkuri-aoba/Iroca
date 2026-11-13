@@ -819,12 +819,7 @@ namespace Iroca {
                 int end = Mathf.Min(n, (ci + 1) * Chunk);
                 int k = 0;
                 for (int i = ci * Chunk; i < end; i++) {
-                    var p = domain[i];
-                    Color32 c = pixels[p.y * w + p.x];
-                    var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
-                    matcher.GetMatchScoresPrecomputedHSV(hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col,
-                        p.x, p.y, w, h, out float strength, out _, out _);
-                    if (strength > 0f) {
+                    if (Selects(matcher, hsv, pixels, w, h, domain[i], out _)) {
                         k++;
                     }
                 }
@@ -870,11 +865,7 @@ namespace Iroca {
             var sumB = new double[VB];
             var matcher = new ColorZone.Matcher(sim);
             foreach (var p in domain) {
-                Color32 c = pixels[p.y * w + p.x];
-                var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
-                matcher.GetMatchScoresPrecomputedHSV(hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col,
-                    p.x, p.y, w, h, out float strength, out _, out _);
-                if (strength > 0f) {
+                if (Selects(matcher, hsv, pixels, w, h, p, out Color col)) {
                     continue;
                 }
                 int vb = Mathf.Clamp((int)(hsv.v[p.gi] * VB), 0, VB - 1);
@@ -910,34 +901,11 @@ namespace Iroca {
             var sim = BuildSimZone(aZone, result);
             sim.highlightRecovery = false;
             var matcher = new ColorZone.Matcher(sim);
-            int stride = hsv.stride;
-            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
-            // 行ごとに並列に数えて足す(整数の和なので逐次と同じ値。MatcherLoopOptions の説明)。
-            var rowCount = new int[hsv.gh];
-            Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
-                int y = gy * stride;
-                int rowStart = y * w;
-                int grow = gy * hsv.gw;
-                int k = 0;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
-                    Color32 c = pixels[rowStart + x];
-                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
-                        continue;
-                    }
-                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
-                        continue;
-                    }
-                    int gi = grow + gx;
-                    var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
-                    matcher.GetMatchScoresPrecomputedHSV(hsv.h[gi], hsv.s[gi], hsv.v[gi], col,
-                        x, y, w, h, out float strength, out _, out _);
-                    if (strength > 0f) {
-                        k++;
-                    }
+            return CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, null, null, (in SimCell p, ref Tally row) => {
+                if (Selects(matcher, p, w, h)) {
+                    row.a++;
                 }
-                rowCount[gy] = k;
-            });
-            return SumCounts(rowCount);
+            }).a;
         }
 
         // ─────────────────── bool マスクの収縮(4 近傍) ───────────────────

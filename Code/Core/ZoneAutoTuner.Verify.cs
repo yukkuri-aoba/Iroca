@@ -48,10 +48,15 @@ namespace Iroca {
             public int count;
         }
 
-        // 実マッチャーで画素を数えるループ(閉ループ検証・証拠の被覆と全画面選択)の並列化。
-        // どのループもセルごとの判定は他のセルに依らず(照合は作ってから書き換えない ColorZone.Matcher を
-        // 読むだけ)、集計は整数の数え上げとセルごとのフラグだけなので、格子の行(または区間)ごとに
-        // 並列に数え、行ごとの数を最後に順に足せば逐次と同じ値になる(整数の和は順序に依らない)。
+        // ─────────────────── 実マッチャーで数える(格子の回り方はここ 1 か所) ───────────────────
+        // 閉ループ検証と、証拠つきの全画面選択は、どれも「HSV 格子のセルのうち、不透明で除外マスクの外のもの」を
+        // 母集団にして、実マッチャーの結果を数える。母集団の決め方が数える所ごとに食い違うと、検証の間で使い回す
+        // 基礎選択(BaseSelection)が合わなくなるので、格子の回り方と母集団の判定は CountOnGrid の 1 つに置き、
+        // 数える所ごとの違い(どの照合に通して何を数えるか)だけを visit に書く。
+        //
+        // セルごとの判定は他のセルに依らず(照合は作ってから書き換えない ColorZone.Matcher を読むだけ)、集計は
+        // 整数の数え上げとセルごとのフラグだけなので、格子の行(証拠の画素の列は区間)ごとに並列に数え、行ごとの数を
+        // 最後に順に足せば逐次と同じ値になる(整数の和は順序に依らない)。
         // 逐次のままだと自動調整 1 回のうち 4096² で 1〜1.5 秒をこのループが占めていた(2026-10-17 実測)。
         // 取り消しは格子(HsvGrid.ct)のものを渡す(以前は渡しておらず、取り消してもループが最後まで回っていた)。
         private static ParallelOptions MatcherLoopOptions(HsvGrid hsv) =>
@@ -63,6 +68,91 @@ namespace Iroca {
                 s += counts[i];
             }
             return s;
+        }
+
+        /// <summary>数える対象の 1 セル(HSV 格子の 1 点。元画像では (x, y) の画素)。</summary>
+        private struct SimCell {
+            public int cell;      // 格子の添字(gy * gw + gx)
+            public int gx, gy;
+            public int x, y;      // 元画像の座標
+            public Color32 c;
+            public Color col;     // c を 0〜1 にした色(α は 1)。照合へ渡す
+            public float h, s, v;
+        }
+
+        /// <summary>数えた数(何を数えるかは呼ぶ側が決める。使わない欄は 0 のまま)。</summary>
+        private struct Tally {
+            public int a, b, c;
+        }
+
+        private delegate void SimVisitor(in SimCell p, ref Tally row);
+
+        /// <summary>
+        /// HSV 格子を行ごとに並列に回り、母集団のセル(不透明・除外マスクの外)ごとに <paramref name="visit"/> を呼んで、
+        /// 行ごとの数えを足して返す。<paramref name="visit"/> は別々の行から同時に呼ばれるので、書いてよいのは渡された
+        /// 数えと、自分のセルの印だけ。
+        /// </summary>
+        /// <param name="only">null でなければ、印の付いたセルだけを見る(格子の大きさ)。</param>
+        /// <param name="except">null でなければ、印の付いたセルを飛ばす(格子の大きさ)。</param>
+        private static Tally CountOnGrid(Color32* pixels, int w, int h, bool* excluded, int maskW, int maskH,
+            HsvGrid hsv, bool* only, bool* except, SimVisitor visit) {
+            int stride = hsv.stride, gw = hsv.gw;
+            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, gw, hsv.gh);
+            var rows = new Tally[hsv.gh];
+            Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
+                SimCell p = default;
+                p.gy = gy;
+                p.y = gy * stride;
+                int rowStart = p.y * w;
+                int grow = gy * gw;
+                Tally n = default;
+                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
+                    int cell = grow + gx;
+                    if ((only != null && !only[cell]) || (except != null && except[cell])) {
+                        continue;
+                    }
+                    Color32 c = pixels[rowStart + x];
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                        continue;
+                    }
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
+                        continue;
+                    }
+                    p.cell = cell;
+                    p.gx = gx;
+                    p.x = x;
+                    p.c = c;
+                    p.col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
+                    p.h = hsv.h[cell];
+                    p.s = hsv.s[cell];
+                    p.v = hsv.v[cell];
+                    visit(in p, ref n);
+                }
+                rows[gy] = n;
+            });
+            Tally sum = default;
+            for (int i = 0; i < rows.Length; i++) {
+                sum.a += rows[i].a;
+                sum.b += rows[i].b;
+                sum.c += rows[i].c;
+            }
+            return sum;
+        }
+
+        /// <summary>照合に通して、選択されるか(strength &gt; 0)。</summary>
+        private static bool Selects(ColorZone.Matcher matcher, in SimCell p, int w, int h) {
+            matcher.GetMatchScoresPrecomputedHSV(p.h, p.s, p.v, p.col, p.x, p.y, w, h, out float strength, out _, out _);
+            return strength > 0f;
+        }
+
+        /// <summary>証拠の画素 1 つを照合に通して、選択されるか。<paramref name="col"/> は照合へ渡した色(0〜1・α は 1)。</summary>
+        private static bool Selects(ColorZone.Matcher matcher, HsvGrid hsv, Color32* pixels, int w, int h,
+            GridPt p, out Color col) {
+            Color32 c = pixels[p.y * w + p.x];
+            col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
+            matcher.GetMatchScoresPrecomputedHSV(hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col,
+                p.x, p.y, w, h, out float strength, out _, out _);
+            return strength > 0f;
         }
 
         private static void VerifyHighlightRecoveryGrowth(Color32* pixels, int w, int h,
@@ -86,46 +176,32 @@ namespace Iroca {
             float hueCap = ColorZone.HighlightHueCap(result.tolerance);
             float bandSatFloor = bSS * PixelProcessor.HlBandMinSatFrac;
 
-            int stride = hsv.stride;
-            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
-            var evl = GridMaskLookup.Build(evidence, evW, evH, w, h, stride, hsv.gw, hsv.gh);   // 証拠が無ければ null
-            var rowBase = new int[hsv.gh];
-            var rowHlOnly = new int[hsv.gh];
-            Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
-                int y = gy * stride;
-                int rowStart = y * w;
-                int grow = gy * hsv.gw;
-                int nBase = 0, nHlOnly = 0;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
-                    Color32 c = pixels[rowStart + x];
-                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
-                        continue;
-                    }
-                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
-                        continue;
-                    }
-                    float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
-                    var col = new Color(r, g, b, 1f);
-                    float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
-                    matcher.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
-                        out float strength, out float hlPot, out _);
-                    if (strength > 0f) { nBase++; selGrid[grow + gx] = true; continue; }
-                    // セグメントの内側の増加はパーツ自身のツヤなので数えない(上の説明)。
-                    // 表(GridMaskLookup)はマスクの値を最近傍で引くだけなので、ここでは「証拠の内側か」を引くのに使う。
-                    if (evl != null && evidence[evl.Row[gy] + evl.Col[gx]]) {
-                        continue;
-                    }
-                    if (hlPot > 0f) { nHlOnly++; continue; }
-                    // 帯拡張の候補条件(GrowHighlightBand と同じ判定)
-                    if (bandActive && PixelProcessor.IsHighlightBandCandidate(pH, pS, pV, c,
-                            bSH, bSS, bSV, sR, sG, sB, dR, dG, dB, dsq, hueCap, bandSatFloor)) {
-                        nHlOnly++;
-                    }
+            var evl = GridMaskLookup.Build(evidence, evW, evH, w, h, hsv.stride, hsv.gw, hsv.gh);   // 証拠が無ければ null
+            // a = 基礎選択、b = ハイライト系の経路だけで加わり得る数
+            Tally n = CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, null, null, (in SimCell p, ref Tally row) => {
+                matcher.GetMatchScoresPrecomputedHSV(p.h, p.s, p.v, p.col, p.x, p.y, w, h,
+                    out float strength, out float hlPot, out _);
+                if (strength > 0f) {
+                    row.a++;
+                    selGrid[p.cell] = true;
+                    return;
                 }
-                rowBase[gy] = nBase;
-                rowHlOnly[gy] = nHlOnly;
+                // セグメントの内側の増加はパーツ自身のツヤなので数えない(上の説明)。
+                // 表(GridMaskLookup)はマスクの値を最近傍で引くだけなので、ここでは「証拠の内側か」を引くのに使う。
+                if (evl != null && evidence[evl.Row[p.gy] + evl.Col[p.gx]]) {
+                    return;
+                }
+                if (hlPot > 0f) {
+                    row.b++;
+                    return;
+                }
+                // 帯拡張の候補条件(GrowHighlightBand と同じ判定)
+                if (bandActive && PixelProcessor.IsHighlightBandCandidate(p.h, p.s, p.v, p.c,
+                        bSH, bSS, bSV, sR, sG, sB, dR, dG, dB, dsq, hueCap, bandSatFloor)) {
+                    row.b++;
+                }
             });
-            int baseSel = SumCounts(rowBase), hlOnly = SumCounts(rowHlOnly);
+            int baseSel = n.a, hlOnly = n.b;
             baseOut.tolerance = sim.tolerance;
             baseOut.sel = selGrid;
             baseOut.count = baseSel;
@@ -170,71 +246,34 @@ namespace Iroca {
                 bool* record = known == null && baseSel.sel == null && tol == derived
                     ? hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true) : null;
                 var caches = SampleWindows(sim);
-                int stride = hsv.stride;
-                var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
-                var rowSw = new int[hsv.gh];
-                var rowSwo = new int[hsv.gh];
-                var rowEc = new int[hsv.gh];
-                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
-                    int y = gy * stride;
-                    int rowStart = y * w;
-                    int grow = gy * hsv.gw;
-                    int sw = 0, swo = 0, ec = 0;
-                    for (int x = 0, gx = 0; x < w; x += stride, gx++) {
-                        int cell = grow + gx;
-                        if (known != null && !known[cell]) {
-                            continue;   // 未選択(不透明でない・除外も含む)
-                        }
-                        Color32 c = pixels[rowStart + x];
-                        if (c.a < PixelProcessor.OpaqueAlphaMin) {
-                            continue;
-                        }
-                        if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
-                            continue;
-                        }
-                        float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
-                        var col = new Color(r, g, b, 1f);
-                        float pH = hsv.h[cell], pS = hsv.s[cell], pV = hsv.v[cell];
-
-                        bool selectedWith;
-                        if (known != null) {
-                            selectedWith = true;
-                        } else {
-                            withForgive.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
-                                out float sWith, out _, out _);
-                            selectedWith = sWith > 0f;
-                        }
-                        if (selectedWith) {
-                            sw++;
-                            if (record != null) {
-                                record[cell] = true;
-                            }
-                            withoutForgive.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
-                                out float sWithout, out _, out _);
-                            if (sWithout > 0f) {
-                                swo++;
-                            }
-                            // 証拠 = いずれかのサンプルの near 窓に入る有彩画素(クラスタと同一条件)。
-                            // 被覆率は「証拠のうち選択された画素」で recall の代理を測る。
-                            if (nearState[cell] == 0) {
-                                nearState[cell] = InAnyNearWindow(caches, pH, pS, pV) ? (byte)1 : (byte)2;
-                            }
-                            if (nearState[cell] == 1) {
-                                ec++;
-                            }
-                        }
+                // a = 免除ありで選択、b = 免除なしでも選択、c = そのうち証拠(near 窓の中)。
+                // 基礎選択が分かっていれば、その印の付いたセルだけを見る(印の無いセルは未選択: 不透明でない・除外も含む)。
+                Tally n = CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, known, null, (in SimCell p, ref Tally row) => {
+                    if (known == null && !Selects(withForgive, p, w, h)) {
+                        return;
                     }
-                    rowSw[gy] = sw;
-                    rowSwo[gy] = swo;
-                    rowEc[gy] = ec;
+                    row.a++;
+                    if (record != null) {
+                        record[p.cell] = true;
+                    }
+                    if (Selects(withoutForgive, p, w, h)) {
+                        row.b++;
+                    }
+                    // 証拠 = いずれかのサンプルの near 窓に入る有彩画素(クラスタと同一条件)。
+                    // 被覆率は「証拠のうち選択された画素」で recall の代理を測る。
+                    if (nearState[p.cell] == 0) {
+                        nearState[p.cell] = InAnyNearWindow(caches, p.h, p.s, p.v) ? (byte)1 : (byte)2;
+                    }
+                    if (nearState[p.cell] == 1) {
+                        row.c++;
+                    }
                 });
-                int swAll = SumCounts(rowSw);
                 if (record != null) {
                     baseSel.tolerance = tol;
                     baseSel.sel = record;
-                    baseSel.count = swAll;
+                    baseSel.count = n.a;
                 }
-                selWith = swAll; selWithout = SumCounts(rowSwo); evCov = SumCounts(rowEc);
+                selWith = n.a; selWithout = n.b; evCov = n.c;
             }
 
             Eval(derived, out int selW0, out int selWo0, out int evCov0);
@@ -312,39 +351,18 @@ namespace Iroca {
             // パーツ(素直な連続シェーディング)では 1.0 超になり実質無制限。
             float sheenVMax = (vConnHiBin + 1 + SheenVConnMarginBins) / (float)AutoToneValueBins;
 
-            int stride = hsv.stride;
-            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
-
             // ── 基礎選択(導出 tolerance)のビットマスク ──
             // 先の検証が同じ tolerance で数えていればそれを使う(読むだけ)。
             bool reuse = known.sel != null && known.tolerance == derived;
             bool* baseSel = reuse ? known.sel : hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true);
             int baseCount = reuse ? known.count : 0;
             if (!reuse) {
-                var rowCount = new int[hsv.gh];
-                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
-                    int y = gy * stride;
-                    int rowStart = y * w;
-                    int grow = gy * hsv.gw;
-                    int n = 0;
-                    for (int x = 0, gx = 0; x < w; x += stride, gx++) {
-                        Color32 c = pixels[rowStart + x];
-                        if (c.a < PixelProcessor.OpaqueAlphaMin) {
-                            continue;
-                        }
-                        if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
-                            continue;
-                        }
-                        float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
-                        var col = new Color(r, g, b, 1f);
-                        float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
-                        matcher.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
-                            out float s0, out _, out _);
-                        if (s0 > 0f) { baseSel[grow + gx] = true; n++; }
+                baseCount = CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, null, null, (in SimCell p, ref Tally row) => {
+                    if (Selects(matcher, p, w, h)) {
+                        baseSel[p.cell] = true;
+                        row.a++;
                     }
-                    rowCount[gy] = n;
-                });
-                baseCount = SumCounts(rowCount);
+                }).a;
             }
             if (baseCount < VerifyMinBaseSelected) {
                 return;
@@ -359,46 +377,22 @@ namespace Iroca {
                 }
                 sim.tolerance = t;
                 var grown = new ColorZone.Matcher(sim);
-                var rowAdded = new int[hsv.gh];
-                var rowSig = new int[hsv.gh];
-                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
-                    int y = gy * stride;
-                    int rowStart = y * w;
-                    int grow = gy * hsv.gw;
-                    int nAdded = 0, nSig = 0;
-                    for (int x = 0, gx = 0; x < w; x += stride, gx++) {
-                        if (baseSel[grow + gx]) {
-                            continue;
-                        }
-                        Color32 c = pixels[rowStart + x];
-                        if (c.a < PixelProcessor.OpaqueAlphaMin) {
-                            continue;
-                        }
-                        if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
-                            continue;
-                        }
-                        float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
-                        var col = new Color(r, g, b, 1f);
-                        float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
-                        grown.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
-                            out float st, out _, out _);
-                        if (st <= 0f) {
-                            continue;
-                        }
-                        nAdded++;
-                        float hd = Mathf.Abs(pH - sH);
-                        if (hd > 0.5f) {
-                            hd = 1f - hd;
-                        }
-                        if (pV > sV && pV < sheenVMax
-                            && hd < ColorZone.ForgivenessHueGate && pS >= satSigFloor) {
-                            nSig++;
-                        }
+                // 基礎選択の外だけを見る。a = 追加で選択される数、b = そのうちツヤのシグネチャに合う数
+                Tally n = CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, null, baseSel, (in SimCell p, ref Tally row) => {
+                    if (!Selects(grown, p, w, h)) {
+                        return;
                     }
-                    rowAdded[gy] = nAdded;
-                    rowSig[gy] = nSig;
+                    row.a++;
+                    float hd = Mathf.Abs(p.h - sH);
+                    if (hd > 0.5f) {
+                        hd = 1f - hd;
+                    }
+                    if (p.v > sV && p.v < sheenVMax
+                        && hd < ColorZone.ForgivenessHueGate && p.s >= satSigFloor) {
+                        row.b++;
+                    }
                 });
-                int added = SumCounts(rowAdded), sig = SumCounts(rowSig);
+                int added = n.a, sig = n.b;
                 if (added > baseCount * SheenGrowMaxAddedFrac) {
                     break; // 面積超過(単調)→打ち切り
                 }
