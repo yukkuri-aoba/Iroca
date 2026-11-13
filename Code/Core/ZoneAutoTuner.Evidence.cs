@@ -774,14 +774,8 @@ namespace Iroca {
             foreach (var p in domain) {
                 bins[Mathf.Clamp((int)(hsv.s[p.gi] * SB), 0, SB - 1)]++;
             }
-            int target = Mathf.CeilToInt(domain.Count * pct), cum = 0;
-            for (int i = 0; i < SB; i++) {
-                cum += bins[i];
-                if (cum >= target) {
-                    return (i + 1) / (float)SB;
-                }
-            }
-            return 1f;
+            int b = Histogram.FirstBinReaching(bins, SB, Mathf.CeilToInt(domain.Count * pct));
+            return b >= 0 ? (b + 1) / (float)SB : 1f;
         }
 
         // 証拠ドメインの「基準の色相からのずれ」の指定パーセンタイル(別パーツの色相幅の導出用)。
@@ -791,14 +785,8 @@ namespace Iroca {
             foreach (var p in domain) {
                 bins[Mathf.Clamp((int)(HueDistance(hsv.h[p.gi], refH) * 2f * HB), 0, HB - 1)]++;
             }
-            int target = Mathf.CeilToInt(domain.Count * pct), cum = 0;
-            for (int i = 0; i < HB; i++) {
-                cum += bins[i];
-                if (cum >= target) {
-                    return (i + 1) / (2f * HB);
-                }
-            }
-            return 0.5f;
+            int b = Histogram.FirstBinReaching(bins, HB, Mathf.CeilToInt(domain.Count * pct));
+            return b >= 0 ? (b + 1) / (2f * HB) : 0.5f;
         }
 
         // 導出パラメータ(result)を実マッチャーに通し、証拠ドメインのうち選択される(strength > 0)

@@ -16,15 +16,8 @@ namespace Iroca {
 
         // 距離ヒストグラム(DistBins 分割)の累積が total*pct に届いた bin の上端の距離。届かなければ DistMax。
         private static float DistUpperEdgeAtPercentile(int[] bins, int total, float pct) {
-            int target = Mathf.CeilToInt(total * pct);
-            int cum = 0;
-            for (int i = 0; i < DistBins; i++) {
-                cum += bins[i];
-                if (cum >= target) {
-                    return (i + 1) / (float)DistBins * DistMax;
-                }
-            }
-            return DistMax;
+            int b = Histogram.FirstBinReaching(bins, DistBins, Mathf.CeilToInt(total * pct));
+            return b >= 0 ? (b + 1) / (float)DistBins * DistMax : DistMax;
         }
 
         private static bool HasUsableMask(bool* excluded, int maskW, int maskH) {
@@ -265,10 +258,9 @@ namespace Iroca {
         private static float HueGateFromCoreHist(int[] coreHueBins, int coreHueCount) {
             float coreSpread = CoreSpreadDefault;
             if (coreHueCount >= MinNearSampleCount) {
-                int ctgt = Mathf.CeilToInt(coreHueCount * 0.90f), ccum = 0;
-                for (int i = 0; i < ForeignHueBins; i++) {
-                    ccum += coreHueBins[i];
-                    if (ccum >= ctgt) { coreSpread = (i + 1) / (float)ForeignHueBins * NearHueDist; break; }
+                int b = Histogram.FirstBinReaching(coreHueBins, ForeignHueBins, Mathf.CeilToInt(coreHueCount * 0.90f));
+                if (b >= 0) {
+                    coreSpread = (b + 1) / (float)ForeignHueBins * NearHueDist;
                 }
             }
             return Mathf.Clamp(ForeignGateK * coreSpread + ForeignGateFloor,
@@ -489,10 +481,9 @@ namespace Iroca {
             int coreHueCount = acc[oCoreN];
             float nearSatP10 = 0f;
             if (nearCount >= MinNearSampleCount) {
-                int tgt = Mathf.CeilToInt(nearCount * 0.10f), cum0 = 0;
-                for (int i = 0; i < AutoToneSatBins; i++) {
-                    cum0 += satBins[i];
-                    if (cum0 >= tgt) { nearSatP10 = i / (float)AutoToneSatBins; break; }
+                int b10 = Histogram.FirstBinReaching(satBins, AutoToneSatBins, Mathf.CeilToInt(nearCount * 0.10f));
+                if (b10 >= 0) {
+                    nearSatP10 = b10 / (float)AutoToneSatBins;
                 }
             }
             // core hue 広がり(P90)→ 代表色に許す hue ずれの上限。foreign 打ち切りの effHueGate と
@@ -571,8 +562,10 @@ namespace Iroca {
             // 指定パーセンタイルの V バンドの平均色を代表色として取る。
             Color RepAtPct(float pct) {
                 int targetCount = Mathf.Clamp(Mathf.RoundToInt(pct * total), 1, total);
-                int cum = 0, bin = VB - 1;
-                for (int i = 0; i < VB; i++) { cum += cnt[i]; if (cum >= targetCount) { bin = i; break; } }
+                int bin = Histogram.FirstBinReaching(cnt, VB, targetCount);
+                if (bin < 0) {
+                    bin = VB - 1;
+                }
                 // RepAtPct は累積が閾値を越えた bin を返すので cnt[bin] > 0 が保証される。
                 double inv = 1.0 / cnt[bin];
                 return new Color((float)(sumR[bin] * inv), (float)(sumG[bin] * inv), (float)(sumB[bin] * inv), 1f);

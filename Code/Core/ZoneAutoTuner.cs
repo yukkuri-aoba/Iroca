@@ -837,15 +837,8 @@ namespace Iroca {
                 }
             }
 
-            int target = Mathf.CeilToInt(total * 0.90f);
-            int cum = 0;
-            for (int i = 0; i < n; i++) {
-                cum += counts[i];
-                if (cum >= target) {
-                    return dists[i];
-                }
-            }
-            return 0.5f;
+            int at = Histogram.FirstBinReaching(counts, n, Mathf.CeilToInt(total * 0.90f));
+            return at >= 0 ? dists[at] : 0.5f;
         }
 
         /// <summary>
@@ -855,15 +848,8 @@ namespace Iroca {
             if (total <= 0) {
                 return 0f;
             }
-            int target = Mathf.CeilToInt(total * p);
-            int cum = 0;
-            for (int i = 0; i < bins.Length; i++) {
-                cum += bins[i];
-                if (cum >= target) {
-                    return i;
-                }
-            }
-            return bins.Length - 1;
+            int b = Histogram.FirstBinReaching(bins, bins.Length, Mathf.CeilToInt(total * p));
+            return b >= 0 ? b : bins.Length - 1;
         }
     }
 }

@@ -156,14 +156,25 @@ namespace Iroca {
         /// 最大 1bin(scale/255)の離散化差を許容する(auto_wash_sample の前例に従う)。</summary>
         internal static float ValueAtPercentile(int[] hist, int total, float pct, float scale) {
             int target = Mathf.Clamp(Mathf.CeilToInt(total * pct), 1, total);
+            int b = FirstBinReaching(hist, hist.Length, target);
+            return b >= 0 ? b / (float)(hist.Length - 1) * scale : scale;
+        }
+
+        /// <summary>
+        /// ヒストグラムの先頭 <paramref name="bins"/> 個を若い順に足し、累積が <paramref name="target"/> に届いた最初のビンを
+        /// 返す(届かなければ −1)。分位点を求める各所(選択・再着色・自動調整)が共有するのは、この数え方だけ。
+        /// 目標の数の決め方(切り上げ・四捨五入・下限)、ビンを値へ直す対応(下端・中心・上端)、届かないときの値は
+        /// 呼ぶ側ごとに違い、そろえると出力が変わるので、呼ぶ側に残している。
+        /// </summary>
+        internal static int FirstBinReaching(int[] hist, int bins, int target) {
             int cum = 0;
-            for (int b = 0; b < hist.Length; b++) {
+            for (int b = 0; b < bins; b++) {
                 cum += hist[b];
                 if (cum >= target) {
-                    return b / (float)(hist.Length - 1) * scale;
+                    return b;
                 }
             }
-            return scale;
+            return -1;
         }
 
         /// <summary>

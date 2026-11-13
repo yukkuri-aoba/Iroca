@@ -1122,14 +1122,8 @@ namespace Iroca {
 
         // ヒストグラム(bin 幅 1/scale)の中央値(bin 中心)。n は総度数。
         private static float HistogramMedian(int[] hist, int n, float scale) {
-            int half = (n + 1) / 2, acc = 0;
-            for (int b = 0; b < hist.Length; b++) {
-                acc += hist[b];
-                if (acc >= half) {
-                    return (b + 0.5f) / scale;
-                }
-            }
-            return (hist.Length - 0.5f) / scale;
+            int b = Histogram.FirstBinReaching(hist, hist.Length, (n + 1) / 2);
+            return b >= 0 ? (b + 0.5f) / scale : (hist.Length - 0.5f) / scale;
         }
     }
 }
