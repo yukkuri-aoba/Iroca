@@ -91,7 +91,8 @@ namespace Iroca {
         private static bool TryNormalizeSample(
             Color32* pixels, int w, int h, ColorZone zone,
             bool* excluded, int maskW, int maskH, HsvGrid hsv, out Color normalized,
-            out float clickT, bool edgeBypass = false, bool tintedChromatic = false) {
+            out float clickT, bool edgeBypass = false, bool tintedChromatic = false,
+            bool* alsoExcluded = null, int alsoW = 0, int alsoH = 0) {
             normalized = zone.sampleColor;
             clickT = -1f;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
@@ -118,7 +119,7 @@ namespace Iroca {
                     sH, sS, sV, useHueBand: false, satFloor: 0f, satCeil: AchromaClusterSatMax,
                     satBinSpan: AchromaClusterSatMax,
                     satBins: NormAchromaSatBins, valBins: NormAchromaValBins, edgeBypass,
-                    out normalized, out clickT);
+                    out normalized, out clickT, alsoExcluded: alsoExcluded, alsoW: alsoW, alsoH: alsoH);
             }
 
             if (sS < AchromaSampleSatMax) {
@@ -129,7 +130,8 @@ namespace Iroca {
                 return TryNormalizeFromPopulation(pixels, w, h, zone, excluded, maskW, maskH, hsv,
                     sH, sS, sV, useHueBand: true, satFloor: AchromaSampleSatMax, satCeil: float.MaxValue,
                     satBinSpan: 1f, satBins: NormSatBins, valBins: NormValBins, edgeBypass,
-                    out normalized, out clickT, minPopFrac: NormTintedChromaticPopFrac);
+                    out normalized, out clickT, minPopFrac: NormTintedChromaticPopFrac,
+                    alsoExcluded: alsoExcluded, alsoW: alsoW, alsoH: alsoH);
             }
 
             // 無彩画素は Unity の RGBToHSV が hue=0 へ丸めるため、暖色クリックへ大量に誤混入する。
@@ -138,7 +140,7 @@ namespace Iroca {
             return TryNormalizeFromPopulation(pixels, w, h, zone, excluded, maskW, maskH, hsv,
                 sH, sS, sV, useHueBand: true, satFloor: satFloor, satCeil: float.MaxValue,
                 satBinSpan: 1f, satBins: NormSatBins, valBins: NormValBins, edgeBypass,
-                out normalized, out clickT);
+                out normalized, out clickT, alsoExcluded: alsoExcluded, alsoW: alsoW, alsoH: alsoH);
         }
 
         /// <summary>
@@ -153,7 +155,8 @@ namespace Iroca {
             bool* excluded, int maskW, int maskH, HsvGrid hsv,
             float sH, float sS, float sV, bool useHueBand, float satFloor, float satCeil,
             float satBinSpan, int satBins, int valBins, bool edgeBypass, out Color normalized,
-            out float clickT, float minPopFrac = 0f) {
+            out float clickT, float minPopFrac = 0f,
+            bool* alsoExcluded = null, int alsoW = 0, int alsoH = 0) {
             normalized = zone.sampleColor;
             clickT = -1f;
 
@@ -170,6 +173,10 @@ namespace Iroca {
 
             int stride = hsv.stride;
             var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
+            // 2 枚目の除外(寸法が 1 枚目と違ってよい)。証拠つきの正規化が、証拠の外(1 枚目)と、証拠と寸法の違う
+            // 利用者の除外マスク(2 枚目)の両方を母集団から外すのに使う。無ければ null。
+            var ml2 = alsoW > 0 && alsoH > 0
+                ? GridMaskLookup.Build(alsoExcluded, alsoW, alsoH, w, h, stride, hsv.gw, hsv.gh) : null;
             for (int y = 0, gy = 0; y < h; y += stride, gy++) {
                 int rowStart = y * w;
                 int grow = gy * hsv.gw;
@@ -179,6 +186,9 @@ namespace Iroca {
                         continue;
                     }
                     if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
+                        continue;
+                    }
+                    if (ml2 != null && alsoExcluded[ml2.Row[gy] + ml2.Col[gx]]) {
                         continue;
                     }
                     opaque++;

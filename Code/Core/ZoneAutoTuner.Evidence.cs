@@ -343,9 +343,20 @@ namespace Iroca {
             for (int i = 0; i < evLen; i++) {
                 notEvidence[i] = !evidence[i];
             }
-            if (excluded != null && maskW == evW && maskH == evH) {
-                for (int i = 0; i < evLen; i++) {
-                    notEvidence[i] |= excluded[i];
+            // 利用者の除外マスクも母集団から外す。証拠と同じ寸法なら「証拠の外」へ重ね、違う寸法なら 2 枚目の除外として
+            // 正規化へ渡す(2026-11-13 まで、寸法が違うと無視していた: 辺が 8192 を超えるテクスチャや、保存したマスクが今の
+            // テクスチャと違う解像度のとき、除外した所の色が地色の母集団に入っていた)。
+            bool* alsoExcluded = null;
+            int alsoW = 0, alsoH = 0;
+            if (excluded != null && maskW > 0 && maskH > 0) {
+                if (maskW == evW && maskH == evH) {
+                    for (int i = 0; i < evLen; i++) {
+                        notEvidence[i] |= excluded[i];
+                    }
+                } else {
+                    alsoExcluded = excluded;
+                    alsoW = maskW;
+                    alsoH = maskH;
                 }
             }
 
@@ -377,7 +388,8 @@ namespace Iroca {
             while (true) {
                 rep = click.sampleColor;
                 if (TryNormalizeSample(pixels, width, height, click, notEvidence, evW, evH, hsv,
-                        out Color normalized, out clickT, edgeBypass: true, tintedChromatic: tintRetry)) {
+                        out Color normalized, out clickT, edgeBypass: true, tintedChromatic: tintRetry,
+                        alsoExcluded: alsoExcluded, alsoW: alsoW, alsoH: alsoH)) {
                     rep = normalized;
                 }
                 Color.RGBToHSV(rep, out repH, out repS, out repV);
