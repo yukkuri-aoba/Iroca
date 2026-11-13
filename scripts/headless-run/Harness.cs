@@ -1445,6 +1445,48 @@ namespace Iroca {
             Check(pool.FreeBytes == 0 && pool.RentedBytes == 0 && pool.PeakRentedBytes == 0, "pool: ReleaseFree drops free blocks and resets the peak");
             Check(Live() == start, $"after the pool rules live={Live()}");
 
+            // 8) 色ごとの数え上げ(Histogram.AccumulateParallelRowsNative)は、ワーカーが途中で入れ替わっても、
+            //    ワーカーごとの集計を並列度の本数までしか借りない。各塊で眠って入れ替わりを起こす(Parallel.ForEach は
+            //    長く動いたワーカーを新しいワーカーへ替え、そのたびに初期化を呼ぶ)。結果は逐次に数えたものと同じ。
+            unsafe {
+                const int HistBins = 1 << 16, HistRows = 48, HistWorkers = 2;
+                int intBefore = WorkPools.Int.RentedCount;
+                int* hist = WorkPools.Int.Rent(HistBins);
+                new Span<int>(hist, HistBins).Clear();
+                int maxRented = 0;
+                int chunks = 0;
+                int counted = Histogram.AccumulateParallelRowsNative(0, HistRows, hist, HistBins, (y0, y1, local) => {
+                    System.Threading.Interlocked.Increment(ref chunks);
+                    int now = WorkPools.Int.RentedCount - intBefore - 1;   // 1 は結果を入れる hist
+                    int seen;
+                    while (now > (seen = System.Threading.Volatile.Read(ref maxRented))
+                           && System.Threading.Interlocked.CompareExchange(ref maxRented, now, seen) != seen) {
+                    }
+                    System.Threading.Thread.Sleep(150);
+                    for (int y = y0; y < y1; y++) {
+                        local[(y * 2654435761u) % HistBins]++;
+                        local[y]++;
+                    }
+                    return 2 * (y1 - y0);
+                }, default, maxWorkers: HistWorkers);
+                bool same = counted == 2 * HistRows;
+                var want = new int[HistBins];
+                for (int y = 0; y < HistRows; y++) {
+                    want[(y * 2654435761u) % HistBins]++;
+                    want[y]++;
+                }
+                for (int b = 0; b < HistBins && same; b++) {
+                    same = hist[b] == want[b];
+                }
+                WorkPools.Int.Return(hist);
+                Check(same, "histogram: parallel count equals the serial count");
+                Check(chunks > HistWorkers && maxRented >= 1 && maxRented <= HistWorkers,
+                    $"histogram: per-worker counts stay within the degree of parallelism (chunks={chunks}, rented at most={maxRented}, workers={HistWorkers})");
+                Check(WorkPools.Int.RentedCount == intBefore, "histogram: per-worker counts are returned");
+            }
+            WorkPools.ReleaseFree();
+            Check(Live() == start, $"after the histogram live={Live()}");
+
             Console.WriteLine(fails == 0 ? "NATIVEMEMSELFTEST ALL PASS" : $"NATIVEMEMSELFTEST {fails} FAILED");
             return fails == 0 ? 0 : 4;
         }

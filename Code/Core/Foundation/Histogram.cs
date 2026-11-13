@@ -65,6 +65,9 @@ namespace Iroca {
         /// (0.4.0 の計画の 3-12。管理配列の版だと、ワーカーの数 × 色の数の配列を呼ぶたびに Mono のヒープに積んでいた)。
         /// ワーカーごとの集計は作業配列のプールから借りて 0 で埋め、集計が終わったら(取り消されたときも)まとめて返す。
         /// 整数の加算だけなので、結果は管理配列の版と同じ。
+        /// 長い繰り返しでは、Parallel.ForEach がワーカーを途中で入れ替える(入れ替わるたびに初期化が呼ばれる)。抜けた
+        /// ワーカーの集計は空きの一覧へ置き、次のワーカーがその続きに足すので、借りる本数は同時に動くワーカーの数
+        /// (並列度)までで止まる(2026-11-13 まで、入れ替わるたびに色の数ぶんを借り足していた)。
         /// </summary>
         internal static int AccumulateParallelRowsNative(int yFrom, int yTo, int* hist, int bins,
             RowChunkNative chunk, CancellationToken ct = default, int maxWorkers = 0) {
@@ -79,9 +82,15 @@ namespace Iroca {
             int total = 0;
             object gate = new object();
             var rented = new List<IntPtr>();
+            var idle = new Stack<IntPtr>();   // 抜けたワーカーが置いていった集計(中身は足し込み待ち。消さずに続きへ足す)
             try {
                 Parallel.ForEach(Partitioner.Create(yFrom, yTo), po,
                     () => {
+                        lock (gate) {
+                            if (idle.Count > 0) {
+                                return idle.Pop();
+                            }
+                        }
                         int* p = WorkPools.Int.Rent(bins);
                         lock (gate) {
                             rented.Add((IntPtr)p);
@@ -96,7 +105,11 @@ namespace Iroca {
                         }
                         return local;
                     },
-                    _ => { });
+                    local => {
+                        lock (gate) {
+                            idle.Push(local);
+                        }
+                    });
                 // ワーカーごとの集計を足し込む。以前は各ワーカーの終わりにロックの中で「ワーカーの数 × 色の数」を
                 // 直列に足していた。ここではビンの区間に分けて並列に、区間ごとに全ワーカーの分を足す。
                 // 整数の加算なので、足す順に依らず結果は同じ。借りた集計(rented)がちょうどワーカーごとの集計。
