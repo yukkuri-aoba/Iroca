@@ -18,7 +18,6 @@ namespace Iroca {
     internal static unsafe partial class PixelProcessor {
         // 並列度の規則と画素の決まりは Foundation(CoreParallelism・PixelRules)が持つ。ここは今の名前を残す転送役
         // (0.4.0 の計画の 3-4。呼び出しが多く、ハーネス・テスト・AI 提案の後処理もこの名前で呼ぶ)。
-        internal static int ComputeDefaultParallelism(int processorCount) => CoreParallelism.ComputeDefault(processorCount);
         internal static int DefaultParallelism => CoreParallelism.Default;
         internal static int GetMaxParallelism() => CoreParallelism.Max();
         internal const int OpaqueAlphaMin = PixelRules.OpaqueAlphaMin;
@@ -445,14 +444,9 @@ namespace Iroca {
             int dstW, int dstH, float scale)
             => BoxDownsampleRegion(src, srcW, 0, 0, srcW, srcH, dstW, dstH, scale);
 
-        /// <summary><see cref="BoxDownsample(Color32[], int, int, int, int, float)"/> のポインタ版(src は srcW*srcH 画素)。</summary>
-        public static Color32[] BoxDownsample(Color32* src, int srcW, int srcH,
-            int dstW, int dstH, float scale)
-            => BoxDownsampleRegion(src, (long)srcW * srcH, srcW, 0, 0, srcW, srcH, dstW, dstH, scale);
-
         /// <summary>
-        /// <see cref="BoxDownsample(Color32*, int, int, int, int, float)"/> の、書き先(dst。dstW*dstH 画素)を呼び出し側が
-        /// 持つ版(プレビューの表示用の画素を Mono のヒープの外に置く)。
+        /// <see cref="BoxDownsample(Color32[], int, int, int, int, float)"/> の、元(src。srcW*srcH 画素)をポインタで受け、
+        /// 書き先(dst。dstW*dstH 画素)を呼び出し側が持つ版(プレビューの表示用の画素を Mono のヒープの外に置く)。
         /// </summary>
         public static void BoxDownsampleInto(Color32* src, int srcW, int srcH,
             Color32* dst, int dstW, int dstH, float scale)

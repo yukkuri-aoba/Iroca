@@ -5,7 +5,7 @@ using System;
 namespace Iroca {
     /// <summary>
     /// Core の並列度の規則(0.4.0 の計画の 3-4 で PixelProcessor から切り出した)。PixelProcessor の
-    /// <c>ComputeDefaultParallelism</c>・<c>DefaultParallelism</c>・<c>GetMaxParallelism</c> と
+    /// <c>DefaultParallelism</c>・<c>GetMaxParallelism</c> と
     /// <c>DebugCaptureHooks.ParallelismOverride</c> は、ここへの転送役として残している。新しく書くコードはここを使う。
     /// </summary>
     internal static class CoreParallelism {

@@ -149,7 +149,7 @@ namespace Iroca {
             public ZoneBuffers Buffers;          // このゾーンで借りた作業配列の持ち主
             public ulong* ZoneMask;             // ゾーン別の除外マスクの語(無ければ null。持ち主は MaskSnapshot)
             public bool MixMode;                // 混色帯モード(IsMixtureBandZone)
-            public float SampH, SampS, SampV;   // サンプル色の HSV
+            public float SampS;                 // サンプル色の彩度(再着色の統計と分岐の記録が読む)
             public bool* IncludedPx;            // 含めるマスクをテクスチャ解像度へ展開したもの(無ければ null)
             // 選択の出力(マスクの契約を掛けた後の強度と、後段が走査する範囲)。
             public float* Strength;

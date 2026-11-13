@@ -587,7 +587,7 @@ namespace Iroca {
             }
 
             if (highlightRecovery) {
-                highlightPotential = CalculateHighlightRecovery(in sc, pH, pS, pV, effectiveHDist, sRatio);
+                highlightPotential = CalculateHighlightRecovery(in sc, pS, pV, effectiveHDist, sRatio);
             }
         }
 
@@ -630,7 +630,7 @@ namespace Iroca {
             return finalDist;
         }
 
-        private float CalculateHighlightRecovery(in SampleCache sc, float pH, float pS, float pV, float hDist, float sRatio) {
+        private float CalculateHighlightRecovery(in SampleCache sc, float pS, float pV, float hDist, float sRatio) {
             if (pV <= HighlightValueMin || pS >= HighlightSaturationCeiling(sc.sS) || hDist > hlHueCap) {
                 return 0f;
             }
