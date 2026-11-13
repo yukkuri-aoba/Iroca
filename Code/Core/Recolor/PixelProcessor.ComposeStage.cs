@@ -121,13 +121,7 @@ namespace Iroca {
                                     if (a >= ma && claimedNow <= 0.0001f) {
                                         pixels[i] = mt;
                                     } else {
-                                        float k = a / ma;
-                                        Color32 cur = pixels[i];
-                                        pixels[i] = new Color32(
-                                            (byte)Mathf.Clamp(Mathf.RoundToInt(cur.r + (mt.r - mo.r) * k), 0, 255),
-                                            (byte)Mathf.Clamp(Mathf.RoundToInt(cur.g + (mt.g - mo.g) * k), 0, 255),
-                                            (byte)Mathf.Clamp(Mathf.RoundToInt(cur.b + (mt.b - mo.b) * k), 0, 255),
-                                            cur.a);
+                                        pixels[i] = AddScaledDelta(pixels[i], mt, mo, a / ma);
                                     }
                                     SetClaimed(claimedLocal, claimedFlag, i, Mathf.Min(1f, claimedNow + a));
                                 }
@@ -162,13 +156,7 @@ namespace Iroca {
                                     pixels[i] = decon;
                                 } else if (ea > 0f) {
                                     float a = ea < room ? ea : room;
-                                    float k = a / ea;
-                                    Color32 cur = pixels[i], eo = originalPixels[i];
-                                    pixels[i] = new Color32(
-                                        (byte)Mathf.Clamp(Mathf.RoundToInt(cur.r + (decon.r - eo.r) * k), 0, 255),
-                                        (byte)Mathf.Clamp(Mathf.RoundToInt(cur.g + (decon.g - eo.g) * k), 0, 255),
-                                        (byte)Mathf.Clamp(Mathf.RoundToInt(cur.b + (decon.b - eo.b) * k), 0, 255),
-                                        cur.a);
+                                    pixels[i] = AddScaledDelta(pixels[i], decon, originalPixels[i], a / ea);
                                     SetClaimed(claimedLocal, claimedFlag, i, Mathf.Min(1f, claimedNow + a));
                                     continue;
                                 } else {
@@ -224,5 +212,18 @@ namespace Iroca {
                 debug?.RecordStage(zone.id, DebugStages.Recolor, ToManaged(strength, len), w, h);
             }
         }
+
+        /// <summary>
+        /// cur に、(to − from) の k 倍を足した色(RGB。α は cur のまま)。上のゾーンが置いた色を残して、このゾーンの
+        /// 被覆率ぶんの変化だけを重ねる合成で、混色帯・デコンタミの縁・無彩のフチ消しが使う(式はここだけ)。
+        /// 最上位でない通常の再着色は α も同じ形で足すので、これを使わずに合成の段に書いてある。
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static Color32 AddScaledDelta(Color32 cur, Color32 to, Color32 from, float k) =>
+            new Color32(
+                (byte)Mathf.Clamp(Mathf.RoundToInt(cur.r + (to.r - from.r) * k), 0, 255),
+                (byte)Mathf.Clamp(Mathf.RoundToInt(cur.g + (to.g - from.g) * k), 0, 255),
+                (byte)Mathf.Clamp(Mathf.RoundToInt(cur.b + (to.b - from.b) * k), 0, 255),
+                cur.a);
     }
 }

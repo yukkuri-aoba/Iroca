@@ -551,13 +551,7 @@ namespace Iroca {
                             } else {
                                 // 上のゾーンの縁が占有した残り(room)のぶんだけ、混色帯と同じ形で変化を足す。
                                 float ra = alpha < 1f - claimedNow ? alpha : 1f - claimedNow;
-                                float rk = ra / alpha;
-                                Color32 cur = pixels[i], fo = originalPixels[i];
-                                pixels[i] = new Color32(
-                                    (byte)Mathf.Clamp(Mathf.RoundToInt(cur.r + (fR - fo.r) * rk), 0, 255),
-                                    (byte)Mathf.Clamp(Mathf.RoundToInt(cur.g + (fG - fo.g) * rk), 0, 255),
-                                    (byte)Mathf.Clamp(Mathf.RoundToInt(cur.b + (fB - fo.b) * rk), 0, 255),
-                                    cur.a);
+                                pixels[i] = AddScaledDelta(pixels[i], new Color32(fR, fG, fB, 0), originalPixels[i], ra / alpha);
                                 alpha = Mathf.Min(1f, claimedNow + ra);
                             }
                             // 自分の被覆率 α だけ占有する(残りは下位ゾーンが塗る)。上のゾーンが占有した画素は上で飛ばしている。
