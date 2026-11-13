@@ -37,10 +37,8 @@ namespace Iroca {
         /// token を渡すと Parallel.For がパーティション境界でキャンセルを観測する
         /// (破棄確定の後処理が計算用のスレッドを占有し続け、次クリックの計算と奪い合うのを防ぐ)。
         /// </summary>
-        internal static ParallelOptions MakeParallelOptions(System.Threading.CancellationToken token = default) => new ParallelOptions {
-            CancellationToken = token,
-            MaxDegreeOfParallelism = CoreParallelism.Max(),
-        };
+        internal static ParallelOptions MakeParallelOptions(System.Threading.CancellationToken token = default)
+            => CoreParallelism.Options(token);
 
         /// <summary>
         /// mask(w*h 個)の true の画素の外接矩形。1 つも無ければ false。行ごとに並列に左右の端を求めて、行の順にまとめる

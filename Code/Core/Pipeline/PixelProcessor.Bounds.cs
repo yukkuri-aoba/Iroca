@@ -58,7 +58,7 @@ namespace Iroca {
             }
             int sx0 = scan.MinX, sx1 = scan.MaxX;
             object gate = new object();
-            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
+            var po = CoreParallelism.Options(ct);
             Parallel.For(scan.MinY, scan.MaxY + 1, po,
                 () => (minX: w, maxX: -1, minY: h, maxY: -1),
                 (y, _, loc) => {

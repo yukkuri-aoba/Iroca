@@ -341,7 +341,7 @@ namespace Iroca {
                 new Span<byte>(selBits, bitBytes).Clear();
                 new Span<byte>(anyBits, bitBytes).Clear();
                 flatMemo = s_bytePool.Rent(len);
-                var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
+                var po = CoreParallelism.Options(ct);
                 Parallel.For(sy0, sy1 + 1, po, y => {
                     int rowOff = y * w;
                     int wb = y * wpr;

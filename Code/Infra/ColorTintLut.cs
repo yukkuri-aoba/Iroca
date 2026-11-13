@@ -42,7 +42,7 @@ namespace Iroca {
                 byte* pr = lr, pg = lg, pb = lb;
                 int chunks = (count + RangePixels - 1) / RangePixels;
                 System.Threading.Tasks.Parallel.For(0, chunks,
-                    new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, k => {
+                    CoreParallelism.Options(), k => {
                         int i0 = k * RangePixels;
                         ApplyRange(src, dst, i0, Math.Min(count, i0 + RangePixels), pr, pg, pb);
                     });

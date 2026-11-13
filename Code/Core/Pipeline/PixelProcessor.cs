@@ -105,7 +105,7 @@ namespace Iroca {
                 Buffer.MemoryCopy(src, dst, (long)len * sizeof(Color32), (long)len * sizeof(Color32));
                 return;
             }
-            Parallel.For(0, bands, new ParallelOptions { MaxDegreeOfParallelism = bands }, b => {
+            Parallel.For(0, bands, CoreParallelism.Options(degree: bands), b => {
                 long s = (long)len * b / bands, e = (long)len * (b + 1) / bands;
                 long bytes = (e - s) * sizeof(Color32);
                 Buffer.MemoryCopy(src + s, dst + s, bytes, bytes);
@@ -306,10 +306,7 @@ namespace Iroca {
             try {
                 // po を占有率の 0 埋め・HSV 計算 + foreach 内の全 Parallel.For で共用。
                 // MaxDegreeOfParallelism で Unity Editor のスレッドプール圧迫を防ぐ。
-                var po = new ParallelOptions {
-                    CancellationToken = cancellationToken,
-                    MaxDegreeOfParallelism = CoreParallelism.Max(),
-                };
+                var po = CoreParallelism.Options(cancellationToken);
                 if (sortedZones.Count > 1) {
                     rb.Claimed = s_floatPool.Rent(len);
                     ClearWorkParallel(rb.Claimed, len, po);
@@ -514,7 +511,7 @@ namespace Iroca {
             // 増えるため安全側に倒す。
             // 行ごとに dst の異なる領域へ書き込み src は読み取り専用なので、y で行並列化できる
             // (出力ビット不変)。4K→512 で 16.8M 画素読みのためメインスレッド/ジョブどちらでも効く。
-            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
+            var po = CoreParallelism.Options();
             Parallel.For(0, dstH, po, y => {
                 int sy0 = Mathf.Clamp(Mathf.FloorToInt(y / scale), 0, srcH - 1);
                 int sy1 = Mathf.Clamp(Mathf.CeilToInt((y + 1f) / scale) - 1, sy0, srcH - 1);

@@ -349,7 +349,7 @@ namespace Iroca {
         // 並列度は Core と同じ規則(CoreParallelism。メインスレッドと描画のぶんのコアをあける)。どの処理も出力の行ごとに
         // 独立に書くので、並列度で結果は変わらない。
         private static ParallelOptions WorkOptions()
-            => new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
+            => CoreParallelism.Options();
 
         // 出力の行 y が読む元の行 [y0, y1)。
         private static int SrcRow0(int y, int sh, int dh) => (int)((long)y * sh / dh);

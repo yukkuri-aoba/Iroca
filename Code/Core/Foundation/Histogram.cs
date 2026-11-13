@@ -34,7 +34,7 @@ namespace Iroca {
             if (maxWorkers > 0 && maxWorkers < dop) {
                 dop = maxWorkers;
             }
-            var po = new ParallelOptions { MaxDegreeOfParallelism = dop, CancellationToken = ct };
+            var po = CoreParallelism.Options(ct, dop);
             int total = 0;
             object gate = new object();
             Parallel.ForEach(Partitioner.Create(yFrom, yTo), po,
@@ -78,7 +78,7 @@ namespace Iroca {
             if (maxWorkers > 0 && maxWorkers < dop) {
                 dop = maxWorkers;
             }
-            var po = new ParallelOptions { MaxDegreeOfParallelism = dop, CancellationToken = ct };
+            var po = CoreParallelism.Options(ct, dop);
             int total = 0;
             object gate = new object();
             var rented = new List<IntPtr>();

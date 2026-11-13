@@ -85,7 +85,7 @@ Code/Core/
 各フォルダの中身: `Selection/Legacy/`（旧の選択の段・`ColorZone` の照合・選択キャッシュの鍵。照合は `ColorZone.Matcher` = 作ったときのゾーンの設定の写しと導いた値を持つ、書き換えないスナップショットで、使う所（選択の段・自動調整の検証）が作る。ゾーンは設定だけを持ち、導いた値のキャッシュは持たない。`test_zone_matcher_snapshot` が見張る）、
 `Masks/`（マスクの契約と除外・含めるの判定）、`Filters/`（ぼかし）、`Foundation/`（並列度・画素の決まり・使っていない
 メモリを返す窓口・ヒストグラムの集計と分位点 `Histogram`・ビット数 `Bits`・連結成分のラベル付け `RunLabeler`（行の run と union-find。選択・無彩・ハイライトの帯・閉領域・AI 提案の後処理が、どの画素を run にするかだけを渡して使う）。`PixelProcessor` の `OpaqueAlphaMin`・
-`ReleaseWorkBuffers` は、ここへの転送役。並列度は `CoreParallelism` を直接呼ぶ）、`Color/`（色空間の `OkLab`。自動化の手がかりも同じ変換を使う。画素の HSV と色の表は `PixelProcessor` の
+`ReleaseWorkBuffers` は、ここへの転送役。並列度は `CoreParallelism` を直接呼ぶ。並列のループの設定は `CoreParallelism.Options(ct)` で作り、ほかの所に `new ParallelOptions` を書かない: `test_parallel_options_factory` が見張る）、`Color/`（色空間の `OkLab`。自動化の手がかりも同じ変換を使う。画素の HSV と色の表は `PixelProcessor` の
 partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・ゾーン 1 つ分の流れ `RunZone`・`RunContext` /
 `RunBuffers` / `ZoneState` / `ZoneBuffers` / `SelectionResult`・強度の範囲）、`Recolor/`（再着色の段 6 つ
 `AchromaSolidifyStage` → `DecontamStage` → `RecolorStatsStage` → `MixtureBandStage` → `ComposeStage` →

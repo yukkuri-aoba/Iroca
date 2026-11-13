@@ -134,7 +134,7 @@ namespace Iroca {
             }
             int chunks = (n + RangePixels - 1) / RangePixels;
             int changed = 0, overlap = 0;
-            var po = new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
+            var po = CoreParallelism.Options();
             System.Threading.Tasks.Parallel.For(0, chunks, po,
                 () => new MaskRegionEditResult(),
                 (c, _, acc) => {

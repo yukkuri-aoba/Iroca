@@ -728,7 +728,7 @@ namespace Iroca {
             // シーンへ上げる前にメインスレッドで全画素を回すので、行の範囲に分けて並列に書く(画素ごとに独立)。
             int w = tex.width, h = tex.height;
             System.Threading.Tasks.Parallel.For(0, h,
-                new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, y => {
+                CoreParallelism.Options(), y => {
                     for (int i = y * w, end = i + w; i < end; i++) {
                         top[i].a = gray ? (byte)((top[i].r + top[i].g + top[i].b + 1) / 3) : (byte)255;
                     }

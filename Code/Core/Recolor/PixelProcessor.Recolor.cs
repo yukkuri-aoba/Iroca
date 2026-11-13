@@ -247,7 +247,7 @@ namespace Iroca {
             bool* statsExclude, float* claimed, CancellationToken ct, ColorPalette palette, float q,
             out float median, out float percentile, AnchorCoreCounts pre = null) {
             if (palette != null) {
-                palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct });
+                palette.EnsureOklab(CoreParallelism.Options(ct));
             }
             var palIdx = palette != null ? palette.Index : null;
             var palC = palette != null ? palette.OkC : null;
@@ -370,7 +370,7 @@ namespace Iroca {
             // 色の表があれば (L, C) は色ごとの表から読む(同じ色に同じ変換を当てた値なのでビット単位で
             // 同じ)。その経路は TryComputeRecolorAnchorByColor(画素の走査は 1 回)。
             if (palette != null) {
-                palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct });
+                palette.EnsureOklab(CoreParallelism.Options(ct));
                 return TryComputeRecolorAnchorByColor(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
                     out anchorL, out anchorC, material, statsExclude, claimed, ct,
                     palette.Index, palette.OkL, palette.OkC, palette.Colors, palette.Count,

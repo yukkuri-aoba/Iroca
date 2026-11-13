@@ -167,7 +167,7 @@ namespace Iroca {
             var charts = new int[sources.Count][];
             var chartCounts = new int[sources.Count];
             Parallel.For(0, sources.Count,
-                new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = token }, s => {
+                CoreParallelism.Options(token), s => {
                     var src = sources[s];
                     if (src?.uv == null || src.triangles == null || src.triangles.Length < 3) {
                         return;
@@ -393,10 +393,7 @@ namespace Iroca {
         /// </summary>
         private static void ComputePadding(int* raster, int* owner, int* dist, int w, int h, CancellationToken token) {
             const int Inf = PaddingInf;
-            var po = new ParallelOptions {
-                CancellationToken = token,
-                MaxDegreeOfParallelism = CoreParallelism.Max(),
-            };
+            var po = CoreParallelism.Options(token);
 
             // 行パス: 同じ行の中で一番近いチャート画素(左からの走査 → 右からの走査で近い方)
             Parallel.For(0, h, po, y => {
@@ -528,10 +525,7 @@ namespace Iroca {
                 }
                 return;
             }
-            var po = new ParallelOptions {
-                CancellationToken = token,
-                MaxDegreeOfParallelism = CoreParallelism.Max(),
-            };
+            var po = CoreParallelism.Options(token);
             Parallel.For(0, chunks, po, c => {
                 int i0 = c * Chunk;
                 body(i0, System.Math.Min(len, i0 + Chunk));

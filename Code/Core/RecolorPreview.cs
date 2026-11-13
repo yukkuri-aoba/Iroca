@@ -104,7 +104,7 @@ namespace Iroca {
                     scan(0);
                 } else {
                     System.Threading.Tasks.Parallel.For(0, chunks,
-                        new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, scan);
+                        CoreParallelism.Options(), scan);
                 }
                 int minX = w, minY = h, maxX = -1, maxY = -1, cnt = 0;
                 foreach (var part in parts) {
@@ -293,7 +293,7 @@ namespace Iroca {
         // 4K の入力を縮小のために 3 回(変換前・変換後・変化マップ)全画素読むので、1 本では待ちが長い。
         private static void ForRows(int th, Action<int> row) {
             System.Threading.Tasks.Parallel.For(0, th,
-                new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, row);
+                CoreParallelism.Options(), row);
         }
 
         // 変化マップタイル。縮小ブロック内に 1 つでも変化画素があればマゼンタ(=変化を潰さない max プーリング)、

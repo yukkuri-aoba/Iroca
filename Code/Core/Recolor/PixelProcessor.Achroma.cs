@@ -85,7 +85,7 @@ namespace Iroca {
                 return;   // マッチの画素が無い
             }
             int len = w * h;
-            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
+            var po = CoreParallelism.Options(ct);
             // 内部の判定は、範囲の中の画素から距離 2 までの印を読む。印はその範囲(範囲 ± 2 を画像の端で切る)だけ埋める。
             int mx0 = Math.Max(0, scan.MinX - 2), mx1 = Math.Min(w - 1, scan.MaxX + 2);
             int my0 = Math.Max(0, scan.MinY - 2), my1 = Math.Min(h - 1, scan.MaxY + 2);
@@ -202,7 +202,7 @@ namespace Iroca {
             ColorPalette palette = null) {
             upMap = null;
             int len = w * h;
-            var bboxPo = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
+            var bboxPo = CoreParallelism.Options(ct);
             // 対象画素の bbox(連結予測子と同条件)。連結成分アンカリングと同じ共通版を使う。対象の画素は scan
             // (ZoneState.Scan)の外に無いので、走査はその中だけ。
             if (!TryComputeMatchedBBox(strength, px, w, h, thr, scan,
@@ -438,7 +438,7 @@ namespace Iroca {
             int* pIdx = null;
             float* pL = null;
             if (palette != null) {
-                palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct });
+                palette.EnsureOklab(CoreParallelism.Options(ct));
                 pIdx = palette.Index; pL = palette.OkL;
             }
             var hist = new int[256];

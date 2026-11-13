@@ -315,7 +315,7 @@ namespace Iroca {
             }
             // 行ごとに並列にする(各行は自分の行だけを書くので、結果は 1 本で回したときと同じ)。層の重ね順は
             // 呼び出し側が層ごとに順に呼ぶので変わらない。並列度は Core の決まり(メインスレッドの分をあける)。
-            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
+            var po = CoreParallelism.Options();
             Parallel.For(0, h, po, y => {
                 int my0 = Mathf.Clamp((int)((long)y * mh / h), 0, mh - 1);
                 int my1 = Mathf.Clamp((int)((long)(y + 1) * mh / h), my0 + 1, mh);
@@ -510,7 +510,7 @@ namespace Iroca {
             ulong* bits = mask.Bits;
             int stride = mask.Width;
             // 行ごとに並列(RenderMaskCoverage と同じ)。
-            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
+            var po = CoreParallelism.Options();
             Parallel.For(0, h, po, y => {
                 int my0 = cy0[y], my1 = cy1[y];
                 int rowBase = y * w;

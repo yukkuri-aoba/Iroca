@@ -84,7 +84,7 @@ namespace Iroca {
                 return packed;
             }
             int chunk = (words + dop - 1) / dop;
-            Parallel.For(0, dop, new ParallelOptions { MaxDegreeOfParallelism = dop }, k => {
+            Parallel.For(0, dop, CoreParallelism.Options(degree: dop), k => {
                 int w0 = k * chunk, w1 = Math.Min(words, w0 + chunk);
                 if (w0 < w1) {
                     PackWords(p, len, packed, w0, w1);
@@ -112,7 +112,7 @@ namespace Iroca {
                 return packed;
             }
             int chunk = (words + dop - 1) / dop;
-            Parallel.For(0, dop, new ParallelOptions { MaxDegreeOfParallelism = dop }, p => {
+            Parallel.For(0, dop, CoreParallelism.Options(degree: dop), p => {
                 int w0 = p * chunk, w1 = Math.Min(words, w0 + chunk);
                 if (w0 < w1) {
                     PackWords(mask, packed, w0, w1);

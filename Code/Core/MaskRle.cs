@@ -65,7 +65,7 @@ namespace Iroca {
                     runs[0] = ScanRuns((byte*)p0, 0, len, out firsts[0]);
                 } else {
                     var ip = (System.IntPtr)p0;   // ラムダはポインタを捕まえられない
-                    Parallel.For(0, parts, new ParallelOptions { MaxDegreeOfParallelism = parts }, k => {
+                    Parallel.For(0, parts, CoreParallelism.Options(degree: parts), k => {
                         int s = k * per;
                         runs[k] = ScanRuns((byte*)ip, s, System.Math.Min(len, s + per), out firsts[k]);
                     });

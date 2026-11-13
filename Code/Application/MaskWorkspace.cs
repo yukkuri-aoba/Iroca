@@ -748,7 +748,7 @@ namespace Iroca {
                 expand(0);
             } else {
                 System.Threading.Tasks.Parallel.For(0, chunks,
-                    new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, expand);
+                    CoreParallelism.Options(), expand);
             }
             return result;
         }
