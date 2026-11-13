@@ -469,7 +469,7 @@ namespace Iroca {
                 _maskView.ResetActiveTarget();
             } else {
                 // 読めなかった印は再読み込みで消える(ここではセッションを読み直さない)ので、読めるかを確かめ直す。
-                RecheckSessionFile(adoptMissed: true);
+                Editing.RecheckSessionFile(adoptMissed: true);
                 bool fileHasMasks = _maskView.RestoreFromSession();
                 // 再読み込みの前にファイルへ書けなかったら、ファイルのマスクは古い。今の版は履歴にある。履歴も無ければ、保存の失敗でも
                 // レシピには書けているので、そちらを読む(古いファイルのマスクで続けると、次の保存でレシピも古くなる)。
@@ -613,7 +613,7 @@ namespace Iroca {
         private void AfterTextureRestoredByUndo() {
             ForgetAutoTuneRecords();
             // 読めなかった印は戻す前のテクスチャのもの。残したままだと、読めなかったファイルを空の保存で削除する。
-            RecheckSessionFile(adoptMissed: false);
+            Editing.RecheckSessionFile(adoptMissed: false);
             _maskView?.RecheckMaskFile();
             // いま直しているゾーンは文書の外。
             _maskView?.RestoreTargetOf(SourceTexture);
@@ -693,49 +693,28 @@ namespace Iroca {
             return first;
         }
 
-        // SessionCache ファイルが「存在するのに読めなかった」フラグ。true の間は空保存での
-        // 削除・無退避上書きを抑止する（MaskPaintView._maskLoadFailed と同じ防御）。
-        [System.NonSerialized] private bool _sessionLoadFailed;
-        internal bool SessionLoadFailed => _sessionLoadFailed;
+        // SessionCache ファイルが「存在するのに読めなかった」か(印と規則の持ち主は EditingSession。マスクのファイルの印も同じ)。
+        internal bool SessionLoadFailed => Editing.SessionLoadFailed;
 
         // 最後の保存でファイルに書けなかったか(直るまで窓に帯を出す)。再読み込みの後にマスクをどこから戻すかにも使うので直列化する。
         [SerializeField] private bool _lastSaveFailed;
         internal bool LastSaveFailed => _lastSaveFailed;
 
-        // セッションのファイルが読めるかを確かめ直す。読めても、編集中が空なのにファイルに中身があれば、編集中は読めなかったときのまま
-        // (空のセッションは保存でファイルごと消えるので、ふつうは食い違わない)。そのまま保存するとファイルを消すので、読めなかった印を
-        // 立てたままにする。adoptMissed ならファイルの中身を読む。レシピが結び付いていればレシピが正なので見ない。
-        private void RecheckSessionFile(bool adoptMissed) {
-            var loaded = SessionPersistence.LoadFromFile(SourceTexture, out bool unreadable);
-            bool missed = loaded != null && !SessionFileStore.IsEmpty(loaded) && SessionFileStore.IsEmpty(Session) && BoundRecipe == null;
-            if (missed && adoptMissed) {
-                Session = loaded;
-                Session.maskState = new MaskState();
-                EnsureAllZoneIds();
-                _sessionLoadFailed = false;
-                return;
-            }
-            _sessionLoadFailed = unreadable || missed;
-        }
-
         private static string CurrentTexturePath(Texture2D tex) => SessionPersistence.TexturePathOf(tex);
 
         /// <summary>
-        /// 現在のテクスチャのマスク＋セッション（ゾーン/色/処理設定）をディスクへ保存する。
+        /// 現在のテクスチャのマスク＋セッション（ゾーン/色/処理設定）をディスクへ保存する(書く順と読めなかった印の扱いは
+        /// <see cref="EditingSession.Save"/>)。
         /// ファイルに書けなかったら false（呼び出し側でユーザー通知に使う。窓の帯は <see cref="LastSaveFailed"/>）。
         /// internal は RecipeSyncTests が直接呼ぶため。
         /// </summary>
         internal bool SavePersistedSessionForCurrentTexture() {
-            var saved = Editing.ToSaveState();
-            bool maskOk = _maskView == null || _maskView.SaveMasks(saved.maskState);
-            // 中身を書けたら印を下ろす(立てたままだと、次の保存で .bak を新しい中身で上書きして元のファイルを失う)。
-            bool sessionOk = SessionPersistence.SaveToFile(SourceTexture, saved, _sessionLoadFailed, out bool wroteContent);
-            if (wroteContent) {
-                _sessionLoadFailed = false;
+            // マスクの画面がまだ無ければ、マスクは読み込んでいない(空のマスクを書くとファイルを消す)。
+            bool ok = Editing.Save(saveMasks: _maskView != null, out bool recipeChangedOutside);
+            // 外(git など)で書き換わったレシピを、窓の古い内容で上書きしない。窓が残るならレシピから読み直す。
+            if (recipeChangedOutside) {
+                ScheduleRecipeReload();
             }
-            // 非破壊のレシピが結び付いていればそちらにも書く。
-            SaveSessionToBoundRecipe(saved);
-            bool ok = maskOk && sessionOk;
             if (ok == _lastSaveFailed) {
                 RequestRepaintIfAlive();
             }
@@ -758,21 +737,16 @@ namespace Iroca {
         private void LoadPersistedSessionForCurrentTexture() {
             AbortAutoTuneForEditChange();
             ForgetAutoTuneRecords();
-            _sessionLoadFailed = false;
+            Editing.ForgetSessionLoadFailure();
             // 非破壊のレシピがあればそれが正(マスクも含めてレシピから読む)。
             if (TryLoadSessionFromRecipe()) {
                 return;
             }
 
-            var loaded = SessionPersistence.LoadFromFile(SourceTexture, out bool unreadable);
-            _sessionLoadFailed = unreadable;
-
             // 読み込めた内容 or 既定値で Session をまるごと置き換える。maskState は空にしておき、
             // 直後の RestoreFromSession がディスクのマスクファイルから読み直して上書きする
             // （マスクが無ければ空のまま＝正しい）。
-            Session = loaded ?? IrocaSessionState.CreateDefault();
-            Session.maskState = new MaskState();
-            EnsureAllZoneIds();
+            Editing.LoadSessionFromFile();
 
             _maskView?.RestoreFromSession();
             Editing.CommitMaskEdit();

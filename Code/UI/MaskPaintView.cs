@@ -70,11 +70,8 @@ namespace Iroca {
         // ストローク中フラグ（同一ストロークで二重 Undo 登録しないため）
         [System.NonSerialized] public bool _maskStrokeStarted;
 
-        // 現在のテクスチャの MaskCache ファイルが「存在するのに読めなかった」フラグ。
-        // true の間は空保存での削除・無退避の上書きを抑止する（一時的な読込失敗が
-        // データ恒久消失に化けるのを防ぐ）。有効な内容を保存できたら解除。
-        [System.NonSerialized] private bool _maskLoadFailed;
-        internal bool MaskLoadFailed => _maskLoadFailed;
+        // 現在のテクスチャの MaskCache ファイルが「存在するのに読めなかった」か(印と規則の持ち主は EditingSession)。
+        internal bool MaskLoadFailed => _host != null && _host.Editing.MaskLoadFailed;
 
         // いま直しているゾーンの id(描く前に覚える)。編集対象は番号で持ち、Undo では巻き戻らないので、Undo/Redo で
         // ゾーンの並びが変わったときに同じゾーンを指し直すのに使う。

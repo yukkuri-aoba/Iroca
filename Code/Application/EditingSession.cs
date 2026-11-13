@@ -23,8 +23,9 @@ namespace Iroca {
     /// 編集を <see cref="Changed"/> で知らせる。
     /// ウィンドウは読み込み・リセット・レシピの読み直しで編集状態をまるごと差し替え、Unity は Undo とドメインリロードで
     /// 書き戻すので、編集状態は覚えずに毎回文書の中身から読む。メインスレッド専用。
+    /// 保存と復元(ファイル・レシピ・読めなかった印)は EditingSession.Persistence.cs。
     /// </summary>
-    internal sealed class EditingSession {
+    internal sealed partial class EditingSession {
         internal EditingSession(IrocaEditingDocument document) => Document = document;
 
         /// <summary>文書の中身(操作を Undo に記録する先)。作り直されたらウィンドウが指し直す。</summary>

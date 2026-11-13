@@ -793,7 +793,7 @@ namespace Iroca {
             if (_lastSaveFailed) {
                 EditorGUILayout.HelpBox(Localization.EditSaveFailedBanner, MessageType.Error);
             }
-            if (_sessionLoadFailed || (_maskView != null && _maskView.MaskLoadFailed)) {
+            if (SessionLoadFailed || (_maskView != null && _maskView.MaskLoadFailed)) {
                 EditorGUILayout.HelpBox(Localization.EditLoadFailedBanner, MessageType.Warning);
             }
             // マスクを戻せない版まで Undo した(ゾーンと設定だけが戻った)。通知は数秒で消え、その状態が自動保存されるので、マスクを

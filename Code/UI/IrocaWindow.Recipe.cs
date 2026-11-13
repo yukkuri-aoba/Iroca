@@ -40,10 +40,7 @@ namespace Iroca {
         private static void RegisterAutomationWindows() => EditingWindows.Current = new AutomationWindows();
 
         /// <summary>今のテクスチャに結び付いたレシピ(無ければ null)。</summary>
-        internal IrocaRecipe BoundRecipe =>
-            Doc.boundRecipe != null && SourceTexture != null && Doc.boundRecipe.sourceTexture == SourceTexture
-                ? Doc.boundRecipe
-                : null;
+        internal IrocaRecipe BoundRecipe => EditingSession.BoundRecipeOf(Doc);
 
         /// <summary>インスペクタの「いろかで開く」から: レシピの元テクスチャを開き、そのレシピに結び付ける。</summary>
         internal static void OpenRecipe(IrocaRecipe recipe) {
@@ -179,12 +176,8 @@ namespace Iroca {
 
         /// <summary>結び付いたレシピへ今の編集内容を書く。<paramref name="saved"/> はマスク込みのもの(<see cref="EditingSession.ToSaveState"/>)。</summary>
         private void SaveSessionToBoundRecipe(IrocaSessionState saved) {
-            var recipe = BoundRecipe;
-            if (recipe == null) {
-                return;
-            }
             // 外(git など)で書き換わったレシピを、窓の古い内容で上書きしない。窓が残るならレシピから読み直す。
-            if (!SessionPersistence.SaveToRecipe(recipe, saved)) {
+            if (!Editing.SaveToBoundRecipe(saved)) {
                 ScheduleRecipeReload();
             }
         }

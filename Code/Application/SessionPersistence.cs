@@ -13,8 +13,9 @@ namespace Iroca {
     /// <item>外(git など)でのレシピの書き換えの検出(下の「外でのレシピの書き換え」)。</item>
     /// <item>開いただけでは古い形のレシピを書き直さない(下の「開いただけでは書かない」)。</item>
     /// </list>
-    /// 編集状態を差し替える・Undo に積む・マスクの作業用バッファと同期する・利用者に知らせるのは、呼び出し側
-    /// (いろかのウィンドウ)。マスクのファイル(MaskFileStore)は今はマスクの編集(MaskPaintView)が読み書きする。
+    /// ここは読み書きと判断だけ。読んだものを編集中の文書とマスクへ当てる順と、ファイルを読めなかった印は
+    /// <see cref="EditingSession"/>(EditingSession.Persistence.cs。マスクのファイル MaskFileStore もそこが読み書きする)。
+    /// Undo に積む・重ね表示を作り直す・利用者に知らせるのは、いろかのウィンドウ。
     /// メインスレッド専用。
     /// </summary>
     internal static class SessionPersistence {
