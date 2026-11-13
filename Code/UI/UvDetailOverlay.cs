@@ -377,14 +377,11 @@ namespace Iroca {
                 a = b = c = default;
                 return false;
             }
-            a = ToPixel(src, uv[ia], w, h);
-            b = ToPixel(src, uv[ib], w, h);
-            c = ToPixel(src, uv[ic], w, h);
+            a = src.TileToPixel(uv[ia], w, h);
+            b = src.TileToPixel(uv[ib], w, h);
+            c = src.TileToPixel(uv[ic], w, h);
             return true;
         }
-
-        private static Vector2 ToPixel(UvChartSource s, Vector2 uv, int w, int h)
-            => new Vector2((uv.x * s.scale.x + s.offset.x) * w, (uv.y * s.scale.y + s.offset.y) * h);
 
         // 画素の中心が三角形の内側にある画素に、島の番号を書き、乗っている三角形の数を数える。
         // 向きはどちらでもよい(面積の符号でそろえる)。辺の上にちょうど中心が乗る画素は両側で数えうるが、まれなので受け入れる。

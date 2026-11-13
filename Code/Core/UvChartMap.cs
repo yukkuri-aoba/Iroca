@@ -20,6 +20,20 @@ namespace Iroca {
         /// <summary>マテリアルのメインテクスチャの Tiling / Offset(uv * scale + offset)。</summary>
         public Vector2 scale = Vector2.one;
         public Vector2 offset = Vector2.zero;
+
+        /// <summary>
+        /// UV に Tiling / Offset を掛けた、テクスチャ上の UV(0..1 が画像の端から端)。地図づくり・輪郭・Scene のクリックの
+        /// 強調が同じ式を使う(式はここだけ)。
+        /// </summary>
+        public static Vector2 Tile(Vector2 uv, Vector2 scale, Vector2 offset) =>
+            new Vector2(uv.x * scale.x + offset.x, uv.y * scale.y + offset.y);
+
+        /// <summary>このメッシュの Tiling / Offset を掛けた、テクスチャ上の UV。</summary>
+        public Vector2 Tile(Vector2 uv) => new Vector2(uv.x * scale.x + offset.x, uv.y * scale.y + offset.y);
+
+        /// <summary>このメッシュの Tiling / Offset を掛けた、w×h の画像の画素の座標(下原点)。</summary>
+        public Vector2 TileToPixel(Vector2 uv, int w, int h) =>
+            new Vector2((uv.x * scale.x + offset.x) * w, (uv.y * scale.y + offset.y) * h);
     }
 
     /// <summary>
@@ -167,10 +181,7 @@ namespace Iroca {
             }
         }
 
-        private static Vector2 Map(UvChartSource s, int i, int w, int h) {
-            Vector2 uv = s.uv[i];
-            return new Vector2((uv.x * s.scale.x + s.offset.x) * w, (uv.y * s.scale.y + s.offset.y) * h);
-        }
+        private static Vector2 Map(UvChartSource s, int i, int w, int h) => s.TileToPixel(s.uv[i], w, h);
 
         /// <summary>
         /// 三角形 → チャート番号(0 始まり、チャートの最小三角形番号の昇順 = 決定的)。

@@ -37,7 +37,7 @@ namespace Iroca {
         /// </summary>
         internal static SceneClickHighlight Compute(Texture2D texture, string name, Vector2[] uv, int[] submeshTriangles,
             int triangle, Vector2 hitUv, Vector2 scale, Vector2 offset, int fillW, int fillH) {
-            var tiled = new Vector2(hitUv.x * scale.x + offset.x, hitUv.y * scale.y + offset.y);
+            var tiled = UvChartSource.Tile(hitUv, scale, offset);
             Vector2 point = MeshRaycast.WrapToTexture(tiled, out Vector2 shift);
             var island = new UvChartSource {
                 name = name,

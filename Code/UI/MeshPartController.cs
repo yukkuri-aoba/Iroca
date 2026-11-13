@@ -261,8 +261,8 @@ namespace Iroca {
                     if (e.count != 1) {
                         continue;
                     }
-                    segments.Add(Tiled(src, uv[e.a]));
-                    segments.Add(Tiled(src, uv[e.b]));
+                    segments.Add(src.Tile(uv[e.a]));
+                    segments.Add(src.Tile(uv[e.b]));
                 }
             }
             return segments.ToArray();
@@ -285,9 +285,6 @@ namespace Iroca {
             }
             return (a, b, c);
         }
-
-        static Vector2 Tiled(UvChartSource s, Vector2 uv)
-            => new Vector2(uv.x * s.scale.x + s.offset.x, uv.y * s.scale.y + s.offset.y);
 
         /// <summary>マスクと同じ寸法のチャート地図(にじみ代の割り当て済み)。メッシュが無ければ null。</summary>
         UvChartMap Map() {
