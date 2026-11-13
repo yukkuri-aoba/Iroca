@@ -91,6 +91,16 @@ namespace Iroca.EditorTests {
                 CollectionAssert.AreEqual(di[kv.Key], ToBools(kv.Value), kv.Key);
             }
             Assert.AreEqual(di.Count, new List<KeyValuePair<string, NativeBitMask>>(fresh.Layers(true)).Count);
+            // 非破壊ビルド・自動化の読み方(MaskStateCodec.ToSnapshot)も、同じ項目を読み飛ばして同じ層になる(読み飛ばしの規則は
+            // Core の MaskStateCodec.ReadLayers の 1 つで、編集中のマスクと共有)。
+            var snap = MaskStateCodec.ToSnapshot(ms);
+            try {
+                CollectionAssert.AreEqual(dc, ToBools(snap.common));
+                CollectionAssert.AreEquivalent(new List<string>(dz.Keys), new List<string>(snap.zones.Keys));
+                foreach (var kv in snap.zones) {
+                    CollectionAssert.AreEqual(dz[kv.Key], ToBools(kv.Value), kv.Key);
+                }
+            } finally { snap.Release(); }
             fresh.Clear();
             ws.Clear();
         }

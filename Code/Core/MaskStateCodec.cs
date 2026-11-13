@@ -1,11 +1,13 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System;
 using System.Collections.Generic;
 
 namespace Iroca {
     /// <summary>
     /// 保存形式のマスク(<see cref="MaskState"/>: RLE + Base64)から処理用スナップショットを作る手順
-    /// (<see cref="ToSnapshot"/>。非破壊ビルド・自動化・ハーネスが使う)と、bool[] との相互変換
+    /// (<see cref="ToSnapshot"/>。非破壊ビルド・自動化・ハーネスが使う)、保存形式の層を読むときの読み飛ばしの規則
+    /// (<see cref="ReadLayers"/>・<see cref="DecodeLayer"/>。編集側の MaskWorkspace.DecodeFrom も同じものを使う)と、bool[] との相互変換
     /// (<see cref="Encode"/>・<see cref="Decode"/>)。
     /// bool[] との相互変換は**テスト・ハーネス用**で、製品は呼ばない(scripts/source_checks/test_test_only_api.py が見張る)。
     /// 製品のマスクは 1 画素 1 ビットで持ち、保存形式との変換は編集側の MaskWorkspace.EncodeTo / DecodeFrom が正。
@@ -96,11 +98,11 @@ namespace Iroca {
                 zones = new Dictionary<string, NativeBitMask>(),
             };
             if (!string.IsNullOrEmpty(ms.commonMaskBase64)) {
-                snap.common = DecodePackedSized(ms.commonMaskBase64, width, height);
+                snap.common = DecodeLayer(ms.commonMaskBase64, width, height);
             }
-            ReadPackedEntries(ms.zones, snap.zones, width, height);
+            ReadLayers(ms.zones, snap.zones, width, height);
             var includes = new Dictionary<string, NativeBitMask>();
-            ReadPackedEntries(ms.zoneIncludes, includes, width, height);
+            ReadLayers(ms.zoneIncludes, includes, width, height);
             foreach (var kv in includes) {
                 if (!kv.Value.Any()) {
                     kv.Value.Release();
@@ -114,29 +116,64 @@ namespace Iroca {
             return snap;
         }
 
-        // ReadEntries の詰めた形の版(同じ項目を読み飛ばし、同じゾーン id は後のものが勝つ)。
-        private static void ReadPackedEntries(List<MaskZoneEntry> src, IDictionary<string, NativeBitMask> dst,
-            int width, int height) {
+        /// <summary>
+        /// 保存形式の 1 つの欄(ゾーンごとの除外か、含める)を、ヒープの外のマスクへ展開して <paramref name="dst"/> へ足す。
+        /// 読み飛ばしの規則はここ 1 か所(編集中のマスク MaskWorkspace.DecodeFrom と、非破壊ビルド・自動化の <see cref="ToSnapshot"/> が使う。
+        /// bool[] の見本 <see cref="Decode"/> も同じ規則): null の項目・ゾーン id の無い項目・壊れた文字列・寸法の合わない項目は
+        /// 読み飛ばし、同じゾーン id は後のものが勝つ。
+        /// 戻り値は、中身があるのに読み飛ばした項目の数(文字列が空の項目は層が無いだけなので数えない)。読み飛ばすたびに
+        /// <paramref name="onDropped"/> を呼ぶ(引数はゾーン id。id が無い項目なら空文字列)。
+        /// <paramref name="reuse"/>(前に持っていた層)を渡すと、同じゾーンの層を符号化した文字列が同じなら、展開し直さずにその層を
+        /// そのまま置く(参照は足さない。持ち主は呼ぶ側のまま)。
+        /// </summary>
+        internal static int ReadLayers(List<MaskZoneEntry> src, IDictionary<string, NativeBitMask> dst, int width, int height,
+            IReadOnlyDictionary<string, NativeBitMask> reuse = null, Action<string> onDropped = null) {
             if (src == null) {
-                return;
+                return 0;
             }
+            int dropped = 0;
             foreach (var entry in src) {
-                if (entry == null || string.IsNullOrEmpty(entry.zoneId)) {
+                if (entry == null) {
                     continue;
                 }
-                var bits = DecodePackedSized(entry.maskBase64, width, height);
-                if (bits == null) {
+                bool hasData = !string.IsNullOrEmpty(entry.maskBase64);
+                if (string.IsNullOrEmpty(entry.zoneId)) {
+                    if (hasData) {
+                        dropped++;
+                        onDropped?.Invoke("");
+                    }
                     continue;
                 }
-                if (dst.TryGetValue(entry.zoneId, out var earlier)) {
-                    earlier.Release();
+                NativeBitMask candidate = null;
+                reuse?.TryGetValue(entry.zoneId, out candidate);
+                var m = DecodeLayer(entry.maskBase64, width, height, candidate);
+                if (m == null) {
+                    if (hasData) {
+                        dropped++;
+                        onDropped?.Invoke(entry.zoneId);
+                    }
+                    continue;
                 }
-                dst[entry.zoneId] = bits;
+                // 同じ id が 2 度出たら後のものが勝つ。前に置いたものが使い回し(reuse の層)でなければ手放す。
+                if (dst.TryGetValue(entry.zoneId, out var replaced) && !ReferenceEquals(replaced, m)
+                    && !ReferenceEquals(replaced, candidate)) {
+                    replaced.Release();
+                }
+                dst[entry.zoneId] = m;
             }
+            return dropped;
         }
 
-        // DecodeSized の詰めた形の版(寸法が保存形式の width/height と一致したときだけ採る)。
-        private static NativeBitMask DecodePackedSized(string encoded, int width, int height) {
+        /// <summary>
+        /// 保存形式の 1 枚の層を展開する(参照 1 で返す)。壊れた文字列と、寸法が <paramref name="width"/>×<paramref name="height"/> と
+        /// 合わないものは null。<paramref name="reuse"/>(前に持っていた同じ層)を符号化した文字列が同じなら、展開し直さずに
+        /// それをそのまま返す(参照は足さない)。
+        /// </summary>
+        internal static NativeBitMask DecodeLayer(string encoded, int width, int height, NativeBitMask reuse = null) {
+            if (reuse != null && reuse.Width == width && reuse.Height == height
+                && MaskRle.EncodeBitsIfAny(reuse) == encoded) {
+                return reuse;
+            }
             var bits = MaskRle.DecodeBits(encoded);
             if (bits == null || (bits.Width == width && bits.Height == height)) {
                 return bits;

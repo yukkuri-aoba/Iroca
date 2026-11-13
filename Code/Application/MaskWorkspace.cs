@@ -607,14 +607,17 @@ namespace Iroca {
                 Width = ms.width;
                 Height = ms.height;
                 if (!string.IsNullOrEmpty(ms.commonMaskBase64)) {
-                    _common = DecodeSized(ms.commonMaskBase64, sameSize ? oldCommon : null);
+                    _common = MaskStateCodec.DecodeLayer(ms.commonMaskBase64, Width, Height, sameSize ? oldCommon : null);
                     if (_common == null) {
                         dropped++;
                         WarnDropped(null, include: false);
                     }
                 }
-                dropped += ReadEntries(ms.zones, _excludes, sameSize ? oldExcludes : null, include: false);
-                dropped += ReadEntries(ms.zoneIncludes, _includes, sameSize ? oldIncludes : null, include: true);
+                // どの項目を読み飛ばすかの規則は Core に 1 つだけ(非破壊ビルドの MaskStateCodec.ToSnapshot と同じ)。
+                dropped += MaskStateCodec.ReadLayers(ms.zones, _excludes, Width, Height, sameSize ? oldExcludes : null,
+                    id => WarnDropped(id, include: false));
+                dropped += MaskStateCodec.ReadLayers(ms.zoneIncludes, _includes, Width, Height, sameSize ? oldIncludes : null,
+                    id => WarnDropped(id, include: true));
                 ReadPatches(ms.patches);
                 TrimPatches();   // 削る前の版(0.4.0 の開発中)や手で書いた保存の記録を、層に合わせる
                 CapPatches();    // 手で書いた保存は、上限を超えて並べられる
@@ -676,45 +679,6 @@ namespace Iroca {
             }
         }
 
-        // 読み飛ばした項目の数を返す。
-        private int ReadEntries(List<MaskZoneEntry> src, Dictionary<string, NativeBitMask> dst,
-            Dictionary<string, NativeBitMask> previous, bool include) {
-            if (src == null) {
-                return 0;
-            }
-            int dropped = 0;
-            foreach (var entry in src) {
-                if (entry == null) {
-                    continue;
-                }
-                bool hasData = !string.IsNullOrEmpty(entry.maskBase64);
-                if (string.IsNullOrEmpty(entry.zoneId)) {
-                    if (hasData) {
-                        dropped++;
-                        WarnDropped("", include);
-                    }
-                    continue;
-                }
-                NativeBitMask candidate = null;
-                previous?.TryGetValue(entry.zoneId, out candidate);
-                var m = DecodeSized(entry.maskBase64, candidate);
-                if (m == null) {
-                    if (hasData) {
-                        dropped++;
-                        WarnDropped(entry.zoneId, include);
-                    }
-                    continue;
-                }
-                // 同じ id が 2 度出たら後のものが勝つ。前に置いたものが使い回しでなければ手放す。
-                if (dst.TryGetValue(entry.zoneId, out var replaced) && !ReferenceEquals(replaced, m)
-                    && !ReferenceEquals(replaced, candidate)) {
-                    replaced.Release();
-                }
-                dst[entry.zoneId] = m;
-            }
-            return dropped;
-        }
-
         // zoneId = null は全ゾーン共通の除外、空はゾーンの id が無い項目。
         private void WarnDropped(string zoneId, bool include) {
             string layer = zoneId == null ? "the all-zones exclusion mask" : include ? "an include mask" : "an exclude mask";
@@ -722,24 +686,6 @@ namespace Iroca {
             string reason = zoneId != null && zoneId.Length == 0 ? "it has no zone id"
                 : $"its data is broken or its size does not match {Width}x{Height}";
             UnityEngine.Debug.LogWarning($"[Iroca] Skipped {layer}{zone}: {reason}.");
-        }
-
-        // 寸法がいまの Width/Height と同じときだけ採る。candidate(前に持っていた同じ層)を符号化すると encoded になるなら、
-        // それをそのまま返す。
-        private NativeBitMask DecodeSized(string encoded, NativeBitMask candidate) {
-            if (candidate != null && candidate.Width == Width && candidate.Height == Height
-                && MaskRle.EncodeBitsIfAny(candidate) == encoded) {
-                return candidate;
-            }
-            var m = MaskRle.DecodeBits(encoded);
-            if (m == null) {
-                return null;
-            }
-            if (m.Width == Width && m.Height == Height) {
-                return m;
-            }
-            m.Release();
-            return null;
         }
 
         // ─────────────── 処理へ渡す ───────────────
