@@ -16,12 +16,17 @@ namespace Iroca {
     /// (= 新規の誤検出は増えない)。
     /// </summary>
     internal static unsafe class HighlightSampleCorrector {
-        private const float MinSampleSat = 0.20f;  // 源色がこれ未満(灰色寄り)なら補正しない(色相が不安定)
+        // 源色がこれ未満(灰色寄り)なら補正しない(色相が不安定)。帯成長(PixelProcessor.HlBandMinSampleSat)も同じ値だが、
+        // 別の機能の別の量なので結び付けていない。
+        private const float MinSampleSat = 0.20f;
         private const float BodySatFrac = 0.50f;  // 地色とみなす彩度下限(源色相対)。脱彩した wash 済み明部を除外
-        private const float HueBand = 0.15f;  // 同色相とみなす色相帯(許容値非依存の緩め)
+        // 同色相とみなす色相帯(許容値非依存の緩め)。照合の免除の色相ゲート(ColorZone.ForgivenessHueGate)も同じ値だが、
+        // 結び付けていない(この機能は既定 OFF。照合の調整で黙って動かないように)。
+        private const float HueBand = 0.15f;
         private const float HighlightGatePct = 0.75f; // スポイトVが地色Vのこのpercentileより上のときだけ補正
         private const float TargetPct = 0.60f; // 補正時の washV = 地色Vのこのpercentile(上位~40%だけ白寄せ)
-        private const int MinBodyPixels = 100;   // 地色画素がこれ未満なら補正しない(PixelProcessor.AnchorMinPixels と同基準)
+        // 地色画素がこれ未満なら補正しない。再着色アンカーの最小画素数と同じ基準なので、その定数を読む。
+        private const int MinBodyPixels = PixelProcessor.AnchorMinPixels;
 
         /// <summary>
         /// wash 用サンプル色を返す。autoHighlightSample=false / 低彩度源色 / 地色画素が少ない場合は

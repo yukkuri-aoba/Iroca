@@ -111,9 +111,13 @@ namespace Iroca {
         internal const float HighlightValueHeadroomFrac = 0.25f;
         // ハイライト経路の同色相帯 = max(Floor, tolerance×TolFrac)。復元マッチの hlHueCap・帯成長
         // (PixelProcessor.GrowHighlightBand)・自動調整の閉ループ模擬(ZoneAutoTuner.VerifyHighlightRecoveryGrowth)
-        // が同じ帯を使う前提なので、式の係数を 1 か所で持つ(手動同期による定数ドリフトを避ける)。
-        internal const float HighlightHueCapFloor = 0.05f;
-        internal const float HighlightHueCapTolFrac = 0.3f;
+        // が同じ帯を使う前提なので、式を 1 か所(HighlightHueCap)で持つ(手動同期による定数ドリフトを避ける)。
+        private const float HighlightHueCapFloor = 0.05f;
+        private const float HighlightHueCapTolFrac = 0.3f;
+
+        /// <summary>ハイライト経路の同色相帯(色相距離の上限)。許容範囲 tolerance から決まる。</summary>
+        internal static float HighlightHueCap(float tolerance) =>
+            Mathf.Max(HighlightHueCapFloor, tolerance * HighlightHueCapTolFrac);
         // サンプルの chromaConfidence が 0→1 に立ち上がる彩度の幅(chromaThreshold から)。
         // internal: PixelProcessor.RecoverEnclosedHighlight が「色相が完全に信用できる彩度」
         // (chromaThreshold+この値)を彩度床に使う。
@@ -261,7 +265,7 @@ namespace Iroca {
             softRange = tolerance * edgeSoftness;
             hardRange = tolerance - softRange;
 
-            hlHueCap = Mathf.Max(HighlightHueCapFloor, tolerance * HighlightHueCapTolFrac);
+            hlHueCap = HighlightHueCap(tolerance);
 
             // ホットループから追い出したゾーン定数(式は MatchOneSample のインライン計算と同一)。
             // softRange 確定後に計算する必要があるのでここに置く。

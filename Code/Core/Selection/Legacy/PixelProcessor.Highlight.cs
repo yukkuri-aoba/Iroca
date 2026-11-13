@@ -281,7 +281,9 @@ namespace Iroca {
         // シミュレートするために参照する（手動同期による定数ドリフトを避ける）。
         internal const float HlBandCoreThreshold = 0.90f;  // 信頼コア（本体）とみなす strength 下限
         internal const float HlBandAxisEps = 0.10f;  // sample→白 軸からの許容残差（RGB ユークリッド）
-        internal const float HlBandMinSampleSat = 0.20f;  // 源色がこれ未満（灰色寄り）なら無効
+        // 源色がこれ未満（灰色寄り）なら無効。スポイト補正(HighlightSampleCorrector.MinSampleSat)も同じ値だが、
+        // 別の機能の別の量なので結び付けていない(片方を調整して、もう片方が黙って動かないように)。
+        internal const float HlBandMinSampleSat = 0.20f;
         internal const float HlBandMinSatFrac = 0.15f;  // 帯候補の彩度下限（源色相対）。白素材への流入を防ぐ
 
         /// <summary>
@@ -315,7 +317,7 @@ namespace Iroca {
                 return;
             }
 
-            float hueCap = Mathf.Max(ColorZone.HighlightHueCapFloor, zone.tolerance * ColorZone.HighlightHueCapTolFrac);
+            float hueCap = ColorZone.HighlightHueCap(zone.tolerance);
             float satFloor = sS * HlBandMinSatFrac;
 
             int len = w * h;

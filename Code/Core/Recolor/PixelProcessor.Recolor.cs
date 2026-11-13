@@ -86,7 +86,9 @@ namespace Iroca {
         // サンプル自動補正(再着色アンカー正規化)の定数。
         // すべて領域統計に対する相対量(特定色/座標/テクスチャ非依存)。
         private const float AnchorStrengthMin = 0.9f;   // コアマッチのみ採用(AA縁・feather裾の混色を除外)
-        private const int AnchorMinPixels = 100;    // これ未満はフォールバック(ComputeWashSample と同基準)
+        // これ未満はフォールバック。スポイト補正(HighlightSampleCorrector.ComputeWashSample)の地色の最小画素数も、
+        // この定数を読む(同じ基準)。
+        internal const int AnchorMinPixels = 100;
         private const float AnchorBodySatrFrac = 0.5f;   // 地色とみなす OkLab 飽和度(C/L)下限(候補中央値比)。
                                                          // C/L は乗算シェーディング不変(L,C とも k^(1/3) 比例)なので
                                                          // wash 済み明部・AA縁グレーを陰影レベル非依存に除外できる。

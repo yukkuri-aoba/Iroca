@@ -82,7 +82,7 @@ namespace Iroca {
             if (dsq < 1e-6f) {
                 bandActive = false;
             }
-            float hueCap = Mathf.Max(ColorZone.HighlightHueCapFloor, result.tolerance * ColorZone.HighlightHueCapTolFrac);
+            float hueCap = ColorZone.HighlightHueCap(result.tolerance);
             float bandSatFloor = bSS * PixelProcessor.HlBandMinSatFrac;
 
             int stride = hsv.stride;

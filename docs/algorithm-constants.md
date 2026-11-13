@@ -239,7 +239,7 @@
 | `HueBand` | `0.15f` | 不明 | — | 地色とみなす色相帯。免除の色相ゲート 0.15 と同じ値、計測記録なし |
 | `HighlightGatePct` | `0.75f` | 不明 | — | スポイトの V が地色の P75 より上のときだけ補正。既定 OFF、計測記録なし |
 | `TargetPct` | `0.60f` | 不明 | — | 補正後の wash しきい＝地色 V の P60。既定 OFF、計測記録なし |
-| `MinBodyPixels` | `100` | 設計 | — | 地色統計に要る最小画素数。再着色アンカーの AnchorMinPixels とそろえた |
+| `MinBodyPixels` | `PixelProcessor.AnchorMinPixels` | 設計 | — | 地色統計に要る最小画素数。再着色アンカーの AnchorMinPixels を読む（同じ基準） |
 
 ## `Code/Core/Recolor/PixelProcessor.Achroma.cs`
 
