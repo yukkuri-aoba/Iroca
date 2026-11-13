@@ -13,8 +13,10 @@ namespace Iroca {
     /// 項目は持たない(無い = 全画素が立っていない)。
     /// </para>
     /// <para>
-    /// 保存形式(<see cref="MaskState"/>)との変換・処理用のスナップショットの組み立ては、bool[] の経路
-    /// (<see cref="MaskStateCodec"/>・<see cref="MaskSnapshot.FromBuffers"/>)と同じ結果になる(項目の並びも同じ)。
+    /// 保存形式(<see cref="MaskState"/>)との変換(EncodeTo・DecodeFrom)と、処理用のスナップショットの組み立て(ToSnapshot)は
+    /// ここが正。テスト・ハーネス用の bool[] の見本(<see cref="MaskStateCodec"/> の Encode・Decode、
+    /// <see cref="MaskSnapshot.FromBuffers"/>)とは、層の中身と項目の並びが同じになる。保存形式の版(schemaVersion)と
+    /// 塗った範囲の記録(patches)を書くのはここだけで、見本は書かない。
     /// Undo・保存・重ね表示の予定は呼び出し側(マスクの編集)。メインスレッド専用。
     /// </para>
     /// <para>

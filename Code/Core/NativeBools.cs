@@ -37,7 +37,10 @@ namespace Iroca {
         /// <summary>中身を初期化しない領域を確保する(呼び出し側が全画素を書くこと)。参照 1 で返る。</summary>
         public static NativeBools AllocateUninitialized(int width, int height) => new NativeBools(width, height, clear: false);
 
-        /// <summary>管理配列の先頭 width*height 個を写した領域を作る。参照 1 で返る。</summary>
+        /// <summary>
+        /// 管理配列の先頭 width*height 個を写した領域を作る。参照 1 で返る。テスト・ハーネス用(製品は呼ばない。
+        /// scripts/source_checks/test_test_only_api.py が見張る)。
+        /// </summary>
         public static NativeBools CopyOf(bool[] src, int width, int height) {
             if (src == null) {
                 throw new ArgumentNullException(nameof(src));

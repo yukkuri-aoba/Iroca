@@ -32,7 +32,7 @@ namespace Iroca {
         // マスク配列の解像度。0 の場合はマスク情報なし。
         public int maskWidth;
         public int maskHeight;
-        // 共通マスク（bitpack + Base64）。空文字列ならマスクなし。
+        // 共通マスク（RLE + Base64。「R:」で始まる。古い版の bitpack + Base64 も読める）。空文字列ならマスクなし。
         public string commonMaskBase64 = "";
         // ゾーン別マスク。全 false のゾーンはシリアライズ省略。
         public List<ZoneMaskEntry> zoneMasks = new List<ZoneMaskEntry>();

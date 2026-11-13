@@ -4,10 +4,12 @@ using System.Collections.Generic;
 
 namespace Iroca {
     /// <summary>
-    /// 保存形式のマスク(<see cref="MaskState"/>: RLE + Base64)と作業用 bool[] の相互変換、
-    /// および保存形式から処理用スナップショットを作る手順。
-    /// 編集画面(MaskPaintView)の保存・復元と、UI を持たない経路(非破壊ビルド・ハーネス)が
-    /// 同じ規則を通るよう、ここにだけ書く。
+    /// 保存形式のマスク(<see cref="MaskState"/>: RLE + Base64)から処理用スナップショットを作る手順
+    /// (<see cref="ToSnapshot"/>。非破壊ビルド・自動化・ハーネスが使う)と、bool[] との相互変換
+    /// (<see cref="Encode"/>・<see cref="Decode"/>)。
+    /// bool[] との相互変換は**テスト・ハーネス用**で、製品は呼ばない(scripts/source_checks/test_test_only_api.py が見張る)。
+    /// 製品のマスクは 1 画素 1 ビットで持ち、保存形式との変換は編集側の MaskWorkspace.EncodeTo / DecodeFrom が正。
+    /// 層の中身は同じ文字列になるが、保存形式の版(schemaVersion)と塗った範囲の記録(patches)を書くのは MaskWorkspace だけ。
     /// </summary>
     internal static class MaskStateCodec {
         /// <summary>

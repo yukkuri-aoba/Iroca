@@ -6,8 +6,9 @@ using UnityEngine;
 
 namespace Iroca {
     /// <summary>
-    /// マスク bool 配列の永続化コーデック(RLE + Base64)。
-    /// UI(MaskPaintView)と headless 検証の両方から使うため Core に置く。
+    /// マスクの永続化コーデック(RLE + Base64)。製品は 1 画素 1 ビットの版(EncodeBits・DecodeBits・EncodeBitsIfAny ほか)を
+    /// 使う。bool[] の版(Encode・Decode・EncodeIfAny)は**テスト・ハーネス用**で、製品は呼ばない
+    /// (scripts/source_checks/test_test_only_api.py が見張る)。どちらも同じ文字列になる(ハーネスの --bitmaskselftest)。
     /// フォーマット: "R:" プレフィックス + Base64(4byte W + 4byte H + 1byte 開始値 + uint32[] ランレングス列)。
     /// プレフィックスなしは旧 bitpack フォーマット(1bit/px)として後方互換デコードする。
     /// </summary>

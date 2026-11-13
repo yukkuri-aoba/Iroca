@@ -121,7 +121,10 @@ namespace Iroca {
             return words;
         }
 
-        /// <summary>bool[](先頭の Length 画素)から作る(参照 1)。作業用の bool[] から移す間だけ使う。</summary>
+        /// <summary>
+        /// bool[](先頭の Length 画素)から作る(参照 1)。テスト・ハーネス用(製品は bool[] のマスクを持たない。
+        /// scripts/source_checks/test_test_only_api.py が見張る)。
+        /// </summary>
         public static NativeBitMask FromBools(bool[] mask, int width, int height) {
             if (mask == null) {
                 throw new ArgumentNullException(nameof(mask));

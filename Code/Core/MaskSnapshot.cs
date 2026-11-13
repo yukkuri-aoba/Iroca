@@ -93,7 +93,10 @@ namespace Iroca {
             return packed;
         }
 
-        /// <summary>bool[](true=除外)を 1bit/画素の ulong[] にパックする。null は null を返す。</summary>
+        /// <summary>
+        /// bool[](true=除外)を 1bit/画素の ulong[] にパックする。null は null を返す。
+        /// テスト・ハーネス用(製品はヒープの外の版 <see cref="Pack(NativeBools)"/> を使う)。
+        /// </summary>
         public static ulong[] Pack(bool[] mask) {
             if (mask == null) {
                 return null;
@@ -168,9 +171,9 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 作業用の bool[] マスク一式からスナップショットを組み立てる。編集画面(MaskPaintView)と、
-        /// 保存済みマスクから作り直す経路(<see cref="MaskStateCodec.ToSnapshot"/>)が同じ規則を
-        /// 通るよう、組み立てはここにだけ書く。
+        /// bool[] のマスク一式からスナップショットを組み立てる。**テスト・ハーネス用**で、製品は呼ばない
+        /// (scripts/source_checks/test_test_only_api.py が見張る)。製品のスナップショットは、編集側の MaskWorkspace.ToSnapshot と、
+        /// 保存済みマスクから作り直す <see cref="MaskStateCodec.ToSnapshot"/> が作る(載せる規則はここと同じ)。
         /// 全 false の含めるマスクは載せない。載せると処理側が空の includedPx 展開(全画素ループ)を
         /// 毎回行い、選択キャッシュキーも「含めるなし」と別になってしまう(出力は同じなのにミスが増える)。
         /// </summary>
