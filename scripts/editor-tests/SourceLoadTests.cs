@@ -323,12 +323,16 @@ namespace Iroca.EditorTests {
             UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;   // 「読めなかったので取り込み済みで代える」の警告
             try {
                 Assert.IsFalse(sources.LockedFileIsOpenableNow(tex), "開けなかったことの無いテクスチャで、読み直せと言った");
+                Assert.IsFalse(sources.IsFileLocked(tex));
                 using (new FileStream(TestAssets.Abs(path), FileMode.Open, FileAccess.Read, FileShare.None)) {
                     Assert.IsTrue(sources.Load(tex), "取り込み済みテクスチャの画素で代えていない");
                     Assert.IsFalse(sources.FromFile, "開けないファイルから読めたことになっている");
+                    Assert.IsTrue(sources.IsFileLocked(tex), "開けずにいることを覚えていない(窓が案内を出せない)");
                     Assert.IsFalse(sources.LockedFileIsOpenableNow(tex), "つかまれている間に、開けると言った");
+                    Assert.IsTrue(sources.IsFileLocked(tex));
                 }
                 Assert.IsTrue(sources.LockedFileIsOpenableNow(tex), "開けるようになったのに気づかない");
+                Assert.IsFalse(sources.IsFileLocked(tex), "開けるようになった後も、開けずにいると言っている");
                 Assert.IsFalse(sources.LockedFileIsOpenableNow(tex), "知らせは 1 回だけ");
                 sources.Clear();   // 呼んだ側(PreviewPipeline)は、持っている画素と導いた状態を捨てて読み直す
                 Assert.IsTrue(sources.Load(tex));
@@ -338,6 +342,43 @@ namespace Iroca.EditorTests {
                 UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false;
                 SourcePixelCache.LockedFileRetrySeconds = retry;
                 sources.Clear();
+            }
+        }
+
+        // 窓: 元ファイルを開けない間は「開けずにいる」と答え(案内が出る)、「再読み込み」は、開けるようになっていれば間隔を待たずに
+        // 読み直す。Read/Write の無いテクスチャでは画素を取れないが、それも Read/Write のせいではなく開けないせい。
+        [TestCase(true, TestName = "Window_LockedSourceFile_IsReported_AndReloadsOnRequest(ReadWriteOn)")]
+        [TestCase(false, TestName = "Window_LockedSourceFile_IsReported_AndReloadsOnRequest(ReadWriteOff)")]
+        public void Window_LockedSourceFile_IsReported_AndReloadsOnRequest(bool readable) {
+            var expected = Noise(SmallSide, 21);
+            string path = _assets.WritePng("lockedwin", expected, SmallSide, SmallSide, readable: readable);
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            double retry = SourcePixelCache.LockedFileRetrySeconds;
+            SourcePixelCache.LockedFileRetrySeconds = 3600;   // 自動の確かめに頼らない(「再読み込み」が待たずに確かめること)
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            IrocaWindow win = null;
+            try {
+                using (new FileStream(TestAssets.Abs(path), FileMode.Open, FileAccess.Read, FileShare.None)) {
+                    win = OpenWindow(tex);
+                    var pipeline = win.Preview.Pipeline;
+                    Assert.AreEqual(readable, pipeline.TryGetTrueSourcePixels(tex, out _, out _, out _),
+                        "Read/Write が有効なら取り込み済みの画素で代え、無ければ画素を取れない");
+                    Assert.IsTrue(win.Preview.SourceFileLocked(tex), "元ファイルを開けずにいるのに、そう答えない");
+                    Assert.IsFalse(pipeline.TrueSourceFromFile);
+                    Assert.IsFalse(win.Preview.RetryLockedSource(tex), "つかまれている間に、読み直せたと言った");
+                    Assert.IsTrue(win.Preview.SourceFileLocked(tex));
+                }
+                Assert.IsTrue(win.Preview.RetryLockedSource(tex), "開けるようになったのに、読み直さない");
+                Assert.IsFalse(win.Preview.SourceFileLocked(tex));
+                Assert.IsTrue(win.Preview.Pipeline.TryGetTrueSourcePixels(tex, out var pixels, out _, out _));
+                Assert.IsTrue(win.Preview.Pipeline.TrueSourceFromFile, "読み直しても元ファイルの画素になっていない");
+                CollectionAssert.AreEqual(expected, pixels.ToArray());
+            } finally {
+                UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false;
+                SourcePixelCache.LockedFileRetrySeconds = retry;
+                if (win != null) {
+                    CloseWindow(win, tex);
+                }
             }
         }
 

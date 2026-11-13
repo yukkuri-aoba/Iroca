@@ -318,6 +318,12 @@ namespace Iroca {
         /// <summary>直近に確保した処理用の画素が、元ファイルをデコードしたものか(取り込み済みテクスチャではなく)。</summary>
         public bool TrueSourceFromFile => _pipeline != null && _pipeline.TrueSourceFromFile;
 
+        /// <summary>このテクスチャの元ファイルを開けずにいるか(<see cref="PreviewPipeline.SourceFileLocked"/>)。</summary>
+        internal bool SourceFileLocked(Texture2D tex) => _pipeline != null && _pipeline.SourceFileLocked(tex);
+
+        /// <summary>開けなかった元ファイルをいま確かめ直す。開ければ読み直して true(<see cref="PreviewPipeline.RetryLockedSource"/>)。</summary>
+        internal bool RetryLockedSource(Texture2D tex) => _pipeline != null && _pipeline.RetryLockedSource(tex);
+
         /// <summary>このテクスチャから処理用の画素を取れるか(<see cref="PreviewPipeline.CanProvideSourcePixels"/>)。</summary>
         public bool CanProvideSourcePixels(Texture2D tex) => _pipeline != null && _pipeline.CanProvideSourcePixels(tex);
 

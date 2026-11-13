@@ -31,6 +31,7 @@ namespace Iroca {
                 Localization.LargeSourceDismiss,
                 Localization.ShadowColorMatchButton,
                 Localization.EnableReadWrite,
+                Localization.SourceFileReload,
                 Localization.UpdateNoticeChanges,
                 Localization.UpdateNoticeHowTo,
                 Localization.UpdateNoticeDismiss,

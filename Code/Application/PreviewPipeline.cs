@@ -391,6 +391,10 @@ namespace Iroca {
             if (sources.LockedFileIsOpenableNow(tex)) {
                 InvalidateSourceCache();
                 MarkDirty();
+            } else if (sources.IsFileLocked(tex)) {
+                // まだ開けない。確かめるのは描くときなので、手を止めて見ている間(描き直しが来ない間)も確かめに来られるよう、
+                // 次の確かめの頃に描き直しを頼む(描くたびに頼み直すので、開けるようになるまで続く)。
+                _host.RequestRepaintAfter(SourcePixelCache.LockedFileRetrySeconds);
             }
             if (sources.Texture == tex && sources.Pixels != null) {
                 if (sources.BasisWidth == tex.width && sources.BasisHeight == tex.height) {
@@ -531,6 +535,33 @@ namespace Iroca {
 
         /// <summary>直近に確保した処理用の画素が、元ファイルをデコードしたものか(取り込み済みテクスチャではなく)。</summary>
         internal bool TrueSourceFromFile => TrueSource != null && Sources.FromFile;
+
+        /// <summary>
+        /// <paramref name="tex"/> の元ファイルを開けずにいるか(ほかのアプリがつかんでいるなど。<see cref="SourcePixelCache.IsFileLocked"/>)。
+        /// その間は、取り込み済みテクスチャ(縮小・圧縮済み)の画素で代えているか、画素を取れていない。窓が案内を出す。
+        /// </summary>
+        internal bool SourceFileLocked(Texture2D tex) {
+            var sources = Sources;
+            return tex != null && sources != null && sources.IsFileLocked(tex);
+        }
+
+        /// <summary>
+        /// 開けなかった元ファイルをいま確かめ直す(案内の「再読み込み」)。開ければ、持っている画素とそこから導いた状態を捨てて
+        /// 読み直させ、true。まだ開けなければ false(数秒ごとの確かめは続く)。
+        /// </summary>
+        internal bool RetryLockedSource(Texture2D tex) {
+            var sources = Sources;
+            if (tex == null || sources == null) {
+                return false;
+            }
+            sources.RetryLockedFileSoon();
+            if (!sources.LockedFileIsOpenableNow(tex)) {
+                return false;
+            }
+            InvalidateSourceCache();
+            MarkDirty();
+            return true;
+        }
 
         /// <summary>
         /// このテクスチャから処理用の画素を取れるか（原本ファイルのデコード、または

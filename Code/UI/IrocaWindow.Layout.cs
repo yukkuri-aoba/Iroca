@@ -631,6 +631,10 @@ namespace Iroca {
         // どのイベントでも進む。Layout のときに決めて覚え、同じフレームのほかのイベントはそれで描く。
         [System.NonSerialized] private bool _showReadWriteError;
         [System.NonSerialized] private string _largeSourceNoticeText;
+        // 元ファイルを開けない(ほかのアプリがつかんでいる)案内を出すかと、取り込み済みテクスチャの画素で代えられているか(文面)。
+        // これも原本の読み込みで決まるので、Layout のときに決めて覚える。
+        [System.NonSerialized] private bool _showSourceLocked;
+        [System.NonSerialized] private bool _sourceLockedHasPixels;
 
         /// <summary>
         /// マスクを戻せない版まで Undo して、ゾーンと設定だけが戻り、マスクは新しいままか(窓の帯で知らせる)。
@@ -814,10 +818,34 @@ namespace Iroca {
             // IMGUI のエラー(Getting control N's position…)になる。ほかのイベントで答えが変わっていたら、描き直しを頼む
             // (読み込みの結果をここで受け取ると、読み終えた知らせ(再描画の依頼)は出ない)。
             bool unreadable = SourceTexture != null && !CanReadSource(SourceTexture);
+            // 元ファイルを開けずにいる(ほかのアプリがつかんでいるなど)。読めないのは Read/Write のせいではないので、Read/Write の
+            // 案内の代わりに、開けないことを知らせる(開けるようになれば自分で読み直す)。読んだ後でないと分からないので、
+            // 上の CanReadSource の後で聞く。
+            bool sourceLocked = SourceTexture != null && _previewView != null && _previewView.SourceFileLocked(SourceTexture);
+            bool readWriteError = unreadable && !sourceLocked;
             if (Event.current.type == EventType.Layout) {
-                _showReadWriteError = unreadable;
-            } else if (_showReadWriteError != unreadable) {
+                _showReadWriteError = readWriteError;
+                _showSourceLocked = sourceLocked;
+                _sourceLockedHasPixels = !unreadable;
+            } else if (_showReadWriteError != readWriteError || _showSourceLocked != sourceLocked) {
                 Repaint();
+            }
+            if (_showSourceLocked) {
+                if (NoticeBox.Draw(_sourceLockedHasPixels ? Localization.SourceFileLockedUsingImported : Localization.SourceFileLockedNoPixels,
+                        MessageType.Warning,
+                        TempContent.Of(Localization.SourceFileReload, Localization.SourceFileReloadTooltip)) == 0) {
+                    // 読み直しは、描画が終わってから(下の Read/Write のボタンと同じ理由。案内の出入りが Layout と食い違わないように)。
+                    var texture = SourceTexture;
+                    EditorApplication.delayCall += () => {
+                        if (this == null || texture == null || _previewView == null) {
+                            return;
+                        }
+                        if (!_previewView.RetryLockedSource(texture)) {
+                            ShowNotification(new GUIContent(Localization.SourceFileStillLocked));
+                        }
+                        Repaint();
+                    };
+                }
             }
             if (_showReadWriteError) {
                 if (NoticeBox.Draw(Localization.ReadWriteError, MessageType.Error,

@@ -130,6 +130,21 @@ namespace Iroca {
         public static string EnableReadWrite => IsJapanese
             ? "Read/Write を有効にする"
             : "Enable Read/Write";
+        // 元ファイルをほかのアプリがつかんでいるなどで開けないとき(ウィンドウの上の案内)。開けるようになると自分で読み直す。
+        // 1 つ目は取り込み済みテクスチャ(Read/Write が有効)の画素で代えているとき、2 つ目は画素を取れていないとき。
+        public static string SourceFileLockedUsingImported => IsJapanese
+            ? "元ファイルを開けないため、取り込み済みテクスチャ（縮小・圧縮されたもの）の画素で表示しています。ほかのアプリがファイルを使っているか、同期サービスのオンライン専用ファイルかもしれません。開けるようになると、自動で読み直します。"
+            : "The source file cannot be opened, so Iroca is showing the pixels of the imported texture (downscaled and compressed). Another app may be using the file, or it may be an online-only file of a sync service. Iroca reloads it automatically once it can be opened.";
+        public static string SourceFileLockedNoPixels => IsJapanese
+            ? "元ファイルを開けません。ほかのアプリがファイルを使っているか、同期サービスのオンライン専用ファイルかもしれません。開けるようになると、自動で読み直します。"
+            : "The source file cannot be opened. Another app may be using the file, or it may be an online-only file of a sync service. Iroca reloads it automatically once it can be opened.";
+        public static string SourceFileReload => IsJapanese ? "再読み込み" : "Reload";
+        public static string SourceFileReloadTooltip => IsJapanese
+            ? "元ファイルをいま読み直します（開けるようになったかは、数秒ごとに自動でも確かめています）。"
+            : "Reload the source file now (Iroca also checks every few seconds whether it can be opened).";
+        public static string SourceFileStillLocked => IsJapanese
+            ? "元ファイルをまだ開けません"
+            : "The source file still cannot be opened";
         public static string EnableReadWriteConfirm => IsJapanese
             ? "このテクスチャのインポート設定で Read/Write を有効にします。\n・このテクスチャを使うすべての場所に効きます。\n・実行時のメモリが増えます（いろかで色替えしたテクスチャも、読み書きできるままアップロードされます）。\n・不要になったら Inspector で Read/Write を外せます（外すと、いろかでは読めなくなります）。\nこの変更は Undo できません。続けますか？"
             : "This turns on Read/Write in the texture's import settings.\n- It applies everywhere this texture is used.\n- It uses more memory at runtime (textures recolored by Iroca are also uploaded with Read/Write on).\n- When you no longer need it, you can turn Read/Write off in the Inspector (Iroca then cannot read the texture).\nThis cannot be undone. Continue?";

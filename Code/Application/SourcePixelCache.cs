@@ -92,6 +92,18 @@ namespace Iroca {
         internal bool IsKnownUnreadable(Texture2D tex) => _failedFor == tex && !TextureIO.IsReadable(tex);
 
         /// <summary>
+        /// <paramref name="tex"/> の元ファイルを開けずにいるか(取り込み済みテクスチャの画素で代えているか、画素を取れていない)。
+        /// 窓が案内を出すのに使う。開けるようになって読み直すと false に戻る(<see cref="LockedFileIsOpenableNow"/>)。
+        /// </summary>
+        internal bool IsFileLocked(Texture2D tex) => !ReferenceEquals(_fileLockedFor, null) && _fileLockedFor == tex;
+
+        /// <summary>
+        /// 開けるようになったかを、間隔(<see cref="LockedFileRetrySeconds"/>)を待たずに、次の
+        /// <see cref="LockedFileIsOpenableNow"/> で確かめさせる(案内の「再読み込み」)。
+        /// </summary>
+        internal void RetryLockedFileSoon() => _fileRetryAt = 0;
+
+        /// <summary>
         /// tex の画素を止まらずに読む。初めて呼ぶと別スレッドで PNG を読み始めて <see cref="SourceState.Loading"/> を返す。
         /// 読み終えていれば受け取って <see cref="SourceState.Ready"/>。PNG でなければ(LoadImage と GPU の展開はメインスレッド
         /// 専用)その次に呼ばれたときにメインスレッドで読む。<paramref name="finished"/> は読み終えたらメインスレッドの次の
