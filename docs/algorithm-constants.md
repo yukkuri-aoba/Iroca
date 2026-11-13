@@ -129,12 +129,12 @@
 | `Code/Core/Recolor/PixelProcessor.Recolor.cs` | 6 |
 | `Code/Core/Recolor/PixelProcessor.RecolorBranchRecorder.cs` | 1 |
 | `Code/Core/Recolor/PixelProcessor.RecolorStatsStage.cs` | 1 |
-| `Code/Core/Selection/Legacy/ColorZone.Match.cs` | 6 |
-| `Code/Core/Selection/Legacy/PixelProcessor.FloodFill.cs` | 0 |
-| `Code/Core/Selection/Legacy/PixelProcessor.Highlight.cs` | 6 |
-| `Code/Core/Selection/Legacy/PixelProcessor.LegacySelection.cs` | 0 |
-| `Code/Core/Selection/Legacy/PixelProcessor.Selection.cs` | 2 |
-| `Code/Core/Selection/Legacy/PixelProcessor.SelectionKey.cs` | 0 |
+| `Code/Core/Selection/ColorZone.Match.cs` | 6 |
+| `Code/Core/Selection/PixelProcessor.FloodFill.cs` | 0 |
+| `Code/Core/Selection/PixelProcessor.Highlight.cs` | 6 |
+| `Code/Core/Selection/PixelProcessor.RunSelection.cs` | 0 |
+| `Code/Core/Selection/PixelProcessor.Selection.cs` | 2 |
+| `Code/Core/Selection/PixelProcessor.SelectionKey.cs` | 0 |
 | `Code/Core/UvChartMap.cs` | 0 |
 | `Code/Core/ZoneAutoTuner.Evidence.cs` | 7 |
 | `Code/Core/ZoneAutoTuner.Normalize.cs` | 0 |
@@ -181,7 +181,7 @@
 | `MatchStrengthFloor` | `0.05f` | 不明 | — | これ以下を未選択とみなす strength 床。局所定数 4 個を一本化したもので、由来の記録なし |
 | `ChromaGateActivateSat` | `0.02f` | 実測 | — | 微 tint とみなす彩度の境界。圧縮ノイズは S≈0.01 台、見える tint は S≥0.02 という観察 |
 
-## `Code/Core/Selection/Legacy/ColorZone.Match.cs`
+## `Code/Core/Selection/ColorZone.Match.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
@@ -293,14 +293,14 @@
 | `Band` | `64` | 計算 | — | 累積和の列方向を並列に分ける帯の幅。整数の加算で出力に効かない |
 | `MixSegment` | `32` | 計算 | — | 早い打ち切りをまとめて判定する行の区間。出力はビット単位で同じ |
 
-## `Code/Core/Selection/Legacy/PixelProcessor.FloodFill.cs`
+## `Code/Core/Selection/PixelProcessor.FloodFill.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
 | `ShadowFloorKeepFrac` | `0.5f` | 実測 | — | 包絡の内側が過半なら成分を残す。57 件で 1/4〜0.75 を試し、崩れる 0.75 から離した |
 | `PartHueKeepFrac` | `0.25f` | 実測 | PH | 色相帯は 1/4 で残す。過半にすると茶髪の房が落ちた（再現率 1.000→0.965） |
 
-## `Code/Core/Selection/Legacy/PixelProcessor.Highlight.cs`
+## `Code/Core/Selection/PixelProcessor.Highlight.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
@@ -385,7 +385,7 @@
 | `AnchorMaterialHueCos` | `0.70710678f` | 実測 | — | 推定し直しで外す色相差 45°。正解画素の 97% が 25° 以内という実測に余裕を取った |
 | `RecolorMemoSize` | `8192` | 計算 | — | 無彩パスの再着色メモの枠数（2 のべき）。当たり率だけに効く |
 
-## `Code/Core/Selection/Legacy/PixelProcessor.Selection.cs`
+## `Code/Core/Selection/PixelProcessor.Selection.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|

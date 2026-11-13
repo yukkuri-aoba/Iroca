@@ -857,6 +857,8 @@ T5 で消える部分は作り直さない（1.5）。
     （`SessionInput`）と HSV グリッドのヒープの外への移動は、それより前に済んでいる（`SessionInput` は何も読まなく
     なっていたので、11-14 に型と `session` 引数ごと消した）。`MergeAnalyzed` の名前の無い数値は
     そのまま（台帳の「名前の無い小数」の表で数を見張っている）。
+  - 2026-11-14 に改名した（`Selection/Legacy/` → `Selection/`、`RunLegacySelection` → `RunSelection`。ファイルの
+    `PixelProcessor.LegacySelection.cs` は `PixelProcessor.RunSelection.cs`）。この文書の上の記述にある旧い名前は当時のもの。
 
 ### フェーズ 3B: 選択・自動調整の再設計（T5）
 

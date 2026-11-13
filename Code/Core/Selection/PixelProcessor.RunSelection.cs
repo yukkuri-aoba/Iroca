@@ -10,12 +10,11 @@ namespace Iroca {
         /// <summary>
         /// 選択(照合 → 彩度の天井・閉領域の中性 → ハイライト → 連結成分 → 穴埋め → 境界回復 → ぼかし →
         /// 選択キャッシュへの保存)。ProcessPixelsArrayCore から中身を書き換えずに切り出したもの(0.4.0 の計画の 3-7a)。
-        /// 名前とフォルダの Legacy は、選択の再設計(T5)を 0.4.0 から外す前の名残りで、今の選択はこれだけ
-        /// (docs/architecture.md)。マスクを掛ける前の強度と後段の範囲を返す(<see cref="SelectionResult"/>)。
+        /// マスクを掛ける前の強度と後段の範囲を返す(<see cref="SelectionResult"/>)。
         /// 借りた作業配列は <paramref name="zb"/> に入れる(途中で抜けてもゾーンの終わりに返る)。
         /// 計測の時刻は run.Tp で受け渡す。
         /// </summary>
-        private static SelectionResult RunLegacySelection(RunContext run, ColorZone zone, ZoneBuffers zb,
+        private static SelectionResult RunSelection(RunContext run, ColorZone zone, ZoneBuffers zb,
             NativeBitMask zoneMaskLayer, bool zMixMode, float sampH, float sampS, float sampV) {
             // ProcessPixelsArrayCore と同じ名前のローカルへ展開する(切り出した本体をそのまま読めるように)。
             int w = run.W, h = run.H, len = run.Len;

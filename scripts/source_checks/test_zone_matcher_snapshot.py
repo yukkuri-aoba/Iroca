@@ -20,8 +20,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ZONE_CS = REPO_ROOT / "Code" / "Core" / "ColorZone.cs"
-# 照合は選択の一部(0.4.0 の 3-7a で Selection/Legacy へ移した)。
-MATCH_CS = REPO_ROOT / "Code" / "Core" / "Selection" / "Legacy" / "ColorZone.Match.cs"
+# 照合は選択の一部(Selection に置く)。
+MATCH_CS = REPO_ROOT / "Code" / "Core" / "Selection" / "ColorZone.Match.cs"
 
 # 行コメント / ブロックコメント / 文字列リテラルを落とす。
 _COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\])*\"", re.DOTALL)

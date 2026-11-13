@@ -191,7 +191,7 @@ namespace Iroca {
 
         /// <summary>
         /// 選択と再着色の境目(0.4.0 の計画の 3-7a)。再着色の段が選択から読むのはこれだけ。選択
-        /// (<see cref="RunLegacySelection"/>)の作りを替えるときも、この形で出す。
+        /// (<see cref="RunSelection"/>)の作りを替えるときも、この形で出す。
         /// </summary>
         private struct SelectionResult {
             /// <summary>

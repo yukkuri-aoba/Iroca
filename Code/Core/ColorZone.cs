@@ -17,7 +17,7 @@ namespace Iroca {
         // それぞれローカル const 0.05f を持っていたため一本化(値の意味: これ以下は「未選択」扱い)。
         internal const float MatchStrengthFloor = 0.05f;
 
-        // 無彩とみなすサンプルの彩度の境目(これ未満の tint は無彩)。照合の彩度整合ゲート(Selection/Legacy の
+        // 無彩とみなすサンプルの彩度の境目(これ未満の tint は無彩)。照合の彩度整合ゲート(Selection の
         // ColorZone.Match.cs の ChromaGate*)と、再着色の有彩・無彩の分岐が同じ境目を使う。
         internal const float ChromaGateActivateSat = 0.02f;
 

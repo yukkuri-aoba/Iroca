@@ -347,7 +347,7 @@ namespace Iroca {
                 // (DecontaminateAaBoundary)で全域クリア、decontaminatedPixels は aaMask=true / 混色帯の対象の位置だけ
                 // 書いて読む、除外フラグは各段が自分の読む範囲を埋める、被覆率は解析が書いた範囲だけを合成が読む。
 
-                // ゾーンをまたいで変わらない入力。選択・マスクの契約へ渡す(RunLegacySelection・ApplyMaskContract)。
+                // ゾーンをまたいで変わらない入力。選択・マスクの契約へ渡す(RunSelection・ApplyMaskContract)。
                 var run = new RunContext {
                     W = w,
                     H = h,

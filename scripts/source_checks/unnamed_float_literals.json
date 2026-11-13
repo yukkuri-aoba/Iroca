@@ -76,7 +76,7 @@
     "Code/Core/Recolor/PixelProcessor.RecolorStatsStage.cs": [
       "0.999f"
     ],
-    "Code/Core/Selection/Legacy/ColorZone.Match.cs": [
+    "Code/Core/Selection/ColorZone.Match.cs": [
       "0.01f",
       "0.01f",
       "0.01f",
@@ -84,7 +84,7 @@
       "0.02f",
       "0.08f"
     ],
-    "Code/Core/Selection/Legacy/PixelProcessor.Highlight.cs": [
+    "Code/Core/Selection/PixelProcessor.Highlight.cs": [
       "0.1f",
       "0.1f",
       "0.95f",
@@ -92,7 +92,7 @@
       "512f",
       "512f"
     ],
-    "Code/Core/Selection/Legacy/PixelProcessor.Selection.cs": [
+    "Code/Core/Selection/PixelProcessor.Selection.cs": [
       "0.01f",
       "0.999f"
     ],
