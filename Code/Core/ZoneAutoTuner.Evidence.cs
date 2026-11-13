@@ -935,7 +935,8 @@ namespace Iroca {
             int len = w * h;
             bool* a = owner.scratch.CopyOf(src, len);
             bool* b = owner.scratch.Bool(len, clear: false);
-            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
+            // 取り消しはパスの途中でも受ける(8K の証拠では 1 パスが長い。作業配列は owner の持ち物なので、途中で抜けても漏れない)。
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
             for (int pass = 0; pass < r; pass++) {
                 ct.ThrowIfCancellationRequested();
                 bool* s = a;
