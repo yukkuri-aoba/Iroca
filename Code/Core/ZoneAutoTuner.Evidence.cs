@@ -220,7 +220,7 @@ namespace Iroca {
 
         /// <summary>
         /// 証拠マスク(true=このゾーンの素材そのもの。AI マスク提案のセグメント)を教師にして
-        /// パラメータを導出する。証拠が使えないときは従来の <see cref="Analyze(Color32[],int,int,ColorZone,IrocaSessionState,bool[],int,int,CancellationToken,System.Action{float})"/>
+        /// パラメータを導出する。証拠が使えないときは従来の <see cref="Analyze(Color32[],int,int,ColorZone,SessionInput,bool[],int,int,CancellationToken,System.Action{float})"/>
         /// へフォールバックする。evidence の寸法はテクスチャと同一想定(異寸は最近傍で対応)。
         /// </summary>
         public static TuneResult AnalyzeWithEvidence(Color32[] pixels, int width, int height,
@@ -239,7 +239,7 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// <see cref="AnalyzeWithEvidence(Color32[],int,int,ColorZone,IrocaSessionState,bool[],int,int,bool[],int,int,CancellationToken,System.Action{float})"/> の
+        /// <see cref="AnalyzeWithEvidence(Color32[],int,int,ColorZone,SessionInput,bool[],int,int,bool[],int,int,CancellationToken,System.Action{float})"/> の
         /// ポインタ版。pixels は width*height 画素以上を、解析が返るまで保つこと。
         /// </summary>
         public static TuneResult AnalyzeWithEvidence(Color32* pixels, int width, int height,
@@ -317,7 +317,7 @@ namespace Iroca {
             fallbackDiag = null;
             void Progress(float v) { report?.Invoke(v); }
 
-            result = BuildHeuristicDefault(zone);
+            result = BuildHeuristicDefault();
             using var hsv = BuildHsvGrid(pixels, width, height, ct);
             Progress(0.25f);
 

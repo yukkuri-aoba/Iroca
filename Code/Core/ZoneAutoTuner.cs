@@ -280,7 +280,7 @@ namespace Iroca {
             // テクスチャ次第で読めないため、割合はステップ数ベースの目安。null 可(テスト等)。
             void Progress(float v) { report?.Invoke(v); }
 
-            var result = BuildHeuristicDefault(zone);
+            var result = BuildHeuristicDefault();
 
             bool canAnalyze = pixels != null
                 && width >= MinTextureDim && height >= MinTextureDim;
@@ -477,7 +477,7 @@ namespace Iroca {
 
         // ─────────────────── 既定値ベース ───────────────────
 
-        private static TuneResult BuildHeuristicDefault(ColorZone zone) {
+        private static TuneResult BuildHeuristicDefault() {
             return new TuneResult {
                 tolerance = 0.25f,
                 saturationStrictness = DefaultSaturationStrictness,
@@ -562,8 +562,8 @@ namespace Iroca {
                         float hDist = HueDistance(pH, sHs);
 
                         // ハイライト復元候補（サンプル色と同系のハイライト領域）。
-                        // 条件は ColorZone のハイライト判定(HighlightSaturationCeiling で動的化)と
-                        // Verify.cs:GrowHighlightBand ミラーと同じ定数を共有する。
+                        // 条件は ColorZone のハイライト判定(HighlightSaturationCeiling で動的化)と、閉ループ検証
+                        // (ZoneAutoTuner.Verify.cs の VerifyHighlightRecoveryGrowth)と同じ定数を共有する。
                         if (pV > ColorZone.HighlightValueMin && pS < hlSatCeil
                             && hDist < ColorZone.ForgivenessHueGate) {
                             loc.highlightCandidates++;
