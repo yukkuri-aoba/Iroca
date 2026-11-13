@@ -332,6 +332,9 @@ LAN にテスト用の PC があるときは、テストをそちらで回して
 - 測る中身は**作業ツリーの今の中身**（未コミットの変更と、追跡していない新しいファイルを含む。無視されたものは除く）。
   索引の写しでスナップショットのコミットを作り、本体と dev_safe を git のバンドルで前回からの差分だけ送る。
   手元の索引・ブランチは触らない（`refs/remote-test/snap`・`refs/remote-test/sent` だけ書く）。
+  相手ではスナップショットを checkout した後、HEAD だけをその親（手元の HEAD）へ戻す（`reset --soft`。2026-11-13〜）。
+  手元と同じく「HEAD = 最後のコミット・作業ツリー = 未コミットの変更込み」になるので、`HEAD`・`HEAD~N`・HEAD の
+  祖先の SHA は手元と同じコミットを指す。ブランチ名・タグは相手に無い。
 - git に入らない入力（dev_safe の `texture_sample`・`Tests/Baselines` の無視されたファイル）は、大きさと更新時刻が
   違うものだけ tar で送る。初回は約 14GB。
 - `IROCA_*`・`VACC_*` の環境変数は相手へ渡す（手元の絶対パスを値に持つものは渡さない）。足すなら `--env K=V`。
@@ -356,8 +359,14 @@ LAN にテスト用の PC があるときは、テストをそちらで回して
   実測: 実行キャッシュを切った重めの 4 ファイルで 54 秒 → 29 秒（交互に 3 回）。温まった回帰一式（1671 件）は 1 分 45 秒。
   比べるときは `IROCA_HIGH_QOS=0` で外さずに回る。
 
+**abcheck もこの入口で回せる**（2026-11-13〜）: `python tools/remote_test.py -- dev_safe/scripts/refactor_abcheck/abcheck.py [引数]`。
+abcheck は作業ツリーのハーネスを `tools/harness_build.py` でビルドしてから比べ（`--no-build` で旧挙動）、基準は
+`--base-rev`（既定 HEAD。相手でも手元の HEAD を指す。ブランチ名は SHA で渡す）を相手の `%TEMP%\iroca-perf\` にビルドする。
+Unity 本体は要らない（.NET と Unity の DLL だけ）。実測（2026-11-13、相手は上と同じ・基準のビルド込み）: 全グループ
+1451 件で 3 分 29 秒（abcheck 本体 196 秒・3 並列）。手元の結果（一致 1451 / 不一致 0）と同じだった。
+
 **リモートで回さないもの**: 視覚レビュー（`visual_review.py` の snapshot・compare・approve）は承認を手元の
-作業ツリーと索引の中身に結び付けるので手元で回す。Unity 実機の EditMode テスト・abcheck も手元。
+作業ツリーと索引の中身に結び付けるので手元で回す。Unity 実機の EditMode テストも手元（相手に Unity 本体が無い）。
 
 準備（1 回だけ）:
 1. 開発機で鍵を作る（`ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_iroca_remote`）。

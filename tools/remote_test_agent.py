@@ -5,7 +5,7 @@
 
     iroca-remote/
       agent.py            このファイルの写し
-      Iroca/              本体の写し（git。毎回スナップショットのコミットへ checkout -f する）
+      Iroca/              本体の写し（git。毎回スナップショットのコミットへ checkout -f し、HEAD だけ親＝呼び手の HEAD へ戻す）
       Iroca/dev_safe/     dev_safe の写し（同上）
       UnityManaged/       ハーネスのビルドに要る Unity の DLL（UnityManaged に渡す）
       inbox/<run_id>/     1 回の実行で受け取ったバンドル・データ・依頼と、持ち帰る結果
@@ -285,6 +285,11 @@ def _sync_repo(repo: Path, spec: dict, run_dir: Path, git_config: dict[str, str]
     git(repo, "checkout", "-q", "-f", "--detach", commit)
     # テストが書き換えた追跡ファイルや、消えたファイルを戻す（無視されたキャッシュや .venv は残す）
     git(repo, "clean", "-q", "-f", "-d")
+    # HEAD を呼び手の HEAD（スナップショットの親）へ戻す。作業ツリーと索引はスナップショットのまま。
+    # 手元と同じく「HEAD = 最後のコミット・作業ツリー = 未コミットの変更込み」にそろえるため（abcheck の
+    # 既定の基準 --base-rev HEAD が、スナップショット自身＝作業ツリーと同じ中身を指して比べられなくなっていた）
+    if _rev(repo, commit + "^") is not None:
+        git(repo, "reset", "-q", "--soft", commit + "^")
 
 
 def _apply_data(run_dir: Path, req: dict) -> None:
