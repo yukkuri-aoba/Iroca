@@ -181,8 +181,8 @@ namespace Iroca {
 
         /// <summary>
         /// logits: [4,256,256] 平坦配列(上原点・パディング込みキャンバス空間)。scores: [4]。
-        /// pixelsBottomUp を渡すと、拡大後に境界色スナップ(SamMaskRefine)で低解像度由来の
-        /// 階段状はみ出しを実テクスチャの色エッジへ吸着させる。
+        /// pixelsBottomUp を渡すと、拡大後に精密化(SamMaskRefine の 4 段: 境界の再分類 → 房の拡張 → AA 遷移帯の包含 →
+        /// 細い描き込みの地はがし)で、低解像度由来の階段状はみ出しを実テクスチャの色エッジへ合わせる。
         /// granularity: 採用規則(<see cref="SelectChannels"/> が正)。
         /// </summary>
         public static Result SelectAndUpscale(float[] logits, float[] scores, int texW, int texH,

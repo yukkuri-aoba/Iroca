@@ -7,9 +7,6 @@ using UnityEngine;
 namespace Iroca {
     // SamMaskRefine: 境界帯の再分類(SnapBoundary)。クラスの説明と共通の定数・下回りは SamMaskRefine.cs。
     internal static unsafe partial class SamMaskRefine {
-        /// <summary>
-        /// mask(下原点 w*h)の境界帯を pixels の色統計で再分類する(in-place)。
-        /// </summary>
         /// <summary><see cref="SnapBoundary(bool*, Color32*, int, int, System.Threading.CancellationToken, int, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void SnapBoundary(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
                                         System.Threading.CancellationToken token = default) {
@@ -25,6 +22,9 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// mask(下原点 w*h)の境界帯を pixels の色統計で再分類する(in-place)。
+        /// </summary>
         /// <param name="sizeW">帯幅を決める画像の寸法(0 なら w・h)。切り出しで回すとき全画像の寸法を渡す。</param>
         public static void SnapBoundary(bool* mask, Color32* pixelsBottomUp, int w, int h,
                                         System.Threading.CancellationToken token = default,
@@ -42,8 +42,7 @@ namespace Iroca {
             var distIn = DistanceToOpposite(scratch, mask, w, h, inside: true, token);   // mask 内→外境界までの距離
             var distOut = DistanceToOpposite(scratch, mask, w, h, inside: false, token); // mask 外→内境界までの距離
 
-            // 再分類は元マスクのスナップショットに対して行う(書き換え順序への依存を排除し、
-            // NumPy リファレンスと決定的に一致させるため)。
+            // 再分類は元マスクのスナップショットに対して行う(書き換える順序に結果が依らないようにする。並列でも決定的)。
             bool* mask0 = scratch.CopyOf(mask, w * h);
 
             // 確信領域の局所色統計を粗グリッド(ストライド d)で集計。

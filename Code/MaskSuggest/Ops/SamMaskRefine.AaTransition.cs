@@ -7,12 +7,6 @@ using UnityEngine;
 namespace Iroca {
     // SamMaskRefine: AA 遷移帯の包含(IncludeAaTransition とその切り出し版)。クラスの説明と共通の定数・下回りは SamMaskRefine.cs。
     internal static unsafe partial class SamMaskRefine {
-        /// <summary>
-        /// mask(下原点 w*h)の境界外側の AA 遷移帯(内側色と外側色の実混合画素)をマスクへ
-        /// 含める(in-place)。SnapBoundary → ExtendFringe の後段で呼ぶ最終仕上げ。
-        /// 除外(保護)マスクの意味論では「パーツ色が目に見えて混ざる画素」を取り残すと
-        /// そこだけ再着色されて点ノイズになるため、混合率 AaBlendMin 以上の実混合を包含する。
-        /// </summary>
         /// <summary><see cref="IncludeAaTransition(bool*, Color32*, int, int, System.Threading.CancellationToken, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void IncludeAaTransition(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
                                                System.Threading.CancellationToken token = default,
@@ -29,6 +23,12 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// mask(下原点 w*h)の境界外側の AA 遷移帯(内側色と外側色の実混合画素)をマスクへ
+        /// 含める(in-place)。SnapBoundary → ExtendFringe の後段で呼ぶ最終仕上げ。
+        /// 除外(保護)マスクの意味論では「パーツ色が目に見えて混ざる画素」を取り残すと
+        /// そこだけ再着色されて点ノイズになるため、混合率 AaBlendMin 以上の実混合を包含する。
+        /// </summary>
         public static void IncludeAaTransition(bool* mask, Color32* pixelsBottomUp, int w, int h,
                                                System.Threading.CancellationToken token = default,
                                                int dOverride = 0) {
@@ -36,8 +36,8 @@ namespace Iroca {
                 return;
             }
 
-            // dOverride: クロップ実行(IncludeAaTransitionCropped)が全画像実行と同じ帯幅を使う
-            // ための上書き。0 なら従来どおり自寸法から導出(既存呼び出しは全て 0 = 挙動不変)。
+            // dOverride: 切り出して回すとき(IncludeAaTransitionCropped と、精密化の切り出し実行)に、全画像と同じ帯幅を
+            // 使うための上書き。0 なら自分の寸法から導く。
             int d = dOverride > 0 ? dOverride : BandHalfWidth(w, h);
 
             // soft skirt が帯幅を超える場合に境界を進めながら吸収する(追加ゼロで早期終了)。

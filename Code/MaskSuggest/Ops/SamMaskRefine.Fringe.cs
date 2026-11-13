@@ -7,10 +7,6 @@ using UnityEngine;
 namespace Iroca {
     // SamMaskRefine: 房の外郭までの拡張(ExtendFringe)。クラスの説明と共通の定数・下回りは SamMaskRefine.cs。
     internal static unsafe partial class SamMaskRefine {
-        /// <summary>
-        /// mask(下原点 w*h)の境界を、房 strands を覆うように実テクスチャの信号で外郭まで拡張する(in-place)。
-        /// SnapBoundary の後段で呼ぶ。房が無い部位ではほとんど成長しない(precision 影響 &lt;=0.004)。
-        /// </summary>
         /// <summary><see cref="ExtendFringe(bool*, Color32*, int, int, System.Threading.CancellationToken, int, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void ExtendFringe(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
                                         System.Threading.CancellationToken token = default) {
@@ -26,6 +22,10 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// mask(下原点 w*h)の境界を、房 strands を覆うように実テクスチャの信号で外郭まで拡張する(in-place)。
+        /// SnapBoundary の後段で呼ぶ。房が無い部位ではほとんど成長しない(precision 影響 &lt;=0.004)。
+        /// </summary>
         /// <param name="sizeW">帯幅などの定数を決める画像の寸法(0 なら w・h)。切り出しで回すとき全画像の寸法を渡す
         /// (<see cref="TryDeriveRefineCropRect"/>)。</param>
         public static void ExtendFringe(bool* mask, Color32* pixelsBottomUp, int w, int h,
