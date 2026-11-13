@@ -5,7 +5,7 @@
 二重実装** になっていた。UI はハーネスのコンパイル対象外なので、片方に項目を足し忘れても
 どのゲートにも掛からず、「テストが測る自動調整」と「ユーザーが得る自動調整」が黙って別物になる。
 
-対策として写像を Core の `ZoneAutoTuner.TuneResult.ApplyTo(ColorZone, IrocaSessionState)` に
+対策として写像を Core の `ZoneAutoTuner.TuneResult.ApplyTo(ColorZone)` に
 一本化した(ハーネスのコンパイル対象 = 出荷ゲート対象)。本テストは C# ソースを直接読み、
 
   1. 製品の自動調整の流れ(Code/Application/AutoTuneService.cs。0.4.0 の 4-3 でウィンドウと自動化の 2 本を

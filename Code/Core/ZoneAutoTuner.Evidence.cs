@@ -220,11 +220,11 @@ namespace Iroca {
 
         /// <summary>
         /// 証拠マスク(true=このゾーンの素材そのもの。AI マスク提案のセグメント)を教師にして
-        /// パラメータを導出する。証拠が使えないときは従来の <see cref="Analyze(Color32[],int,int,ColorZone,SessionInput,bool[],int,int,CancellationToken,System.Action{float})"/>
+        /// パラメータを導出する。証拠が使えないときは従来の <see cref="Analyze(Color32[],int,int,ColorZone,bool[],int,int,CancellationToken,System.Action{float})"/>
         /// へフォールバックする。evidence の寸法はテクスチャと同一想定(異寸は最近傍で対応)。
         /// </summary>
         public static TuneResult AnalyzeWithEvidence(Color32[] pixels, int width, int height,
-            ColorZone zone, SessionInput session,
+            ColorZone zone,
             bool[] evidence, int evW, int evH,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             System.Action<float> report = null) {
@@ -233,17 +233,17 @@ namespace Iroca {
                 pixels = null;
             }
             fixed (Color32* p = pixels) {
-                return AnalyzeWithEvidence(p, width, height, zone, session, evidence, evW, evH,
+                return AnalyzeWithEvidence(p, width, height, zone, evidence, evW, evH,
                     excluded, maskW, maskH, ct, report);
             }
         }
 
         /// <summary>
-        /// <see cref="AnalyzeWithEvidence(Color32[],int,int,ColorZone,SessionInput,bool[],int,int,bool[],int,int,CancellationToken,System.Action{float})"/> の
+        /// <see cref="AnalyzeWithEvidence(Color32[],int,int,ColorZone,bool[],int,int,bool[],int,int,CancellationToken,System.Action{float})"/> の
         /// ポインタ版。pixels は width*height 画素以上を、解析が返るまで保つこと。
         /// </summary>
         public static TuneResult AnalyzeWithEvidence(Color32* pixels, int width, int height,
-            ColorZone zone, SessionInput session,
+            ColorZone zone,
             bool[] evidence, int evW, int evH,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             System.Action<float> report = null) {
@@ -256,7 +256,7 @@ namespace Iroca {
             }
             fixed (bool* ev = evidence)
             fixed (bool* ex = excluded) {
-                return AnalyzeWithEvidenceCore(pixels, width, height, zone, session, ev, evW, evH, ex, maskW, maskH, ct, report);
+                return AnalyzeWithEvidenceCore(pixels, width, height, zone, ev, evW, evH, ex, maskW, maskH, ct, report);
             }
         }
 
@@ -265,7 +265,7 @@ namespace Iroca {
         /// evidence が null なら証拠なしの解析へ落ちる。
         /// </summary>
         internal static TuneResult AnalyzeWithEvidenceCore(Color32* pixels, int width, int height,
-            ColorZone zone, SessionInput session,
+            ColorZone zone,
             bool* evidence, int evW, int evH,
             bool* excluded, int maskW, int maskH, CancellationToken ct,
             System.Action<float> report) {
@@ -280,7 +280,7 @@ namespace Iroca {
             }
             // 証拠を使えないときは従来の導出へ落ちる。証拠の段の HSV 格子と作業配列は、上の関数を出たところで
             // 返してある(従来はこの解析が自分の格子を作る間も持ち続け、8K で約 400MB を二重に持っていた。点検 自-6)。
-            var fallback = AnalyzeCore(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
+            var fallback = AnalyzeCore(pixels, width, height, zone, excluded, maskW, maskH, ct, report);
             if (fallbackDiag != null) {
                 // 従来の導出は正規化した色(normalizedSample。正規化しなければクリックの色)の彩度で有彩・無彩を分け、
                 // 照合は適用後のサンプル(同じ色)で分ける。

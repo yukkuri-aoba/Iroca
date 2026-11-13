@@ -109,7 +109,7 @@ namespace Iroca {
                 string key = trueSource && _previewView != null ? _previewView.TrueSourceCacheKey() : null;
                 // 除外マスクの持ち主は自動調整になる(終わったら返す)。
                 NativeBools excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
-                var run = AutoTuneService.Start(zone, Session, pixels, key, excluded, mw, mh);
+                var run = AutoTuneService.Start(zone, pixels, key, excluded, mw, mh);
                 if (run.Status == AutoTuneService.Status.Failed) {
                     NotifyAutoTuneFailure(run);
                     return;
@@ -250,7 +250,7 @@ namespace Iroca {
             // 結果は押してから数秒後に届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
             SeparateUndo.Record("Auto-tune Zone", () => {
                 Undo.RegisterCompleteObjectUndo(UndoTarget, "Auto-tune Zone");
-                run.ApplyTo(targetZone, Session);
+                run.ApplyTo(targetZone);
             });
             (_autoTuneInputs ??= new Dictionary<string, AutoTuneService.Input>())[targetZone.id] = run.ToInput();
             Editing.NotifyChanged(EditChange.Content);

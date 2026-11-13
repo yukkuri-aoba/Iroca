@@ -83,14 +83,14 @@ namespace Iroca {
                 }
                 if (_run == null) {
                     NativeBools excluded = CombinedExclusion(zone.id, out int mw, out int mh);
-                    _run = AutoTuneService.Start(zone, _state, _pixels, _key, excluded, mw, mh, retryAiError: !_askedAi);
+                    _run = AutoTuneService.Start(zone, _pixels, _key, excluded, mw, mh, retryAiError: !_askedAi);
                     _askedAi |= _run.AskedAi;
                 }
                 _run.Advance();
                 var run = _run;
                 switch (run.Status) {
                     case AutoTuneService.Status.Done:
-                        run.ApplyTo(zone, _state);
+                        run.ApplyTo(zone);
                         How[zone.id ?? ""] = run.Method;
                         break;
                     case AutoTuneService.Status.Failed:

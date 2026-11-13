@@ -583,7 +583,6 @@ namespace Iroca {
             // (AutoTuneService)と同じ「共通(mask.raw) ∪ そのゾーンの除外(zones JSON の excludeMask)」。
             // 2026-11-10 まで共通だけを渡していて、ゾーン別の除外が自動調整に効いていなかった。
             if (autotune) {
-                var session = IrocaSessionState.CreateDefault();
                 for (int zi = 0; zi < zoneList.Count; zi++) {
                     var z = zoneList[zi];
                     bool[] excluded = common;
@@ -610,21 +609,19 @@ namespace Iroca {
                     if (!string.IsNullOrEmpty(evPath)) {
                         (evW, evH, evidence) = ReadMaskRaw(evPath);
                     }
-                    // セッションから読むものは製品と同じ入口で取る(今は何も読まない。2026-11-10 点検 自-2 案 A)。
-                    var sessionInput = ZoneAutoTuner.SessionInput.From(session);
                     var tune = evidence != null
-                        ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, w, h, z, sessionInput,
+                        ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, w, h, z,
                             evidence, evW, evH,
                             excluded: useMask ? excluded : null,
                             maskW: useMask ? mw : 0, maskH: useMask ? mh : 0)
                         : useMask
-                            ? ZoneAutoTuner.Analyze(pixels, w, h, z, sessionInput, excluded, mw, mh)
-                            : ZoneAutoTuner.Analyze(pixels, w, h, z, sessionInput, excluded: null, maskW: 0, maskH: 0);
+                            ? ZoneAutoTuner.Analyze(pixels, w, h, z, excluded, mw, mh)
+                            : ZoneAutoTuner.Analyze(pixels, w, h, z, excluded: null, maskW: 0, maskH: 0);
                     // 導出結果 → ゾーンの写像は製品 UI と同じ TuneResult.ApplyTo
                     // （正規化サンプル・内部マルチサンプルを含む。ここに項目を並べ直さない）。
                     // 自動調整は全体設定(st)を変えない。2026-11-10 まではここで境界の回収(antiAliasCleanup)を
                     // 解像度で 4・5 に上げて写し戻していたが、製品では一度も当たらない経路だった(点検 B-8)。
-                    tune.ApplyTo(z, session);
+                    tune.ApplyTo(z);
                     // 導出値を stderr に JSON で出す（stdout の "OK" を汚さない）。Python が拾って記録する。
                     Console.Error.WriteLine("AUTOTUNE " + JsonSerializer.Serialize(new {
                         name = z.name,

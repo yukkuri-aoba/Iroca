@@ -105,20 +105,6 @@ namespace Iroca {
             HoleFillMargin,
         }
 
-        /// <summary>
-        /// 自動調整がセッションから読むもの(0.4.0 の計画の 3-1。呼び出し側のスレッドで <see cref="From"/> が 1 回だけ取る)。
-        /// 今は何も読まない: 以前は全体設定の 2 つと「どのゾーンも基本の項目が既定のままか」を読み、条件を満たすと
-        /// 境界の回収(antiAliasCleanup)を解像度で 4・5 に上げて全体設定へ書いていた(applyGlobals)。製品(UI・MCP)では
-        /// 新しいゾーンの許容範囲が既定と違うため一度も当たらず、ハーネスでだけ毎回当たって、測る自動調整と利用者の
-        /// 自動調整が食い違っていたので消した(2026-11-10 点検 自-2 案 A・B-8)。型と引数は、呼び出し側(AutoTuneService・
-        /// EditMode のテスト)を変えずに済むよう残してある。
-        /// </summary>
-        public readonly struct SessionInput {
-            public static SessionInput From(IrocaSessionState session) {
-                return default;
-            }
-        }
-
         public struct TuneResult {
             // Per-zone（常に有効）
             public float tolerance;
@@ -141,7 +127,7 @@ namespace Iroca {
             // 穴埋めの余白(0=なし)。証拠つき導出だけが値を入れる(従来導出は既定 0 のまま)。
             public float holeFillMargin;
 
-            // 全体設定(RecolorSettings)は扱わない(ゾーンの項目だけを導く。2026-11-10 点検 自-2 案 A で
+            // 全体設定(RecolorSettings)は読みも書きもしない(ゾーンの項目だけを導く。2026-11-10 点検 自-2 案 A で
             // 境界の回収の提案を消した。edgeFeather は「ごまかし」なので元から扱わない)。
 
             // 現在値がデフォルトと異なる(自動調整で上書きされる)項目。文言は UI が付ける。
@@ -164,7 +150,7 @@ namespace Iroca {
             public string evidenceDiag;
 
             /// <summary>
-            /// 導出結果をゾーンへ適用する(session は今は書かない。呼び出し側を変えずに済むよう引数を残してある)。
+            /// 導出結果をゾーンへ適用する(ゾーンの項目だけを書く。全体設定は書かない)。
             /// 製品 UI（IrocaWindow.AutoTune の apply）と headless ハーネス（--autotune）は必ずここを通す。
             /// 以前は両者が同じ項目を手書きで並べる二重実装で、片方に項目を足し忘れても UI は
             /// ハーネスのコンパイル対象外なのでどのゲートにも掛からず、「テストが測る自動調整」と
@@ -172,7 +158,7 @@ namespace Iroca {
             /// ここが単一の正で、ハーネスの対象（出荷ゲート対象）に入る。フィールドを増やしたら
             /// ここにも書く（scripts/source_checks/test_autotune_apply_single_source が機械検査する）。
             /// </summary>
-            public void ApplyTo(ColorZone zone, IrocaSessionState session) {
+            public void ApplyTo(ColorZone zone) {
                 if (zone == null) {
                     return;
                 }
@@ -285,7 +271,7 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// pixels, zone, session から推奨値と上書き対象ラベルを返す。
+        /// pixels, zone から推奨値と上書き対象ラベルを返す。
         /// 副作用なし。失敗時もデフォルト相当の TuneResult を返す。
         /// pixels が null / 寸法が極端に小さい場合はヒューリスティック既定のみで返す。
         /// </summary>
@@ -295,7 +281,7 @@ namespace Iroca {
         /// 「含有(非除外)領域全体をパーツとみなし、その距離分布から tolerance を導出」する。
         /// </param>
         public static TuneResult Analyze(Color32[] pixels, int width, int height,
-            ColorZone zone, SessionInput session,
+            ColorZone zone,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             Action<float> report = null) {
             // 長さが足りない配列は渡さない(ヒューリスティック既定だけを返す。ポインタ版は長さを確かめられない)。
@@ -303,16 +289,16 @@ namespace Iroca {
                 pixels = null;
             }
             fixed (Color32* p = pixels) {
-                return Analyze(p, width, height, zone, session, excluded, maskW, maskH, ct, report);
+                return Analyze(p, width, height, zone, excluded, maskW, maskH, ct, report);
             }
         }
 
         /// <summary>
-        /// <see cref="Analyze(Color32[],int,int,ColorZone,SessionInput,bool[],int,int,CancellationToken,System.Action{float})"/> の
+        /// <see cref="Analyze(Color32[],int,int,ColorZone,bool[],int,int,CancellationToken,System.Action{float})"/> の
         /// ポインタ版(Mono のヒープの外に置いた画素を写さずに読む)。pixels は width*height 画素以上を、解析が返るまで保つこと。
         /// </summary>
         public static TuneResult Analyze(Color32* pixels, int width, int height,
-            ColorZone zone, SessionInput session,
+            ColorZone zone,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             Action<float> report = null) {
             // 長さが足りないマスクは無いものとして扱う(大きさの分かるのはここまで)。
@@ -320,7 +306,7 @@ namespace Iroca {
                 excluded = null;
             }
             fixed (bool* e = excluded) {
-                return AnalyzeCore(pixels, width, height, zone, session, e, maskW, maskH, ct, report);
+                return AnalyzeCore(pixels, width, height, zone, e, maskW, maskH, ct, report);
             }
         }
 
@@ -328,7 +314,7 @@ namespace Iroca {
         /// 解析の本体。excluded は maskW*maskH 要素以上を、解析が返るまで保つこと(null = マスク無し)。
         /// </summary>
         internal static TuneResult AnalyzeCore(Color32* pixels, int width, int height,
-            ColorZone zone, SessionInput session,
+            ColorZone zone,
             bool* excluded, int maskW, int maskH, CancellationToken ct,
             Action<float> report) {
             // 進捗は「解析ステップの通過点」を単調増加で報告する。各ステップの実時間は

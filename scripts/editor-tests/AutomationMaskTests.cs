@@ -406,10 +406,7 @@ namespace Iroca.EditorTests {
             zone.sampleColor = gray;
             zone.sampleUV = new Vector2(0.25f, 0.5f);
             zone.EnsureId();
-            var session = IrocaSessionState.CreateDefault();
-            session.zones.Clear();
-            session.zones.Add(zone);
-            var core = ZoneAutoTuner.AnalyzeWithEvidence(px, s, s, zone.Clone(), ZoneAutoTuner.SessionInput.From(session), whole, s, s);
+            var core = ZoneAutoTuner.AnalyzeWithEvidence(px, s, s, zone.Clone(), whole, s, s);
             StringAssert.StartsWith("fallback contaminated", core.evidenceDiag, "テストの前提: 汚れた範囲");
 
             var all = new MaskSuggestProposal { mask = NativeBools.CopyOf(whole, s, s), width = s, height = s };

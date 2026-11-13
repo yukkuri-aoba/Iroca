@@ -74,7 +74,6 @@ namespace Iroca {
         /// <see cref="Run.Status"/> が <see cref="Status.Failed"/>。
         /// </summary>
         /// <param name="zone">調整するゾーン(値はここで写す。待ち・解析の間に変わってもよい。当て先は id で引き直す)。</param>
-        /// <param name="session">全体設定と、どのゾーンも既定のままか(ここで読む)。</param>
         /// <param name="pixels">作業解像度の原本(下原点)。参照を足して持ち、終わったら返す。終わるまで書き換えないこと。</param>
         /// <param name="sourceKey">
         /// AI の元のキー(ウィンドウのプレビューと同じ形。窓が同じテクスチャを表示していれば埋め込みを使い回す)。
@@ -84,13 +83,12 @@ namespace Iroca {
         /// <param name="retryAiError">
         /// 前の推論のエラーをなかったことにして試し直すか。何ゾーンもまとめて頼むときは最初の 1 回だけ(直らないエラーでゾーンごとに待たせない)。
         /// </param>
-        internal static Run Start(ColorZone zone, IrocaSessionState session, NativePixels pixels, string sourceKey,
+        internal static Run Start(ColorZone zone, NativePixels pixels, string sourceKey,
             NativeBools excluded, int maskW, int maskH, bool retryAiError = true) {
             zone.EnsureId();
-            // 背景の解析には live の zone / session を直接渡さず、値等価コピーを渡す。解析中も Undo などでゾーンや
-            // session が変異し得るため、live を渡すと sampleColor 変異で混成サンプルから無意味な tolerance を導出したり、
-            // session.zones 列挙中の add/remove で InvalidOperationException になり得る。
-            var run = new Run(zone.Clone(), ZoneAutoTuner.SessionInput.From(session), pixels.AddRef(), sourceKey,
+            // 背景の解析には live の zone を直接渡さず、値等価コピーを渡す。解析中も Undo などでゾーンが変わり得るため、
+            // live を渡すと sampleColor の変化で混成サンプルから無意味な tolerance を導出し得る。
+            var run = new Run(zone.Clone(), pixels.AddRef(), sourceKey,
                 excluded, maskW, maskH) { _retryAiError = retryAiError };
             run.Begin();
             return run;
@@ -220,7 +218,6 @@ namespace Iroca {
         /// </summary>
         internal sealed unsafe class Run {
             private readonly ColorZone _zone;
-            private readonly ZoneAutoTuner.SessionInput _session;
             private readonly string _sourceKey;
             internal bool _retryAiError = true;
             private NativeBools _excluded;
@@ -238,10 +235,9 @@ namespace Iroca {
             private ulong[] _evidencePacked;
             private int _evW, _evH;
 
-            internal Run(ColorZone zone, ZoneAutoTuner.SessionInput session, NativePixels pixels, string sourceKey,
+            internal Run(ColorZone zone, NativePixels pixels, string sourceKey,
                 NativeBools excluded, int maskW, int maskH) {
                 _zone = zone;
-                _session = session;
                 _pixels = pixels;
                 _sourceKey = sourceKey;
                 _excluded = excluded;
@@ -379,15 +375,15 @@ namespace Iroca {
             }
 
             /// <summary>
-            /// 結果をゾーン・全体設定へ当てる(<see cref="Status.Done"/> のとき)。導出結果 → ゾーン/グローバルの写像は
+            /// 結果をゾーンへ当てる(<see cref="Status.Done"/> のとき)。導出結果 → ゾーンの写像は
             /// <see cref="ZoneAutoTuner.TuneResult.ApplyTo"/> が単一の正(headless ハーネスの --autotune と共有。
             /// ここに項目を並べ直さない)。
             /// </summary>
-            public void ApplyTo(ColorZone zone, IrocaSessionState session) {
+            public void ApplyTo(ColorZone zone) {
                 if (Status != Status.Done) {
                     throw new InvalidOperationException("auto-tune has not finished");
                 }
-                Result.ApplyTo(zone, session);
+                Result.ApplyTo(zone);
             }
 
             /// <summary>再現データ用の入力(<see cref="Status.Done"/> のとき)。</summary>
@@ -483,7 +479,6 @@ namespace Iroca {
                 var px = _pixels;   // ここから先は解析が返す
                 _pixels = null;
                 var zone = _zone;
-                var session = _session;
                 var excluded = _excluded;   // ここから先は解析が返す
                 _excluded = null;
                 int mw = _mw, mh = _mh;
@@ -499,9 +494,9 @@ namespace Iroca {
                         // 解析の各ステップから進捗を受け取る。渡さないと 0.10 → 1.00 の 2 点しか報告されない。
                         bool* excludedPtr = excluded != null ? excluded.Ptr : null;
                         var result = evidence != null
-                            ? ZoneAutoTuner.AnalyzeWithEvidenceCore(px.Ptr, px.Width, px.Height, zone, session,
+                            ? ZoneAutoTuner.AnalyzeWithEvidenceCore(px.Ptr, px.Width, px.Height, zone,
                                 evidence.Ptr, evW, evH, excludedPtr, mw, mh, ct, progress.Report)
-                            : ZoneAutoTuner.AnalyzeCore(px.Ptr, px.Width, px.Height, zone, session, excludedPtr, mw, mh, ct,
+                            : ZoneAutoTuner.AnalyzeCore(px.Ptr, px.Width, px.Height, zone, excludedPtr, mw, mh, ct,
                                 progress.Report);
                         // 適用後も持つ証拠(再現データ用)は 1bit/画素に詰めたもの。再現データを書き出せる環境でだけ控える。
                         _evidencePacked = KeepEvidenceForRepro ? MaskSnapshot.Pack(evidence) : null;   // null は null

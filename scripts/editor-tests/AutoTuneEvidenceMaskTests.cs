@@ -59,7 +59,7 @@ namespace Iroca.EditorTests {
                 targetColorSet = true,
             };
             zone.EnsureId();
-            return ZoneAutoTuner.AnalyzeWithEvidence(Scene(), N, N, zone, default,
+            return ZoneAutoTuner.AnalyzeWithEvidence(Scene(), N, N, zone,
                 Mask(evidenceSize, InSegment), evidenceSize, evidenceSize,
                 excluded, excludedSize, excludedSize);
         }

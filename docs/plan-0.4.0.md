@@ -715,6 +715,9 @@ T5 で消える部分は作り直さない（1.5）。
     UI と自動化がそれぞれ作っていたセッションの写し（ゾーンを全部写していた）は要らなくなった。ハーネスの `Localization`
     の代用品と、層の依存の検査の許可表の Core → UI の行を消した。結果を書き戻す `TuneResult.ApplyTo(ColorZone,
     IrocaSessionState)` はそのまま。abcheck の probe は旧と新の両方の DLL で同じ行を出すように直した（dev_safe）。
+  - 2026-11-14 追記: 11-10 の点検（自-2 案 A）で全体設定を書く提案を消してから `SessionInput` は何も読まない空の型になって
+    いたので、型ごと消した。`Analyze`・`AnalyzeWithEvidence` は `session` 引数を取らず、`TuneResult.ApplyTo(ColorZone)` と
+    `AutoTuneService.Start`・`Run.ApplyTo` もゾーンだけを受ける（自動調整の入力はゾーンと画素・マスクだけ）。
 - [x] 3-2 `DebugCaptureHooks` を Core の部分と UI の部分（開閉の描画）に分ける。
   - 2026-10-28: UI の部分を別の型 `DebugWindowHooks`（`Code/UI/DebugWindowHooks.cs`。`OnDrawFoldout` / `RaiseDrawFoldout`）に
     した（partial のままだと、フェーズ 6 で Core と UI を別の asmdef にしたときに 1 つの型にできない）。層の依存の検査の
@@ -851,7 +854,8 @@ T5 で消える部分は作り直さない（1.5）。
     スナップショット。ゾーンは設定だけを持つ）。`ZoneAutoTuner` の作り直しのうち、Verify と Evidence の数え方は
     `CountOnGrid`（格子の回り方と「不透明・除外マスクの外」の母集団の判定を 1 か所に）にまとめた。`SelectionSimulator` と
     いう別の型は作っていない（照合が `Matcher` になったので、残るのは格子の回り方だけ）。入力の専用の記録
-    （`SessionInput`）と HSV グリッドのヒープの外への移動は、それより前に済んでいる。`MergeAnalyzed` の名前の無い数値は
+    （`SessionInput`）と HSV グリッドのヒープの外への移動は、それより前に済んでいる（`SessionInput` は何も読まなく
+    なっていたので、11-14 に型と `session` 引数ごと消した）。`MergeAnalyzed` の名前の無い数値は
     そのまま（台帳の「名前の無い小数」の表で数を見張っている）。
 
 ### フェーズ 3B: 選択・自動調整の再設計（T5）
