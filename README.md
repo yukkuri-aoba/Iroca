@@ -35,7 +35,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 #### 目安のスペック
 
-- **メモリ**: 8GB 以上、16GB 以上を推奨します。いろかが使うメモリは、Unity でアバターのプロジェクトを開いている分に加えて、2K〜4K のテクスチャで 1GB 前後です。8GB の PC でも 2K〜4K なら普段どおり動く見込みです。8K のテクスチャでは Unity 全体で 5〜7GB になるので、8GB の PC ではメモリが足りずにディスクへの退避が起き、処理が遅くなったり PC 全体が重くなったりします。8K を扱うなら 16GB 以上を推奨します（8GB の PC は、Unity が使える実メモリを 4GB に制限して再現しました）
+- **メモリ**: 8GB 以上、16GB 以上を推奨します。いろかが使うメモリは、Unity でアバターのプロジェクトを開いている分に加えて、2K〜4K のテクスチャで 1GB 前後です。8GB の PC でも 2K〜4K なら普段どおり動く見込みです。8K のテクスチャでは Unity 全体で 5〜7GB になり（編集中のまま再生やアップロードをすると、その間だけさらに 2GB ほど増えます）、8GB の PC ではメモリが足りずにディスクへの退避が起き、処理が遅くなったり PC 全体が重くなったりします。8K を扱うなら 16GB 以上を推奨します（8GB の PC は、Unity が使える実メモリを 4GB に制限して再現しました）
 - **CPU**: 下限はありません（Unity 2022 が動く PC なら動きます）。複数のコアで並列に処理するので、コア数が多いほど速くなります。処理時間の目安は下の表です
 - **GPU**: なくても動きます。AI マスク提案は、GPU が使えるときは GPU で、使えないときは CPU で動きます
 
@@ -168,7 +168,7 @@ VRChat のプロジェクトには、次のどちらかで導入します。ど�
 
 #### Recommended specs
 
-- **Memory**: 8 GB or more; 16 GB or more is recommended. On top of what Unity uses for your avatar project, Iroca uses about 1 GB for 2K–4K textures, so 2K–4K textures should work normally even on an 8 GB PC. With 8K textures, Unity as a whole uses about 5–7 GB, so an 8 GB PC runs short of memory and swaps to disk, which can make processing slow or the whole PC sluggish. For 8K textures, 16 GB or more is recommended (we emulated an 8 GB PC by limiting the physical memory Unity can use to 4 GB)
+- **Memory**: 8 GB or more; 16 GB or more is recommended. On top of what Unity uses for your avatar project, Iroca uses about 1 GB for 2K–4K textures, so 2K–4K textures should work normally even on an 8 GB PC. With 8K textures, Unity as a whole uses about 5–7 GB (and about 2 GB more for a moment if you enter Play mode or upload while still editing), so an 8 GB PC runs short of memory and swaps to disk, which can make processing slow or the whole PC sluggish. For 8K textures, 16 GB or more is recommended (we emulated an 8 GB PC by limiting the physical memory Unity can use to 4 GB)
 - **CPU**: No minimum (any PC that runs Unity 2022 works). Iroca processes in parallel on multiple cores, so more cores make it faster. See the table below for typical times
 - **GPU**: Not required. AI Mask Suggestion uses the GPU when available and falls back to the CPU otherwise
 
