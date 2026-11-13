@@ -218,18 +218,6 @@ namespace Iroca {
             return snap;
         }
 
-        /// <summary>true の画素が 1 つでもあるか(null は false)。</summary>
-        public static bool AnyTrue(bool[] mask) {
-            if (mask == null) {
-                return false;
-            }
-            for (int i = 0; i < mask.Length; i++) {
-                if (mask[i]) {
-                    return true;
-                }
-            }
-            return false;
-        }
 
         /// <summary>パック済みマスクの idx 番目ビットを読む(null・範囲外は false)。</summary>
         public static bool GetBit(ulong[] packed, int idx) {

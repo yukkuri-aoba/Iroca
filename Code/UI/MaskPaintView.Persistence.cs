@@ -140,17 +140,6 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// bool 配列を RLE 圧縮 + Base64 文字列にエンコード(実体は Core の MaskRle。テストが使う)。
-        /// </summary>
-        public static string EncodeMask(bool[] mask, int w, int h) => MaskRle.Encode(mask, w, h);
-
-        /// <summary>
-        /// EncodeMask の逆。デコード失敗時は null を返す(実体は Core の MaskRle)。
-        /// </summary>
-        public static bool[] DecodeMask(string encoded, out int w, out int h) =>
-            MaskRle.Decode(encoded, out w, out h);
-
-        /// <summary>
         /// 現在のマスク状態を IrocaPresetData の commonMaskBase64 / zoneMasks フィールドに書き出す。
         /// </summary>
         public void WriteToPreset(IrocaPresetData data) {

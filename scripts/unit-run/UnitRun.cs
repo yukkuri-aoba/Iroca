@@ -718,8 +718,9 @@ namespace Iroca.UnitRun {
         }
 
         private static unsafe MaskRegionEditResult Apply(MaskRegionOp op, ulong[] ex, ulong[] inc, ulong[] common) {
+            fixed (bool* r = Region)
             fixed (ulong* e = ex, i = inc, c = common) {
-                return MaskRegionEdit.Apply(op, Region, e, i, c);
+                return MaskRegionEdit.Apply(op, r, Region.Length, e, i, c);
             }
         }
 
@@ -992,7 +993,7 @@ namespace Iroca.UnitRun {
             var r = new MaskRegionEditResult();
             int cy = h - 1 - yFromTop;
             fixed (ulong* b = bits, c = common) {
-                int d = MaskRegionEdit.NearestBitDistance(b, w, h, x, cy, radius);
+                MaskRegionEdit.NearestBit(b, w, h, x, cy, radius, out int d);
                 MaskRegionEdit.ErasePieceAt(b, w, h, x, cy, d, c, new List<int>(), ref r);
             }
             return r;
@@ -1106,7 +1107,8 @@ namespace Iroca.UnitRun {
 
         private static unsafe int Nearest(ulong[] bits, int w, int h, int cx, int cy, int radius) {
             fixed (ulong* b = bits) {
-                return MaskRegionEdit.NearestBitDistance(b, w, h, cx, cy, radius);
+                MaskRegionEdit.NearestBit(b, w, h, cx, cy, radius, out int distance);
+                return distance;
             }
         }
 

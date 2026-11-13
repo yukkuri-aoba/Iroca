@@ -413,18 +413,18 @@ namespace Iroca.EditorTests {
             Assert.AreEqual("", data.commonMaskBase64, "共通マスクが無ければ書かない");
             Assert.AreEqual(1, data.zoneMasks.Count, "全 false の z2 は書かない");
             Assert.AreEqual("z1", data.zoneMasks[0].zoneId);
-            Assert.AreEqual(MaskPaintView.EncodeMask(exclude, 4, 2), data.zoneMasks[0].maskBase64);
+            Assert.AreEqual(MaskRle.Encode(exclude, 4, 2), data.zoneMasks[0].maskBase64);
             Assert.AreEqual(1, data.zoneIncludeMasks.Count);
             Assert.AreEqual("z3", data.zoneIncludeMasks[0].zoneId);
-            Assert.AreEqual(MaskPaintView.EncodeMask(include, 4, 2), data.zoneIncludeMasks[0].maskBase64);
+            Assert.AreEqual(MaskRle.Encode(include, 4, 2), data.zoneIncludeMasks[0].maskBase64);
             Assert.AreEqual(4, data.maskWidth);
             Assert.AreEqual(2, data.maskHeight);
 
             // 書いた文字列が元のマスクと寸法に戻ること。
-            CollectionAssert.AreEqual(exclude, MaskPaintView.DecodeMask(data.zoneMasks[0].maskBase64, out int w, out int h));
+            CollectionAssert.AreEqual(exclude, MaskRle.Decode(data.zoneMasks[0].maskBase64, out int w, out int h));
             Assert.AreEqual(4, w);
             Assert.AreEqual(2, h);
-            CollectionAssert.AreEqual(include, MaskPaintView.DecodeMask(data.zoneIncludeMasks[0].maskBase64, out w, out h));
+            CollectionAssert.AreEqual(include, MaskRle.Decode(data.zoneIncludeMasks[0].maskBase64, out w, out h));
             Assert.AreEqual(4, w);
             Assert.AreEqual(2, h);
         }

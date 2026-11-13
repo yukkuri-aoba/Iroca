@@ -1611,12 +1611,12 @@ namespace Iroca {
                 var back = MaskRle.DecodeBits(viaBools);
                 Check(back != null && back.Width == w && back.Height == h && SameBits(back, MaskSnapshot.Pack(b)),
                     "DecodeBits equals Pack: " + label);
-                Check(m.Any() == MaskSnapshot.AnyTrue(b), "Any: " + label);
+                Check(m.Any() == (Array.IndexOf(b, true) >= 0), "Any: " + label);
                 back?.Release();
 
                 // ヒープの外の RLE(Undo の履歴): 保存形式の Base64 を解いた中身と同じバイト列で、展開すると同じビット。
                 var rle = MaskRle.EncodeBitsNative(m);
-                Check((rle != null) == MaskSnapshot.AnyTrue(b), "EncodeBitsNative is null only when empty: " + label);
+                Check((rle != null) == (Array.IndexOf(b, true) >= 0), "EncodeBitsNative is null only when empty: " + label);
                 if (rle != null) {
                     var expected = Convert.FromBase64String(viaBools.Substring(2));
                     var got = new byte[rle.Bytes];

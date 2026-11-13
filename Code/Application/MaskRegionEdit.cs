@@ -16,8 +16,9 @@ namespace Iroca {
         /// <summary>
         /// 範囲(AI の判定・メッシュの島)でマスクを消す: 範囲の中の「含める」と除外の両方を消す(手入れ前の色の判定に戻す)。
         /// ゾーン宛のとき、全ゾーン共通の除外は消さない(重なりは数える)。
-        /// 右クリックの「ここのマスクを消す」そのものは範囲を使わず、マスクのつながったかたまりを消す
-        /// (<see cref="MaskRegionEdit.ErasePieceAt"/>)。これは、かたまりの一部だけを消したいときの道。
+        /// 右クリックの「ここのマスクを消す」そのものは範囲を使わない: その場所を塗った操作の記録
+        /// (<see cref="MaskRegionEdit.ErasePatch"/>)を、記録が無ければマスクのつながったかたまり
+        /// (<see cref="MaskRegionEdit.ErasePieceAt"/>)を消す(MaskWorkspace.ClearMaskAt)。これは、範囲を指して消すときの道。
         /// </summary>
         ClearHere,
     }
@@ -46,25 +47,12 @@ namespace Iroca {
     /// </para>
     /// </summary>
     internal static unsafe class MaskRegionEdit {
+        /// <summary>範囲(n 個。AI 提案の範囲は Mono のヒープの外にある)の操作を、宛先のマスクへ当てる。</summary>
         /// <param name="op">当てる操作。</param>
         /// <param name="region">範囲(マスクと同じ寸法)。</param>
         /// <param name="exclude">宛先の除外マスク。ゾーン宛ならゾーン別、共通宛なら共通。PaintHere と ClearHere では null 可(消す物が無い)。</param>
         /// <param name="include">宛先ゾーンの含めるマスク。PaintHere では必須、ほかは null 可(消す物が無い)。共通宛では null。</param>
         /// <param name="common">全ゾーン共通の除外(重なりを数えるだけ。null 可)。共通宛のときは null を渡す。</param>
-        public static MaskRegionEditResult Apply(MaskRegionOp op, bool[] region,
-                                                 ulong* exclude, ulong* include, ulong* common) {
-            if (region == null) {
-                return new MaskRegionEditResult();
-            }
-            fixed (bool* p = region) {
-                return Apply(op, p, region.Length, exclude, include, common);
-            }
-        }
-
-        /// <summary>
-        /// <see cref="Apply(MaskRegionOp, bool[], ulong*, ulong*, ulong*)"/> の、範囲がポインタ(n 個)の版
-        /// (AI 提案の範囲は Mono のヒープの外にある)。
-        /// </summary>
         public static MaskRegionEditResult Apply(MaskRegionOp op, bool* region, int n,
                                                  ulong* exclude, ulong* include, ulong* common) {
             if (region == null) {
@@ -280,17 +268,9 @@ namespace Iroca {
         private static bool Bit(ulong* bits, int i) => (bits[i >> 6] & (1UL << (i & 63))) != 0UL;
 
         /// <summary>
-        /// 中心 (cx, cy) にいちばん近い立っている画素までの距離(縦横の大きいほう。0 = 中心が立っている)。
-        /// 半径 radius の正方形の中に無ければ -1。bits が null でも -1。
-        /// </summary>
-        public static int NearestBitDistance(ulong* bits, int w, int h, int cx, int cy, int radius) {
-            NearestBit(bits, w, h, cx, cy, radius, out int distance);
-            return distance;
-        }
-
-        /// <summary>
-        /// 中心 (cx, cy) にいちばん近い立っている画素の番号(y * w + x)と、そこまでの距離(<see cref="NearestBitDistance"/>)。
-        /// 半径の中に無ければどちらも -1。同じ距離に何個もあれば、下の行・左の画素を先に選ぶ。
+        /// 中心 (cx, cy) にいちばん近い立っている画素の番号(y * w + x)と、そこまでの距離(縦横の大きいほう。0 = 中心が
+        /// 立っている)。半径 radius の正方形の中に無ければ(bits が null でも)どちらも -1。同じ距離に何個もあれば、
+        /// 下の行・左の画素を先に選ぶ。
         /// </summary>
         public static int NearestBit(ulong* bits, int w, int h, int cx, int cy, int radius, out int distance) {
             distance = -1;
@@ -377,7 +357,7 @@ namespace Iroca {
         /// <summary>
         /// 「ここのマスクを消す」の本体(2): クリックした所のマスクの、つながっているひとかたまり(縦横斜めの 8 方向)を消す。
         /// 何が塗ったか分からないマスク(ブラシで塗った・記録を持たない版で入れた)に使う。
-        /// 中心 (cx, cy) から距離 distance(<see cref="NearestBitDistance"/> の戻り値)にある立っている画素を起点にする。
+        /// 中心 (cx, cy) から距離 distance(<see cref="NearestBit"/> が返す距離)にある立っている画素を起点にする。
         /// 消した画素数と、そのうち全ゾーン共通の除外(common。null 可)が重なる画素数を <paramref name="r"/> に足す。
         /// work は起点の置き場(中身は捨てる。呼び出しをまたいで使い回せる)。
         /// </summary>
