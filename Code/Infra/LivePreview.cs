@@ -63,8 +63,10 @@ namespace Iroca {
             // 使い回すのは編集が続いている間だけで足りるので、手を止めたら捨てる(TrimStaging。4K で CPU と GPU に 64MB ずつ)。
             public Texture2D staging;
             public Texture2D stagingSpare;
-            // Alpha Source を当てるときの取り込み設定(最後に届いた画素のテクスチャのもの)。
+            // Alpha Source を当てるときの取り込み設定(最後に届いた画素のテクスチャのもの)と、その画素が原本ファイルを読んだものか
+            // (取り込み済みテクスチャの画素なら、Unity が当て済みなので当てない)。
             public TextureImporter importer;
+            public bool fromSourceFile;
 
             public bool HasPixels => native != null;
 
@@ -163,8 +165,9 @@ namespace Iroca {
         /// 色替えの結果(Mono のヒープの外の画素。ドラッグ中の縮小版か、確定のフル解像度)を置く。<paramref name="source"/> が
         /// いま編集中のものでなければ捨てる(テクスチャを切り替えた直後に届いた前のテクスチャの結果)。借り手がいればすぐ書き込む。
         /// 置いている間は参照を 1 つ持つ(次の Push・テクスチャの切り替え・閉じたときに返す)。
+        /// <paramref name="fromSourceFile"/> は、色替えの元の画素が原本ファイルを読んだものか(<see cref="RecipeTextureBuilder.ApplyAlphaSource"/>)。
         /// </summary>
-        public static void Push(Texture2D source, NativePixels pixels) {
+        public static void Push(Texture2D source, NativePixels pixels, bool fromSourceFile) {
             if (source == null || pixels == null || Current == null || Current.source != source) {
                 return;
             }
@@ -175,6 +178,7 @@ namespace Iroca {
             slot.width = pixels.Width;
             slot.height = pixels.Height;
             slot.importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(source)) as TextureImporter;
+            slot.fromSourceFile = fromSourceFile;
             if (slot.rt != null) {
                 Upload(slot);
             }
@@ -379,7 +383,7 @@ namespace Iroca {
             slot.staging.LoadRawTextureData((IntPtr)slot.native.Ptr, slot.native.Length * 4);
             // ビルド(RecipeTextureBuilder)と同じく、出来上がりに取り込み設定の Alpha Source を当てる。届いた画素は窓のプレビューも
             // 使うので、写した先で当てる。
-            RecipeTextureBuilder.ApplyAlphaSource(slot.staging, slot.importer);
+            RecipeTextureBuilder.ApplyAlphaSource(slot.staging, slot.importer, slot.fromSourceFile);
             slot.staging.Apply(false, false);
 
             bool shrink = slot.width > slot.rt.width * 2 || slot.height > slot.rt.height * 2;

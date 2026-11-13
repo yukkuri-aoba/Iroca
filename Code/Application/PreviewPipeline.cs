@@ -1012,7 +1012,7 @@ namespace Iroca {
                     // 一瞬だけ粗く崩れて見える。アバターは前の確定表示のまま、フル段で一度に差し替える。
                     // (映している間は LivePreview が自分の参照を持つ)
                     if (!chainFull) {
-                        LivePreview.Push(req.source, result.processed);
+                        LivePreview.Push(req.source, result.processed, TrueSourceFromFile);
                     }
                     _host.RequestRepaint();
                     marks.ApplyEnd = PreviewLatencyCycle.Now;
@@ -1165,7 +1165,7 @@ namespace Iroca {
                     }
                     // シーンのアバターにはフル解像度の結果を映す(取り込み済みテクスチャの寸法へは LivePreview が合わせる。
                     // 映している間は LivePreview が参照を持つ)。
-                    LivePreview.Push(req.source, result.full);
+                    LivePreview.Push(req.source, result.full, TrueSourceFromFile);
                     _host.PublishDebugCapture(req.debugCap);
                     // 充填完了したキャプチャを（メインスレッドの）ここで初めて公開する。
                     // 生成時に公開すると、DebugWindow が Add 中のリストを foreach して競合する。

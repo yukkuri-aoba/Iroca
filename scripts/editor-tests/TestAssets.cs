@@ -22,11 +22,11 @@ namespace Iroca.EditorTests {
 
         /// <summary>
         /// シーンのプレビューへ色替えの結果を置く(<see cref="LivePreview.Push"/>)。製品と同じくヒープの外の画素で渡す
-        /// (LivePreview は自分の参照を足して持つので、ここの分は返す)。
+        /// (LivePreview は自分の参照を足して持つので、ここの分は返す)。画素は、原本ファイルを読んだものとして渡す。
         /// </summary>
         public static void PushLive(Texture2D source, Color32[] pixels, int width, int height) {
             var native = NativePixels.CopyOf(pixels, width, height);
-            try { LivePreview.Push(source, native); } finally { native.Release(); }
+            try { LivePreview.Push(source, native, fromSourceFile: true); } finally { native.Release(); }
         }
 
         /// <summary>

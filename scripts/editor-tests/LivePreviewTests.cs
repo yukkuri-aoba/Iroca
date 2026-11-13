@@ -293,12 +293,18 @@ namespace Iroca.EditorTests {
                 try {
                     var pixels = NativePixels.CopyOf(TestAssets.Solid(8, 8, new Color32(0, 200, 0, 128)), 8, 8);
                     try {
-                        LivePreview.Push(tex, pixels);
+                        LivePreview.Push(tex, pixels, fromSourceFile: true);
                         Assert.AreEqual(128, pixels.ToArray()[0].a, "窓のプレビューも使う画素を書き換えた");
+                        if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null) {
+                            Assert.AreEqual(255, ReadCenter((RenderTexture)rt).a, "Alpha Source を当てていない");
+                        }
+                        // 取り込み済みテクスチャの画素(PSD・TGA など。開けなかった PNG の代わりも)は、Unity が Alpha Source を
+                        // 当て済みなので、もう一度は当てない(拡張子ではなく、読んだ経路で決める)。
+                        LivePreview.Push(tex, pixels, fromSourceFile: false);
+                        if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null) {
+                            Assert.AreEqual(128, ReadCenter((RenderTexture)rt).a, 2, "取り込み済みの画素に Alpha Source を当て直した");
+                        }
                     } finally { pixels.Release(); }
-                    if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null) {
-                        Assert.AreEqual(255, ReadCenter((RenderTexture)rt).a, "Alpha Source を当てていない");
-                    }
                 } finally {
                     LivePreview.Release(tex);
                     LivePreview.SetTarget(null, null);

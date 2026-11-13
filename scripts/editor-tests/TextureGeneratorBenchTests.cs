@@ -72,8 +72,8 @@ namespace Iroca.EditorTests {
             Assert.IsNotNull(byApply, "RecipeTextureBuilder.CreateMatchingByApply(NativePixels, Texture2D)");
             // 製品の作り(取り込み設定があれば TextureGenerator。プラットフォーム設定は今のビルド対象から選ぶ)
             var builder = typeof(RecipeTextureBuilder).GetMethod("CreateMatching", BindingFlags.Static | BindingFlags.NonPublic,
-                null, new[] { typeof(NativePixels), typeof(Texture2D) }, null);
-            Assert.IsNotNull(builder, "RecipeTextureBuilder.CreateMatching(NativePixels, Texture2D)");
+                null, new[] { typeof(NativePixels), typeof(Texture2D), typeof(bool) }, null);
+            Assert.IsNotNull(builder, "RecipeTextureBuilder.CreateMatching(NativePixels, Texture2D, bool)");
             if (!AssetDatabase.IsValidFolder(Folder)) {
                 AssetDatabase.CreateFolder("Assets", "IrocaTexGenBench");
             }
@@ -142,7 +142,9 @@ namespace Iroca.EditorTests {
             var sw = Stopwatch.StartNew();
             Texture2D tex = null;
             try {
-                tex = (Texture2D)make.Invoke(null, new object[] { pixels, like });
+                // 3 つ目の引数は「原本ファイルを読んだ画素か」(製品の作りだけが受ける。計測は PNG を読んで渡す)。
+                tex = (Texture2D)make.Invoke(null, make.GetParameters().Length == 3
+                    ? new object[] { pixels, like, true } : new object[] { pixels, like });
             } finally {
                 sw.Stop();
                 Volatile.Write(ref stop, true);

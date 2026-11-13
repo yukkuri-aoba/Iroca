@@ -66,12 +66,12 @@ namespace Iroca {
 
             BeginCompute();
             try {
-                if (!TryRecolorNative(recipe, out var pixels, out failure)) {
+                if (!TryRecolorNative(recipe, out var pixels, out bool fromFile, out failure)) {
                     return null;
                 }
                 Texture2D tex;
                 try {
-                    tex = CreateMatching(pixels, like);
+                    tex = CreateMatching(pixels, like, fromFile);
                 } finally {
                     pixels.Release();
                 }
@@ -207,7 +207,8 @@ namespace Iroca {
                 // 要るのでここで読む。
                 string srcPath = AssetDatabase.GetAssetPath(like);
                 NativePixels pixels = null;
-                if (!CanReadOffMainThread(srcPath) && !TryReadPixels(like, out pixels, out _)) { done(null); return; }
+                build.fromFile = true;   // 計算のスレッドで読むのは、原本ファイルの PNG
+                if (!CanReadOffMainThread(srcPath) && !TryReadPixels(like, out pixels, out build.fromFile, out _)) { done(null); return; }
                 QueueCompute(build, pixels, srcPath, like.width, like.height);
             });
         }
@@ -219,6 +220,8 @@ namespace Iroca {
             public IrocaSessionState state;
             public CancellationToken ct;
             public Action<Texture2D> done;
+            // 画素が原本ファイルを読んだものか(取り込み済みテクスチャの画素なら false。ApplyAlphaSource)。メインスレッドで書く。
+            public bool fromFile;
         }
 
         // 色替えの計算を、前に投げた計算の後ろにつなぐ(メインスレッド)。pixels が null なら、計算のスレッドで PNG(srcPath)を
@@ -313,7 +316,7 @@ namespace Iroca {
             if (t.Status == TaskStatus.RanToCompletion && pixels == null) {
                 // 計算のスレッドで PNG の画素を読めなかった(見出しは読めたが途中で壊れている・開けなかった)。同期のビルドと同じく
                 // メインスレッドで読み直し(LoadImage・取り込み済みテクスチャ)、同じ計算の列へもう一度積む。読めなければ作らない。
-                if (like == null || !TryReadPixels(like, out var reread, out _)) {
+                if (like == null || !TryReadPixels(like, out var reread, out b.fromFile, out _)) {
                     done(null);
                     return;
                 }
@@ -342,7 +345,7 @@ namespace Iroca {
                 }
                 done(Step(() => {
                     if (!compressed) {
-                        Compress(tex, like);
+                        Compress(tex, like, b.fromFile);
                     }
                     TryStoreCache(key, tex);
                     FinishLike(tex, like);
@@ -372,7 +375,7 @@ namespace Iroca {
         internal static bool TryRecolor(IrocaRecipe recipe, out Color32[] pixels, out int width, out int height,
             out Failure failure) {
             pixels = null; width = height = 0;
-            if (!TryRecolorNative(recipe, out var native, out failure)) {
+            if (!TryRecolorNative(recipe, out var native, out _, out failure)) {
                 return false;
             }
             try {
@@ -388,12 +391,14 @@ namespace Iroca {
         // TryRecolor と同じ画素を Mono のヒープの外に作る(ビルドが使う。参照 1 で返すので呼び出し側が Release する)。
         // 非破壊ビルド・シーンのプレビューはいろかのウィンドウを閉じた後にも走るので、管理配列で持つとその分
         // (4K で 64MB)Mono のヒープが広がったまま残る。
-        private static bool TryRecolorNative(IrocaRecipe recipe, out NativePixels pixels, out Failure failure) {
+        // fromFile は、画素が原本ファイルを読んだものか(取り込み済みテクスチャの画素なら false)。
+        private static bool TryRecolorNative(IrocaRecipe recipe, out NativePixels pixels, out bool fromFile, out Failure failure) {
             pixels = null;
+            fromFile = false;
             if (!TryLoadState(recipe, out var state, out failure)) {
                 return false;
             }
-            if (!TryReadPixels(recipe.sourceTexture, out pixels, out failure)) {
+            if (!TryReadPixels(recipe.sourceTexture, out pixels, out fromFile, out failure)) {
                 return false;
             }
             try {
@@ -424,11 +429,13 @@ namespace Iroca {
 
         // 原本の画素を作業解像度で読む(4K で 0.2 秒ほど)。Unity の API を使うのでメインスレッドで呼ぶ
         // (シーンのプレビューの PNG は計算のスレッドで読むので、ここを通らない)。
-        // 読めたら参照 1 の画素を返す(呼び出し側が Release する)。
-        private static bool TryReadPixels(Texture2D src, out NativePixels pixels, out Failure failure) {
+        // 読めたら参照 1 の画素を返す(呼び出し側が Release する)。fromFile は、原本ファイルを読んだか(取り込み済みテクスチャの
+        // 画素なら false)。
+        private static bool TryReadPixels(Texture2D src, out NativePixels pixels, out bool fromFile, out Failure failure) {
             failure = Failure.None;
             string srcPath = AssetDatabase.GetAssetPath(src);
             var kind = ExportPipeline.ReadSource(srcPath, src, workingSize: true, out pixels, out string openError);
+            fromFile = kind == ExportPipeline.SourceKind.File;
             if (kind == ExportPipeline.SourceKind.Locked) {
                 // 原本のファイルを開けない(ほかのアプリが掴んでいる・同期サービスのオンライン専用ファイル・
                 // Unity の外で消した等)。取り込み済みテクスチャ(縮小・圧縮済み)では代えず、ビルドでは「元テクスチャを
@@ -446,22 +453,23 @@ namespace Iroca {
 
         /// <summary>
         /// 取り込み済みの <paramref name="like"/> と同じ寸法・形式・ミップ有無・色空間のテクスチャを作る
-        /// (読み書き可能のまま返す。サンプリング設定などは <see cref="FinishLike"/> でそろえる)。
+        /// (読み書き可能のまま返す。サンプリング設定などは <see cref="FinishLike"/> でそろえる)。渡す画素は、原本ファイルを読んだもの
+        /// (取り込み設定の Alpha Source がまだ当たっていない)として扱う。
         /// </summary>
         internal static unsafe Texture2D CreateMatching(Color32[] pixels, int width, int height, Texture2D like) {
             if (pixels.Length < (long)width * height) {
                 throw new ArgumentException($"pixels.Length({pixels.Length}) < {width}x{height}", nameof(pixels));
             }
             fixed (Color32* p = pixels) {
-                return CreateMatching(p, width, height, like);
+                return CreateMatching(p, width, height, like, fromSourceFile: true);
             }
         }
 
-        private static unsafe Texture2D CreateMatching(NativePixels pixels, Texture2D like)
-            => CreateMatching(pixels.Ptr, pixels.Width, pixels.Height, like);
+        private static unsafe Texture2D CreateMatching(NativePixels pixels, Texture2D like, bool fromSourceFile)
+            => CreateMatching(pixels.Ptr, pixels.Width, pixels.Height, like, fromSourceFile);
 
         // 取り込み設定(TextureImporter)があれば、取り込みと同じ処理(TextureGenerator)で作る。無ければ以前の作り。
-        private static unsafe Texture2D CreateMatching(Color32* pixels, int width, int height, Texture2D like) {
+        private static unsafe Texture2D CreateMatching(Color32* pixels, int width, int height, Texture2D like, bool fromSourceFile) {
             var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) as TextureImporter;
             if (importer != null && GeneratesLikeImport(importer)) {
                 var generated = GenerateLikeImport(pixels, width, height, like, importer);
@@ -470,16 +478,16 @@ namespace Iroca {
                 }
             }
             var tex = CreateUncompressed(pixels, width, height, like);
-            Compress(tex, like);
+            Compress(tex, like, fromSourceFile);
             return tex;
         }
 
         // 以前の作り(面積平均で取り込み後の寸法へ・Apply の単純なフィルタでミップ・CompressTexture)。製品は呼ばない
         // (取り込み設定の無い元テクスチャは、CreateMatching が同じ 2 段を自分で行う)。今の作りと比べる計測
-        // (TextureGeneratorBenchTests)だけが、名前で呼ぶ。
+        // (TextureGeneratorBenchTests)だけが、名前で呼ぶ(渡すのは PNG を読んだ画素)。
         private static Texture2D CreateMatchingByApply(NativePixels pixels, Texture2D like) {
             var tex = CreateUncompressed(pixels, like);
-            Compress(tex, like);
+            Compress(tex, like, fromSourceFile: true);
             return tex;
         }
 
@@ -664,18 +672,18 @@ namespace Iroca {
         // 取り込み時の形式へそろえる(アルファを取り込み設定どおりにしてから、圧縮形式なら圧縮、非圧縮なら同じ形式へ詰め替え)。
         // 形式を変える Reinitialize と CompressTexture は、2022.3 で「Ignore Mipmap Limit」を既定へ戻す(グループは残る。
         // NewLike で写したもの)ので、終わったら写し直す。
-        private static void Compress(Texture2D tex, Texture2D like) {
+        private static void Compress(Texture2D tex, Texture2D like, bool fromSourceFile) {
             bool ignoreMipmapLimit = tex.ignoreMipmapLimit;
             try {
-                ConvertFormat(tex, like);
+                ConvertFormat(tex, like, fromSourceFile);
             } finally {
                 tex.ignoreMipmapLimit = ignoreMipmapLimit;
             }
         }
 
-        private static void ConvertFormat(Texture2D tex, Texture2D like) {
+        private static void ConvertFormat(Texture2D tex, Texture2D like, bool fromSourceFile) {
             var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) as TextureImporter;
-            ApplyAlphaSource(tex, importer);
+            ApplyAlphaSource(tex, importer, fromSourceFile);
             var target = like.format;
             if (target == tex.format) {
                 return;
@@ -703,13 +711,15 @@ namespace Iroca {
         /// アルファが戻り、アルファを使うシェーダーで元には無かった透けや穴が出る。None ならアルファを捨てて不透明に、
         /// From Gray Scale なら RGB の平均をアルファにする(Unity の説明どおり)。色替えはアルファも見て選ぶので、
         /// 色替えの後(出来上がり)に当てる。色替えした画像を同じ取り込み設定で取り込んだとき(書き出し)と同じになる。
-        /// PSD・TGA などは取り込み済みテクスチャの画素を読むので、Unity が当て済み。
+        /// <paramref name="fromSourceFile"/> は、画素が原本ファイルを読んだものか(<see cref="ExportPipeline.SourceKind.File"/>)。
+        /// 取り込み済みテクスチャの画素(PSD・TGA など。開けなかった PNG の代わりに読んだときも)は、Unity が当て済みなので何もしない。
+        /// 読んだ経路で決める: 以前はここだけ拡張子で見分けていて、中身で見分ける読む側と食い違った(中身が PNG の .tga など)。
         /// </summary>
-        internal static unsafe void ApplyAlphaSource(Texture2D tex, TextureImporter importer) {
-            if (importer == null || importer.alphaSource == TextureImporterAlphaSource.FromInput) {
+        internal static unsafe void ApplyAlphaSource(Texture2D tex, TextureImporter importer, bool fromSourceFile) {
+            if (!fromSourceFile || importer == null || importer.alphaSource == TextureImporterAlphaSource.FromInput) {
                 return;
             }
-            if (tex.format != TextureFormat.RGBA32 || !ReadsSourceFile(importer.assetPath)) {
+            if (tex.format != TextureFormat.RGBA32) {
                 return;
             }
             bool gray = importer.alphaSource == TextureImporterAlphaSource.FromGrayScale;
@@ -725,13 +735,6 @@ namespace Iroca {
                 });
             // ミップのアルファも作り直す(RGB は同じ一番上から作るので変わらない)。
             tex.Apply(updateMipmaps: tex.mipmapCount > 1, makeNoLongerReadable: false);
-        }
-
-        // 原本ファイルをそのまま読む形式か(PNG・JPG。原本の読み込み = ExportPipeline.ReadSource が、取り込み済みの
-        // テクスチャでなくファイルを読む形式)。ここは拡張子で見るが、読む側は中身で見る(中身が PNG の .tga では食い違う)。
-        private static bool ReadsSourceFile(string assetPath) {
-            string ext = Path.GetExtension(assetPath).ToLowerInvariant();
-            return ext == ".png" || ext == ".jpg" || ext == ".jpeg";
         }
 
         /// <summary>
