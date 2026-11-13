@@ -46,6 +46,7 @@ SCOPE_EXCLUDE = {
     "Code/Core/PerfReport.cs": "診断",
     # メモリ管理とキャッシュ（出力を変えない）
     "Code/Core/IrocaNativeMemory.cs": "メモリ管理",
+    "Code/Core/NativeFloatBuffer.cs": "メモリ管理",
     "Code/Core/NativeBuffer.cs": "メモリ管理",
     "Code/Core/NativeBitMask.cs": "メモリ管理",
     "Code/Core/NativeBools.cs": "メモリ管理",

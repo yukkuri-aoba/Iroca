@@ -111,7 +111,7 @@
 | `Code/Core/Foundation/CoreParallelism.cs` | 0 |
 | `Code/Core/Foundation/Histogram.cs` | 0 |
 | `Code/Core/Foundation/PixelRules.cs` | 0 |
-| `Code/Core/HighlightSampleCorrector.cs` | 0 |
+| `Code/Core/Recolor/HighlightSampleCorrector.cs` | 0 |
 | `Code/Core/Masks/PixelProcessor.Masks.cs` | 0 |
 | `Code/Core/Pipeline/PixelProcessor.Bounds.cs` | 0 |
 | `Code/Core/Pipeline/PixelProcessor.Pipeline.cs` | 0 |
@@ -230,7 +230,7 @@
 |---|---|---|---|---|
 | `Chunk` | `1 << 14` | 計算 | — | ワーカーごとの集計を足し込むとき、ビンを並列に分ける区間。整数の和なので出力に効かない |
 
-## `Code/Core/HighlightSampleCorrector.cs`
+## `Code/Core/Recolor/HighlightSampleCorrector.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
