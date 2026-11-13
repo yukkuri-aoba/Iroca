@@ -67,17 +67,68 @@ namespace Iroca {
                 // (c) 塗り先の色で決まる後段(無彩の固め・デコンタミ)が強度を書き換えた後の再主張
                 // キャッシュヒット時も (b)(c) で必要になるため selCached と無関係に作る。
                 // 含めるマスクが無ければ null のまま = 以降の全分岐が no-op(出力ビット不変)。
+                // 展開しながら、含める画素の外接矩形も取る(後段の走査範囲 ZoneState.Scan に足す)。
+                var includedBox = default(SelectionCache.PostBox);
                 if (zoneInclude != null) {
                     zb.IncludedPx = s_boolPool.Rent(len);
                     var incLocal = zb.IncludedPx;
-                    Parallel.For(0, h, po, y => {
-                        int rowOff = y * w;
-                        for (int x = 0; x < w; x++) {
-                            incLocal[rowOff + x] =
-                                IsIncludedAt(maskColOf, maskRowBase, x, y, zoneInclude)
-                                && !IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask);
-                        }
-                    });
+                    int incMinX = w, incMaxX = -1, incMinY = h, incMaxY = -1;
+                    object incGate = new object();
+                    Parallel.For(0, h, po,
+                        () => (minX: w, maxX: -1, minY: h, maxY: -1),
+                        (y, _, loc) => {
+                            int rowOff = y * w;
+                            int first = -1, last = -1;
+                            for (int x = 0; x < w; x++) {
+                                bool inc = IsIncludedAt(maskColOf, maskRowBase, x, y, zoneInclude)
+                                    && !IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask);
+                                incLocal[rowOff + x] = inc;
+                                if (inc) {
+                                    if (first < 0) {
+                                        first = x;
+                                    }
+                                    last = x;
+                                }
+                            }
+                            if (first >= 0) {
+                                if (first < loc.minX) {
+                                    loc.minX = first;
+                                }
+                                if (last > loc.maxX) {
+                                    loc.maxX = last;
+                                }
+                                if (y < loc.minY) {
+                                    loc.minY = y;
+                                }
+                                if (y > loc.maxY) {
+                                    loc.maxY = y;
+                                }
+                            }
+                            return loc;
+                        },
+                        loc => {
+                            lock (incGate) {
+                                if (loc.minX < incMinX) {
+                                    incMinX = loc.minX;
+                                }
+                                if (loc.maxX > incMaxX) {
+                                    incMaxX = loc.maxX;
+                                }
+                                if (loc.minY < incMinY) {
+                                    incMinY = loc.minY;
+                                }
+                                if (loc.maxY > incMaxY) {
+                                    incMaxY = loc.maxY;
+                                }
+                            }
+                        });
+                    includedBox = new SelectionCache.PostBox {
+                        Has = incMaxX >= 0,
+                        MinX = incMinX,
+                        MinY = incMinY,
+                        MaxX = incMaxX,
+                        MaxY = incMaxY,
+                    };
                 }
                 bool* includedPx = zb.IncludedPx;
 
@@ -99,6 +150,7 @@ namespace Iroca {
                     IncludedPx = includedPx,
                     Strength = strength,
                     Box = sel.Box,
+                    Scan = UnionBox(sel.Box, includedBox),
                 };
                 AchromaSolidifyStage.Run(run, z);
                 DecontamStage.Run(run, z);

@@ -75,18 +75,30 @@ namespace Iroca {
         /// 除いた帯)は元の taper を保つ。極端な無彩ターゲット(白↔黒)で、明るい画素ほど弱く
         /// マッチして元色が残る「中央の段差」を消すための前処理。陰影は後段 recolor の無彩パスの
         /// 形維持リマップ(AchromaFormGain)が担う。
+        /// scan: マッチの画素がありうる範囲(<see cref="ZoneState.Scan"/>)。この外にマッチは無いので、印を作るのも
+        /// 固めるのもこの周りだけで足りる(画像全体を走査したのと同じ結果)。
         /// </summary>
-        private static void SolidifyAchromaInterior(float* strength, int w, int h, float achromaWeight, CancellationToken ct = default) {
+        private static void SolidifyAchromaInterior(float* strength, int w, int h, float achromaWeight,
+            in SelectionCache.PostBox scan, CancellationToken ct = default) {
             const float matchThr = ColorZone.MatchStrengthFloor;
+            if (!scan.Has) {
+                return;   // マッチの画素が無い
+            }
             int len = w * h;
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            // 内部の判定は、範囲の中の画素から距離 2 までの印を読む。印はその範囲(範囲 ± 2 を画像の端で切る)だけ埋める。
+            int mx0 = Math.Max(0, scan.MinX - 2), mx1 = Math.Min(w - 1, scan.MaxX + 2);
+            int my0 = Math.Max(0, scan.MinY - 2), my1 = Math.Min(h - 1, scan.MaxY + 2);
+            // 固める画素は、範囲の中で、画像の端から 2 画素より内側(端の外は「非マッチ」なので、端の 2 画素は内部にならない)。
+            int ex0 = Math.Max(2, scan.MinX), ex1 = Math.Min(w - 3, scan.MaxX);
+            int ey0 = Math.Max(2, scan.MinY), ey1 = Math.Min(h - 3, scan.MaxY);
             bool* m = s_boolPool.Rent(len);
             try {
                 // マッチの印(書き換える前の strength で決める)。行並列(要素独立=ビット不変)。
                 var mInit = m;
-                Parallel.For(0, h, po, y => {
+                Parallel.For(my0, my1 + 1, po, y => {
                     int rowOff = y * w;
-                    for (int x = 0; x < w; x++) {
+                    for (int x = mx0; x <= mx1; x++) {
                         int i = rowOff + x;
                         mInit[i] = strength[i] > matchThr;
                     }
@@ -97,9 +109,9 @@ namespace Iroca {
                 // 判定は印 m だけを読むので、同じパスで strength を書き換えてよい。
                 var mL = m;
                 var strengthL = strength;
-                Parallel.For(2, h - 2, po, y => {
+                Parallel.For(ey0, ey1 + 1, po, y => {
                     int rowOff = y * w;
-                    for (int x = 2; x < w - 2; x++) {
+                    for (int x = ex0; x <= ex1; x++) {
                         int i = rowOff + x;
                         if (!mL[i]) {
                             continue;
@@ -185,13 +197,15 @@ namespace Iroca {
         /// </summary>
         // 返す地図(upMap も)は s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。
         private static float* BuildComponentMedianLMap(
-            Color32* px, float* strength, int w, int h, float thr, out float* upMap, CancellationToken ct = default,
+            Color32* px, float* strength, int w, int h, float thr, in SelectionCache.PostBox scan,
+            out float* upMap, CancellationToken ct = default,
             ColorPalette palette = null) {
             upMap = null;
             int len = w * h;
             var bboxPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            // 対象画素の bbox(連結予測子と同条件)。連結成分アンカリングと同じ共通版を使う。
-            if (!TryComputeMatchedBBox(strength, px, w, h, thr,
+            // 対象画素の bbox(連結予測子と同条件)。連結成分アンカリングと同じ共通版を使う。対象の画素は scan
+            // (ZoneState.Scan)の外に無いので、走査はその中だけ。
+            if (!TryComputeMatchedBBox(strength, px, w, h, thr, scan,
                     out int minX, out int minY, out int maxX, out int maxY, ct)) {
                 return null;
             }

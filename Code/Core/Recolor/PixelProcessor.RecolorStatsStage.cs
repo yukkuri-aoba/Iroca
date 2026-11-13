@@ -211,8 +211,8 @@ namespace Iroca {
                     _sub.Mark(SpRegionLRange);
                     if (zHasRegL) {
                         // 地図はプールから借りる(ゾーンの終わりに返す)。
-                        zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, ColorZone.MatchStrengthFloor, out zRegUpMap, cancellationToken,
-                            palette);
+                        zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, ColorZone.MatchStrengthFloor, z.Scan,
+                            out zRegUpMap, cancellationToken, palette);
                         zb.RegMidMap = zRegMidMap; zb.RegUpMap = zRegUpMap;
                     }
                 }

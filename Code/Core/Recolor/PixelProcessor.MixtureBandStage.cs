@@ -36,8 +36,9 @@ namespace Iroca {
                 // strength>0.001 の bbox だけを走査すれば出力はビット不変。マッチ領域が小さいゾーン
                 // (ロゴ等)で OkLab 再着色の per-pixel コストを実マッチ範囲に限定する。bbox 走査は
                 // 軽い比較 1 パスで、recolor の重い per-pixel コスト削減が上回る。
-                // 走査自体は共通の並列 bbox ヘルパへ寄せる(同条件の逐次コピーだった)。
-                TryComputeStrengthBBox(strengthForRecolor, w, h, RecolorMinStrength,
+                // 走査自体は共通の並列 bbox ヘルパへ寄せる(同条件の逐次コピーだった)。強度が 0 でない画素は z.Scan の
+                // 外に無い(含めるマスクの画素は Scan に入っている)ので、走査はその中だけ。
+                TryComputeStrengthBBox(strengthForRecolor, w, h, RecolorMinStrength, z.Scan,
                     out int rcMinX, out int rcMinY, out int rcMaxX, out int rcMaxY, cancellationToken);
                 _sub.Mark(SpRecolorBBox);
                 // 混色帯(選択境界の AA・にじみ)の解析。境界クリーンアップ ON かつ有彩サンプルのゾーンでは、

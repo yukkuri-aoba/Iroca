@@ -19,7 +19,7 @@ namespace Iroca {
                 // 内部を full strength に固め、AA 縁(侵食で除いた帯)の taper だけ残す。有彩ターゲット
                 // (achromaWeight≈0)では no-op = byte 不変。
                 if (z.AchromaWeight > AchromaWeightActiveMin) {
-                    SolidifyAchromaInterior(z.Strength, run.W, run.H, z.AchromaWeight, run.Ct);
+                    SolidifyAchromaInterior(z.Strength, run.W, run.H, z.AchromaWeight, z.Scan, run.Ct);
                 }
 
                 run.Sub.Mark(SpSolidify);

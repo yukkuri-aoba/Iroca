@@ -169,6 +169,11 @@ namespace Iroca {
             // 選択の出力(マスクの契約を掛けた後の強度と、後段が走査する範囲)。
             public float* Strength;
             public SelectionCache.PostBox Box;
+            // マスクの契約の後に、強度が 0 でない画素がありうる範囲 = Box ∪ 含めるマスクの画素の外接矩形。
+            // 選択が返した時点では Box の外の強度は 0 で、契約はその外に、含めるマスクの画素(強度 1)だけを足す。後の段は
+            // 強度を「すでに 0 でない画素」でしか上げないので、ゾーンの終わりまで成り立つ。画像全体から強度を拾い直す走査
+            // (無彩の固め・成分の地図・再着色の範囲)を、この中に限るのに使う。Box だけに限ると、離れた所の含める画素を落とす。
+            public SelectionCache.PostBox Scan;
             // 無彩の固め: 無彩サンプル/極端無彩ターゲットの重み(ComputeAchromaWeight)。
             public float AchromaWeight;
             // デコンタミ: AA 縁とした画素と、そこへ塗る色(設定が無効なら null。指す先は ZoneBuffers)。
