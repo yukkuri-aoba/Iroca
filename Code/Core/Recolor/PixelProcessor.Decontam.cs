@@ -219,55 +219,75 @@ namespace Iroca {
                     if (solidifyOnly) {
                         continue;
                     }
-
-                    float bR = sumR / density;
-                    float bG = sumG / density;
-                    float bB = sumB / density;
-
-                    float dirR = sR - bR;
-                    float dirG = sG - bG;
-                    float dirB = sB - bB;
-                    float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
-                    if (dirSq < DecontamDegenEps) {
-                        continue;
-                    }
-
-                    float pR = originalPixels[i].r;
-                    float pG = originalPixels[i].g;
-                    float pB = originalPixels[i].b;
-
-                    float dot = (pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB;
-                    float alpha = dot / dirSq;
-                    bool beyondSample = alpha > 1f;
-                    if (alpha < 0f) {
-                        alpha = 0f;
-                    } else if (beyondSample) {
-                        alpha = 1f;
-                    }
-
-                    float projR = bR + alpha * dirR;
-                    float projG = bG + alpha * dirG;
-                    float projB = bB + alpha * dirB;
-                    float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
-                    if (distSq > DecontamLineDistSqMax) {
-                        continue;
-                    }
-
-                    if (beyondSample) { strength[i] = 1f; continue; }   // 素材そのもの(矩形全体の経路と同じ)
-
-                    float oneMinusAlpha = 1f - alpha;
-                    float resR = alpha * tR + oneMinusAlpha * bR;
-                    float resG = alpha * tG + oneMinusAlpha * bG;
-                    float resB = alpha * tB + oneMinusAlpha * bB;
-
-                    aaMask[i] = true;
-                    decontaminatedPixels[i] = new Color32(
-                        (byte)Mathf.Clamp(Mathf.RoundToInt(resR), 0, 255),
-                        (byte)Mathf.Clamp(Mathf.RoundToInt(resG), 0, 255),
-                        (byte)Mathf.Clamp(Mathf.RoundToInt(resB), 0, 255),
-                        DecontamCoverageByte(alpha));
+                    DecomposeAaPixel(i, sumR, sumG, sumB, density, originalPixels, strength, aaMask, decontaminatedPixels,
+                        sR, sG, sB, tR, tG, tB);
                 }
             });
+        }
+
+        /// <summary>
+        /// AA 境界の 1 画素の α 分解と再合成(候補がまばらな経路・密な経路で共通。式はここだけ)。
+        /// 背景 B = 窓のドナーの和 ÷ 個数(density)。画素を B → サンプルの線分へ射影して被覆率 α を求め、
+        /// 線分から大きく外れる色は触らない。サンプルを越えた画素(α &gt; 1)は素材そのものとして強度 1 に固める
+        /// (DecontamBeyondSampleNote)。それ以外は「α·塗り先 + (1−α)·B」を decontaminatedPixels に書いて aaMask を立てる。
+        /// 無彩のフチ消し(CleanAchromaFringe)の α 分解は、α を一続きの式で出す・通す α の範囲が違うなど式の形が違うので、
+        /// ここへは寄せていない(寄せると、浮動小数の途中の持ち方が変わって結果が動きうる)。
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static void DecomposeAaPixel(int i, int sumR, int sumG, int sumB, float density,
+            Color32* originalPixels, float* strength, bool* aaMask, Color32* decontaminatedPixels,
+            float sR, float sG, float sB, float tR, float tG, float tB) {
+            float bR = sumR / density;
+            float bG = sumG / density;
+            float bB = sumB / density;
+
+            float dirR = sR - bR;
+            float dirG = sG - bG;
+            float dirB = sB - bB;
+            float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
+            if (dirSq < DecontamDegenEps) {
+                return; // sample ≈ BG → α が定義できない
+            }
+
+            float pR = originalPixels[i].r;
+            float pG = originalPixels[i].g;
+            float pB = originalPixels[i].b;
+
+            float dot = (pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB;
+            float alpha = dot / dirSq;
+            bool beyondSample = alpha > 1f;
+            if (alpha < 0f) {
+                alpha = 0f;
+            } else if (beyondSample) {
+                alpha = 1f;
+            }
+
+            // BG–sample 線分から大きく外れる色は、α 分解の前提が成り立たないためスキップする。
+            float projR = bR + alpha * dirR;
+            float projG = bG + alpha * dirG;
+            float projB = bB + alpha * dirB;
+            float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
+            if (distSq > DecontamLineDistSqMax) {
+                return; // 許容誤差。各チャンネル約31のズレまで許容
+            }
+
+            // サンプルを BG と反対側へ越えた画素は素材そのもの(説明は DecontamBeyondSampleNote)。
+            if (beyondSample) {
+                strength[i] = 1f;
+                return;
+            }
+
+            float oneMinusAlpha = 1f - alpha;
+            float resR = alpha * tR + oneMinusAlpha * bR;
+            float resG = alpha * tG + oneMinusAlpha * bG;
+            float resB = alpha * tB + oneMinusAlpha * bB;
+
+            aaMask[i] = true;
+            decontaminatedPixels[i] = new Color32(
+                (byte)Mathf.Clamp(Mathf.RoundToInt(resR), 0, 255),
+                (byte)Mathf.Clamp(Mathf.RoundToInt(resG), 0, 255),
+                (byte)Mathf.Clamp(Mathf.RoundToInt(resB), 0, 255),
+                DecontamCoverageByte(alpha));
         }
 
         // DecontaminateAaBanded の帯の行数。帯ごとに窓の上下 radius 行ぶん余分に足すので、窓より十分に高くする。
@@ -387,55 +407,8 @@ namespace Iroca {
                             if (solidifyOnly) {
                                 continue;
                             }
-
-                            float bR = (float)sumR / density;
-                            float bG = (float)sumG / density;
-                            float bB = (float)sumB / density;
-
-                            float dirR = sR - bR;
-                            float dirG = sG - bG;
-                            float dirB = sB - bB;
-                            float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
-                            if (dirSq < DecontamDegenEps) {
-                                continue; // sample ≈ BG → α が定義できない
-                            }
-
-                            float pR = originalPixels[i].r;
-                            float pG = originalPixels[i].g;
-                            float pB = originalPixels[i].b;
-
-                            float dot = (pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB;
-                            float alpha = dot / dirSq;
-                            bool beyondSample = alpha > 1f;
-                            if (alpha < 0f) {
-                                alpha = 0f;
-                            } else if (beyondSample) {
-                                alpha = 1f;
-                            }
-
-                            // BG–sample 線分から大きく外れる色は、α 分解の前提が成り立たないためスキップする。
-                            float projR = bR + alpha * dirR;
-                            float projG = bG + alpha * dirG;
-                            float projB = bB + alpha * dirB;
-                            float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
-                            if (distSq > DecontamLineDistSqMax) {
-                                continue; // 許容誤差。各チャンネル約31のズレまで許容
-                            }
-
-                            // サンプルを BG と反対側へ越えた画素は素材そのもの(説明は DecontamBeyondSampleNote)。
-                            if (beyondSample) { strength[i] = 1f; continue; }
-
-                            float oneMinusAlpha = 1f - alpha;
-                            float resR = alpha * tR + oneMinusAlpha * bR;
-                            float resG = alpha * tG + oneMinusAlpha * bG;
-                            float resB = alpha * tB + oneMinusAlpha * bB;
-
-                            aaMask[i] = true;
-                            decontaminatedPixels[i] = new Color32(
-                                (byte)Mathf.Clamp(Mathf.RoundToInt(resR), 0, 255),
-                                (byte)Mathf.Clamp(Mathf.RoundToInt(resG), 0, 255),
-                                (byte)Mathf.Clamp(Mathf.RoundToInt(resB), 0, 255),
-                                DecontamCoverageByte(alpha));
+                            DecomposeAaPixel(i, sumR, sumG, sumB, density, originalPixels, strength, aaMask, decontaminatedPixels,
+                                sR, sG, sB, tR, tG, tB);
                         }
                     }
                     return colsPtr;
@@ -557,6 +530,7 @@ namespace Iroca {
                             if (dirSq < DecontamDegenEps) {
                                 continue;       // sample≈BG → α 未定義
                             }
+                            // ここの α 分解は DecomposeAaPixel(デコンタミ)と考え方は同じだが、式の形が違うので寄せていない。
                             float pR = originalPixels[i].r, pG = originalPixels[i].g, pB = originalPixels[i].b;
                             float alpha = ((pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB) / dirSq;
                             // 地色の残りがある背景優勢画素のみ。地色寄り(α≈1)は除外=白拒否を維持。
