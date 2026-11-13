@@ -19,7 +19,8 @@ namespace Iroca.EditorTests {
     /// <item>maskPaint: ウィンドウで共通とゾーンごとの層に 1 ストロークずつ塗り（1 回の Undo ずつ）、重ね表示と
     /// プレビューを作り直す。続けて全部を Undo、全部を Redo する（1.3 の A1・A2・B2・B3）。</item>
     /// <item>recipeBuild: マスクつきのレシピから、NDMF のビルドと同じ差し替えテクスチャを作る（B1）。手ごとにゾーンを
-    /// 少し変えて保存し、キャッシュに当たらないようにする。</item>
+    /// 少し変えて保存し、キャッシュに当たらないようにする。ケースの windowOpen が true なら、同じテクスチャをウィンドウで
+    /// 編集している最中にビルドする(<see cref="RunRecipeBuildWithWindow"/>)。</item>
     /// <item>autoTune: 自動化 API で、色で指定したゾーンを自動調整つきで足す（証拠なしの解析。A5）。</item>
     /// <item>mcpRecolor: 自動化 API で PNG に書き出す（A6）。</item>
     /// </list>
@@ -147,6 +148,10 @@ namespace Iroca.EditorTests {
                     });
                 }
                 var recipe = RecipeStore.Create(tex, state, BenchDir);
+                if (c.windowOpen) {
+                    RunRecipeBuildWithWindow(c, cfg, sb, tex, recipe);
+                    return;
+                }
                 var baseTol = zones.Select(z => z.tolerance).ToArray();
 
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
@@ -172,6 +177,158 @@ namespace Iroca.EditorTests {
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                 sb.Append(Sample(c.name, "liveAfterSteps", cfg.steps, 0)).Append('\n');
             } finally { FinishScenario(c, cfg, sb, assetPath); }
+        }
+
+        // recipeBuild の windowOpen: 同じテクスチャをいろかのウィンドウで編集している最中に、非破壊ビルドが走る場面。
+        // ウィンドウは「前回のテクスチャ」として開く(このテクスチャのレシピは 1 つなので、結び付いてレシピからゾーンとマスクを読む。
+        // インスペクタの「いろかで開く」も、ウィンドウを出した後は同じ SwitchSourceTexture)。マスクを展開して重ね表示と
+        // プレビューを 1 回作り、ここを「開いた時点」(windowOpen)とする。手ごとに、ウィンドウでゾーンの許容度を変えて
+        // プレビューを作り直し(edited。ビルドの直前の状態)、windowIdleSeconds が 1 以上ならその秒数だけ手を止めて(idle)、
+        // ビルドの直前の合図(BeforeApply。ウィンドウが編集中の内容をレシピへ書き出す)を出してからビルドする(build。
+        // ビルドの間のプロセスの Private の最大と、いろかのネイティブの用途ごとの最大も書く)。ビルドの後はウィンドウを開いたまま releaseWaitSeconds 待ち(windowHeld。作業配列を
+        // 持ち続けるか、手を止めたときの縮小で返すか)、閉じてから共通の後始末(released)へ進む。
+        private static void RunRecipeBuildWithWindow(CaseDto c, CasesDto cfg, StringBuilder sb, Texture2D tex, IrocaRecipe recipe) {
+            string prefKey = IrocaWindow.LastTextureGuidPrefKey;
+            string prefBefore = EditorPrefs.HasKey(prefKey) ? EditorPrefs.GetString(prefKey) : null;
+            IrocaWindow win = null;
+            try {
+                GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                sb.Append(Sample(c.name, "start", 0, 0)).Append('\n');
+                var open = Stopwatch.StartNew();
+                EditorPrefs.SetString(prefKey, AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(tex)));
+                win = ScriptableObject.CreateInstance<IrocaWindow>();
+                if (win.SourceTexture != tex || win.BoundRecipe != recipe) {
+                    win.SwitchSourceTexture(tex, recipe);
+                }
+                Assert.AreSame(recipe, win.BoundRecipe, $"{c.name}: ウィンドウがレシピに結び付いていない");
+                Assert.Greater(win.Session.zones.Count, 0, $"{c.name}: ウィンドウにゾーンが無い");
+                var pv = win.Preview;
+                var masks = win._maskView;
+                masks.EnsureMasks();
+                Assert.IsTrue(pv.TryGetTrueSourcePixels(tex, out _, out int srcW, out int srcH), $"{c.name}: 原本を読めない");
+                PixelProcessor.ComputeFitSize(srcW, srcH, IrocaConsts.Preview.MaxSize, out int prevW, out int prevH, out _);
+                masks.RebuildMaskOverlay(prevW, prevH);
+                RegeneratePreview(pv);
+                double openMs = open.Elapsed.TotalMilliseconds;
+                GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                sb.Append(Sample(c.name, "windowOpen", 0, openMs, sub: NativeBreakdown(peak: false))).Append('\n');
+
+                var zones = win.Session.zones;
+                var baseTol = zones.Select(z => z.tolerance).ToArray();
+                for (int k = 0; k < cfg.steps; k++) {
+                    var ew = Stopwatch.StartNew();
+                    for (int i = 0; i < zones.Count; i++) {
+                        zones[i].tolerance = baseTol[i] + 0.002f * (k + 1);
+                    }
+                    win.Editing.NotifyChanged(EditChange.Content);
+                    RegeneratePreview(pv);
+                    double editMs = ew.Elapsed.TotalMilliseconds;
+                    GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                    sb.Append(Sample(c.name, "edited", k, editMs, sub: NativeBreakdown(peak: false))).Append('\n');
+                    if (c.windowIdleSeconds > 0) {
+                        // 編集してから手を止めた後に再生する(製品は計算が 10 秒無いと作業配列のプールの空きを返す)。
+                        Thread.Sleep(c.windowIdleSeconds * 1000);
+                        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                        sb.Append(Sample(c.name, "idle", k, c.windowIdleSeconds * 1000.0, sub: NativeBreakdown(peak: false))).Append('\n');
+                    }
+
+                    NonDestructiveApplier.RaiseBeforeApplyForTests();
+                    IrocaNativeMemory.ResetPeaks();
+                    Texture2D built;
+                    RecipeTextureBuilder.Failure failure;
+                    double ms;
+                    long maxPrivate;
+                    using (var watch = new PrivatePeakWatch()) {
+                        var sw = Stopwatch.StartNew();
+                        built = RecipeTextureBuilder.Build(recipe, out failure);
+                        ms = sw.Elapsed.TotalMilliseconds;
+                        maxPrivate = watch.Stop();
+                    }
+                    Assert.IsNotNull(built, $"{c.name}: {failure}");
+                    sb.Append(Sample(c.name, "build", k, ms, sub: NativeBreakdown(peak: true) + ",maxPrivate=" + maxPrivate)).Append('\n');
+                    UnityEngine.Object.DestroyImmediate(built);
+                }
+                var cached = Stopwatch.StartNew();
+                var again = RecipeTextureBuilder.Build(recipe, out _);
+                sb.Append(Sample(c.name, "buildCached", cfg.steps, cached.Elapsed.TotalMilliseconds)).Append('\n');
+                if (again != null) {
+                    UnityEngine.Object.DestroyImmediate(again);
+                }
+                GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                sb.Append(Sample(c.name, "liveAfterSteps", cfg.steps, 0, sub: NativeBreakdown(peak: false))).Append('\n');
+
+                // ウィンドウを開いたまま待つ(製品は編集中、計算が 10 秒無いと作業配列のプールの空きを返す)。
+                var hold = Stopwatch.StartNew();
+                for (int s = 0; s <= cfg.releaseWaitSeconds; s += 5) {
+                    GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                    sb.Append(Sample(c.name, "windowHeld", s, hold.Elapsed.TotalMilliseconds, sub: NativeBreakdown(peak: false))).Append('\n');
+                    if (s < cfg.releaseWaitSeconds) {
+                        Thread.Sleep(5000);
+                    }
+                }
+            } finally {
+                if (win != null) {
+                    Undo.ClearUndo(win);
+                    UnityEngine.Object.DestroyImmediate(win);
+                }
+                if (prefBefore != null) {
+                    EditorPrefs.SetString(prefKey, prefBefore);
+                } else {
+                    EditorPrefs.DeleteKey(prefKey);
+                }
+            }
+        }
+
+        // いろかのヒープの外のメモリの、用途ごとの量(MB。"Work=…,Pixels=…")。peak なら ResetPeaks からの最大。
+        private static string NativeBreakdown(bool peak) {
+            var sb = new StringBuilder();
+            for (int u = 0; u <= (int)NativeUsage.Other; u++) {
+                long b = peak ? IrocaNativeMemory.PeakBytesOf((NativeUsage)u) : IrocaNativeMemory.LiveBytesOf((NativeUsage)u);
+                if (sb.Length > 0) {
+                    sb.Append(',');
+                }
+                sb.Append(peak ? "peak." : "").Append((NativeUsage)u).Append('=').Append(b / MB);
+            }
+            return sb.ToString();
+        }
+
+        // 呼び出しの間のプロセスの Private の最大(MB)を、別のスレッドで 5ms ごとに読んで覚える。プロセスの山(peakPrivate)は
+        // 起動からの最大なので、ウィンドウのプレビューの山とビルドの山を分けられない。
+        private sealed class PrivatePeakWatch : IDisposable {
+            private readonly Thread _thread;
+            private volatile bool _stop;
+            private long _max;
+
+            internal PrivatePeakWatch() {
+                Read();
+                _thread = new Thread(() => {
+                    while (!_stop) {
+                        Read();
+                        Thread.Sleep(5);
+                    }
+                }) { IsBackground = true };
+                _thread.Start();
+            }
+
+            private void Read() {
+                GetProcessMemoryInfo(GetCurrentProcess(), out var c, (uint)System.Runtime.InteropServices.Marshal.SizeOf<ProcessMemoryCounters>());
+                long v = (long)c.PagefileUsage.ToUInt64() / MB;
+                if (v > Interlocked.Read(ref _max)) {
+                    Interlocked.Exchange(ref _max, v);
+                }
+            }
+
+            // 止めて、最大を返す。
+            internal long Stop() {
+                if (!_stop) {
+                    _stop = true;
+                    _thread.Join();
+                    Read();
+                }
+                return Interlocked.Read(ref _max);
+            }
+
+            public void Dispose() => Stop();
         }
 
         // 寸法 w×h の帯(下原点)を、MaskRle の保存形式("R:" + Base64(幅・高さ・最初の値・ラン長の列))で書く。
