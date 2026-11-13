@@ -122,7 +122,7 @@ namespace Iroca {
                 // 描くのは元の順のまま(後の source・後の三角形が勝つ)。
                 var charts = new int[sources.Count][];
                 var chartCounts = new int[sources.Count];
-                Parallel.For(0, sources.Count, new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() }, s => {
+                Parallel.For(0, sources.Count, new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() }, s => {
                     var src = sources[s];
                     if (src?.uv == null || src.triangles == null || src.triangles.Length < 3) {
                         return;
@@ -342,7 +342,7 @@ namespace Iroca {
             const int Inf = PaddingInf;
             var po = new ParallelOptions {
                 CancellationToken = token,
-                MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(),
+                MaxDegreeOfParallelism = CoreParallelism.Max(),
             };
 
             // 行パス: 同じ行の中で一番近いチャート画素(左からの走査 → 右からの走査で近い方)
@@ -456,7 +456,7 @@ namespace Iroca {
             }
             var po = new ParallelOptions {
                 CancellationToken = token,
-                MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(),
+                MaxDegreeOfParallelism = CoreParallelism.Max(),
             };
             Parallel.For(0, chunks, po, c => {
                 int i0 = c * Chunk;

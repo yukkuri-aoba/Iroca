@@ -463,7 +463,7 @@ namespace Iroca {
             }
 
             // 並列テスト実行時にスレッド数を絞れるようにする(既定=未設定=製品と同じ
-            // PixelProcessor.DefaultParallelism)。設定したときだけ効くので、通常実行の挙動は変わらない。
+            // CoreParallelism.Default)。設定したときだけ効くので、通常実行の挙動は変わらない。
             var threadsEnv = Environment.GetEnvironmentVariable("IROCA_HARNESS_THREADS");
             if (!string.IsNullOrEmpty(threadsEnv)
                 && int.TryParse(threadsEnv, out int threads) && threads > 0) {

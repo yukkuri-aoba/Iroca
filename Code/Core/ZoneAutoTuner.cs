@@ -209,7 +209,7 @@ namespace Iroca {
             var po = new ParallelOptions {
                 // PixelProcessor と同じ規則を使う。直書きするとデバッグ時のスレッド数指定
                 // (DebugCaptureHooks.ParallelismOverride) がここだけ効かず計測が食い違う。
-                MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(),
+                MaxDegreeOfParallelism = CoreParallelism.Max(),
                 CancellationToken = ct,
             };
             try {
@@ -534,7 +534,7 @@ namespace Iroca {
             // 格子の行を並列に回し、スレッドごとに数えてから足し合わせる。数は整数の和、最も暗い所の彩度は最小値で、
             // どちらも足す・比べる順に依らない(逐次の「より小さければ置き換える」と同じ値)。
             var gate = new object();
-            var po = new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(), CancellationToken = hsv.ct };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = hsv.ct };
             var st = stats;
             Parallel.For(0, hsv.gh, po,
                 () => new AnalysisStats {

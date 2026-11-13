@@ -78,7 +78,7 @@ namespace Iroca {
             var packed = NewBits(len);
             bool* p = mask.Ptr;
             int words = packed.Length;
-            int dop = len >= PackParallelMinPixels ? PixelProcessor.GetMaxParallelism() : 1;
+            int dop = len >= PackParallelMinPixels ? CoreParallelism.Max() : 1;
             if (dop <= 1) {
                 PackWords(p, len, packed, 0, words);
                 return packed;
@@ -103,7 +103,7 @@ namespace Iroca {
             // 64 画素 = 1 語ごとに独立なので、大きいマスクは語の範囲に分けて並列に詰める(どの語も同じ値になる)。
             // プレビューは生成のたびにメインスレッドで全マスクを詰める(BuildSnapshot)ので、ここで待つ時間が
             // そのまま操作の遅れになる(4K で 1 枚 1677 万画素)。
-            int dop = mask.Length >= PackParallelMinPixels ? PixelProcessor.GetMaxParallelism() : 1;
+            int dop = mask.Length >= PackParallelMinPixels ? CoreParallelism.Max() : 1;
             if (dop <= 1) {
                 PackWords(mask, packed, 0, words);
                 return packed;

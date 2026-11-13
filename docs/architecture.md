@@ -84,12 +84,12 @@ Code/Core/
 
 各フォルダの中身: `Selection/Legacy/`（旧の選択の段・`ColorZone` の照合・選択キャッシュの鍵）、
 `Masks/`（マスクの契約と除外・含めるの判定）、`Filters/`（ぼかし）、`Foundation/`（並列度・画素の決まり・使っていない
-メモリを返す窓口・ヒストグラムの集計と分位点 `Histogram`・ビット数 `Bits`。`PixelProcessor` の並列度などの同名のものは
-転送役）、`Color/`（色空間の `OkLab`。自動化の手がかりも同じ変換を使う。画素の HSV と色の表は `PixelProcessor` の
+メモリを返す窓口・ヒストグラムの集計と分位点 `Histogram`・ビット数 `Bits`。`PixelProcessor` の `OpaqueAlphaMin`・
+`ReleaseWorkBuffers` は、ここへの転送役。並列度は `CoreParallelism` を直接呼ぶ）、`Color/`（色空間の `OkLab`。自動化の手がかりも同じ変換を使う。画素の HSV と色の表は `PixelProcessor` の
 partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・ゾーン 1 つ分の流れ `RunZone`・`RunContext` /
 `RunBuffers` / `ZoneState` / `ZoneBuffers` / `SelectionResult`・強度の範囲）、`Recolor/`（再着色の段 6 つ
 `AchromaSolidifyStage` → `DecontamStage` → `RecolorStatsStage` → `MixtureBandStage` → `ComposeStage` →
-`AchromaFringeStage` と、その下回り・再着色の核・デバッグの分岐の観察者）。段は `PixelProcessor` の入れ子の static
+`AchromaFringeStage` と、その下回り・再着色の核・デバッグの分岐の観察者・スポイト補正の `HighlightSampleCorrector`）。段は `PixelProcessor` の入れ子の static
 クラスで、`Run(RunContext, ZoneState)` を持つ（入れ子にしたのは、移した本体が `PixelProcessor` の private の下回りを
 そのまま呼べるようにするため）。強度の範囲（`PixelProcessor.Bounds.cs`）は再着色の段も使うので `Pipeline/` に置いた。
 

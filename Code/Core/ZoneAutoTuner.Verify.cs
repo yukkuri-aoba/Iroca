@@ -55,7 +55,7 @@ namespace Iroca {
         // 逐次のままだと自動調整 1 回のうち 4096² で 1〜1.5 秒をこのループが占めていた(2026-10-17 実測)。
         // 取り消しは格子(HsvGrid.ct)のものを渡す(以前は渡しておらず、取り消してもループが最後まで回っていた)。
         private static ParallelOptions MatcherLoopOptions(HsvGrid hsv) =>
-            new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(), CancellationToken = hsv.ct };
+            new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = hsv.ct };
 
         private static int SumCounts(int[] counts) {
             int s = 0;

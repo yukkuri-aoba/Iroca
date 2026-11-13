@@ -127,7 +127,7 @@ namespace Iroca.DebugTools {
 
         private static void DrawThreadControl(IrocaWindow host) {
             int cpuCount = Environment.ProcessorCount;
-            int defaultCount = PixelProcessor.DefaultParallelism;
+            int defaultCount = CoreParallelism.Default;
             bool isAuto = DebugCaptureHooks.ParallelismOverride <= 0;
             int displayCount = isAuto ? defaultCount : DebugCaptureHooks.ParallelismOverride;
 

@@ -38,7 +38,7 @@ namespace Iroca {
             // 始めから strength >= pot の画素(マッチ済みのコアなど)も畳まない。strength は伝播で上がるだけ
             // なので、その画素は `strength < pot` を最後まで満たさず、どのスイープでも書かれない(近傍として
             // 読まれる値も変わらない)。候補は「まだ上がる余地のある画素」(IsHlPropCandidate)。
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
             int bh = maxY - minY + 1;
             var rowCount = new int[bh];
             Parallel.For(0, bh, po, ly => {
@@ -124,7 +124,7 @@ namespace Iroca {
                     // 変わらないなら各画素の判定は同じ値を読む)。飛ばしても出力はビット単位で同じ。
                     int passes = 3;
                     var progress = new int[nty];
-                    int workers = Math.Max(1, Math.Min(GetMaxParallelism(), nty));
+                    int workers = Math.Max(1, Math.Min(CoreParallelism.Max(), nty));
                     var changedPrev = new bool[nTiles];   // 1 つ前のスイープで変化したタイル
                     var changedCur = new bool[nTiles];    // このスイープで変化したタイル
                     int sweep = 0;
@@ -321,7 +321,7 @@ namespace Iroca {
             float satFloor = sS * HlBandMinSatFrac;
 
             int len = w * h;
-            var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
             // 候補判定は画素の色(と色から求めた HSV)だけで決まるので、色の表があれば色ごとに 1 回だけ
             // 判定して配る(同じ式に同じ入力を与えた結果なのでビット単位で同じ)。候補の色が 1 つも無ければ、
             // 帯は 1 画素も育たない(下の R == 0 と同じ)ので、全画素を見ずに抜ける。
@@ -633,7 +633,7 @@ namespace Iroca {
             const float matchThr = ColorZone.MatchStrengthFloor;
             const float hueGate = ColorZone.ForgivenessHueGate;
             int len = w * h;
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
 
             // 1) 前提チェック: 候補色(未選択・不透明・同色相帯・脱彩した有彩)の画素が無ければ何もしない。
             //    同時に選択画素(不透明)の V ヒストグラムを取り、本体の典型明度(中央値)を得る。
@@ -819,7 +819,7 @@ namespace Iroca {
             float ringSatMax = sS * EnclosedHlSatFrac;
 
             int len = w * h;
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
 
             // 前提: 色味のわずかに残った未選択の明るい画素(これが無ければ穴の輪郭は出ない)。選択画素の数も取る。
             int selCount = 0, anyCand = 0;

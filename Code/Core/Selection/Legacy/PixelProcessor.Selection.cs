@@ -88,7 +88,7 @@ namespace Iroca {
             // 矩形外は呼び出し側が「処理前後とも 0」を保証するので走査を省いても出力ビット不変。
             if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
 
-            var fillPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var fillPo = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
 
             // 1 パス = 「未選択(!(s > 0))で許可された画素のうち、8 近傍の選択済み(s > 0)が minNeighbors 以上
             // (かつ画像内の近傍数も minNeighbors 以上)の画素」を、選択済みの近傍の最小値(上限 1)で埋める。
@@ -287,7 +287,7 @@ namespace Iroca {
             float satCeil = ColorZone.EffectiveChromaCeiling(sS, chromaCeiling);
 
             const float matchThr = ColorZone.MatchStrengthFloor;  // コア判定の strength 床(SolidifyAchromaInterior と同じ)
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
 
             // bbox 限定(出力ビット不変): 除去が起こり得るのは strength>0 の画素だけなので
             // 対象は strength の bbox 内に限られる。保護領域の種(低彩度コア)は
@@ -449,7 +449,7 @@ namespace Iroca {
 
             int len = w * h;
             const float matchThr = ColorZone.MatchStrengthFloor;   // 未選択判定(ApplyChromaCeilingGate と同じ床)
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
             bool* free = s_boolPool.Rent(len);   // 未選択=開領域を辿れる画素
             bool* open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素
             try {
@@ -554,7 +554,7 @@ namespace Iroca {
             // なので、成分の分割は探索と厳密に同じ=open の集合はビット単位で同じ。
             // 結合では小さい方の根を親にするので、成分の根はその成分で最も小さい run(= 最初の画素を含む run)になる。
             var result = new EnclosedComponents();
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
             var runCount = new int[h];
             Parallel.For(0, h, po, y => {
                 int rb = y * w, n = 0, x = 0;
@@ -740,7 +740,7 @@ namespace Iroca {
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
             float rcSampR = sampleColor.r, rcSampG = sampleColor.g, rcSampB = sampleColor.b;
 
-            var recoverPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var recoverPo = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
 
             // 1 パス = 「未選択(!(s > 0))で、8 近傍のどれかが選択済み(s > 0)の画素」に緩和マッチの値を
             // 書く(値 > 0 のときだけ)。読むのはパス開始時の状態。緩和マッチの値は画素の色だけで決まる。

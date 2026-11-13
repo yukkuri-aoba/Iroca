@@ -87,7 +87,7 @@ namespace Iroca {
             }
 
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
-            var ccPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var ccPo = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
 
             // ───────── 連結成分ラベリング: 行 run + union-find ─────────
             // 旧実装は画素単位の逐次 DFS(bbox 全画素 × 4 近傍を単スレッド)。ここでは
@@ -382,7 +382,7 @@ namespace Iroca {
         private static void DropDetachedTranslucent(float* strength, Color32* px, int w, int h,
             int keepX, int keepY, CancellationToken ct) {
             int len = w * h;
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
             // 半透明の選択画素を行並列で数え、番地の一覧にする。以降の段(種・広げる・外す)はこの一覧と
             // その 4 近傍だけを見る(以前は全画素を 1 スレッドで 3〜4 回なめていた)。
             var rowT = new int[h + 1];

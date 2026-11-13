@@ -934,7 +934,7 @@ namespace Iroca {
             int len = w * h;
             bool* a = owner.scratch.CopyOf(src, len);
             bool* b = owner.scratch.Bool(len, clear: false);
-            var po = new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
             for (int pass = 0; pass < r; pass++) {
                 ct.ThrowIfCancellationRequested();
                 bool* s = a;

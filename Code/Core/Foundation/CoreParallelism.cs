@@ -4,9 +4,8 @@ using System;
 
 namespace Iroca {
     /// <summary>
-    /// Core の並列度の規則(0.4.0 の計画の 3-4 で PixelProcessor から切り出した)。PixelProcessor の
-    /// <c>DefaultParallelism</c>・<c>GetMaxParallelism</c> と
-    /// <c>DebugCaptureHooks.ParallelismOverride</c> は、ここへの転送役として残している。新しく書くコードはここを使う。
+    /// Core の並列度の規則(0.4.0 の計画の 3-4 で PixelProcessor から切り出した)。並列度を決める所は、どこもここを呼ぶ。
+    /// <c>DebugCaptureHooks.ParallelismOverride</c> だけは、デバッグの画面が使う名前として、ここへの転送役で残している。
     /// </summary>
     internal static class CoreParallelism {
         // Parallel.For で使用する既定の CPU コア数制限。

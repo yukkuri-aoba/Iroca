@@ -51,7 +51,7 @@ namespace Iroca {
         private static int[] ParallelGridCounts(HsvGrid hsv, int n, Action<int, int[]> rowBody) {
             var total = new int[n];
             var gate = new object();
-            var po = new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(), CancellationToken = hsv.ct };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = hsv.ct };
             Parallel.For(0, hsv.gh, po, () => new int[n],
                 (gy, _, local) => { rowBody(gy, local); return local; },
                 local => {

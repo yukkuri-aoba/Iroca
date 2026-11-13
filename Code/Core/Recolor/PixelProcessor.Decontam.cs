@@ -68,7 +68,7 @@ namespace Iroca {
             // 未指定(boxMaxX<0)なら従来どおり全画素。背景(ドナー)は矩形の各画素から窓 ±radius だけ読む。
             if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
 
-            var decontamPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var decontamPo = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
             int winSide = 2 * radius + 1;
             float interiorBgDensityMin = Mathf.Max(1f, winSide * winSide * DecontamInteriorBgFrac);
             // α 分解の対象(0<strength<しきい)は選択の縁の細い帯であることが多い。その数を先に数え、
@@ -472,7 +472,7 @@ namespace Iroca {
             int* satM = null;
             try {
                 satM = s_intPool.Rent(fw * fh);
-                var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+                var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
                 // マッチ指標(strength > MatchStrengthFloor)の累積和。近傍の窓(±AchromaFringeMatchRadius)は F の内側か、
                 // F と同じく画像の端で切られる(F = 矩形 ± 背景の窓の半径 ⊇ 矩形 ± マッチの窓の半径)。
                 BuildCountSat(strength, satM, w, fx0, fy0, fx1, fy1, po, ColorZone.MatchStrengthFloor);

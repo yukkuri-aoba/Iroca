@@ -16,10 +16,8 @@ namespace Iroca {
     /// バックグラウンドスレッドからの呼び出しを前提にしている。
     /// </summary>
     internal static unsafe partial class PixelProcessor {
-        // 並列度の規則と画素の決まりは Foundation(CoreParallelism・PixelRules)が持つ。ここは今の名前を残す転送役
-        // (0.4.0 の計画の 3-4。呼び出しが多く、ハーネス・テスト・AI 提案の後処理もこの名前で呼ぶ)。
-        internal static int DefaultParallelism => CoreParallelism.Default;
-        internal static int GetMaxParallelism() => CoreParallelism.Max();
+        // 画素の決まりは Foundation(PixelRules)が持つ。ここは今の名前を残す別名(0.4.0 の計画の 3-4。呼び出しが多い)。
+        // 並列度は CoreParallelism を直接呼ぶ(転送役の GetMaxParallelism・DefaultParallelism は 2026-11-13 に消した)。
         internal const int OpaqueAlphaMin = PixelRules.OpaqueAlphaMin;
 
         private static double TicksToMs(long ticks) =>
@@ -102,7 +100,7 @@ namespace Iroca {
         // 帯は 1M 画素以上にする(小さい画像は 1 本のまま)。写すだけなので、どう分けても中身は同じ。
         private static void CopyPixelsParallel(Color32* src, Color32* dst, int len) {
             const int MinBand = 1 << 20;
-            int bands = Math.Min(GetMaxParallelism(), Math.Max(1, len / MinBand));
+            int bands = Math.Min(CoreParallelism.Max(), Math.Max(1, len / MinBand));
             if (bands <= 1) {
                 Buffer.MemoryCopy(src, dst, (long)len * sizeof(Color32), (long)len * sizeof(Color32));
                 return;
@@ -310,7 +308,7 @@ namespace Iroca {
                 // MaxDegreeOfParallelism で Unity Editor のスレッドプール圧迫を防ぐ。
                 var po = new ParallelOptions {
                     CancellationToken = cancellationToken,
-                    MaxDegreeOfParallelism = GetMaxParallelism(),
+                    MaxDegreeOfParallelism = CoreParallelism.Max(),
                 };
                 if (sortedZones.Count > 1) {
                     rb.Claimed = s_floatPool.Rent(len);
@@ -516,7 +514,7 @@ namespace Iroca {
             // 増えるため安全側に倒す。
             // 行ごとに dst の異なる領域へ書き込み src は読み取り専用なので、y で行並列化できる
             // (出力ビット不変)。4K→512 で 16.8M 画素読みのためメインスレッド/ジョブどちらでも効く。
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
             Parallel.For(0, dstH, po, y => {
                 int sy0 = Mathf.Clamp(Mathf.FloorToInt(y / scale), 0, srcH - 1);
                 int sy1 = Mathf.Clamp(Mathf.CeilToInt((y + 1f) / scale) - 1, sy0, srcH - 1);

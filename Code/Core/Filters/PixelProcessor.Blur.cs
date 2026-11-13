@@ -40,7 +40,7 @@ namespace Iroca {
             if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
 
             float* temp = s_floatPool.Rent(len);
-            var gaussPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var gaussPo = new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max(), CancellationToken = ct };
             try {
                 ClearWork(dst, 0, len);   // 矩形外は 0(全画素ブラーの src=0 領域と一致)
                 // 垂直パスが読む行は [boxMinY-radius, boxMaxY+radius] なので、水平パスはその行範囲ぶん

@@ -78,7 +78,7 @@ namespace Iroca.EditorTests {
             }
         });
 
-        private static ParallelOptions Po => new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() };
+        private static ParallelOptions Po => new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
 
         // ───────── 照合(画素の色 → 強さ) ─────────
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
