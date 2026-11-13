@@ -159,6 +159,7 @@ namespace Iroca {
         /// <summary>下原点画素列からクロップ矩形を切り出す(下原点のまま)。</summary>
         public static Color32[] ExtractCrop(Color32[] pixelsBottomUp, int w, int h,
                                             int x0, int y0, int side) {
+            CheckCropInside(w, h, x0, y0, side);
             var crop = new Color32[side * side];
             for (int y = 0; y < side; y++) {
                 System.Array.Copy(pixelsBottomUp, (y0 + y) * w + x0, crop, y * side, side);
@@ -172,6 +173,7 @@ namespace Iroca {
         /// </summary>
         public static NativePixels ExtractCrop(Color32* pixelsBottomUp, int w, int h,
                                                int x0, int y0, int side) {
+            CheckCropInside(w, h, x0, y0, side);
             var crop = NativePixels.Allocate(side, side);
             long rowBytes = (long)side * sizeof(Color32);
             Color32* dst = crop.Ptr;
@@ -205,8 +207,18 @@ namespace Iroca {
             return full;
         }
 
+        // 切り出しの正方形(左下 (x0, y0)・一辺 side)が w×h の画像の中に収まっているか。収まっていなければ、ポインタで
+        // 範囲の外を読み書きする前に止める(切り出しの矩形は TryDeriveCropRect が画像の中に収めて返す)。
+        private static void CheckCropInside(int w, int h, int x0, int y0, int side) {
+            if (side <= 0 || x0 < 0 || y0 < 0 || x0 + side > w || y0 + side > h) {
+                throw new System.ArgumentOutOfRangeException(nameof(side),
+                    $"crop ({x0},{y0}) side {side} is outside the {w}x{h} image");
+            }
+        }
+
         // full(w*h 個。すべて false)へ貼り戻し、true の数を返す。
         private static int PasteCrop(bool* cropMaskBottomUp, int side, int w, int h, int x0, int y0, bool* full) {
+            CheckCropInside(w, h, x0, y0, side);
             int count = 0;
             for (int y = 0; y < side; y++) {
                 int srcRow = y * side, dstRow = (y0 + y) * w + x0;

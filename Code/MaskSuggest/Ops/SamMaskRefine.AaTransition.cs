@@ -162,6 +162,11 @@ namespace Iroca {
             if (fullMask == null || cropPixels == null || rw <= 0 || rh <= 0) {
                 return;
             }
+            // 矩形がマスクの外へ出ていたら、ポインタで範囲の外を読み書きする前に止める。
+            if (rx0 < 0 || ry0 < 0 || rx0 + rw > w || ry0 + rh > h) {
+                throw new System.ArgumentOutOfRangeException(nameof(rx0),
+                    $"crop rect ({rx0},{ry0}) {rw}x{rh} is outside the {w}x{h} mask");
+            }
 
             using var scratch = new WorkScratch();
             bool* cropMask = scratch.Bool(rw * rh, clear: false);
