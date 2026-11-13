@@ -105,37 +105,24 @@ namespace Iroca {
                 // "d_" は付けない(ダークスキンでは IconContent が自動で付ける。IrocaWindow 参照)
                 EditorGUIUtility.IconContent("Image Icon").image);
             // シリアライズ参照が切れていたら(ドメインリロード・本体の作り直しなど)、既存の本体へつなぎ直す。
-            if (_host == null) {
-                _host = IrocaWindow.FindAnyInstance();
-            }
+            IrocaWindow.HostWatch.Reconnect(ref _host);
         }
 
         /// <summary>
         /// ホスト参照を解決する。シリアライズ参照が切れていたら（ドメインリロード・
         /// ウィンドウ再作成など）既存の IrocaWindow を探して再接続する。
         /// </summary>
-        private IrocaWindow ResolveHost() {
-            if (_host == null) {
-                _host = IrocaWindow.FindAnyInstance();
-            }
-            return _host;
-        }
+        private IrocaWindow ResolveHost() => IrocaWindow.HostWatch.Reconnect(ref _host);
 
-        // 最後に描いた時点の本体の控え(OnInspectorUpdate で、変わったときだけ描き直す)。
-        [System.NonSerialized] private IrocaWindow.DrawStamp _drawn;
-        // 本体を見失っている間に、次に探してよい時刻。
-        [System.NonSerialized] private double _nextHostSearchAt;
+        // 本体の見張り(見失ったときの探し直しと、本体の様子が変わったときだけ描き直す判断)。
+        [System.NonSerialized] private IrocaWindow.HostWatch _watch;
 
         private void OnGUI() {
             _shown = true;
-            // 本体は探さない(探すのは OnInspectorUpdate。同じフレームの Layout と Repaint で見え方を変えない)。
-            var host = _host != null ? _host : null;
-            if (Event.current.type == EventType.Repaint) {
-                _drawn.Record(host);
-            }
+            var host = _watch.BeginGUI(_host);
             if (host == null) {
                 if (IrocaWindow.DrawMissingHostNotice()) {
-                    _nextHostSearchAt = 0;
+                    _watch.SearchSoon();
                 }
                 return;
             }
@@ -173,11 +160,7 @@ namespace Iroca {
         // 変わっていたら描き直す（IrocaWindow.DrawStamp）。操作していない間は描き直さない。
         // 生成ジョブの進行やパン/ズームの追い再描画は RequestRepaint・RequestPreviewRepaint 経由で即時に届く。
         private void OnInspectorUpdate() {
-            if (_host == null && EditorApplication.timeSinceStartup >= _nextHostSearchAt) {
-                _nextHostSearchAt = EditorApplication.timeSinceStartup + IrocaWindow.HostSearchIntervalSeconds;
-                _host = IrocaWindow.FindAnyInstance();
-            }
-            if (_drawn.Changed(_host != null ? _host : null)) {
+            if (_watch.Poll(ref _host)) {
                 Repaint();
             }
         }

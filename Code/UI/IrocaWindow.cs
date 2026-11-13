@@ -269,6 +269,53 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// 本体に付く別ウィンドウ(切り出したプレビュー・マスク編集)が持つ、本体の見張り: 本体を見失ったときの探し直しと、
+        /// 本体の様子が変わったときだけ描き直す判断。2 つの窓が同じ手順を持っていたのをまとめた。本体への参照(<c>_host</c>)は
+        /// 窓ごとにレイアウトへ保存されるので、窓の側のフィールドのまま ref で受ける。
+        /// </summary>
+        internal struct HostWatch {
+            // 最後に描いた時点の本体の控え(Poll で、変わったときだけ描き直す)。
+            private DrawStamp _drawn;
+            // 本体を見失っている間に、次に探してよい時刻。
+            private double _nextSearchAt;
+
+            /// <summary>保存された参照が切れていたら(ドメインリロード・本体の作り直しなど)、既存の本体へつなぎ直す。</summary>
+            public static IrocaWindow Reconnect(ref IrocaWindow host) {
+                if (host == null) {
+                    host = FindAnyInstance();
+                }
+                return host;
+            }
+
+            /// <summary>
+            /// OnGUI の頭で呼ぶ。いまの本体(無い・破棄済みなら null)を返し、Repaint なら描いた時点の本体の様子を控える。
+            /// ここでは本体を探さない(探すのは <see cref="Poll"/>。同じフレームの Layout と Repaint で見え方を変えない)。
+            /// </summary>
+            public IrocaWindow BeginGUI(IrocaWindow host) {
+                host = host != null ? host : null;
+                if (Event.current.type == EventType.Repaint) {
+                    _drawn.Record(host);
+                }
+                return host;
+            }
+
+            /// <summary>次の <see cref="Poll"/> で、間隔を待たずに本体を探す(「Iroca を開く」を押した直後)。</summary>
+            public void SearchSoon() => _nextSearchAt = 0;
+
+            /// <summary>
+            /// OnInspectorUpdate(約 10 回/秒)で呼ぶ。本体を見失っていれば間隔を空けて探し、本体の様子が最後に描いたときから
+            /// 変わっていれば true(呼ぶ側が描き直す)。操作していない間は false。
+            /// </summary>
+            public bool Poll(ref IrocaWindow host) {
+                if (host == null && EditorApplication.timeSinceStartup >= _nextSearchAt) {
+                    _nextSearchAt = EditorApplication.timeSinceStartup + HostSearchIntervalSeconds;
+                    host = FindAnyInstance();
+                }
+                return _drawn.Changed(host != null ? host : null);
+            }
+        }
+
         // 別ウィンドウが本体を見失っているとき、探し直す間隔(探すのはエディタ内の全オブジェクトの走査)。
         internal const double HostSearchIntervalSeconds = 1.0;
 
