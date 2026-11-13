@@ -52,6 +52,35 @@ namespace Iroca {
             return ms;
         }
 
+        /// <summary>
+        /// 保存形式のマスク(<see cref="MaskWorkspace.EncodeTo"/> が書いたもの)をプリセットへ写す(<see cref="MaskStateOf"/> の逆)。
+        /// どちらも同じ符号化なので、文字列はそのまま渡す。どの層を書くか(全部 0 の層・ゾーン id の無い層は書かない)は
+        /// EncodeTo が決めていて、ここは写すだけ。マスクが無ければ(寸法 0)何も書かない。
+        /// 塗った範囲の記録(<see cref="MaskState.patches"/>)は写さない: プリセットの形式に欄が無い(記録は、その編集の中で
+        /// 「ここのマスクを消す」が操作の単位で消すためのもの。プリセットから読んだマスクは、つながったかたまりの単位で消える)。
+        /// </summary>
+        internal static void WriteMasks(MaskState ms, IrocaPresetData preset) {
+            if (ms == null || ms.width <= 0 || ms.height <= 0) {
+                return;
+            }
+            preset.maskWidth = ms.width;
+            preset.maskHeight = ms.height;
+            preset.commonMaskBase64 = ms.commonMaskBase64 ?? "";
+            CopyMaskEntries(ms.zones, preset.zoneMasks);
+            CopyMaskEntries(ms.zoneIncludes, preset.zoneIncludeMasks);
+        }
+
+        private static void CopyMaskEntries(List<MaskZoneEntry> src, List<ZoneMaskEntry> dst) {
+            if (src == null) {
+                return;
+            }
+            foreach (var e in src) {
+                if (e != null && !string.IsNullOrEmpty(e.zoneId)) {
+                    dst.Add(new ZoneMaskEntry { zoneId = e.zoneId, maskBase64 = e.maskBase64 ?? "" });
+                }
+            }
+        }
+
         private static void DropSeeds(IrocaPresetData preset) {
             if (preset.zones == null) {
                 return;

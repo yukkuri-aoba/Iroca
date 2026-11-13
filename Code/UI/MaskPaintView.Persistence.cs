@@ -140,47 +140,17 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 現在のマスク状態を IrocaPresetData の commonMaskBase64 / zoneMasks フィールドに書き出す。
+        /// 現在のマスク状態を IrocaPresetData の commonMaskBase64 / zoneMasks / zoneIncludeMasks に書き出す。
+        /// 符号化と「どの層を書くか」(全部 0 の層は書かない。層が 1 つも無ければ寸法も書かない)は、レシピ・編集内容のファイルと
+        /// 同じ <see cref="MaskWorkspace.EncodeTo"/> に任せ、その結果をプリセットの欄へ写す(<see cref="PresetApplier.WriteMasks"/>)。
         /// </summary>
         public void WriteToPreset(IrocaPresetData data) {
             if (data == null || maskWidth <= 0 || maskHeight <= 0) {
                 return;
             }
-
-            bool includedAnything = false;
-
-            var common = Workspace.Common;
-            if (common != null && common.Any()) {
-                data.commonMaskBase64 = MaskRle.EncodeBits(common);
-                includedAnything = true;
-            }
-
-            // |= は短絡しないので、除外が書けても含めるマスクも必ず書く(|| にしない)。
-            includedAnything |= EncodePresetEntries(Workspace.Layers(false), data.zoneMasks);
-            includedAnything |= EncodePresetEntries(Workspace.Layers(true), data.zoneIncludeMasks);
-
-            if (includedAnything) {
-                data.maskWidth = maskWidth;
-                data.maskHeight = maskHeight;
-            }
-        }
-
-        /// <summary>
-        /// 全 false でないマスクを dst へ書き足す(除外・含めるで共通)。何か足したら true。
-        /// </summary>
-        private static bool EncodePresetEntries(IEnumerable<KeyValuePair<string, NativeBitMask>> src, List<ZoneMaskEntry> dst) {
-            bool added = false;
-            foreach (var kv in src) {
-                if (!kv.Value.Any()) {
-                    continue;
-                }
-                dst.Add(new ZoneMaskEntry {
-                    zoneId = kv.Key,
-                    maskBase64 = MaskRle.EncodeBits(kv.Value),
-                });
-                added = true;
-            }
-            return added;
+            var ms = new MaskState();
+            Workspace.EncodeTo(ms);
+            PresetApplier.WriteMasks(ms, data);
         }
     }
 }

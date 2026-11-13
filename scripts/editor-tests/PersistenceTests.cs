@@ -430,6 +430,26 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
+        public void Preset_MasksAreTheStringsOfTheSavedForm() {
+            // プリセットへ書くマスクは、レシピ・編集内容のファイルと同じ符号化(MaskWorkspace.EncodeTo)の結果を写したもの。
+            // プリセットから読み戻すと(PresetApplier.MaskStateOf)、保存形式と同じ項目・同じ文字列になる。
+            var exclude = new bool[8]; exclude[1] = true;
+            var include = new bool[8]; include[6] = true;
+            var common = new bool[8]; common[3] = true;
+            var view = MaskViewWith(4, 2, ("z1", false, exclude), ("z2", false, new bool[8]), ("z3", true, include));
+            view.Workspace.SetCommon(NativeBitMask.FromBools(common, 4, 2));
+            var data = new IrocaPresetData();
+            view.WriteToPreset(data);
+            var saved = new MaskState();
+            view.Workspace.EncodeTo(saved);
+            view.Workspace.Clear();
+
+            Assert.AreEqual(saved.commonMaskBase64, data.commonMaskBase64);
+            Assert.AreNotEqual("", data.commonMaskBase64, "共通の除外を書いていない");
+            Assert.AreEqual(UnityEngine.JsonUtility.ToJson(saved), UnityEngine.JsonUtility.ToJson(PresetApplier.MaskStateOf(data)));
+        }
+
+        [Test]
         public void Preset_MaskViewWritesSizeOnlyWithSomeMask() {
             // 含めるマスクだけでも寸法は載る。何も書かなければ寸法も書かない（0 のまま）。
             var include = new bool[8]; include[0] = true;
