@@ -69,68 +69,16 @@ namespace Iroca {
             // 外接矩形の大きさの作業配列(提案が大きいと画像全体に近い)はプールから借りる。
             using var scratch = new WorkScratch();
 
-            // 行ごとの連(マスク画素の横並び。終端は含まない)。
-            var runCount = new int[bh];
-            Parallel.For(0, bh, po, ly => {
-                int row = (ly + oy) * w + ox, n = 0;
-                bool prev = false;
-                for (int lx = 0; lx < bw; lx++) {
-                    bool m = mask[row + lx];
-                    if (m && !prev) {
-                        n++;
-                    }
-                    prev = m;
-                }
-                runCount[ly] = n;
-            });
-            var runFirst = new int[bh + 1];
-            for (int ly = 0; ly < bh; ly++) {
-                runFirst[ly + 1] = runFirst[ly] + runCount[ly];
-            }
-            int nRuns = runFirst[bh];
-            var runX0 = new int[nRuns];
-            var runX1 = new int[nRuns];
-            Parallel.For(0, bh, po, ly => {
-                int row = (ly + oy) * w + ox, r = runFirst[ly];
-                for (int lx = 0; lx < bw;) {
-                    if (!mask[row + lx]) { lx++; continue; }
-                    int s = lx;
-                    while (lx < bw && mask[row + lx]) {
-                        lx++;
-                    }
-                    runX0[r] = s;
-                    runX1[r] = lx;
-                    r++;
-                }
-            });
-
-            // 上下の行で横の範囲が重なる連を結ぶ(= 縦の 4 近傍連結)。
-            var parent = new int[nRuns];
+            // 行ごとの連(マスク画素の横並び。右端を含む)と、その連結成分(RunLabeler。矩形の左上が (0, 0))。
+            using var runs = RunLabeler.Label(mask, w, ox, oy, bw, bh, po, token);
+            int nRuns = runs.Count;
+            int[] runFirst = runs.RowStart;
+            int* runX0 = runs.X0, runX1 = runs.X1, runRoot = runs.Root;
+            // 成分の番号(0 = マスク外。1 から、成分の最初の画素の順)。
+            int* runComp = scratch.Int(nRuns, clear: false);   // 下のループが全 run に書く
+            int nComp = 1;
             for (int r = 0; r < nRuns; r++) {
-                parent[r] = r;
-            }
-            for (int ly = 1; ly < bh; ly++) {
-                int a = runFirst[ly - 1], aEnd = runFirst[ly];
-                int b = runFirst[ly], bEnd = runFirst[ly + 1];
-                while (a < aEnd && b < bEnd) {
-                    if (runX0[a] < runX1[b] && runX0[b] < runX1[a]) {
-                        int ra = FindRoot(parent, a), rb = FindRoot(parent, b);
-                        if (ra != rb) {
-                            parent[System.Math.Max(ra, rb)] = System.Math.Min(ra, rb);
-                        }
-                    }
-                    if (runX1[a] < runX1[b]) {
-                        a++;
-                    } else {
-                        b++;
-                    }
-                }
-            }
-            var runComp = new int[nRuns];
-            int nComp = 1;   // 0 = マスク外
-            for (int r = 0; r < nRuns; r++) {
-                int root = FindRoot(parent, r);
-                runComp[r] = root == r ? nComp++ : runComp[root];
+                runComp[r] = runRoot[r] == r ? nComp++ : runComp[runRoot[r]];
             }
 
             // 細さ: 境界から d 以内の画素の割合。矩形の外はすべてマスク外なので、距離は矩形の中だけで
@@ -139,11 +87,11 @@ namespace Iroca {
             Parallel.For(0, bh, po, ly =>
                 new System.ReadOnlySpan<bool>(mask + (ly + oy) * w + ox, bw).CopyTo(new System.Span<bool>(local + ly * bw, bw)));
             var distIn = DistanceToOpposite(scratch, local, bw, bh, inside: true, token);
-            var runBand = new int[nRuns];
+            int* runBand = scratch.Int(nRuns, clear: false);   // 下のループが全 run に書く
             Parallel.For(0, bh, po, ly => {
                 for (int r = runFirst[ly]; r < runFirst[ly + 1]; r++) {
                     int n = 0, row = ly * bw;
-                    for (int lx = runX0[r]; lx < runX1[r]; lx++) {
+                    for (int lx = runX0[r]; lx <= runX1[r]; lx++) {
                         if (distIn[row + lx] <= d) {
                             n++;
                         }
@@ -154,7 +102,7 @@ namespace Iroca {
             var area = new int[nComp];
             var band = new int[nComp];
             for (int r = 0; r < nRuns; r++) {
-                area[runComp[r]] += runX1[r] - runX0[r];
+                area[runComp[r]] += runX1[r] - runX0[r] + 1;
                 band[runComp[r]] += runBand[r];
             }
             var thin = new bool[nComp];
@@ -174,7 +122,7 @@ namespace Iroca {
                 int row = ly * bw;
                 for (int r = runFirst[ly]; r < runFirst[ly + 1]; r++) {
                     int c = runComp[r];
-                    for (int lx = runX0[r]; lx < runX1[r]; lx++) {
+                    for (int lx = runX0[r]; lx <= runX1[r]; lx++) {
                         label[row + lx] = c;
                     }
                 }
@@ -449,15 +397,6 @@ namespace Iroca {
         static double Dist2Px(Color32 a, Color32 b) {
             double dr = a.r - b.r, dg = a.g - b.g, db = a.b - b.b, da = a.a - b.a;
             return dr * dr + dg * dg + db * db + da * da;
-        }
-
-        /// <summary>union-find の根(経路を半分に縮める)。</summary>
-        static int FindRoot(int[] parent, int r) {
-            while (parent[r] != r) {
-                parent[r] = parent[parent[r]];
-                r = parent[r];
-            }
-            return r;
         }
     }
 }
