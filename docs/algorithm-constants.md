@@ -144,7 +144,12 @@
 | `Code/MaskSuggest/Ops/SamCoordMapper.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamImageOps.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskPostprocess.cs` | 0 |
-| `Code/MaskSuggest/Ops/SamMaskRefine.cs` | 3 |
+| `Code/MaskSuggest/Ops/SamMaskRefine.AaTransition.cs` | 0 |
+| `Code/MaskSuggest/Ops/SamMaskRefine.Fringe.cs` | 1 |
+| `Code/MaskSuggest/Ops/SamMaskRefine.Peel.cs` | 0 |
+| `Code/MaskSuggest/Ops/SamMaskRefine.Snap.cs` | 0 |
+| `Code/MaskSuggest/Ops/SamMaskRefine.Transfer.cs` | 0 |
+| `Code/MaskSuggest/Ops/SamMaskRefine.cs` | 2 |
 | `Code/MaskSuggest/Ops/SamZoomOps.cs` | 0 |
 
 ## `Code/Core/Color/OkLab.cs`

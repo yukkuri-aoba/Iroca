@@ -155,7 +155,9 @@
     ],
     "Code/MaskSuggest/Ops/SamMaskRefine.cs": [
       "0.75f",
-      "82f",
+      "82f"
+    ],
+    "Code/MaskSuggest/Ops/SamMaskRefine.Fringe.cs": [
       "410f"
     ]
   }

@@ -38,7 +38,7 @@
       ".GetPixels32()": 2,
       "new Color32[dw * dh]": 2
     },
-    "Code/MaskSuggest/Ops/SamMaskRefine.cs": {
+    "Code/MaskSuggest/Ops/SamMaskRefine.Transfer.cs": {
       "new bool[dw * dh]": 1
     },
     "Code/MaskSuggest/Ops/SamZoomOps.cs": {
@@ -57,7 +57,7 @@
     "Code/Debug/DebugImaging.cs": "exempt のとおり",
     "Code/Debug/ReproDump.cs": "exempt のとおり",
     "Code/Infra/WorkingResolution.cs": "PixelsOf。圧縮された形式の読み取りは Unity の API(GetPixels32)が管理配列しか返さない。形式が非圧縮なら通らない",
-    "Code/MaskSuggest/Ops/SamMaskRefine.cs": "TransferCoverage の配列を返す口。ハーネスだけが使う(製品はポインタの版)",
+    "Code/MaskSuggest/Ops/SamMaskRefine.Transfer.cs": "TransferCoverage の配列を返す口。ハーネスだけが使う(製品はポインタの版)",
     "Code/MaskSuggest/Ops/SamZoomOps.cs": "ExtractCrop・PasteCrop の配列の口。ハーネスだけが使う(製品はヒープの外の版)"
   }
 }
