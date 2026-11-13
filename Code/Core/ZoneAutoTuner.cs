@@ -35,6 +35,32 @@ namespace Iroca {
         private static float DefaultChromaCeiling => s_zoneDefaults.chromaCeiling;
         private static float DefaultHoleFillMargin => s_zoneDefaults.holeFillMargin;
 
+        // ─────────────────── 島から導く項目 ───────────────────
+        // サンプルの島(スポイトした部位)から導く 5 項目: 部位の包絡ゲート(shadowValueFloor・partSatCeiling・partHueBand)・
+        // 彩度天井(chromaCeiling)・穴埋めの余白(holeFillMargin)。サンプル色を取り直したら既定へ戻す(残すと、前の部位の
+        // 範囲で新しい部位を切る。点検 2026-11-09 自-3)。「どれが島から導く項目か」の一覧はここだけに置き、ゾーンを戻す側
+        // (EditingSession.ClearIslandDerived)と、適用値を戻して比べる側(AutoTuneService)の両方がここを呼ぶ。
+        // 項目を足すときは、下の 2 つを一緒に直すこと(片方だけだと、取り直した後の値を「手で触った」と見誤る)。
+
+        /// <summary>ゾーンの、島から導く 5 項目を既定へ戻す(内部サンプルは呼び出し側が消す)。</summary>
+        internal static void ResetIslandDerived(ColorZone zone) {
+            zone.shadowValueFloor = DefaultShadowValueFloor;
+            zone.partSatCeiling = DefaultPartSatCeiling;
+            zone.partHueBand = DefaultPartHueBand;
+            zone.chromaCeiling = DefaultChromaCeiling;
+            zone.holeFillMargin = DefaultHoleFillMargin;
+        }
+
+        /// <summary>適用値のうち、島から導く 5 項目を既定へ戻したもの。</summary>
+        internal static TuneResult ResetIslandDerived(TuneResult r) {
+            r.shadowValueFloor = DefaultShadowValueFloor;
+            r.partSatCeiling = DefaultPartSatCeiling;
+            r.partHueBand = DefaultPartHueBand;
+            r.chromaCeiling = DefaultChromaCeiling;
+            r.holeFillMargin = DefaultHoleFillMargin;
+            return r;
+        }
+
         // 彩度ガード自動導出パラメータ
         //
         // 感度解析の結論:

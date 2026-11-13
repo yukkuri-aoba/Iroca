@@ -169,16 +169,9 @@ namespace Iroca {
         }
 
         // 適用値のうち、前のサンプルの島から導いた 5 項目を既定へ戻したもの(サンプル色を取り直したときの
-        // EditingSession.ClearIslandDerived と同じ。手で触っていないので、手調整とは見ない)。
-        private static ZoneAutoTuner.TuneResult IslandCleared(ZoneAutoTuner.TuneResult r) {
-            var d = s_zoneDefaults ??= new ColorZone();
-            r.shadowValueFloor = d.shadowValueFloor;
-            r.partSatCeiling = d.partSatCeiling;
-            r.partHueBand = d.partHueBand;
-            r.chromaCeiling = d.chromaCeiling;
-            r.holeFillMargin = d.holeFillMargin;
-            return r;
-        }
+        // EditingSession.ClearIslandDerived と同じ。手で触っていないので、手調整とは見ない)。5 項目の一覧は Core に 1 つだけ。
+        private static ZoneAutoTuner.TuneResult IslandCleared(ZoneAutoTuner.TuneResult r) =>
+            ZoneAutoTuner.ResetIslandDerived(r);
 
         // 既定値の見本(読むだけ。メインスレッドからだけ作る)。
         private static ColorZone s_zoneDefaults;

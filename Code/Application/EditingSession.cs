@@ -328,9 +328,6 @@ namespace Iroca {
             return true;
         }
 
-        // 既定値の見本(読むだけ。ColorZone のフィールドの初期値が唯一の正)。
-        private static readonly ColorZone s_zoneDefaults = new ColorZone();
-
         /// <summary>
         /// サンプル色を取り直したとき、前のサンプルの島(スポイトした部位)から導いた値を既定へ戻す: 内部サンプルと、
         /// 部位の包絡ゲート(shadowValueFloor・partSatCeiling・partHueBand)・彩度天井(chromaCeiling)・穴埋めの余白
@@ -343,12 +340,7 @@ namespace Iroca {
                 return;
             }
             zone.extraSamples?.Clear();
-            var d = s_zoneDefaults;
-            zone.shadowValueFloor = d.shadowValueFloor;
-            zone.partSatCeiling = d.partSatCeiling;
-            zone.partHueBand = d.partHueBand;
-            zone.chromaCeiling = d.chromaCeiling;
-            zone.holeFillMargin = d.holeFillMargin;
+            ZoneAutoTuner.ResetIslandDerived(zone);   // 5 項目の一覧は Core に 1 つだけ置く
         }
 
         /// <summary>連続領域の起点を置く。変わったときだけ記録して true。</summary>
