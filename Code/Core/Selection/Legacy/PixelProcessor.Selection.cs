@@ -724,7 +724,7 @@ namespace Iroca {
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
             Color32* originalPixels, float chromaConfidence, float chromaThreshold,
             float chromaCeiling, CancellationToken ct,
-            float[] relaxedByColor, int* colorIndex) {
+            float* relaxedByColor, int* colorIndex) {
             // relaxedByColor / colorIndex: 色の表(ColorPalette)の番号ごとに、この関数と同じ引数で
             // GetRelaxedMatchStrength を求めた値と、画素 → 番号。渡されたら画素ごとの計算の代わりに読む
             // (同じ関数に同じ入力を与えた値なのでビット単位で同じ)。

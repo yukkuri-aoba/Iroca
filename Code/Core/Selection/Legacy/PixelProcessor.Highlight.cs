@@ -323,42 +323,45 @@ namespace Iroca {
             // 候補判定は画素の色(と色から求めた HSV)だけで決まるので、色の表があれば色ごとに 1 回だけ
             // 判定して配る(同じ式に同じ入力を与えた結果なのでビット単位で同じ)。候補の色が 1 つも無ければ、
             // 帯は 1 画素も育たない(下の R == 0 と同じ)ので、全画素を見ずに抜ける。
-            bool[] candByColor = null;
-            int* pIdx = palette != null ? palette.Index : null;
-            if (palette != null) {
-                candByColor = new bool[palette.Count];
-                var cols = palette.Colors;
-                float* qH = palette.H, qS = palette.S, qV = palette.V;
-                ForEachPaletteChunk(palette.Count, hlbPo, (k0, k1) => {
-                    for (int k = k0; k < k1; k++) {
-                        candByColor[k] = IsHighlightBandCandidate(qH[k], qS[k], qV[k], cols[k],
-                            sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
-                    }
-                });
-                if (Array.IndexOf(candByColor, true) < 0) {
-                    return;
-                }
-            }
-            // 候補はプールから Rent(ゼロ初期化されない。下の判定が全画素に真偽を書く)し、
+            // 色ごとの判定(色の数の長さ)、候補、run ごとの印はプールから Rent(ゼロ初期化されない)し、
             // 早期 return / キャンセル例外を含む全経路で finally から Return する。
-            bool* candidate = s_boolPool.Rent(len);
+            bool* candByColor = null;
+            int* pIdx = palette != null ? palette.Index : null;
+            bool* candidate = null, touchesCore = null, reach = null;
             int* runX0 = null, runX1 = null, parent = null;
             try {
+                if (palette != null) {
+                    bool* byColor = candByColor = s_boolPool.Rent(palette.Count);
+                    var cols = palette.Colors;
+                    float* qH = palette.H, qS = palette.S, qV = palette.V;
+                    ForEachPaletteChunk(palette.Count, hlbPo, (k0, k1) => {
+                        for (int k = k0; k < k1; k++) {
+                            byColor[k] = IsHighlightBandCandidate(qH[k], qS[k], qV[k], cols[k],
+                                sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
+                        }
+                    });
+                    if (new ReadOnlySpan<bool>(byColor, palette.Count).IndexOf(true) < 0) {
+                        return;
+                    }
+                }
+                // 候補は下の判定が全画素に真偽を書く。
+                candidate = s_boolPool.Rent(len);
                 // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
                 // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
                 // 行並列(per-index デリゲートの 1670 万回呼び出しを避ける)。全画素に真偽を書くので、先に 0 で埋めない。
+                bool* candLocal = candidate, byColorLocal = candByColor;
                 Parallel.For(0, h, hlbPo, y => {
                     int rowOff = y * w;
-                    if (candByColor != null) {
+                    if (byColorLocal != null) {
                         for (int x = 0; x < w; x++) {
                             int i = rowOff + x;
-                            candidate[i] = candByColor[pIdx[i]];
+                            candLocal[i] = byColorLocal[pIdx[i]];
                         }
                         return;
                     }
                     for (int x = 0; x < w; x++) {
                         int i = rowOff + x;
-                        candidate[i] = false;
+                        candLocal[i] = false;
                         float pV = pixV[HsvSlot(pixIdx, i)];
                         if (pV <= sV) {
                             continue;
@@ -383,7 +386,7 @@ namespace Iroca {
                                 float rg = pg - (sG + wv * dG);
                                 float rb = pb - (sB + wv * dB);
                                 if (rr * rr + rg * rg + rb * rb < HlBandAxisEps * HlBandAxisEps) {
-                                    candidate[i] = true;
+                                    candLocal[i] = true;
                                 }
                             }
                         }
@@ -402,9 +405,9 @@ namespace Iroca {
                     int rb = y * w, n = 0, x = 0;
                     while (x < w) {
                         int i = rb + x;
-                        if (!candidate[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
+                        if (!candLocal[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
                         n++;
-                        while (x < w && candidate[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) {
+                        while (x < w && candLocal[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) {
                             x++;
                         }
                     }
@@ -421,15 +424,15 @@ namespace Iroca {
                 runX0 = s_intPool.Rent(R);
                 runX1 = s_intPool.Rent(R);
                 parent = s_intPool.Rent(R);
-                var touchesCore = new bool[R];
+                bool* touches = touchesCore = s_boolPool.Rent(R);   // 下のループが全 run に書く
                 var rx0 = runX0; var rx1 = runX1;
                 Parallel.For(0, h, hlbPo, y => {
                     int rb = y * w, k = rowOff[y], x = 0;
                     while (x < w) {
                         int i = rb + x;
-                        if (!candidate[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
+                        if (!candLocal[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
                         int s0 = x;
-                        while (x < w && candidate[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) {
+                        while (x < w && candLocal[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) {
                             x++;
                         }
                         int s1 = x - 1;
@@ -449,7 +452,7 @@ namespace Iroca {
                                 if (strength[db + xx] >= HlBandCoreThreshold) { t = true; break; }
                             }
                         }
-                        touchesCore[k] = t;
+                        touches[k] = t;
                         k++;
                     }
                 });
@@ -482,18 +485,19 @@ namespace Iroca {
                     }
                 }
                 // 全 run の根を確定させ(以降は読むだけ)、core に接する run の根に印を付ける。
-                var reach = new bool[R];
+                bool* reached = reach = s_boolPool.Rent(R);
+                ClearWork(reached, 0, R);
                 for (int r = 0; r < R; r++) {
                     int root = Find(r);
                     par[r] = root;
-                    if (touchesCore[r]) {
-                        reach[root] = true;
+                    if (touches[r]) {
+                        reached[root] = true;
                     }
                 }
                 Parallel.For(0, h, hlbPo, y => {
                     int rb = y * w;
                     for (int k = rowOff[y]; k < rowOff[y + 1]; k++) {
-                        if (!reach[par[k]]) {
+                        if (!reached[par[k]]) {
                             continue;
                         }
                         for (int x = rx0[k]; x <= rx1[k]; x++) {
@@ -513,7 +517,18 @@ namespace Iroca {
                 if (runX0 != null) {
                     s_intPool.Return(runX0);
                 }
-                s_boolPool.Return(candidate);
+                if (reach != null) {
+                    s_boolPool.Return(reach);
+                }
+                if (touchesCore != null) {
+                    s_boolPool.Return(touchesCore);
+                }
+                if (candidate != null) {
+                    s_boolPool.Return(candidate);
+                }
+                if (candByColor != null) {
+                    s_boolPool.Return(candByColor);
+                }
             }
         }
 

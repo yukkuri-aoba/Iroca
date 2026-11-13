@@ -317,30 +317,37 @@ namespace Iroca {
                 Mathf.Clamp01((sampV - ColorZone.HueValueConfLo) / ColorZone.HueValueConfSpan));
             float rgSampR = zone.sampleColor.r, rgSampG = zone.sampleColor.g, rgSampB = zone.sampleColor.b;
             // 緩和マッチ(穴埋めの許可判定と境界回復が同じ引数で呼ぶ)は色だけで決まるので、
-            // 色の表があれば色ごとに 1 回だけ求めて両方で使う(ビット単位で同じ)。
-            float[] RelaxedPalette(float tol) {
-                var outRel = new float[palette.Count];
+            // 色の表があれば色ごとに 1 回だけ求めて両方で使う(ビット単位で同じ)。色の数の長さ(ノイズの多い 4K で
+            // 数百万色)なので、Mono のヒープに作らずプールから借りる(持ち主はゾーンの作業配列。使い終えたらここで返す)。
+            float* RelaxedPalette(float tol) {
+                float* outRel = s_floatPool.Rent(palette.Count);
                 Color32* rCol = palette.Colors;
                 float* rH = palette.H, rS = palette.S, rV = palette.V;
-                ForEachPaletteChunk(palette.Count, po, (k0, k1) => {
-                    for (int k = k0; k < k1; k++) {
-                        Color32 hop = rCol[k];
-                        outRel[k] = GetRelaxedMatchStrength(
-                            rH[k], rS[k], rV[k], sampH, sampS, sampV,
-                            tol, zone.edgeSoftness, zone.valueWeight,
-                            zone.satDistWeight, relaxedSatMin,
-                            hop.r / 255f, hop.g / 255f, hop.b / 255f,
-                            rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold,
-                            zone.chromaCeiling);
-                    }
-                });
+                try {
+                    ForEachPaletteChunk(palette.Count, po, (k0, k1) => {
+                        for (int k = k0; k < k1; k++) {
+                            Color32 hop = rCol[k];
+                            outRel[k] = GetRelaxedMatchStrength(
+                                rH[k], rS[k], rV[k], sampH, sampS, sampV,
+                                tol, zone.edgeSoftness, zone.valueWeight,
+                                zone.satDistWeight, relaxedSatMin,
+                                hop.r / 255f, hop.g / 255f, hop.b / 255f,
+                                rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold,
+                                zone.chromaCeiling);
+                        }
+                    });
+                } catch {
+                    // 取り消しなどで抜けるとき、まだゾーンの作業配列に入れていないので、ここで返す。
+                    s_floatPool.Return(outRel);
+                    throw;
+                }
                 return outRel;
             }
             // 使うのは下の穴埋めと境界回復だけで、どちらも混色帯モードでは走らない。
-            float[] palRelaxed = null;
+            float* palRelaxed = null;
             if (palette != null && !selCached && hasPostBox && !zMixMode
                 && (long)palette.Count * 2 <= (long)(ppMaxX - ppMinX + 1) * (ppMaxY - ppMinY + 1)) {
-                palRelaxed = RelaxedPalette(zone.tolerance);
+                palRelaxed = zb.PalRelaxed = RelaxedPalette(zone.tolerance);
             }
             int* palIdxRelaxed = palette != null ? palette.Index : null;
             if (!selCached && hasPostBox && !zMixMode) {
@@ -349,8 +356,10 @@ namespace Iroca {
                 // (囲まれていない画素は広げない)。余白 0 なら許可は境界回復と同じ表を使う。
                 float fillTol = zone.holeFillMargin > 0f
                     ? zone.tolerance * (1f + zone.holeFillMargin) : zone.tolerance;
-                float[] palFill = palRelaxed != null && fillTol != zone.tolerance
-                    ? RelaxedPalette(fillTol) : palRelaxed;
+                float* palFill = palRelaxed;
+                if (palRelaxed != null && fillTol != zone.tolerance) {
+                    palFill = zb.PalFill = RelaxedPalette(fillTol);
+                }
                 bool* fillAllowed = s_boolPool.Rent(len);
                 try {
                     // fillAllowed は FillSmallHoles が中心画素 idx でのみ参照する(近傍は strength を読む)
@@ -383,6 +392,10 @@ namespace Iroca {
                 } finally {
                     s_boolPool.Return(fillAllowed);
                 }
+                if (zb.PalFill != null) {
+                    s_floatPool.Return(zb.PalFill);
+                    zb.PalFill = null;
+                }
             }
             _sub.Mark(SpHoleFill);
             debug?.RecordStage(zone.id, DebugStages.HoleFill, ToManaged(strength, len), w, h);
@@ -399,6 +412,11 @@ namespace Iroca {
                     cancellationToken, palRelaxed, palIdxRelaxed);
                 _sub.Mark(SpBoundary);
                 debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, ToManaged(strength, len), w, h);
+            }
+            // 色ごとの緩和マッチの値を読むのは境界回復まで(ぼかしが借りる前に返す)。
+            if (zb.PalRelaxed != null) {
+                s_floatPool.Return(zb.PalRelaxed);
+                palRelaxed = zb.PalRelaxed = null;
             }
 
             _phaseTicks[PhBoundary] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();

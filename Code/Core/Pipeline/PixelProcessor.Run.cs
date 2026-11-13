@@ -96,6 +96,10 @@ namespace Iroca {
             public float* Strength;        // 選択の強度(選択が借り、ぼかしで差し替わることがある)
             public float* HighlightPot;    // ハイライトの伝播の候補(選択の中で返す)
             public bool* MatchConf;        // 連結成分のコアの判定 = 照合の確信度 > 0(選択の中で返す。値は「> 0 か」しか読まないので 1 画素 1 バイト)
+            // 色ごとの緩和マッチの値(色の数の長さ。色の表があるゾーンの穴埋め・境界回復が読み、選択の中で返す)。
+            // PalFill は穴埋めの許可用で、許容範囲に余白があるときだけ別に借りる(無ければ PalRelaxed を読む)。
+            public float* PalRelaxed;
+            public float* PalFill;
             public bool* IncludedPx;       // 含めるマスクをテクスチャ解像度へ展開したもの(除外優先を焼き込み済み)
             public float* RegMidMap;       // 成分中央値の地図(再着色の統計がプールから借りたとき)
             public float* RegUpMap;        // 同、白側の余白の地図
@@ -116,6 +120,12 @@ namespace Iroca {
                 if (HighlightPot != null) {
                     s_floatPool.Return(HighlightPot);
                 }
+                if (PalFill != null) {
+                    s_floatPool.Return(PalFill);
+                }
+                if (PalRelaxed != null) {
+                    s_floatPool.Return(PalRelaxed);
+                }
                 if (Strength != null) {
                     s_floatPool.Return(Strength);
                 }
@@ -134,7 +144,7 @@ namespace Iroca {
                 if (DecontamAaMask != null) {
                     s_boolPool.Return(DecontamAaMask);
                 }
-                RegMidMap = RegUpMap = HighlightPot = Strength = null;
+                RegMidMap = RegUpMap = HighlightPot = Strength = PalFill = PalRelaxed = null;
                 IncludedPx = DecontamAaMask = MatchConf = null;
                 PalRecolored = DecontamPixels = null;
             }
