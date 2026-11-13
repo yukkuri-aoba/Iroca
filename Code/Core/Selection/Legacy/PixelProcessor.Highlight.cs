@@ -335,10 +335,8 @@ namespace Iroca {
                     var cols = palette.Colors;
                     float* qH = palette.H, qS = palette.S, qV = palette.V;
                     ForEachPaletteChunk(palette.Count, hlbPo, (k0, k1) => {
-                        for (int k = k0; k < k1; k++) {
-                            byColor[k] = IsHighlightBandCandidate(qH[k], qS[k], qV[k], cols[k],
-                                sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
-                        }
+                        MarkHighlightBandCandidates(qH, qS, qV, cols, byColor, k0, k1,
+                            sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
                     });
                     if (new ReadOnlySpan<bool>(byColor, palette.Count).IndexOf(true) < 0) {
                         return;
@@ -359,37 +357,19 @@ namespace Iroca {
                         }
                         return;
                     }
+                    if (pixIdx == null) {
+                        // 色の表が無い: H・S・V が画素の並びのまま入っているので、行をまとめて判定する
+                        // (画素ごとに関数を呼ばない。式は MarkHighlightBandCandidates の 1 か所だけ)。
+                        MarkHighlightBandCandidates(pixH, pixS, pixV, originalPixels, candLocal, rowOff, rowOff + w,
+                            sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
+                        return;
+                    }
+                    // 画素 → 番号だけがあって色の表を渡されていないとき(今の呼び出しには無い)。
                     for (int x = 0; x < w; x++) {
                         int i = rowOff + x;
-                        candLocal[i] = false;
-                        float pV = pixV[HsvSlot(pixIdx, i)];
-                        if (pV <= sV) {
-                            continue;
-                        }
-                        float pS = pixS[HsvSlot(pixIdx, i)];
-                        if (pS < sS && pS >= satFloor) {
-                            float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH);
-                            if (hd > 0.5f) {
-                                hd = 1f - hd;
-                            }
-                            if (hd < hueCap) {
-                                Color32 op = originalPixels[i];
-                                float pr = op.r / 255f, pg = op.g / 255f, pb = op.b / 255f;
-                                float ox = pr - sR, oy = pg - sG, oz = pb - sB;
-                                float wv = (ox * dR + oy * dG + oz * dB) / dsq;
-                                if (wv < 0f) {
-                                    wv = 0f;
-                                } else if (wv > 1f) {
-                                    wv = 1f;
-                                }
-                                float rr = pr - (sR + wv * dR);
-                                float rg = pg - (sG + wv * dG);
-                                float rb = pb - (sB + wv * dB);
-                                if (rr * rr + rg * rg + rb * rb < HlBandAxisEps * HlBandAxisEps) {
-                                    candLocal[i] = true;
-                                }
-                            }
-                        }
+                        int slot = pixIdx[i];
+                        candLocal[i] = IsHighlightBandCandidate(pixH[slot], pixS[slot], pixV[slot], originalPixels[i],
+                            sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
                     }
                 });
 
@@ -533,41 +513,59 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 帯成長の候補判定(GrowHighlightBand の画素ループと同じ式)。色の表で色ごとに判定するときに使う。
-        /// 画素ループ側の式を変えたらここも同じに変えること。意図した変更では両経路を同時に直す
-        /// (色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる)。
-        /// 自動調整の閉ループ検証(ZoneAutoTuner.VerifyHighlightRecoveryGrowth)もこれを呼ぶ。以前は画素ループの
-        /// 中なので性能のため式をインラインで写していたが、写しは片方だけ直されやすいので呼び出しにした(2026-10-24)。
+        /// 帯成長の候補判定を、並んだ色 [j0, j1) にまとめて行う(dst[j] に真偽を書く)。**式はここだけ**に置く。
+        /// 色の表があれば色の並び(表の H・S・V・色)に、無ければ画素の並び(画素ごとの H・S・V・元の画素)に、同じ関数を当てる。
+        /// 範囲で受けるのは、画素ごとに関数を呼ばないため(エディタの既定の最適化では関数がインライン化されず、色の表の無い
+        /// 画像で 1,670 万回の呼び出しになる。2026-11-13 まで、そのために画素のループへ同じ式を写していた)。
+        /// 色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる。
         /// </summary>
-        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static void MarkHighlightBandCandidates(float* pH, float* pS, float* pV, Color32* color, bool* dst,
+            int j0, int j1,
+            float sH, float sS, float sV, float sR, float sG, float sB,
+            float dR, float dG, float dB, float dsq, float hueCap, float satFloor) {
+            for (int j = j0; j < j1; j++) {
+                dst[j] = false;
+                if (pV[j] <= sV) {
+                    continue;
+                }
+                float s = pS[j];
+                if (!(s < sS && s >= satFloor)) {
+                    continue;
+                }
+                float hd = Mathf.Abs(pH[j] - sH);
+                if (hd > 0.5f) {
+                    hd = 1f - hd;
+                }
+                if (!(hd < hueCap)) {
+                    continue;
+                }
+                Color32 op = color[j];
+                float pr = op.r / 255f, pg = op.g / 255f, pb = op.b / 255f;
+                float ox = pr - sR, oy = pg - sG, oz = pb - sB;
+                float wv = (ox * dR + oy * dG + oz * dB) / dsq;
+                if (wv < 0f) {
+                    wv = 0f;
+                } else if (wv > 1f) {
+                    wv = 1f;
+                }
+                float rr = pr - (sR + wv * dR);
+                float rg = pg - (sG + wv * dG);
+                float rb = pb - (sB + wv * dB);
+                dst[j] = rr * rr + rg * rg + rb * rb < HlBandAxisEps * HlBandAxisEps;
+            }
+        }
+
+        /// <summary>
+        /// 帯成長の候補判定の 1 色版(<see cref="MarkHighlightBandCandidates"/> を 1 個の範囲で呼ぶだけ。式は持たない)。
+        /// 自動調整の閉ループ検証(ZoneAutoTuner.VerifyHighlightRecoveryGrowth)が格子のセルごとに呼ぶ。
+        /// </summary>
         internal static bool IsHighlightBandCandidate(float pH, float pS, float pV, Color32 op,
             float sH, float sS, float sV, float sR, float sG, float sB,
             float dR, float dG, float dB, float dsq, float hueCap, float satFloor) {
-            if (pV <= sV) {
-                return false;
-            }
-            if (!(pS < sS && pS >= satFloor)) {
-                return false;
-            }
-            float hd = Mathf.Abs(pH - sH);
-            if (hd > 0.5f) {
-                hd = 1f - hd;
-            }
-            if (!(hd < hueCap)) {
-                return false;
-            }
-            float pr = op.r / 255f, pg = op.g / 255f, pb = op.b / 255f;
-            float ox = pr - sR, oy = pg - sG, oz = pb - sB;
-            float wv = (ox * dR + oy * dG + oz * dB) / dsq;
-            if (wv < 0f) {
-                wv = 0f;
-            } else if (wv > 1f) {
-                wv = 1f;
-            }
-            float rr = pr - (sR + wv * dR);
-            float rg = pg - (sG + wv * dG);
-            float rb = pb - (sB + wv * dB);
-            return rr * rr + rg * rg + rb * rb < HlBandAxisEps * HlBandAxisEps;
+            bool result;
+            MarkHighlightBandCandidates(&pH, &pS, &pV, &op, &result, 0, 1,
+                sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
+            return result;
         }
 
         // ─────────────────── 閉領域ハイライト復帰(有彩サンプル専用) ───────────────────
