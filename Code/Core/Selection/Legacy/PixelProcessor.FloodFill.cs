@@ -78,9 +78,12 @@ namespace Iroca {
             bool useHueBand = partHueBand > 0f && pixH != null && pixS != null;
             bool useFloor = useValueFloor || useSatCeil || useHueBand;   // 色の包絡ゲート(明度下限 / 彩度上限 / 色相幅)のどれかが有効
             // matched 画素(strength>0 && α>=128)の bbox。ラベリングは bbox 内に限定(全画素確保を回避)。
+            // 不透明な選択が 1 つも無いとき(全部が半透明のテクスチャなど)は、何も絞らずに返す。下の「離れた半透明を外す」
+            // 段(DropDetachedTranslucent)も走らないが、これは仕様: 残す基準になる不透明な成分が無いので、半透明の島は
+            // どれも外さない(外すと、全部が半透明の素材で、離れた同じ色の島がまとめて落ちる)。
             if (!TryComputeMatchedBBox(strength, px, w, h, 0f,
                     out int minX, out int minY, out int maxX, out int maxY, ct)) {
-                return; // マッチ皆無
+                return; // 不透明なマッチが皆無
             }
 
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
@@ -118,7 +121,7 @@ namespace Iroca {
                 }
                 int R = rowOff[bh];
                 if (R == 0) {
-                    return;   // マッチ皆無
+                    return;   // 上の外接矩形が取れていれば run は必ずある(ここは通らない。守りとして残す)
                 }
 
                 runX0 = s_intPool.Rent(R);

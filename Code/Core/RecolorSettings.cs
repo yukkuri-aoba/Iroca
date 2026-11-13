@@ -30,11 +30,6 @@ namespace Iroca {
         public const bool DefaultUseDecontamination = true;
         public const int DefaultDecontaminationRadius = 4;
 
-        // デコンタミ半径の UI 範囲（IrocaWindow.Layout のスライダー）。範囲の正は RecolorValueRanges で、ここは
-        // 以前からの名前を残した別名（丸めはコンストラクタで行う）。
-        public const int MinDecontaminationRadius = RecolorValueRanges.DecontaminationRadiusMin;
-        public const int MaxDecontaminationRadius = RecolorValueRanges.DecontaminationRadiusMax;
-
         public readonly float edgeFeather;
         public readonly int antiAliasCleanup;
         public readonly int holeFillPasses;

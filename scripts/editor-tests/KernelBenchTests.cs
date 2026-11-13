@@ -120,7 +120,7 @@ namespace Iroca.EditorTests {
             }
         });
 
-        // ───────── 行方向の窓和(BoxFilterSum の水平パスと同じ形) ─────────
+        // ───────── 行方向の窓和(ガウシアンのぼかしの水平パスと同じ、行の中を滑る窓の形) ─────────
         private const int R = 4;
 
         private static void RowArr(float[] src, float[] dst) => Parallel.For(0, H, Po, y => {
@@ -200,7 +200,7 @@ namespace Iroca.EditorTests {
             }
         });
 
-        // ───────── 列方向の窓和(16 列ずつ行方向に進む。BoxFilterSum の垂直パスと同じ形) ─────────
+        // ───────── 列方向の窓和(16 列ずつ行方向に進む。ぼかしの垂直パスと同じ形) ─────────
         private const int VBlock = 16;
 
         private static void ColArr(float[] src, float[] dst) => Parallel.For(0, W / VBlock, Po, bi => {

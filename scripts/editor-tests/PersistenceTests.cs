@@ -350,9 +350,9 @@ namespace Iroca.EditorTests {
         public void Preset_OutOfRangeRadiusIsClampedOnLoad() {
             // プリセットは手で書かれ得る。UI と MCP のどちらから読んでもスライダー範囲へ丸まること。
             var data = new IrocaPresetData { decontaminationRadius = 50 };
-            Assert.AreEqual(RecolorSettings.MaxDecontaminationRadius, RecolorSettings.From(data).decontaminationRadius);
+            Assert.AreEqual(RecolorValueRanges.DecontaminationRadiusMax, RecolorSettings.From(data).decontaminationRadius);
             data.decontaminationRadius = 0;
-            Assert.AreEqual(RecolorSettings.MinDecontaminationRadius, RecolorSettings.From(data).decontaminationRadius);
+            Assert.AreEqual(RecolorValueRanges.DecontaminationRadiusMin, RecolorSettings.From(data).decontaminationRadius);
         }
 
         [Test]

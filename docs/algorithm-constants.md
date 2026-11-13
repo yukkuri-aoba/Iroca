@@ -212,12 +212,6 @@
 | `GrayHighlightHeadroom` | `0.55f` | 不明 | — | 暗い無彩サンプルで罰しない明るさの余白。合成グラデで確かめただけ |
 | `GrayLumExcessWeight` | `1.2f` | 設計 | — | (1−0.55)×重み>0.40（無彩 tol 上限）で白を弾けるよう、式から決めた |
 
-## `Code/Core/Filters/PixelProcessor.Blur.cs`
-
-| 定数 | 値 | 種類 | 段 | 根拠 |
-|---|---|---|---|---|
-| `VBlock` | `16` | 計算 | — | ボックス和の縦パスを 16 列ずつまとめてキャッシュラインに合わせる。出力ビット不変 |
-
 ## `Code/Core/Foundation/CoreParallelism.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |

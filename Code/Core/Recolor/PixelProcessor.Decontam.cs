@@ -53,37 +53,28 @@ namespace Iroca {
             int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
             bool solidifyOnly = false) {
             int len = w * h;
-            // 呼び出し側がゾーン間で再利用するバッファを渡す。aaMask は全画素で読まれるため
-            // 前ゾーンの結果をクリアしてから書き込む。decontaminatedPixels は aaMask=true の
-            // 位置だけ下で上書きされ、その位置だけ参照されるためクリア不要。
+            // 2 つのバッファは呼び出し側(DecontamStage)がゾーンごとに借りて渡す(ゼロ初期化されない)。aaMask は合成の段が
+            // 範囲の全画素で読むので、ここで全部消してから書く。decontaminatedPixels は aaMask=true の位置だけ下で書かれ、
+            // その位置だけ読まれるので消さない。
             ClearWork(aaMask, 0, len);
-            // マッチ皆無(strength>0 が無い)なら AA 境界画素も存在しないので、4ch BG 推定
-            // (BoxFilterSum)を丸ごと省く。aaMask は上でクリア済み=出力ビット不変。
+            // マッチ皆無(strength>0 が無い)なら AA 境界画素も存在しないので、背景の推定を丸ごと省く。
+            // aaMask は上でクリア済み=出力ビット不変。
             if (!hasMatch) {
                 return;
             }
-            bool* localAaMask = aaMask;
-            Color32* localDecontaminatedPixels = decontaminatedPixels;
 
             // 処理矩形(P2-7 の後段 bbox)。α 分解が触るのは 0<strength<interiorThreshold の画素だけ=
             // 定義上 strength>0 の bbox 内なので、矩形外は前後で常に無変更=出力ビット不変。
-            // 未指定(boxMaxX<0)なら従来どおり全画素。
+            // 未指定(boxMaxX<0)なら従来どおり全画素。背景(ドナー)は矩形の各画素から窓 ±radius だけ読む。
             if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
-            // BG ドナー(w*)は出力矩形の各画素から窓 ±radius だけ読まれるので、その分広げた範囲を
-            // 用意すれば足りる。ここまで含めて矩形限定になるので、小 match のゾーン(ロゴ等)でも
-            // 全画素分の Array.Clear ×4(4K で各 67MB)と窓和 ×4 を払わなくなる。
-            int donorX0 = Mathf.Max(0, boxMinX - radius);
-            int donorX1 = Mathf.Min(w - 1, boxMaxX + radius);
-            int donorY0 = Mathf.Max(0, boxMinY - radius);
-            int donorY1 = Mathf.Min(h - 1, boxMaxY + radius);
 
             var decontamPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             int winSide = 2 * radius + 1;
             float interiorBgDensityMin = Mathf.Max(1f, winSide * winSide * DecontamInteriorBgFrac);
             // α 分解の対象(0<strength<しきい)は選択の縁の細い帯であることが多い。その数を先に数え、
             // 候補の窓を直接足す方が安ければそうする(矩形全体の窓和 ×4 と作業配列 5 本を払わない)。
-            // 足す値は 0..255 の整数(と個数)で、窓和は最大 (2·12+1)²·255 < 2^24 なので、浮動小数の
-            // 窓和(BoxFilterSum)も常に正確な整数=どちらで求めても同じ値で、出力はビット単位で同じ。
+            // 足す値は 0..255 の整数(と個数)で、窓和は最大 (2·12+1)²·255 < 2^24 なので、どちらの経路で数えても
+            // 同じ整数になり、出力はビット単位で同じ。
             long candCount = CountDecontamCandidates(strength, w, boxMinX, boxMinY, boxMaxX, boxMaxY,
                 interiorThreshold, decontamPo);
             if (candCount == 0) {
@@ -284,10 +275,10 @@ namespace Iroca {
 
         /// <summary>
         /// DecontaminateAaBoundary の候補が密なときの経路。背景(ドナー)の窓和を、行の帯ごとに列の和を
-        /// 縦に滑らせ、行の中で横に滑らせて求める。以前は 4 ch の窓和を全画面の float 配列(作業 5 本と
-        /// BoxFilterSum の 1 本。4K で 384MB)に作っていた。足す値は 0..255 の整数(と個数)で、窓は
-        /// BoxFilterSum と同じく画像の端で切る。窓和は最大 (2·12+1)²·255 &lt; 2^24 なので浮動小数の窓和も常に
-        /// 正確な整数で、整数で数えた値を float にしたものと同じ=出力はビット単位で同じ。
+        /// 縦に滑らせ、行の中で横に滑らせて求める。以前は 4 ch の窓和を全画面の float 配列(作業 6 本。
+        /// 4K で 384MB)に箱フィルタで作っていた。足す値は 0..255 の整数(と個数)で、窓は画像の端で切る。
+        /// 窓和は最大 (2·12+1)²·255 &lt; 2^24 なので、float で足していた頃も常に正確な整数で、整数で数えた値を
+        /// float にしたものと同じ=出力はビット単位で同じ。
         /// ドナーの条件(strength ≤ 0)は候補(strength &gt; 0)を固める書き込みで変わらないので、
         /// 帯を並行に処理しても読む値は同じ(DecontaminateAaDirect と同じ理由)。
         /// </summary>
@@ -488,7 +479,7 @@ namespace Iroca {
             // AchromaFringeMatchRadius 以内の未マッチ画素)の細い帯だけ。
             //   ・「マッチが近くにあるか」は、範囲 F(矩形 ± 背景の窓の半径)の整数の累積和から引く
             //   ・背景(ドナー)の窓和は、帯の画素についてだけ窓を直接足す
-            // 以前は窓和(半径 4)を作業配列 10 本と BoxFilterSum ×5 で矩形全体に作っていた。足す値は
+            // 以前は窓和(半径 4)を作業配列 10 本と箱フィルタ ×5 で矩形全体に作っていた。足す値は
             // 0..255 の整数(と個数)で、窓和は最大 (2·4+1)²·255 < 2^24 なので浮動小数でも常に正確な整数。
             // ここで直接足した値と同じになり、出力はビット単位で同じ。
             const int FringeBgRadius = AchromaFringeBgRadius;
