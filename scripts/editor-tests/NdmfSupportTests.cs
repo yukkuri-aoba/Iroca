@@ -156,16 +156,16 @@ namespace Iroca.EditorTests {
             spare.tag = "EditorOnly";
             spare.AddComponent<IrocaRecolor>().recipes.Add(OutputRecipe("spare-recipe", 0));
 
-            CollectionAssert.AreEqual(new[] { old }, NdmfSupport.OutdatedRecipes(avatar),
+            CollectionAssert.AreEqual(new[] { old }, OutdatedRecipeUpload.Find(avatar),
                 "今の版のもの・元テクスチャの無いもの・EditorOnly の下のものを数えた／重複した");
-            Assert.IsTrue(NdmfSupport.ShouldConfirmOutdated(avatar, false, out var outdated, out var message));
+            Assert.IsTrue(OutdatedRecipeUpload.ShouldConfirm(avatar, false, out var outdated, out var message));
             CollectionAssert.AreEqual(new[] { old }, outdated);
             StringAssert.Contains("old-recipe", message);
             StringAssert.Contains(RecipeOutputVersion.ReleasesOf(0), message);
-            Assert.IsFalse(NdmfSupport.ShouldConfirmOutdated(avatar, true, out _, out _), "再生(アップロードではない)で聞いた");
+            Assert.IsFalse(OutdatedRecipeUpload.ShouldConfirm(avatar, true, out _, out _), "再生(アップロードではない)で聞いた");
 
             old.outputVersion = RecipeOutputVersion.Current;
-            Assert.IsFalse(NdmfSupport.ShouldConfirmOutdated(avatar, false, out _, out _), "確かめた後も聞いた");
+            Assert.IsFalse(OutdatedRecipeUpload.ShouldConfirm(avatar, false, out _, out _), "確かめた後も聞いた");
         }
 
         // VRChat SDK のアップロード前の処理に組み込まれ、NDMF が使えないときに止める確認の後・NDMF などの前に動く。

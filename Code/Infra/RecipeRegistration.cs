@@ -109,6 +109,40 @@ namespace Iroca {
 #endif
         }
 
+        /// <summary>
+        /// アバターと一緒にアップロードされる「Iroca Recolor」が持つ、元テクスチャのあるレシピ(部品の並び順)。
+        /// EditorOnly タグの付いたオブジェクトとその下にある部品は、アップロードされない(VRChat SDK が外す)ので入れない。
+        /// 同じレシピを複数の部品が持っていれば、その数だけ返す。
+        /// </summary>
+        internal static IEnumerable<IrocaRecipe> UploadedRecipes(GameObject avatar) {
+            if (avatar == null) {
+                yield break;
+            }
+            foreach (var component in avatar.GetComponentsInChildren<IrocaRecolor>(true)) {
+                if (component.recipes == null || IsEditorOnly(component.transform, avatar.transform)) {
+                    continue;
+                }
+                foreach (var recipe in component.recipes) {
+                    if (recipe != null && recipe.sourceTexture != null) {
+                        yield return recipe;
+                    }
+                }
+            }
+        }
+
+        // t か、avatar までのその親に EditorOnly タグが付いているか。
+        private static bool IsEditorOnly(Transform t, Transform avatar) {
+            for (; t != null; t = t.parent) {
+                if (t.CompareTag("EditorOnly")) {
+                    return true;
+                }
+                if (t == avatar) {
+                    break;
+                }
+            }
+            return false;
+        }
+
         /// <summary><paramref name="target"/> に既に登録されている、<paramref name="source"/> のレシピ(無ければ null)。</summary>
         public static IrocaRecipe ExistingFor(GameObject target, Texture2D source) {
             if (target == null || source == null) {
