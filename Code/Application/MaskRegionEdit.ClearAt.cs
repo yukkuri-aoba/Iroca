@@ -203,43 +203,89 @@ namespace Iroca {
         public static int CrumbReach(int w, int h)
             => System.Math.Max(1, (System.Math.Max(w, h) + AiMaskCells - 1) / AiMaskCells);
 
-        /// <summary>範囲の外接矩形 [x0, x1) × [y0, y1)。範囲が空なら false。</summary>
-        public static bool RegionBounds(bool* region, int w, int h, out int x0, out int y0, out int x1, out int y1) {
-            int bx0 = int.MaxValue, bx1 = -1, by0 = int.MaxValue, by1 = -1;
-            for (int y = 0; y < h; y++) {
-                byte* p = (byte*)region + (long)y * w;
-                int first = -1, last = -1, x = 0;
-                for (; x + 8 <= w; x += 8) {
-                    if (*(ulong*)(p + x) == 0UL) {
-                        continue;
-                    }
-                    for (int k = x; k < x + 8; k++) {
-                        if (p[k] != 0) {
-                            if (first < 0) {
-                                first = k;
-                            }
-                            last = k;
-                        }
-                    }
+        // 切れ端の掃除(RegionBounds・MarkNear)を並列にするときの帯。範囲で消すのはメインスレッドで、大きな範囲では窓が画像の
+        // 全面近くになる(8K で 6,700 万画素を、外接矩形・横 2 回・縦 2 回なぞる)。帯ごとに読み書きする所が別で、まとめるのは
+        // 最小・最大だけなので、結果は 1 本と同じ。小さい窓(ParallelMinPixels 未満)は 1 本のまま。
+        // 縦の帯の幅(列)。64 の倍数にして、隣の帯と同じキャッシュの行を書き合いにくくする。
+        private const int ColumnBandWidth = 256;
+
+        // 帯 [0, bands) を順に、または並列に body へ渡す(pixels は全体の画素数。ParallelMinPixels 未満なら 1 本)。
+        private static void ForBands(long pixels, int bands, System.Action<int> body) {
+            if (bands <= 1 || pixels < ParallelMinPixels) {
+                for (int b = 0; b < bands; b++) {
+                    body(b);
                 }
-                for (; x < w; x++) {
-                    if (p[x] != 0) {
-                        if (first < 0) {
-                            first = x;
-                        }
-                        last = x;
-                    }
-                }
-                if (first < 0) {
+                return;
+            }
+            System.Threading.Tasks.Parallel.For(0, bands, CoreParallelism.Options(), body);
+        }
+
+        // 1 帯あたりの行数(1 帯がだいたい RangePixels 画素になるように)。
+        private static int RowsPerBand(int width) => System.Math.Max(1, RangePixels / System.Math.Max(1, width));
+
+        // 1 行(p から w バイト)の、立っている画素の最初と最後の x。無ければ false。
+        private static bool RowExtent(byte* p, int w, out int first, out int last) {
+            first = -1;
+            last = -1;
+            int x = 0;
+            for (; x + 8 <= w; x += 8) {
+                if (*(ulong*)(p + x) == 0UL) {
                     continue;
                 }
-                bx0 = System.Math.Min(bx0, first);
-                bx1 = System.Math.Max(bx1, last);
-                by0 = System.Math.Min(by0, y);
-                by1 = y;
+                for (int k = x; k < x + 8; k++) {
+                    if (p[k] != 0) {
+                        if (first < 0) {
+                            first = k;
+                        }
+                        last = k;
+                    }
+                }
             }
-            x0 = bx0; y0 = by0; x1 = bx1 + 1; y1 = by1 + 1;
-            return bx1 >= 0;
+            for (; x < w; x++) {
+                if (p[x] != 0) {
+                    if (first < 0) {
+                        first = x;
+                    }
+                    last = x;
+                }
+            }
+            return first >= 0;
+        }
+
+        /// <summary>範囲の外接矩形 [x0, x1) × [y0, y1)。範囲が空なら false。大きな範囲は行の帯に分けて並列に見る。</summary>
+        public static bool RegionBounds(bool* region, int w, int h, out int x0, out int y0, out int x1, out int y1) {
+            int rows = RowsPerBand(w);
+            int bands = h <= 0 ? 0 : (h + rows - 1) / rows;
+            // 帯ごとの外接矩形(左・右・下・上。空なら右が -1)。まとめるのは最小・最大なので、並べる順に依らない。
+            var ext = new int[bands * 4];
+            ForBands((long)w * h, bands, b => {
+                int bx0 = int.MaxValue, bx1 = -1, by0 = int.MaxValue, by1 = -1;
+                for (int y = b * rows, yEnd = System.Math.Min(h, y + rows); y < yEnd; y++) {
+                    if (!RowExtent((byte*)region + (long)y * w, w, out int first, out int last)) {
+                        continue;
+                    }
+                    bx0 = System.Math.Min(bx0, first);
+                    bx1 = System.Math.Max(bx1, last);
+                    by0 = System.Math.Min(by0, y);
+                    by1 = y;
+                }
+                ext[b * 4] = bx0;
+                ext[b * 4 + 1] = bx1;
+                ext[b * 4 + 2] = by0;
+                ext[b * 4 + 3] = by1;
+            });
+            int ax0 = int.MaxValue, ax1 = -1, ay0 = int.MaxValue, ay1 = -1;
+            for (int b = 0; b < bands; b++) {
+                if (ext[b * 4 + 1] < 0) {
+                    continue;
+                }
+                ax0 = System.Math.Min(ax0, ext[b * 4]);
+                ax1 = System.Math.Max(ax1, ext[b * 4 + 1]);
+                ay0 = System.Math.Min(ay0, ext[b * 4 + 2]);
+                ay1 = System.Math.Max(ay1, ext[b * 4 + 3]);
+            }
+            x0 = ax0; y0 = ay0; x1 = ax1 + 1; y1 = ay1 + 1;
+            return ax1 >= 0;
         }
 
         // near(EraseCrumbs の作業用。1 画素 1 バイト)の値。
@@ -266,44 +312,64 @@ namespace Iroca {
         /// 中身は問わない(全部を書く)。w は範囲(region)の 1 行の画素数。
         /// </summary>
         public static void MarkNear(bool* region, int w, int reach, byte* near, int wx0, int wy0, int wx1, int wy1) {
-            int ww = wx1 - wx0;
+            int ww = wx1 - wx0, wh = wy1 - wy0;
+            if (ww <= 0 || wh <= 0) {
+                return;
+            }
+            long pixels = (long)ww * wh;
             // 横: 行ごとに、左からと右からの 2 回なぞる(範囲の画素を見たら残りを reach + 1 に戻し、残りがある間は印)。
-            for (int y = wy0; y < wy1; y++) {
-                byte* n = near + (long)(y - wy0) * ww;
-                bool* g = region + (long)y * w + wx0;
-                int left = 0;
-                for (int x = 0; x < ww; x++) {
-                    left = g[x] ? reach + 1 : left - 1;
-                    n[x] = left > 0 ? NearRow : NearNo;
-                }
-                left = 0;
-                for (int x = ww - 1; x >= 0; x--) {
-                    left = g[x] ? reach + 1 : left - 1;
-                    if (left > 0) {
-                        n[x] = NearRow;
+            // 行どうしは別の所を読み書きするので、行の帯に分けて並列にする。
+            int rows = RowsPerBand(ww);
+            ForBands(pixels, (wh + rows - 1) / rows, b => {
+                for (int y = wy0 + b * rows, yEnd = System.Math.Min(wy1, y + rows); y < yEnd; y++) {
+                    byte* n = near + (long)(y - wy0) * ww;
+                    bool* g = region + (long)y * w + wx0;
+                    int left = 0;
+                    for (int x = 0; x < ww; x++) {
+                        left = g[x] ? reach + 1 : left - 1;
+                        n[x] = left > 0 ? NearRow : NearNo;
+                    }
+                    left = 0;
+                    for (int x = ww - 1; x >= 0; x--) {
+                        left = g[x] ? reach + 1 : left - 1;
+                        if (left > 0) {
+                            n[x] = NearRow;
+                        }
                     }
                 }
-            }
+            });
             // 縦: 列ごとに同じことを、横の印(NearRow)を起点にして行う。足した印は NearColumn にして、起点と区別する。
-            int wh = wy1 - wy0;
-            for (int x = 0; x < ww; x++) {
-                int left = 0;
+            // 列は自分の列の NearRow だけを読み、自分の列の NearNo だけを書くので、列どうしは独立。列の帯に分けて並列にし、
+            // 帯の中は行の順に進める(列ごとの残りを並べて持つ。列ごとに縦へ飛び飛びに読むよりキャッシュに乗る)。
+            // 1 列の中で下から → 上からの順は変わらないので、結果は列ごとになぞったときと同じ。
+            ForBands(pixels, (ww + ColumnBandWidth - 1) / ColumnBandWidth, b => {
+                int c0 = b * ColumnBandWidth, c1 = System.Math.Min(ww, c0 + ColumnBandWidth), cw = c1 - c0;
+                int* left = stackalloc int[cw];
+                for (int k = 0; k < cw; k++) {
+                    left[k] = 0;
+                }
                 for (int y = 0; y < wh; y++) {
-                    byte* n = near + (long)y * ww + x;
-                    left = *n == NearRow ? reach + 1 : left - 1;
-                    if (left > 0 && *n == NearNo) {
-                        *n = NearColumn;
+                    byte* n = near + (long)y * ww + c0;
+                    for (int k = 0; k < cw; k++) {
+                        left[k] = n[k] == NearRow ? reach + 1 : left[k] - 1;
+                        if (left[k] > 0 && n[k] == NearNo) {
+                            n[k] = NearColumn;
+                        }
                     }
                 }
-                left = 0;
+                for (int k = 0; k < cw; k++) {
+                    left[k] = 0;
+                }
                 for (int y = wh - 1; y >= 0; y--) {
-                    byte* n = near + (long)y * ww + x;
-                    left = *n == NearRow ? reach + 1 : left - 1;
-                    if (left > 0 && *n == NearNo) {
-                        *n = NearColumn;
+                    byte* n = near + (long)y * ww + c0;
+                    for (int k = 0; k < cw; k++) {
+                        left[k] = n[k] == NearRow ? reach + 1 : left[k] - 1;
+                        if (left[k] > 0 && n[k] == NearNo) {
+                            n[k] = NearColumn;
+                        }
                     }
                 }
-            }
+            });
         }
 
         /// <summary>
@@ -330,6 +396,12 @@ namespace Iroca {
             for (int y = wy0; y < wy1; y++) {
                 for (int x = wx0; x < wx1; x++) {
                     int start = y * w + x;
+                    // 層の語(64 画素)が 0 の所は始点にならない(マスクが立っていない)ので、語の終わりまで飛ばす。たどる間に
+                    // ビットが増えることは無い(切れ端を消すだけ)ので、飛ばしても 1 画素ずつ見たときと同じ。
+                    if (bits[start >> 6] == 0UL) {
+                        x += 63 - (start & 63);
+                        continue;
+                    }
                     byte* nearStart = near + (long)(y - wy0) * ww + (x - wx0);
                     if (*nearStart == NearNo || *nearStart == seen || region[start] || !Bit(bits, start)) {
                         continue;

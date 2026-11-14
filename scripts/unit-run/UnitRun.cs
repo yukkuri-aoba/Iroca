@@ -1312,6 +1312,223 @@ namespace Iroca.UnitRun {
             Check.Equal("3,1,20,4", $"{x0},{y0},{x1},{y1}", "外接矩形 [x0, x1) × [y0, y1)");
         }
 
+        // 切れ端の掃除の素朴な版(並列にし、空の語を飛ばすようにする前の、1 本で 1 画素ずつ見る形)。製品の版と、外接矩形・印・
+        // 消したビット・戻り値が完全に一致することを確かめる。印の値は MaskRegionEdit の NearNo / NearRow / NearColumn / NearSeen。
+        private static unsafe bool NaiveRegionBounds(bool* region, int w, int h, out int x0, out int y0, out int x1, out int y1) {
+            int bx0 = int.MaxValue, bx1 = -1, by0 = int.MaxValue, by1 = -1;
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    if (!region[y * w + x]) {
+                        continue;
+                    }
+                    bx0 = Math.Min(bx0, x);
+                    bx1 = Math.Max(bx1, x);
+                    by0 = Math.Min(by0, y);
+                    by1 = y;
+                }
+            }
+            x0 = bx0; y0 = by0; x1 = bx1 + 1; y1 = by1 + 1;
+            return bx1 >= 0;
+        }
+
+        private static unsafe void NaiveMarkNear(bool* region, int w, int reach, byte* near, int wx0, int wy0, int wx1, int wy1) {
+            int ww = wx1 - wx0, wh = wy1 - wy0;
+            for (int y = wy0; y < wy1; y++) {
+                byte* n = near + (y - wy0) * ww;
+                bool* g = region + y * w + wx0;
+                int left = 0;
+                for (int x = 0; x < ww; x++) {
+                    left = g[x] ? reach + 1 : left - 1;
+                    n[x] = (byte)(left > 0 ? 1 : 0);
+                }
+                left = 0;
+                for (int x = ww - 1; x >= 0; x--) {
+                    left = g[x] ? reach + 1 : left - 1;
+                    if (left > 0) {
+                        n[x] = 1;
+                    }
+                }
+            }
+            for (int x = 0; x < ww; x++) {
+                int left = 0;
+                for (int y = 0; y < wh; y++) {
+                    byte* n = near + y * ww + x;
+                    left = *n == 1 ? reach + 1 : left - 1;
+                    if (left > 0 && *n == 0) {
+                        *n = 2;
+                    }
+                }
+                left = 0;
+                for (int y = wh - 1; y >= 0; y--) {
+                    byte* n = near + y * ww + x;
+                    left = *n == 1 ? reach + 1 : left - 1;
+                    if (left > 0 && *n == 0) {
+                        *n = 2;
+                    }
+                }
+            }
+        }
+
+        private static unsafe int NaiveEraseCrumbs(bool* region, ulong* bits, int w, int h, byte* near,
+                                                   int wx0, int wy0, int wx1, int wy1, int layer) {
+            byte seen = (byte)(3 + layer);
+            int ww = wx1 - wx0;
+            int erased = 0;
+            var work = new List<int>();
+            bool On(int i) => (bits[i >> 6] & (1UL << (i & 63))) != 0UL;
+            for (int y = wy0; y < wy1; y++) {
+                for (int x = wx0; x < wx1; x++) {
+                    int start = y * w + x;
+                    byte* nearStart = near + (y - wy0) * ww + (x - wx0);
+                    if (*nearStart == 0 || *nearStart == seen || region[start] || !On(start)) {
+                        continue;
+                    }
+                    work.Clear();
+                    work.Add(start);
+                    *nearStart = seen;
+                    bool escaped = false, touchesCleared = false;
+                    for (int head = 0; head < work.Count; head++) {
+                        int i = work[head];
+                        int py = i / w, px = i - py * w;
+                        for (int ny = Math.Max(0, py - 1); ny <= Math.Min(h - 1, py + 1); ny++) {
+                            for (int nx = Math.Max(0, px - 1); nx <= Math.Min(w - 1, px + 1); nx++) {
+                                int j = ny * w + nx;
+                                if (j == i || !On(j)) {
+                                    continue;
+                                }
+                                if (region[j]) {
+                                    touchesCleared = true;
+                                    continue;
+                                }
+                                if (nx < wx0 || nx >= wx1 || ny < wy0 || ny >= wy1) {
+                                    escaped = true;
+                                    continue;
+                                }
+                                byte* nearJ = near + (ny - wy0) * ww + (nx - wx0);
+                                if (*nearJ == 0) {
+                                    escaped = true;
+                                } else if (*nearJ != seen) {
+                                    *nearJ = seen;
+                                    work.Add(j);
+                                }
+                            }
+                        }
+                    }
+                    if (escaped || !touchesCleared) {
+                        continue;
+                    }
+                    foreach (int i in work) {
+                        bits[i >> 6] &= ~(1UL << (i & 63));
+                    }
+                    erased += work.Count;
+                }
+            }
+            return erased;
+        }
+
+        // 長方形をいくつか重ねた形(切れ端・隣の部分・離れた点ができるように、大小を混ぜる)と、まばらな点。
+        private static void Blobs(Random rng, bool[] g, int w, int h, int count, int maxSide, double dots) {
+            for (int c = 0; c < count; c++) {
+                int bw = 1 + rng.Next(maxSide), bh = 1 + rng.Next(maxSide);
+                int bx = rng.Next(-bw / 2, w), by = rng.Next(-bh / 2, h);
+                for (int y = Math.Max(0, by); y < Math.Min(h, by + bh); y++) {
+                    for (int x = Math.Max(0, bx); x < Math.Min(w, bx + bw); x++) {
+                        g[y * w + x] = true;
+                    }
+                }
+            }
+            for (int i = 0; i < g.Length; i++) {
+                if (rng.NextDouble() < dots) {
+                    g[i] = true;
+                }
+            }
+        }
+
+        private static ulong[] PackBools(bool[] g) {
+            var b = new ulong[(g.Length + 63) / 64];
+            for (int i = 0; i < g.Length; i++) {
+                if (g[i]) {
+                    b[i >> 6] |= 1UL << (i & 63);
+                }
+            }
+            return b;
+        }
+
+        // 製品の版と素朴な版で、範囲で消す前の切れ端の掃除(2 つの層。MaskWorkspace.EraseCrumbs と同じ順)を比べる。
+        private static unsafe void CheckCrumbsSameAsNaive(bool[] region, bool[] l0, bool[] l1, int w, int h, int reach, string what) {
+            ulong[] a0 = PackBools(l0), a1 = PackBools(l1);
+            ulong[] b0 = PackBools(l0), b1 = PackBools(l1);
+            fixed (bool* g = region) {
+                bool got = MaskRegionEdit.RegionBounds(g, w, h, out int x0, out int y0, out int x1, out int y1);
+                bool want = NaiveRegionBounds(g, w, h, out int nx0, out int ny0, out int nx1, out int ny1);
+                Check.Equal(want, got, what + ": 範囲があるか");
+                Check.Equal($"{nx0},{ny0},{nx1},{ny1}", $"{x0},{y0},{x1},{y1}", what + ": 外接矩形");
+                if (!got) {
+                    return;
+                }
+                MaskRegionEdit.CrumbWindow(w, h, x0, y0, x1, y1, reach, out int wx0, out int wy0, out int wx1, out int wy1);
+                int len = (wx1 - wx0) * (wy1 - wy0);
+                var nearA = new byte[len];
+                var nearB = new byte[len];
+                for (int i = 0; i < len; i++) {
+                    nearA[i] = 0xEE;   // 前の中身に頼らない(全部を書く)ことも確かめる
+                }
+                fixed (byte* na = nearA, nb = nearB)
+                fixed (ulong* pa0 = a0, pa1 = a1, pb0 = b0, pb1 = b1) {
+                    MaskRegionEdit.MarkNear(g, w, reach, na, wx0, wy0, wx1, wy1);
+                    NaiveMarkNear(g, w, reach, nb, wx0, wy0, wx1, wy1);
+                    Check.True(nearA.SequenceEqual(nearB), what + ": 範囲の近くの印");
+                    var work = new List<int>();
+                    int e0 = MaskRegionEdit.EraseCrumbs(g, pa0, w, h, na, wx0, wy0, wx1, wy1, 0, work);
+                    int e1 = MaskRegionEdit.EraseCrumbs(g, pa1, w, h, na, wx0, wy0, wx1, wy1, 1, work);
+                    int n0 = NaiveEraseCrumbs(g, pb0, w, h, nb, wx0, wy0, wx1, wy1, 0);
+                    int n1 = NaiveEraseCrumbs(g, pb1, w, h, nb, wx0, wy0, wx1, wy1, 1);
+                    Check.Equal(n0, e0, what + ": 1 つ目の層で消した数");
+                    Check.Equal(n1, e1, what + ": 2 つ目の層で消した数");
+                }
+                Check.True(a0.SequenceEqual(b0), what + ": 1 つ目の層のビット");
+                Check.True(a1.SequenceEqual(b1), what + ": 2 つ目の層のビット");
+                Check.True(nearA.SequenceEqual(nearB), what + ": たどった後の印");
+            }
+        }
+
+        public static void MaskCrumbs_SameAsNaive_RandomRegionsAndSizes() {
+            var rng = new Random(20261114);
+            // 小さい(1 本で回る)・64 の倍数でない幅・並列で回る大きさ(ParallelMinPixels = 2^18 画素以上。縦の帯が何本にもなる幅)。
+            var sizes = new[] { (37, 23), (64, 64), (130, 70), (700, 450), (1030, 300) };
+            int checkedCases = 0;
+            foreach (var (w, h) in sizes) {
+                int n = w * h;
+                int side = Math.Max(4, Math.Min(w, h) / 3);
+                foreach (int reach in new[] { MaskRegionEdit.CrumbReach(w, h), 3 }) {
+                    for (int trial = 0; trial < 3; trial++) {
+                        var region = new bool[n];
+                        var l0 = new bool[n];
+                        var l1 = new bool[n];
+                        Blobs(rng, region, w, h, 2 + rng.Next(3), side, 0.0);
+                        Blobs(rng, l0, w, h, 4 + rng.Next(6), side, 0.002);
+                        Blobs(rng, l1, w, h, 2 + rng.Next(4), side / 2 + 1, 0.001);
+                        CheckCrumbsSameAsNaive(region, l0, l1, w, h, reach, $"{w}x{h} reach={reach} #{trial}");
+                        checkedCases++;
+                    }
+                }
+                // 範囲が空・全面・画像の端に掛かる(右上の隅の 1 画素)。
+                var layer = new bool[n];
+                Blobs(rng, layer, w, h, 5, side, 0.002);
+                CheckCrumbsSameAsNaive(new bool[n], layer, layer, w, h, 2, $"{w}x{h} 空");
+                var full = new bool[n];
+                for (int i = 0; i < n; i++) {
+                    full[i] = true;
+                }
+                CheckCrumbsSameAsNaive(full, layer, new bool[n], w, h, 2, $"{w}x{h} 全面");
+                var corner = new bool[n];
+                corner[n - 1] = true;
+                CheckCrumbsSameAsNaive(corner, layer, layer, w, h, 4, $"{w}x{h} 隅");
+                checkedCases += 3;
+            }
+            Check.Equal(sizes.Length * 9, checkedCases, "調べた組の数");
+        }
+
         public static void MaskEdit_ClearHere_AllowsMissingLayers() {
             var common = Layer(0, 4);
             var r = Apply(MaskRegionOp.ClearHere, common, null, null);
