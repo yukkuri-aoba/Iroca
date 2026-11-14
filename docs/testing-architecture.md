@@ -358,6 +358,13 @@ LAN にテスト用の PC があるときは、テストをそちらで回して
   「速さを絞らない」と指定する（子へ引き継がれないので 1 つずつ）。出力は変わらない。実行の最後の行に外した数が出る。
   実測: 実行キャッシュを切った重めの 4 ファイルで 54 秒 → 29 秒（交互に 3 回）。温まった回帰一式（1671 件）は 1 分 45 秒。
   比べるときは `IROCA_HIGH_QOS=0` で外さずに回る。
+- **電源モードを実行の間だけ上げる**（2026-11-14〜）: 相手は普段「最適な電力効率」で置いておく（つけっぱなしの消費電力のため）。
+  `run` は排他を取っている間だけ Win11 の電源モードを「最適なパフォーマンス」にし、終わり（呼び手が切れて見張りが止めた
+  ときも）に「最適な電力効率」へ戻す。排他の中なので実行は 1 本だけで、参照数は要らない。この「電源モード」は powercfg の
+  電源プランとは別物のオーバーレイで、powercfg のサブコマンドでは切り替えられない。`powrprof.dll` の
+  `PowerSetActiveOverlayScheme` を ctypes で呼ぶ（管理者権限は不要。GUID は `remote_test_agent.py` の `POWER_MODES`）。
+  `python iroca-remote\agent.py power [get | set <efficiency|balanced|performance>]` で相手の状態を見られる。
+  agent が強制終了されたときだけ、次の `run` の終わりまで高いまま残る。
 
 **abcheck もこの入口で回せる**（2026-11-13〜）: `python tools/remote_test.py -- dev_safe/scripts/refactor_abcheck/abcheck.py [引数]`。
 abcheck は作業ツリーのハーネスを `tools/harness_build.py` でビルドしてから比べ（`--no-build` で旧挙動）、基準は
