@@ -2,7 +2,9 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 #if IROCA_SENTIS_PRESENT
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 #if IROCA_INFERENCE_ENGINE
 using Unity.InferenceEngine;
 #else
@@ -57,19 +59,161 @@ namespace Iroca.SentisIntegration {
         /// キャッシュの時刻を今にする(<see cref="MarkUsed"/>)ので、ONNX を元の時刻のままコピーして置き直すと、古い .sentis を
         /// 使い続けた。中身の印を名前に入れて、中身が違えば別のキャッシュにする(共有フォルダで別の ONNX を持つプロジェクト
         /// どうしも、作り直し合わない)。古い名前のキャッシュは <see cref="DeleteStaleCaches"/> が 30 日使われなければ消す。
-        /// 読み込むたびに ONNX を 1 回読む(モデルを読み込むのはドメインごとに 1 回で、大きい方で 0.1 秒前後)。
+        /// 読み込むたびに ONNX を 1 回読む(モデルを読み込むのはドメインごとに 1 回で、大きい方で 0.17 秒前後。
+        /// 窓が開いていれば、先に背景で計算した印を受け取る。<see cref="PrefetchContentTags"/>)。
         /// </summary>
         static string CachePathFor(string onnxPath) =>
             Path.Combine(CacheDir,
-                Path.GetFileNameWithoutExtension(onnxPath) + "." + SentisVersion() + "." + ContentTag(onnxPath) + ".sentis");
+                Path.GetFileNameWithoutExtension(onnxPath) + "." + SentisVersion() + "." + ContentTagFor(onnxPath) + ".sentis");
 
-        // ファイルの中身の SHA-256 の先頭 8 桁(16 進の小文字)。
+        // ファイルの中身の SHA-256 の先頭 8 桁(16 進の小文字)。どのスレッドから呼んでもよい。
         static string ContentTag(string path) {
             using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
             using (var sha = System.Security.Cryptography.SHA256.Create()) {
                 byte[] digest = sha.ComputeHash(fs);
                 return BitConverter.ToString(digest, 0, 4).Replace("-", "").ToLowerInvariant();
             }
+        }
+
+        // 背景で先に計算しておいた中身の印(ONNX のパス → 計算)。読み込みは同期でメインスレッドを止め、そのうち
+        // 中身の印(2 本で 44MB。Mono の SHA256Managed で約 0.27 秒)が読み込み全体(約 0.4 秒)の 3 分の 2 を占めていた
+        // (2026-11-14 に Iroca_Lite で実測)。モデルのファイルがあると分かった時点(<see cref="PrefetchContentTags"/>)で
+        // 計算を始め、読み込むとき(<see cref="ContentTagFor"/>)に 1 回だけ受け取る。メインスレッドだけで触る。
+        static readonly Dictionary<string, Task<PrefetchedTag>> s_prefetchedTags =
+            new Dictionary<string, Task<PrefetchedTag>>(StringComparer.OrdinalIgnoreCase);
+
+        sealed class PrefetchedTag {
+            public readonly string tag;
+            public readonly FileStamp stamp;
+
+            public PrefetchedTag(string tag, FileStamp stamp) {
+                this.tag = tag;
+                this.stamp = stamp;
+            }
+        }
+
+        // 中身を見本で確かめるときの、読む塊の大きさと数(ファイルの先頭から末尾まで等間隔。合わせて 1MB で、
+        // 読んで SHA-256 を取るのは 44MB の全体の 50 分の 1 ほど。これ以下の大きさのファイルは全体を読む)。
+        const int SampleBlockBytes = 64 * 1024;
+        const int SampleBlockCount = 16;
+
+        /// <summary>
+        /// ファイルの姿(大きさ・作成と更新の時刻と、中身の見本の SHA-256)。先に計算した印を、計算した後でファイルが
+        /// 書き換えられていないかを確かめるためだけに使い、印の代わりにはしない(ドメインをまたいで覚えない)。
+        /// 時刻と大きさだけにしないのは、以前、更新時刻で有効かを見ていて、ONNX を元の時刻のままコピーして置き直すと
+        /// 古い .sentis を使い続けたため。同じ大きさ・同じ時刻で中身だけ違うファイルも、見本の塊のどこかが違えば別とみなす。
+        /// </summary>
+        sealed class FileStamp {
+            readonly long _length, _writeTicks, _creationTicks;
+            readonly byte[] _sample;
+
+            FileStamp(long length, long writeTicks, long creationTicks, byte[] sample) {
+                _length = length;
+                _writeTicks = writeTicks;
+                _creationTicks = creationTicks;
+                _sample = sample;
+            }
+
+            /// <summary>今の姿。読めなければ null。どのスレッドから呼んでもよい。</summary>
+            public static FileStamp TryRead(string path) {
+                try {
+                    var info = new FileInfo(path);
+                    if (!info.Exists) {
+                        return null;
+                    }
+                    return new FileStamp(info.Length, info.LastWriteTimeUtc.Ticks, info.CreationTimeUtc.Ticks,
+                        SampleDigest(path));
+                } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) {
+                    return null;
+                }
+            }
+
+            public bool SameAs(FileStamp other) {
+                if (other == null || _length != other._length || _writeTicks != other._writeTicks
+                    || _creationTicks != other._creationTicks || _sample.Length != other._sample.Length) {
+                    return false;
+                }
+                for (int i = 0; i < _sample.Length; i++) {
+                    if (_sample[i] != other._sample[i]) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            // 見本の SHA-256(SampleBlockCount 個の塊を等間隔に。小さいファイルは全体)。
+            static byte[] SampleDigest(string path) {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
+                using (var sha = System.Security.Cryptography.SHA256.Create()) {
+                    long length = fs.Length;
+                    if (length <= (long)SampleBlockBytes * SampleBlockCount) {
+                        return sha.ComputeHash(fs);
+                    }
+                    var buffer = new byte[SampleBlockBytes];
+                    for (int i = 0; i < SampleBlockCount; i++) {
+                        fs.Position = (length - SampleBlockBytes) * i / (SampleBlockCount - 1);
+                        int filled = 0;
+                        while (filled < buffer.Length) {
+                            int n = fs.Read(buffer, filled, buffer.Length - filled);
+                            if (n <= 0) {
+                                break;
+                            }
+                            filled += n;
+                        }
+                        sha.TransformBlock(buffer, 0, filled, null, 0);
+                    }
+                    sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                    return sha.Hash;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 2 本の ONNX の中身の印を背景で計算し始める(モデルのファイルがあると分かったとき。読み込み前だけ呼ぶ)。
+        /// 前に始めた計算は捨てる(ダウンロードで置き直した後にも呼ばれる)。メインスレッド専用。
+        /// </summary>
+        public static void PrefetchContentTags() {
+            PrefetchContentTag(EncoderOnnxPath);
+            PrefetchContentTag(DecoderOnnxPath);
+        }
+
+        static void PrefetchContentTag(string path) {
+            s_prefetchedTags[path] = Task.Run(() => ComputeTagInBackground(path));
+        }
+
+        // 計算の前後でファイルの姿が変わっていれば使わない(書き換えの途中を読んだかもしれない)。
+        // 読めなければ null で、読み込むときにその場で計算し直す(失敗の報告はそちらが受け持つ)。
+        static PrefetchedTag ComputeTagInBackground(string path) {
+            try {
+                var before = FileStamp.TryRead(path);
+                if (before == null) {
+                    return null;
+                }
+                string tag = ContentTag(path);
+                if (!before.SameAs(FileStamp.TryRead(path))) {
+                    return null;
+                }
+                return new PrefetchedTag(tag, before);
+            } catch (Exception) {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 中身の印。先に計算した印があり、計算が済んでいて、ファイルが計算したときのままなら、それを使う(1 回だけ)。
+        /// 無い・済んでいない・書き換えられていたら、今までどおりその場で計算する(待たない)。
+        /// </summary>
+        static string ContentTagFor(string path) {
+            if (s_prefetchedTags.TryGetValue(path, out var task)) {
+                s_prefetchedTags.Remove(path);
+                if (task.Status == TaskStatus.RanToCompletion) {
+                    var pre = task.Result;
+                    if (pre != null && pre.stamp.SameAs(FileStamp.TryRead(path))) {
+                        return pre.tag;
+                    }
+                }
+            }
+            return ContentTag(path);
         }
 
         /// <summary>

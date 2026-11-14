@@ -97,6 +97,65 @@ namespace Iroca.EditorTests {
         }
 
         [Test]
+        public void PrefetchedContentTag_IsUsedOnlyWhileTheFileIsUnchanged() {
+            // モデルの読み込みで一番重い中身の印(SHA-256)は、ファイルがあると分かった時点で背景で計算しておき、
+            // 読み込むときに受け取る。計算した後で同じ大きさ・同じ時刻のまま中身だけ書き換えられたら、受け取らずに
+            // その場で計算し直す(取り違えると、別の中身から作った .sentis を使ってしまう)。
+            var repo = Repository();
+            var cachePathFor = Method(repo, "CachePathFor");
+            var prefetch = Method(repo, "PrefetchContentTag");
+            var pending = (System.Collections.IDictionary)repo
+                .GetField("s_prefetchedTags", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null);
+            Assert.IsNotNull(pending, "s_prefetchedTags が見つからない（名前を変えたらこのテストも直す）");
+            string dir = Path.Combine(Path.GetTempPath(), "iroca_onnx_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try {
+                string onnx = Path.Combine(dir, TestStem() + ".onnx");
+                var when = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                void Write(byte[] bytes) {
+                    File.WriteAllBytes(onnx, bytes);
+                    File.SetLastWriteTimeUtc(onnx, when);
+                }
+                string Prefetched() {
+                    prefetch.Invoke(null, new object[] { onnx });
+                    ((System.Threading.Tasks.Task)pending[onnx]).Wait();
+                    string path = (string)cachePathFor.Invoke(null, new object[] { onnx });
+                    Assert.IsFalse(pending.Contains(onnx), "先に計算した印を受け取った後も残っている（2 回目に古い印を使う）");
+                    return path;
+                }
+                string Direct() => (string)cachePathFor.Invoke(null, new object[] { onnx });
+
+                Write(new byte[] { 1, 2, 3, 4 });
+                string first = Direct();
+                Assert.AreEqual(first, Prefetched(), "先に計算した印が、その場で計算した印と違う");
+
+                // 先に計算した後で、同じ大きさ・同じ時刻のまま中身だけ書き換える。
+                prefetch.Invoke(null, new object[] { onnx });
+                ((System.Threading.Tasks.Task)pending[onnx]).Wait();
+                Write(new byte[] { 1, 2, 3, 5 });
+                string afterRewrite = Direct();
+                Assert.AreNotEqual(first, afterRewrite, "書き換える前に計算した印を使った");
+                Assert.AreEqual(afterRewrite, Direct());
+
+                // 見本(1MB)より大きいファイルでも、中身ごと置き換えたら見分ける(見本の塊の外だけが違うものは見分けないが、
+                // 別のモデルへの置き換えでそうなることは無い)。
+                var big = new byte[3 * 1024 * 1024];
+                new System.Random(1).NextBytes(big);
+                Write(big);
+                string bigFirst = Direct();
+                prefetch.Invoke(null, new object[] { onnx });
+                ((System.Threading.Tasks.Task)pending[onnx]).Wait();
+                new System.Random(2).NextBytes(big);
+                Write(big);
+                string bigAfter = Direct();
+                Assert.AreNotEqual(bigFirst, bigAfter, "大きいファイルで、書き換える前に計算した印を使った");
+                Assert.AreEqual(bigAfter, Prefetched());
+            } finally {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Test]
         public void LeftoverCacheTempFiles_OnlyOldOnesAreRemoved() {
             // キャッシュは一時ファイルに書いてから置き換える。保存中に落ちて残った一時ファイルだけを消し、
             // 別の Unity が今書いている一時ファイルは消さない。

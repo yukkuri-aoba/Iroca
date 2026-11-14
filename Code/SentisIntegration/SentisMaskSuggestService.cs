@@ -368,6 +368,9 @@ namespace Iroca.SentisIntegration {
             bool present = MaskSuggestBridge.ModelFilesPresent;
             if (present) {
                 MaskSuggestModelDownload.PlaceBundledNoticesIfMissing();
+                // 読み込み(TryEnsureModels。同期)で一番重い中身の印(SHA-256)を、使う前に背景で計算しておく。
+                // ドメインごとに、窓が最初に描かれたときとダウンロードが済んだときに来る。
+                SentisModelRepository.PrefetchContentTags();
             }
             var next = present ? MaskSuggestPhase.NotLoaded : MaskSuggestPhase.NoModel;
             if (_phase != next) {
