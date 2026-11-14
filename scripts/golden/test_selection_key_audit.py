@@ -137,3 +137,27 @@ def test_derived_selection_inputs_change_the_key(audit_output):
         "→ その値を BuildSelectionKey から消していないか（消すと塗り先の色・模様保持を変えたときに古い選択の\n"
         "  プレビューになる）。消していないなら、ハーネスが選んだ 2 つのゾーンでその値が変わらなくなっている\n"
         "  (派生の値の式を変えた)ので、ゾーンを選び直す。")
+
+
+# 派生の値が選択に効かないゾーン(白へ抜ける途中のほぼ白を戻す段が走らない。PixelProcessor.EnclosedNearWhiteMayRun)。
+# そこでは派生の値が変わっても鍵は変わらない(塗り先の色を動かすたびに選択を計算し直さない)。
+NEAR_WHITE_INERT = {"rectMode", "highlightRecoveryOff", "hueNotTrusted"}
+
+
+def test_derived_value_is_left_out_where_it_does_not_apply(audit_output):
+    """白へ抜ける途中のほぼ白を戻す段が走らないゾーンでは、塗り先の色・模様保持を動かしても鍵が変わらない。
+
+    鍵が変わらないのに選択が変わる誤り(古い選択の使い回し)は、選択を使い回したバッチと単発実行の突き合わせ
+    (dev_safe の test_harness_batch_parity)が見る。ここは、効かないゾーンで鍵から外れていること(速さの約束)を見る。
+    """
+    inert = {}
+    for ln in audit_output:
+        if ln.startswith("SELKEY-INERT "):
+            _, name, flag = ln.split()
+            inert[name] = flag
+    missing = sorted(NEAR_WHITE_INERT - set(inert))
+    assert not missing, f"--selkey-audit が SELKEY-INERT の行を出していません: {missing}"
+    changed = sorted(n for n in NEAR_WHITE_INERT if inert[n] != "1")
+    assert not changed, (
+        f"その段が走らないゾーンなのに、塗り先の色・模様保持で鍵が変わります: {changed}\n"
+        "→ BuildSelectionKey が派生の値を、EnclosedNearWhiteMayRun を通さずに鍵へ入れていないか。")

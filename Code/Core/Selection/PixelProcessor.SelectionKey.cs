@@ -13,7 +13,7 @@ namespace Iroca {
         // 出力彩度・シャドウ脱彩・wash・autoRecolorAnchor は **含めない**(再着色のみに効くので、変えてもキーは
         // 同じ=選択キャッシュがヒットする)。ターゲット色・valueBlend もそのものは含めないが、白へ抜ける途中のほぼ白を
         // 戻すか(NearWhiteRecolorIsGentle)を通して選択を変えるので、その bool を含める(色を動かすたびに外れないように。
-        // ハーネスの --selkey-audit が SELKEY-DERIVED で確かめる)。float は
+        // 効かないゾーンでは固定の値。ハーネスの --selkey-audit が SELKEY-DERIVED・SELKEY-INERT で確かめる)。float は
         // ビット表現で完全一致判定(丸め衝突を避ける)。曖昧なものは安全側で含める(ミスが増えるだけ)。
         // マスクの中身も含めない: 含めるマスクは保存する選択に効かず、除外マスクは保存時の配列と比べて
         // 使えるかを判定する(SelectionCache・ExclusionUnchanged。除外が 1 画素でも変われば計算し直す)。
@@ -48,8 +48,10 @@ namespace Iroca {
             // 境界クリーンアップの ON/OFF で切り替わるので、キーに入れる。
             B(mixtureBand);
             // 白へ抜ける途中のほぼ白を戻すかは塗り先の色で変わる(RecoverEnclosedNearWhite の 2 回目)。ターゲット色そのものは
-            // 入れない(色を動かすたびにキャッシュが外れないように)。
-            B(NearWhiteRecolorIsGentle(z));
+            // 入れない(色を動かすたびにキャッシュが外れないように)。その段が走らないゾーン(色で選ばない・ハイライト補助が
+            // 切・色相を信用しないサンプル。EnclosedNearWhiteMayRun が偽)では効かないので、塗り先によらず 0 を入れる
+            // (走るかの条件は、上で鍵に入れたゾーンの値だけで決まる)。
+            B(EnclosedNearWhiteMayRun(z) && NearWhiteRecolorIsGentle(z));
             // マスクの寸法。マスクは packed ulong[] で寸法が別持ちのため、寸法が変われば同じビット列でも
             // 指す画素が変わる（レビュー §4 低 / 監査 L-6）。除外マスクの比べ直しも同じ寸法どうしでしか成り立たない。
             I(maskW); I(maskH);

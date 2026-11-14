@@ -761,11 +761,10 @@ namespace Iroca {
             PixelHsv hsv, ColorZone zone, int w, int h,
             CancellationToken ct = default) {
             float* pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
-            Color.RGBToHSV(zone.sampleColor, out _, out float sS, out _);
-            // 色相を全面的に信用するサンプルだけ(それ以外の白に近いサンプルは明部免除が純白にも効く)。
-            if (sS < zone.chromaThreshold + ColorZone.ChromaConfidenceSpan) {
+            if (!EnclosedNearWhiteMayRun(zone)) {
                 return 0;
             }
+            Color.RGBToHSV(zone.sampleColor, out _, out float sS, out _);
             float ringSatMax = sS * EnclosedHlSatFrac;
 
             int len = w * h;
@@ -823,6 +822,23 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// <see cref="RecoverEnclosedNearWhite"/> が選択を変えうるか(画素に依らない、ゾーンの設定だけで決まる条件)。呼ぶ側の
+        /// 条件(色で選ぶゾーン・ハイライト補助)と、中の早抜け(色相を全面的に信用するサンプルだけ。それ以外の白に近い
+        /// サンプルは明部免除が純白にも効く)をまとめたもの。偽なら 2 回目を行うか(<see cref="NearWhiteRecolorIsGentle"/>)は
+        /// 選択に効かないので、選択キャッシュの鍵(BuildSelectionKey)もここを通して、そのときは塗り先の色を鍵に映さない
+        /// (塗り先の色を動かして境目をまたぐたびに選択を計算し直していた)。呼ぶ側・中の早抜け・鍵の 3 つが同じ条件を
+        /// 見るよう、ここ以外に書かない(ずれると、古い選択を使い回す)。
+        /// </summary>
+        private static bool EnclosedNearWhiteMayRun(ColorZone zone) {
+            if (zone.mode != SelectionMode.ColorPick || !zone.highlightRecovery) {
+                return false;
+            }
+            Color.RGBToHSV(zone.sampleColor, out _, out float sS, out _);
+            // 以前の早抜け(sS < しきい なら戻さない)の否定の形のまま(NaN のときも同じ側に倒れる)。
+            return !(sS < zone.chromaThreshold + ColorZone.ChromaConfidenceSpan);
+        }
+
         // 塗り先の彩度がサンプルのこの倍までなら、ほぼ白(色味の OkLab の彩度 0.006 程度)の変化は見て分からない大きさに収まる。
         private const float EnclosedNearWhiteMaxChromaGain = 2f;
         // 模様保持で下がるほぼ白の明るさ(OkLab)の上限。見分けられる色差 0.02 の半分。
@@ -832,7 +848,8 @@ namespace Iroca {
         /// RecoverEnclosedNearWhite の 2 回目を行うか。2 回目は純白を戻さないので、ほぼ白の仕上がりと純白の差がそのまま
         /// 境目になる。暗い塗り先ではほぼ白が明るさの上限まで下がり、鮮やかな塗り先や彩度の低いサンプルでは色が乗り、模様保持を
         /// 下げると暗くなって、硬い縁が出る。
-        /// 塗り先の色で選択が変わるので、選択キャッシュの鍵に入れる(BuildSelectionKey)。
+        /// 塗り先の色で選択が変わるので、選択キャッシュの鍵に入れる(BuildSelectionKey。<see cref="EnclosedNearWhiteMayRun"/> が
+        /// 真のときだけ。偽なら 2 回目は走らない)。
         /// </summary>
         private static bool NearWhiteRecolorIsGentle(ColorZone zone) {
             OkLab.RgbToOklab(zone.sampleColor.r, zone.sampleColor.g, zone.sampleColor.b, out _, out float sa, out float sb);

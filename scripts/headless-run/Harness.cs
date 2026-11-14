@@ -988,6 +988,26 @@ namespace Iroca {
             string gentleKey = KeyOf(gentle);
             bool derived = KeyOf(darkTarget) != gentleKey && KeyOf(lowBlend) != gentleKey;
             Console.WriteLine($"SELKEY-DERIVED nearWhiteGentle {(derived ? 1 : 0)}");
+
+            // 逆向き: その段(RecoverEnclosedNearWhite)が走らないゾーンでは、上と同じ 3 つ(gentle が変わる組)でも鍵が
+            // 同じ(塗り先の色を動かすたびに選択を計算し直さない)。"SELKEY-INERT <名前> <1=鍵が同じ>"。走らないのは、
+            // 色で選ばない(Rect)・ハイライト補助が切・サンプルの彩度が色相を信用するしきい(chromaThreshold +
+            // ChromaConfidenceSpan)に届かない、のいずれか(PixelProcessor.EnclosedNearWhiteMayRun)。
+            void Inert(string name, Action<ColorZone> off) {
+                var a = gentle.Clone();
+                var b = darkTarget.Clone();
+                var c = lowBlend.Clone();
+                off(a);
+                off(b);
+                off(c);
+                string ka = KeyOf(a);
+                bool same = KeyOf(b) == ka && KeyOf(c) == ka;
+                Console.WriteLine($"SELKEY-INERT {name} {(same ? 1 : 0)}");
+            }
+            Inert("rectMode", z => z.mode = SelectionMode.Rect);
+            Inert("highlightRecoveryOff", z => z.highlightRecovery = false);
+            // サンプルの HSV の彩度は約 0.42。しきいを 0.40 にすると 0.40 + 0.10 に届かない。
+            Inert("hueNotTrusted", z => z.chromaThreshold = 0.40f);
             return 0;
         }
 
