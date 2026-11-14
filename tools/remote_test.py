@@ -458,6 +458,32 @@ def resolve(t: Transport, mode: str, manifest: bool) -> dict | None:
         return None
 
 
+def sweep_local_dead_dll() -> None:
+    """手元の、使われなくなった DLL の実行キャッシュを消す(dev_safe の cache_gc.sweep_dead_dll_now。2026-11-14)。
+
+    pytest の開始時の掃除は、回す機械(相手)の dev_safe しか見ない。テストを相手で回すようになってから手元では
+    pytest が始まらず、手元で使った DLL(visual_review・golden など)の分が掃除されずに残っていた。
+    消すのは印が IROCA_CACHE_GC_DLL_DAYS(手元の 2TB では 1 日)動いていない DLL の分だけで、ふだんは一瞬で終わる。
+    失敗してもテストは止めない。"""
+    if os.environ.get("IROCA_CACHE_GC", "1") == "0":
+        return
+    tests = REPO / "dev_safe" / "Tests"
+    if not (tests / "regression" / "cache_gc.py").is_file():
+        return
+    try:
+        sys.path.insert(0, str(tests))
+        try:
+            from regression import cache_gc
+        finally:
+            sys.path.remove(str(tests))
+        note = cache_gc.sweep_dead_dll_now()
+    except Exception as e:      # 掃除の失敗でテストを止めない
+        log(f"手元のキャッシュの掃除に失敗しました: {e!r}")
+        return
+    if note:
+        log("手元: " + note.removeprefix("[iroca] "))
+
+
 def cmd_run(ns) -> int:
     argv = ns.argv[1:] if ns.argv and ns.argv[0] == "--" else ns.argv
     if not argv:
@@ -467,6 +493,7 @@ def cmd_run(ns) -> int:
     info = resolve(t, mode, manifest=True)
     if info is None:
         return run_local(argv)
+    sweep_local_dead_dll()
     try:
         return run_remote(t, argv, ns.fetch, ns.env, info)
     except Unavailable as e:
