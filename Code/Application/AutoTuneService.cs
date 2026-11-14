@@ -460,9 +460,12 @@ namespace Iroca {
                 if (proposal.floodWarning) {
                     StartAnalysis(null, 0, 0, ReasonEvidenceFlood);
                 }
-                // 提案の範囲は受け取りの間だけ使える(AiSuggestBroker が後で返す)。解析が終わるまで持つので写す。
+                // 提案の範囲は受け取りの間だけ使える(AiSuggestBroker が後で返す)。解析が終わるまで持つので参照を足す
+                // (解析の後始末で返す)。写さなくてよいのは、配り終えた範囲へは誰も書かず(サービスは渡したら手放し、
+                // 受け取り先は提案ごとに 1 つ)、解析も証拠を読むだけ(収縮は自分の作業配列へ写してから)だから。以前は写していた
+                // (メインスレッドで 4K 16MB・8K 67MB を写し、解析が終わるまで 1 枚余分に持っていた)。
                 else {
-                    StartAnalysis(proposal.mask.Clone(), proposal.width, proposal.height, null);
+                    StartAnalysis(proposal.mask.AddRef(), proposal.width, proposal.height, null);
                 }
             }
 

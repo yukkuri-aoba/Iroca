@@ -150,6 +150,26 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(1, _pixels.RefCount);
         }
 
+        // 証拠の範囲は写さずに参照を足して持つ。解析が終わったら返し(漏れない)、中身も書き換えない(提案の範囲を共有してよい前提)。
+        [Test]
+        public void EvidenceRegion_IsReturnedAfterAnalysis_AndLeftUnchanged() {
+            var zone = RedZone(clicked: true);
+            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var proposal = LeftHalf();
+            var region = proposal.mask.AddRef();   // テストが中身と参照の数を見るための参照
+            try {
+                _svc.Finish(proposal);
+                Assert.AreEqual(AutoTuneService.Status.Analyzing, run.Status);
+                WaitForAnalysis(run);
+                Assert.AreEqual(AutoTuneService.Status.Done, run.Status, run.Failure + " " + run.FailureDetail);
+                Assert.IsTrue(run.HadEvidence);
+                Assert.AreEqual(1, region.RefCount, "解析が足した参照を返していない(提案の分は AiSuggestBroker が返す)");
+                CollectionAssert.AreEqual(LeftHalfMask(), region.ToArray(), "解析が証拠の範囲を書き換えた");
+            } finally {
+                region.Release();
+            }
+        }
+
         [Test]
         public void EvidenceIsNotKept_WhenNothingCanDumpIt() {
             // 配布物(Code/Debug が無い)では、証拠の控えを読む者がいない。詰め直す時間と、ゾーンごとに持ち続けるメモリを使わない。
