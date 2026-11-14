@@ -18,9 +18,9 @@
     cat <run_id> <name>     inbox/<run_id>/<name> を標準出力へ書く
     cleanup <run_id>        inbox/<run_id> を消す
     extract-to <unity|models>   標準入力の tar を決まった置き場へ展開する（準備用）
-    power [get | set <efficiency|balanced|performance>]   Win11 の電源モードを見る・切り替える（確認用）
+    power [get | set <saver|balanced|performance>]   電源プランを見る・切り替える（確認用）
 
-電源モード: run は排他を取っている間だけ「最適なパフォーマンス」にし、終わったら「最適な電力効率」へ戻す
+電源プラン: run は排他を取っている間だけ「高パフォーマンス」にし、終わったら「省電力」へ戻す
 （普段は省電力で置くため。2026-11-14 のユーザー依頼）。
 """
 from __future__ import annotations
@@ -234,70 +234,53 @@ def cmd_extract_to(argv: list[str]) -> int:
     return 0
 
 
-# ---- 電源モード ----
-# Win11 の「電源モード」(設定 > システム > 電源)は powercfg の電源プランとは別の「オーバーレイ」で、powercfg の
-# サブコマンドでは切り替えられない(2026-11-14 に G83 で確認)。powrprof.dll の PowerSetActiveOverlayScheme を直接呼ぶ。
-# 管理者権限は要らない。普段は省電力にしておき、テストの間だけ最適なパフォーマンスにして、終わったら省電力へ戻す。
-POWER_MODES = {
-    "efficiency": "961cc777-2547-4f9d-8174-7d86181b8a7a",   # 最適な電力効率
-    "balanced": "00000000-0000-0000-0000-000000000000",     # バランス
-    "performance": "ded574b5-45a0-4f42-8737-46345c09c238",  # 最適なパフォーマンス
+# ---- 電源プラン ----
+# 実行の間だけ「高パフォーマンス」、終わったら「省電力」へ戻す(つけっぱなしの消費電力のため。2026-11-14 のユーザー依頼)。
+# `powercfg /setactive` で切り替える(管理者権限は不要)。この 2 つは Windows の標準の GUID で、`powercfg /list` に出ない
+# 環境(モダンスタンバイの Win11 など)でも /setactive は通る(G83 で確認)。
+# Win11 の「電源モード」(設定 > システム > 電源)はこれとは別物(オーバーレイ)で、ここでは触らない。
+POWER_PLANS = {
+    "saver": "a1841308-3541-4fab-bc81-f71556f20b4a",        # 省電力
+    "balanced": "381b4222-f694-41f0-9685-ff5bb260df2e",     # バランス
+    "performance": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",  # 高パフォーマンス
 }
 
 
-def _power_guid(text: str):
-    import ctypes
-    import uuid
-    g = uuid.UUID(text)
-    buf = ctypes.create_string_buffer(g.bytes_le, 16)
-    return buf
-
-
-def set_power_mode(name: str) -> bool:
-    """電源モードを切り替える。切り替えられたら True。対応していない環境(古い Windows など)では False。"""
-    if os.name != "nt" or name not in POWER_MODES:
+def set_power_plan(name: str) -> bool:
+    """電源プランを切り替える。切り替えられたら True。"""
+    if os.name != "nt" or name not in POWER_PLANS:
         return False
     try:
-        import ctypes
-        dll = ctypes.WinDLL("powrprof")
-        fn = dll.PowerSetActiveOverlayScheme
-        fn.argtypes = [ctypes.c_void_p]
-        fn.restype = ctypes.c_ulong
-        guid = _power_guid(POWER_MODES[name])  # 呼び出しの間、生かしておく(式の中の一時オブジェクトだと先に解放される)
-        return fn(ctypes.addressof(guid)) == 0
-    except (OSError, AttributeError):
+        r = subprocess.run(["powercfg", "/setactive", POWER_PLANS[name]], capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
         return False
+    return r.returncode == 0
 
 
-def get_power_mode() -> str | None:
+def get_power_plan() -> str | None:
     if os.name != "nt":
         return None
     try:
-        import ctypes
-        import uuid
-        dll = ctypes.WinDLL("powrprof")
-        fn = dll.PowerGetEffectiveOverlayScheme
-        fn.argtypes = [ctypes.c_void_p]
-        fn.restype = ctypes.c_ulong
-        out = ctypes.create_string_buffer(16)
-        if fn(ctypes.addressof(out)) != 0:
-            return None
-        cur = str(uuid.UUID(bytes_le=out.raw))
-    except (OSError, AttributeError):
+        r = subprocess.run(["powercfg", "/getactivescheme"], capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
         return None
-    for k, v in POWER_MODES.items():
+    m = re.search(rb"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", r.stdout)
+    if r.returncode != 0 or not m:
+        return None
+    cur = m.group(0).decode().lower()
+    for k, v in POWER_PLANS.items():
         if v == cur:
             return k
     return cur
 
 
 def cmd_power(argv: list[str]) -> int:
-    """power [get | set <efficiency|balanced|performance>] — 切り替えの確認用。"""
+    """power [get | set <saver|balanced|performance>] — 切り替えの確認用。"""
     if argv and argv[0] == "set" and len(argv) > 1:
-        ok = set_power_mode(argv[1])
-        print(f"set {argv[1]}: {'ok' if ok else 'failed'} -> {get_power_mode()}")
+        ok = set_power_plan(argv[1])
+        print(f"set {argv[1]}: {'ok' if ok else 'failed'} -> {get_power_plan()}")
         return 0 if ok else 1
-    print(get_power_mode())
+    print(get_power_plan())
     return 0
 
 
@@ -527,11 +510,11 @@ def cmd_run(argv: list[str]) -> int:
     run_dir = _run_dir(run_id)
     req = json.loads((run_dir / "request.json").read_text(encoding="utf-8"))
     fd = _acquire_lock()
-    # 排他の中にいる間(=実行は 1 本だけ)は最適なパフォーマンス。終わりは finally で省電力へ戻す。
+    # 排他の中にいる間(=実行は 1 本だけ)は高パフォーマンス。終わりは finally で省電力へ戻す。
     # 呼び手が切れたときの見張りも child を止めて finally に来るので、戻し忘れない。
-    powered = set_power_mode("performance")
+    powered = set_power_plan("performance")
     if not powered:
-        log("電源モードを切り替えられない（今のまま回ります）")
+        log("電源プランを切り替えられない（今のまま回ります）")
     try:
         t0 = time.monotonic()
         try:
@@ -599,8 +582,8 @@ def cmd_run(argv: list[str]) -> int:
             _pack_fetch(run_dir, req["fetch"])
         return rc
     finally:
-        if powered and not set_power_mode("efficiency"):
-            log("電源モードを省電力へ戻せませんでした（手で戻してください）")
+        if powered and not set_power_plan("saver"):
+            log("電源プランを省電力へ戻せませんでした（手で戻してください）")
         import msvcrt
         try:
             msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
