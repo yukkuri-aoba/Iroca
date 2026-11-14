@@ -319,11 +319,15 @@ namespace Iroca {
 
             result = BuildHeuristicDefault();
             using var hsv = BuildHsvGrid(pixels, width, height, ct);
+            // 証拠の解像度の作業配列(芯・収縮の作業・証拠の外)。読むのは下の正規化と縁クリックの救済のループまでなので、
+            // 格子(hsv)と別に借り、ループを抜けたところで返す(格子に持たせると、導出・閉ループ検証の間も持ち続け、
+            // 8K の証拠で 3 本 約 200MB)。途中で抜けたとき(早抜け・取り消し)は using が返す(Dispose は 2 回呼んでよい)。
+            using var evScratch = new WorkScratch();
             Progress(0.25f);
 
             // ── 証拠芯(収縮後)の格子リスト ──
             ct.ThrowIfCancellationRequested();
-            bool* core = ErodeMask(hsv, evidence, evW, evH, EvErodeR, ct);
+            bool* core = ErodeMask(evScratch, evidence, evW, evH, EvErodeR, ct);
             var coreList = CollectGridIndices(pixels, width, height, hsv, core, evW, evH,
                 excluded, maskW, maskH);
             if (coreList.Count < EvMinErodedPixels) {
@@ -339,7 +343,7 @@ namespace Iroca {
 
             // 「証拠の中だけ」を見るための除外マスク(非証拠画素 ∪ 実際の除外)。
             int evLen = evW * evH;
-            bool* notEvidence = hsv.scratch.Bool(evLen, clear: false);
+            bool* notEvidence = evScratch.Bool(evLen, clear: false);
             for (int i = 0; i < evLen; i++) {
                 notEvidence[i] = !evidence[i];
             }
@@ -425,6 +429,9 @@ namespace Iroca {
                 tintRetry = true;
                 retryDiag = " tint";
             }
+            // 芯(core)と証拠の外(notEvidence)を読むのはここまで。以降(導出・閉ループ検証)で同じ大きさを借りる所は、
+            // 返した塊を使い回す。
+            evScratch.Dispose();
             var aZone = zone.Clone();
             aZone.sampleColor = rep;
 
@@ -929,17 +936,22 @@ namespace Iroca {
 
         // ─────────────────── bool マスクの収縮(4 近傍) ───────────────────
 
-        // 結果は owner の配列(owner を手放すまで読める)。
-        private static bool* ErodeMask(HsvGrid owner, bool* src, int w, int h, int r, CancellationToken ct) {
+        // 結果は scratch の配列(scratch を返すまで読める)。r が 0 なら src そのもの(読むだけに使うこと)。
+        // 1 パス目は src から直接読む(src は書き換えない。パスは入力の配列だけで決まるので、写してから読むのと同じ結果)。
+        private static bool* ErodeMask(WorkScratch scratch, bool* src, int w, int h, int r, CancellationToken ct) {
+            if (r <= 0) {
+                return src;
+            }
             int len = w * h;
-            bool* a = owner.scratch.CopyOf(src, len);
-            bool* b = owner.scratch.Bool(len, clear: false);
-            // 取り消しはパスの途中でも受ける(8K の証拠では 1 パスが長い。作業配列は owner の持ち物なので、途中で抜けても漏れない)。
+            bool* a = scratch.Bool(len, clear: false);
+            bool* b = r > 1 ? scratch.Bool(len, clear: false) : null;
+            bool* cur = src;
+            // 取り消しはパスの途中でも受ける(8K の証拠では 1 パスが長い。作業配列は scratch の持ち物なので、途中で抜けても漏れない)。
             var po = CoreParallelism.Options(ct);
             for (int pass = 0; pass < r; pass++) {
                 ct.ThrowIfCancellationRequested();
-                bool* s = a;
-                bool* d = b;
+                bool* s = cur;
+                bool* d = (pass & 1) == 0 ? a : b;
                 Parallel.For(0, h, po, y => {
                     int row = y * w;
                     for (int x = 0; x < w; x++) {
@@ -951,10 +963,9 @@ namespace Iroca {
                         d[row + x] = c && l && rr && u && dn;
                     }
                 });
-                a = d;
-                b = s;
+                cur = d;
             }
-            return a;
+            return cur;
         }
     }
 }
