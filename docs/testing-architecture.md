@@ -501,7 +501,8 @@ DLL の印と同じ `IROCA_CACHE_GC_DLL_DAYS`（既定 1 日）使われなけ�
 実行キャッシュだけで、テスト用 PC では容量の 97% を占める。ほかのキャッシュ（`results/` `rows/` `decoded/` など）は鍵が
 入力のハッシュだけで、どの入力から作ったかが残らないので、これまでどおり日数で消す。
 テストを相手で回すと、手元では pytest が始まらず、この掃除も走らない。そこで `tools/remote_test.py` は、相手へ送る前に
-手元の dev_safe でも同じ `sweep_dead_dll_now` を呼ぶ（手元の 2TB では印の期限 1 日。ふだん 0.1 秒かからない）。
+手元の dev_safe でも pytest の開始時と同じ `maybe_sweep` を呼ぶ（使われなくなった DLL の分は毎回・印の期限は手元の 2TB では
+1 日、日数での掃除は 6 時間に 1 回。ふだん 0.1 秒かからない）。
 `tools/visual_review.py compare --engine csharp` の固定設定のケースも同じ `run_harness_many`
 （キャッシュ + `--batch`）を通るが、**選択を使い回さずに**（`share_selection=False`、鍵に `noshare`）測る（2026-11-10、点検 D-3）。
 書き出しは選択キャッシュを使わないので、出荷ゲートはその経路を測る。回帰が使い回して測った同じケースの出力がキャッシュにあれば

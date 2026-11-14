@@ -458,13 +458,13 @@ def resolve(t: Transport, mode: str, manifest: bool) -> dict | None:
         return None
 
 
-def sweep_local_dead_dll() -> None:
-    """手元の、使われなくなった DLL の実行キャッシュを消す(dev_safe の cache_gc.sweep_dead_dll_now。2026-11-14)。
+def sweep_local_caches() -> None:
+    """手元のキャッシュを、pytest の開始時と同じ規則で掃除する(dev_safe の cache_gc.maybe_sweep。2026-11-14)。
 
     pytest の開始時の掃除は、回す機械(相手)の dev_safe しか見ない。テストを相手で回すようになってから手元では
-    pytest が始まらず、手元で使った DLL(visual_review・golden など)の分が掃除されずに残っていた。
-    消すのは印が IROCA_CACHE_GC_DLL_DAYS(手元の 2TB では 1 日)動いていない DLL の分だけで、ふだんは一瞬で終わる。
-    失敗してもテストは止めない。"""
+    pytest が始まらず、手元で使った DLL(visual_review・golden など)の分も、日数の切れた作業ファイルも残っていた。
+    使われなくなった DLL の実行キャッシュ(印が IROCA_CACHE_GC_DLL_DAYS、手元の 2TB では 1 日動いていない分)は毎回、
+    日数での掃除は 6 時間に 1 回。ふだんは一瞬で終わる。失敗してもテストは止めない。"""
     if os.environ.get("IROCA_CACHE_GC", "1") == "0":
         return
     tests = REPO / "dev_safe" / "Tests"
@@ -476,12 +476,12 @@ def sweep_local_dead_dll() -> None:
             from regression import cache_gc
         finally:
             sys.path.remove(str(tests))
-        note = cache_gc.sweep_dead_dll_now()
+        note = cache_gc.maybe_sweep()
     except Exception as e:      # 掃除の失敗でテストを止めない
         log(f"手元のキャッシュの掃除に失敗しました: {e!r}")
         return
-    if note:
-        log("手元: " + note.removeprefix("[iroca] "))
+    for line in (note or "").splitlines():
+        log("手元: " + line.removeprefix("[iroca] "))
 
 
 def cmd_run(ns) -> int:
@@ -493,7 +493,7 @@ def cmd_run(ns) -> int:
     info = resolve(t, mode, manifest=True)
     if info is None:
         return run_local(argv)
-    sweep_local_dead_dll()
+    sweep_local_caches()
     try:
         return run_remote(t, argv, ns.fetch, ns.env, info)
     except Unavailable as e:
