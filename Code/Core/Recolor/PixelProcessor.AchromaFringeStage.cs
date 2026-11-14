@@ -6,6 +6,25 @@ using UnityEngine;
 namespace Iroca {
     internal static unsafe partial class PixelProcessor {
         /// <summary>
+        /// 無彩のフチ消し(<see cref="AchromaFringeStage"/>)が走りうるか(ゾーンの設定だけで決まる条件)。無彩の重み
+        /// (<see cref="ComputeAchromaWeight"/>)が効いていて、混色帯モード(<see cref="IsMixtureBandZone"/>)でないこと。
+        /// 混色帯モードでは、再着色する範囲があれば帯の解析が被覆率を書く(外側の縁もそちらが塗る)ので走らず、範囲が
+        /// 無ければ範囲の条件で走らない。ほかに画素で決まる条件(再着色する範囲があるか)があるので、真でも走らないことはある。
+        /// フチ消しだけが読む作業配列(ゾーンが 1 つのときの占有の印 <see cref="RunBuffers.ClaimedFlag"/>)を借りるかも
+        /// ここで決める(段と借りる所で条件がずれると、借りずに読む・読まないのに借りる)。
+        /// </summary>
+        private static bool AchromaFringeMayRun(float achromaWeight, bool mixMode) =>
+            achromaWeight > AchromaWeightActiveMin && !mixMode;
+
+        /// <summary>
+        /// ゾーンを処理する前に <see cref="AchromaFringeMayRun(float, bool)"/> を求める(段が使う値と同じ式: 無彩の重みは
+        /// 無彩の固めの段、混色帯モードは RunZone が、同じゾーンの値から求める)。
+        /// </summary>
+        private static bool AchromaFringeMayRun(ColorZone zone, bool useDecontamination, float edgeFeather) =>
+            AchromaFringeMayRun(ComputeAchromaWeight(zone.sampleColor, zone.targetColor),
+                IsMixtureBandZone(zone, useDecontamination, edgeFeather));
+
+        /// <summary>
         /// 再着色の段の 6 つ目「無彩のフチ消し」(0.4.0 の計画の 3-7b で ProcessPixelsArrayCore から中身を書き換えずに
         /// 切り出した)。無彩(白↔黒)の再着色で、マッチ境界の外側に残る地色の混色画素を背景へ寄せる。
         /// 有彩のゾーンと、混色帯で縁を塗り終えたゾーンでは何もしない。
@@ -36,7 +55,8 @@ namespace Iroca {
                 // 背景より明るい混色画素を α 分解で背景へ寄せ、暗い再着色色に対する明るいフチを消す。
                 // 有彩(zAchromaWeight≈0)では呼ばれず完全 no-op。共有のマッチ/合成経路は変更しない。
                 // 混色帯の解析が走ったゾーン(有彩サンプル)では、外側の縁もそちらが合成の式で塗り終えている。
-                if (zAchromaWeight > AchromaWeightActiveMin && rcMaxX >= 0 && mixAlphaLocal == null) {
+                // ゾーンの設定で決まる条件は AchromaFringeMayRun(占有の印を借りるかと同じ判定)。
+                if (AchromaFringeMayRun(zAchromaWeight, z.MixMode) && rcMaxX >= 0 && mixAlphaLocal == null) {
                     // 除外マスク画素の位置をフチ消しへ渡す。渡さないとフチ消しは
                     //   (a) 除外画素を BG ドナーに数えて BG 推定をサンプル色で汚染し
                     //   (b) 除外画素そのものへ target 混色を書き込む(マスク契約違反)

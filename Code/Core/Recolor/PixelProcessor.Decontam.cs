@@ -56,7 +56,15 @@ namespace Iroca {
             // 2 つのバッファは呼び出し側(DecontamStage)がゾーンごとに借りて渡す(ゼロ初期化されない)。aaMask は合成の段が
             // 範囲の全画素で読むので、ここで全部消してから書く。decontaminatedPixels は aaMask=true の位置だけ下で書かれ、
             // その位置だけ読まれるので消さない。
-            ClearWork(aaMask, 0, len);
+            // solidifyOnly(混色帯モード)では印を立てない(DecomposeAaPixel を呼ばない)ので、aaMask は null でよい
+            // (呼び出し側は借りない)。そうでないときは要る。
+            if (aaMask == null) {
+                if (!solidifyOnly) {
+                    throw new ArgumentNullException(nameof(aaMask));
+                }
+            } else {
+                ClearWork(aaMask, 0, len);
+            }
             // マッチ皆無(strength>0 が無い)なら AA 境界画素も存在しないので、背景の推定を丸ごと省く。
             // aaMask は上でクリア済み=出力ビット不変。
             if (!hasMatch) {

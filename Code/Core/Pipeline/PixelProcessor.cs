@@ -310,8 +310,11 @@ namespace Iroca {
                 if (sortedZones.Count > 1) {
                     rb.Claimed = s_floatPool.Rent(len);
                     ClearWorkParallel(rb.Claimed, len, po);
-                } else {
-                    // ゾーンが 1 つ: 占有率は読むといつも 0 なので借りず、フチ消しが見る「占有したか」だけを持つ(RunBuffers)
+                } else if (sortedZones.Count == 1 && sortedZones[0] != null
+                           && AchromaFringeMayRun(sortedZones[0], useDecontamination, edgeFeather)) {
+                    // ゾーンが 1 つ: 占有率は読むといつも 0 なので借りず、フチ消しが見る「占有したか」だけを持つ(RunBuffers)。
+                    // その印を読むのはフチ消しだけなので、フチ消しが走らないと分かっているゾーン(既定の「有彩のサンプル →
+                    // 有彩の塗り先」・混色帯モード)では借りない(4K で 16MB を借りて 0 で埋めていた)。合成の段は印が無ければ書かない。
                     rb.ClaimedFlag = s_boolPool.Rent(len);
                     ClearWorkParallel(rb.ClaimedFlag, len, po);
                 }

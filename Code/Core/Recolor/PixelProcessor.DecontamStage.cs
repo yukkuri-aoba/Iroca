@@ -40,7 +40,12 @@ namespace Iroca {
                 if (useDecontamination) {
                     // ゾーンの作業配列として借りる(ゾーンの終わりに返す。ZoneBuffers)。中身は不定で、AA 縁の印は
                     // DecontaminateAaBoundary が全域を書き、塗る色は印を付けた画素と混色帯の対象にだけ書いてから読む。
-                    aaMask = z.Buffers.DecontamAaMask = s_boolPool.Rent(len);
+                    // 混色帯モード(solidifyOnly)では α 分解をしない(内部を固めるだけ)ので印は 1 つも立たない。印は借りずに
+                    // null(合成の段は「全部 false」と同じに読む。4K で 16MB。性能の候補 K4)。デバッグの記録があるときだけは、
+                    // 記録の中身(全部 false の印)を変えないよう従来どおり借りる。
+                    if (!zMixMode || debug != null) {
+                        aaMask = z.Buffers.DecontamAaMask = s_boolPool.Rent(len);
+                    }
                     decontaminatedPixels = z.Buffers.DecontamPixels = s_color32Pool.Rent(len);
                     // 内部固め(上)が無彩ターゲットの内部を均一化したので、旧 AA フィデリティ修正の
                     // interior_threshold=1.01(全画素 α 再合成)は不要(むしろ内部を背景色で再合成して
