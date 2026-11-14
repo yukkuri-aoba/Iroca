@@ -140,7 +140,9 @@ namespace Iroca.EditorTests {
             PreviewView.DetailFullResolution = fullRes;
             OpenWindow();
             var preview = _win.Preview;
+            preview.Pipeline.DetailWanted = true;
             RunFullStage(preview);
+            WaitForDetailBases(preview);
 
             int det = fullRes ? W : Import;
             Assert.AreEqual((det, det), (preview.DetailW, preview.DetailH), "拡大表示の寸法");
@@ -197,7 +199,9 @@ namespace Iroca.EditorTests {
             PreviewView.DetailFullResolution = false;
             OpenWindow();
             var preview = _win.Preview;
+            preview.Pipeline.DetailWanted = true;
             RunFullStage(preview);
+            WaitForDetailBases(preview);
             var fullRef = preview.FullOutput;
             var full = fullRef.ToArray();
             var shrunkByJob = preview.DetailOutput.ToArray();
@@ -215,6 +219,9 @@ namespace Iroca.EditorTests {
             preview.SyncDetailResolution();
             Assert.IsFalse(preview.IsGenerating, "切り替えで色替えをやり直した");
             Assert.AreEqual((Import, Import), (preview.DetailW, preview.DetailH), "オフ: 取り込み後の寸法で映す");
+            // 縮めた原本・出力は背景で作る(メインスレッドでは縮めない)。
+            WaitForDetailBases(preview);
+            Assert.IsFalse(preview.IsGenerating, "切り替えで色替えをやり直した");
             Assert.AreSame(fullRef, preview.FullOutput, "確定段の出力が替わった");
             AssertSamePixels(shrunkByJob, preview.DetailOutput.ToArray(), Import, "オフへ戻して縮めたものと、確定段のジョブが縮めたもの");
             AssertSamePixels(full, preview.FullOutput.ToArray(), W, "確定段の出力");
@@ -236,7 +243,9 @@ namespace Iroca.EditorTests {
             PreviewView.DetailFullResolution = false;
             OpenWindow();
             var preview = _win.Preview;
+            preview.Pipeline.DetailWanted = true;
             RunFullStage(preview);
+            WaitForDetailBases(preview);
             setMode(preview);
             var dv = preview.DetailView;
             // 縮めて切り出す(表示の 1 画素に元の 2×2 画素。タイルは元の 8 画素四方を 4 画素四方に縮める)。
@@ -329,10 +338,12 @@ namespace Iroca.EditorTests {
             PreviewView.DetailFullResolution = startFullRes;
             OpenWindow();
             var preview = _win.Preview;
+            preview.Pipeline.DetailWanted = true;
             preview.GeneratePreviewAsync();
             PreviewView.DetailFullResolution = !startFullRes;
             preview.SyncDetailResolution();
             Drain(preview);
+            WaitForDetailBases(preview);
 
             Assert.IsNotNull(preview.FullOutput, "確定段の出力が無い");
             var full = preview.FullOutput.ToArray();
@@ -341,6 +352,186 @@ namespace Iroca.EditorTests {
             Assert.IsNotNull(preview.DetailOutput, "拡大表示の変更後の土台が無い");
             var expected = det == W ? full : WorkingResolution.ResizeArea(full, W, H, det, det);
             AssertSamePixels(expected, preview.DetailOutput.ToArray(), det, "拡大表示の変更後の土台");
+        }
+
+        // 拡大表示が要らない間(倍率が低い)は、確定しても取り込み後の寸法へ縮めない(原本も縮めない)。寸法だけは決まっている
+        // (拡大表示の座標と、拡大表示が要るかの判定に使う)。
+        [Test]
+        public void DetailNotWanted_FinalDoesNotShrink() {
+            PreviewView.DetailFullResolution = false;
+            OpenWindow();
+            var preview = _win.Preview;
+            var p = preview.Pipeline;
+            p.DetailWanted = false;
+            RunFullStage(preview);
+            RunFullStage(preview);
+            Assert.AreEqual((Import, Import), (preview.DetailW, preview.DetailH), "拡大表示の寸法");
+            Assert.IsFalse(p.BuildingDetailBases, "要らないのに縮めている");
+            Assert.IsNull(p.DetailSource, "要らないのに原本を縮めた");
+            Assert.IsNull(p.DetailOutput, "要らないのに確定段の出力を縮めた");
+
+            // 拡大して縮めた後に拡大をやめて確定すると、古くなった出力の縮小は手放し、作り直さない。
+            p.DetailWanted = true;
+            WaitForDetailBases(preview);
+            p.DetailWanted = false;
+            RunFullStage(preview);
+            Assert.IsNull(p.DetailOutput, "古くなった出力の縮小を持っている・作り直した");
+            Assert.IsFalse(p.BuildingDetailBases, "要らないのに縮めている");
+        }
+
+        // 拡大表示が要るようになったら、背景で縮めて届ける(メインスレッドでは縮めない)。中身は、拡大したまま確定したときに
+        // 確定段のジョブが縮めるもの(今までの作り)と全画素一致。拡大したままの確定は、前の縮小を使い回す。
+        [Test]
+        public void DetailWanted_BuildsInBackground_SameAsTheFinalJobShrink() {
+            PreviewView.DetailFullResolution = false;
+            OpenWindow();
+            var preview = _win.Preview;
+            var p = preview.Pipeline;
+            int ready = 0;
+            p.DetailBasesReady += () => ready++;
+            RunFullStage(preview);
+            Assert.IsNull(p.DetailOutput, "前提: まだ縮めていない");
+
+            p.DetailWanted = true;
+            Assert.IsNull(p.DetailSource, "原本をメインスレッドで縮めた");
+            Assert.IsNull(p.DetailOutput, "確定段の出力をメインスレッドで縮めた");
+            Assert.IsTrue(p.BuildingDetailBases, "縮めるジョブを始めていない");
+            WaitForDetailBases(preview);
+            Assert.Greater(ready, 0, "届いたことを知らせていない");
+            Assert.IsFalse(preview.IsGenerating, "色替えをやり直した");
+            var source = TrueSource(preview);
+            var full = preview.FullOutput.ToArray();
+            AssertSamePixels(WorkingResolution.ResizeArea(source, W, H, Import, Import), p.DetailSource.ToArray(), Import,
+                "背景で縮めた原本");
+            var byBackground = p.DetailOutput.ToArray();
+            AssertSamePixels(WorkingResolution.ResizeArea(full, W, H, Import, Import), byBackground, Import, "背景で縮めた出力");
+
+            // 拡大したまま同じ入力で確定し直す: 確定段のジョブが縮めたものと同じ画素。
+            RunFullStage(preview);
+            Assert.IsFalse(p.BuildingDetailBases, "確定段が縮めたのに、背景でも縮めている");
+            var firstByJob = p.DetailOutput;
+            Assert.IsNotNull(firstByJob, "拡大している間の確定段が縮めていない");
+            AssertSamePixels(byBackground, firstByJob.ToArray(), Import, "背景の縮小と確定段のジョブの縮小");
+            // もう 1 回確定すると、前の前の縮小(誰も読んでいない)を使い回す。
+            RunFullStage(preview);
+            RunFullStage(preview);
+            Assert.AreSame(firstByJob, p.DetailOutput, "寸法が同じで誰も読んでいない縮小を使い回していない");
+            AssertSamePixels(byBackground, p.DetailOutput.ToArray(), Import, "使い回した縮小");
+        }
+
+        // 縮めている途中でテクスチャを替えても、古い原本の縮小は新しいテクスチャに当たらず、閉じた後にヒープの外の画素が残らない。
+        [Test]
+        public void SwitchingTextureWhileShrinking_DoesNotApplyTheOldResult() {
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels);
+            PreviewView.DetailFullResolution = false;
+            var other = Scene();
+            for (int i = 0; i < other.Length; i++) {
+                other[i] = new Color32(other[i].b, other[i].r, other[i].g, 255);
+            }
+            string otherPath = _assets.WritePng("detail_other", other, W, H);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(otherPath);
+            importer.maxTextureSize = Import;
+            importer.SaveAndReimport();
+            var otherTex = AssetDatabase.LoadAssetAtPath<Texture2D>(otherPath);
+            string otherGuid = AssetDatabase.AssetPathToGUID(otherPath);
+            try {
+                OpenWindow();
+                var preview = _win.Preview;
+                var p = preview.Pipeline;
+                RunFullStage(preview);
+                p.DetailWanted = true;
+                Assert.IsTrue(p.BuildingDetailBases, "縮めるジョブを始めていない");
+                // 計算は済んでいても受け取り(メインスレッド)の前に替える。
+                Thread.Sleep(50);
+                _win.SwitchSourceTexture(otherTex);
+                Assert.IsNull(p.DetailSource, "替えた後に古い原本の縮小が残っている");
+                Assert.IsNull(p.DetailOutput, "替えた後に古い出力の縮小が残っている");
+                for (int i = 0; i < 20; i++) {
+                    PreviewJobMainThread.Drain();
+                    Thread.Sleep(2);
+                }
+                Assert.IsNull(p.DetailOutput, "古い出力の縮小が新しいテクスチャに当たった");
+                Assert.IsTrue(p.DetailSource == null || ReferenceEquals(p.Sources.Texture, otherTex),
+                    "古い原本の縮小が新しいテクスチャに当たった");
+
+                // 新しいテクスチャで確定すると、その原本・出力を縮めたものになる。
+                RunFullStage(preview);
+                WaitForDetailBases(preview);
+                Assert.AreSame(otherTex, p.Sources.Texture);
+                Assert.IsTrue(preview.TryGetTrueSourcePixels(otherTex, out var src, out _, out _));
+                AssertSamePixels(WorkingResolution.ResizeArea(src.ToArray(), W, H, Import, Import), p.DetailSource.ToArray(),
+                    Import, "新しい原本の縮小");
+                AssertSamePixels(WorkingResolution.ResizeArea(preview.FullOutput.ToArray(), W, H, Import, Import),
+                    p.DetailOutput.ToArray(), Import, "新しい出力の縮小");
+
+                // 縮めている途中で閉じても残らない。
+                p.DetailWanted = false;
+                Assert.IsFalse(p.BuildingDetailBases);
+                preview.InvalidateSourceCache();
+                RunFullStage(preview);
+                p.DetailWanted = true;
+                Undo.ClearUndo(_win);
+                Object.DestroyImmediate(_win);
+                _win = null;
+                Wait(() => IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels) == before, "閉じた後の画素の解放");
+            } finally {
+                foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir }) {
+                    if (!Directory.Exists(dir)) {
+                        continue;
+                    }
+                    foreach (var f in Directory.GetFiles(dir, otherGuid + "*")) {
+                        File.Delete(f);
+                    }
+                }
+            }
+        }
+
+        // 手を止めたとき(作業配列を返す時期)に拡大表示していなければ、縮めた原本・出力を手放す。拡大すれば背景で作り直す
+        // (中身は同じ)。拡大している間は手放さない。
+        [Test]
+        public void IdleTrim_ReleasesTheShrunkBasesOnlyWhenNotZoomed() {
+            int savedIdle = NativeMemoryLifecycle.IdleTrimMilliseconds;
+            NativeMemoryLifecycle.IdleTrimMilliseconds = 200;
+            try {
+                PreviewView.DetailFullResolution = false;
+                OpenWindow();
+                var preview = _win.Preview;
+                var p = preview.Pipeline;
+                p.DetailWanted = true;
+                RunFullStage(preview);
+                WaitForDetailBases(preview);
+                var shrunk = p.DetailOutput.ToArray();
+
+                // 拡大している間は、手を止めても手放さない。
+                WaitIdleTrim();
+                Assert.IsNotNull(p.DetailSource, "拡大しているのに原本の縮小を手放した");
+                Assert.IsNotNull(p.DetailOutput, "拡大しているのに出力の縮小を手放した");
+
+                // 手放す時期は上の待ちで 1 回過ぎている。拡大をやめたところから数え直す(計算が無くても手放す)。
+                p.DetailWanted = false;
+                Assert.IsNotNull(p.DetailOutput, "前提: 拡大をやめただけではすぐには手放さない");
+                long held = IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels);
+                WaitIdleTrim();
+                Assert.IsNull(p.DetailSource, "拡大していないのに原本の縮小を手放さない");
+                Assert.IsNull(p.DetailOutput, "拡大していないのに出力の縮小を手放さない");
+                Assert.Less(IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels), held, "画素が減っていない");
+
+                p.DetailWanted = true;
+                WaitForDetailBases(preview);
+                AssertSamePixels(shrunk, p.DetailOutput.ToArray(), Import, "作り直した出力の縮小");
+            } finally {
+                NativeMemoryLifecycle.IdleTrimMilliseconds = savedIdle;
+            }
+        }
+
+        // 計算が無いまま手放す時期を過ぎ、メインスレッドへの戻りを捌き終えるまで待つ。
+        private static void WaitIdleTrim() {
+            var watch = Stopwatch.StartNew();
+            while (watch.Elapsed.TotalMilliseconds < NativeMemoryLifecycle.IdleTrimMilliseconds * 4) {
+                PreviewJobMainThread.Drain();
+                Thread.Sleep(10);
+            }
+            PreviewJobMainThread.Drain();
         }
 
         // ───────────── 手順 ─────────────
@@ -387,6 +578,12 @@ namespace Iroca.EditorTests {
                 idle = preview.IsGenerating ? 0 : idle + 1;
                 Thread.Sleep(2);
             }
+        }
+
+        // 拡大表示の土台(取り込み後の寸法へ縮めた原本・出力)を背景で縮め終えるまで待つ(要るとき = DetailWanted だけ作る)。
+        private static void WaitForDetailBases(PreviewView preview) {
+            var p = preview.Pipeline;
+            Wait(() => !p.BuildingDetailBases && p.DetailSource != null && p.DetailOutput != null, "拡大表示の土台の縮小");
         }
 
         private static void Wait(System.Func<bool> done, string what) {

@@ -76,6 +76,11 @@ namespace Iroca {
             _selectionCache ??= new SelectionCache();
             _proxySelectionCache ??= new SelectionCache();
             _outputBuffers ??= new PreviewOutputBuffers();
+            _displayBuffers ??= new PreviewOutputBuffers();
+            if (!_idleTrimHooked) {
+                NativeMemoryLifecycle.IdleTrimmed += OnIdleTrimmed;
+                _idleTrimHooked = true;
+            }
         }
 
         /// <summary>
@@ -120,7 +125,8 @@ namespace Iroca {
         // 生成することで、テクスチャ切替直後のキャッシュミス時にメインスレッドで走っていた
         // BoxDownsample のヒッチをバックグラウンドへ追い出す。
         // full はフル解像度の出力。シーンのアバターへのプレビュー LivePreview へも渡す。
-        // display はフル段の出力を拡大表示の寸法(取り込み後の寸法)へ縮めたもの(その寸法で映さないときは null)。
+        // display はフル段の出力を拡大表示の寸法(取り込み後の寸法)へ縮めたもの(その寸法で映さないとき・予約したときに
+        // 拡大表示が要らなかったときは null)。
         // どれも Mono のヒープの外で、結果が参照を 1 つずつ持つ(受け取った側が引き取り、受け取らなければ discard で返す)。
         private readonly PreviewJob<FullResult> _previewJob = new PreviewJob<FullResult>();
         private struct FullResult {
@@ -145,6 +151,27 @@ namespace Iroca {
 
         /// <summary>概要段・確定段のどちらかが走っている(テストが終わりを待つのにも使う)。</summary>
         internal bool IsGenerating => _proxyJob.IsRunning || _previewJob.IsRunning;
+
+        // 拡大表示に映す寸法の原本・出力を縮めるジョブ(EnsureDetailBases)。縮めるだけで作業配列のプールは借りない。
+        // 結果が参照を 1 つずつ持つ(受け取った側が引き取り、受け取らなければ discard で返す)。
+        private readonly PreviewJob<DetailBasesResult> _detailBasesJob = new PreviewJob<DetailBasesResult>();
+        private struct DetailBasesResult {
+            public NativePixels source, output;
+        }
+        // 走っている縮小ジョブが何から何を作っているか(同じものを頼み直さない。参照は持たない)。
+        private NativePixels _detailBasesJobSource, _detailBasesJobOutput;
+        private int _detailBasesJobW, _detailBasesJobH, _detailBasesJobFullVersion;
+        // 走っている確定段のジョブが、拡大表示に映す寸法の出力も作るか(作るなら縮小ジョブで頼まない)。
+        private bool _fullJobBuildsDisplay;
+
+        /// <summary>拡大表示に映す寸法の原本・出力を背景で縮めている(表示の「生成中」・テストの待ち)。</summary>
+        internal bool BuildingDetailBases => _detailBasesJob.IsRunning;
+
+        /// <summary>
+        /// 拡大表示に映す寸法の原本・出力を縮めて受け取った(拡大表示の土台ができた)。表示は拡大表示を作り直す
+        /// (土台が無い間の作り直しは何もせずに終わっているので、ここで頼み直す)。
+        /// </summary>
+        internal event Action DetailBasesReady;
 
         // 直近に確定したフル段のフル解像度の出力(参照を 1 つ持つ)と、その元画素(同じ元画素から作ったかを
         // 見るためだけに覚える。参照は持たない)。拡大表示(詳細クロップ)はここから切り出す。元画素が変わったら
@@ -247,10 +274,40 @@ namespace Iroca {
 
         // 拡大表示に映す寸法(取り込み後の寸法。ゲームに出る大きさ。WorkingResolution.DisplaySize)の原本と、
         // フル段の出力をその寸法へ縮めたもの(面平均。非破壊ビルドがテクスチャを作るときと同じ縮小)。
-        // 作業解像度のままでよいとき(取り込みで小さくならない・「元の解像度」の設定がオン)は null で、
+        // 作業解像度のままでよいとき(取り込みで小さくならない・「元の解像度」の設定がオン)は _displaySized が偽で、
         // 作業解像度のものをそのまま映す(WantsDisplaySize)。
+        // 寸法(_displayW/H)は原本を読んだときに決める(軽い。拡大表示の座標の土台と、拡大表示が要るかの判定に使う)。
+        // 縮めた 2 本は、拡大表示が要るとき(DetailWanted)だけ作る: 確定段のジョブが一緒に縮めるか、無ければ背景のジョブで
+        // 縮める(EnsureDetailBases。メインスレッドでは縮めない)。要らない間は作らず、出力は古くなったら手放し、
+        // 手を止めたとき(NativeMemoryLifecycle.IdleTrimmed)に 2 本とも手放す。
+        private bool _displaySized;
         private NativePixels _displaySource, _displayOutput;
         private int _displayW, _displayH;
+        // 縮めた出力の使い回し(寸法が同じで、ほかに持ち主のいないものだけを渡す)。手を止めたら手放す。
+        private PreviewOutputBuffers _displayBuffers;
+        // 拡大表示が要るか(表示が描くたびに伝える。PreviewView.Draw)。
+        private bool _detailWanted;
+        // 手を止めたときの縮小(NativeMemoryLifecycle.IdleTrimmed)を購読しているか(閉じた後は届いても何もしない)。
+        private bool _idleTrimHooked;
+
+        /// <summary>
+        /// 拡大表示を出している・出そうとしているか(表示が、倍率が拡大表示の閾値を超えている間 true にする)。true の間は、
+        /// 拡大表示に映す寸法の原本・出力が無ければ背景で縮める。false の間は確定段で縮めず、手を止めたら手放す。
+        /// </summary>
+        internal bool DetailWanted {
+            get => _detailWanted;
+            set {
+                bool stopped = _detailWanted && !value;
+                _detailWanted = value;
+                if (value) {
+                    EnsureDetailBases();
+                } else if (stopped && (_displaySource != null || _displayOutput != null)) {
+                    // 拡大をやめた。手放す時期(手を止めて 10 秒)をここから数える(計算が終わったときだけ数えると、
+                    // 拡大したまま手を止めて時期を過ぎた後に縮小表示へ戻したとき、次の計算まで手放さない)。
+                    NativeMemoryLifecycle.RearmIdleTrim();
+                }
+            }
+        }
 
         // Play を始めたときのドメインリロードの直後は、原本の読み直し(デコード)と色替えの計算し直しを、
         // ウィンドウが操作されるまで待つ(Play を始めてすぐの動作確認と重なって、エディタが止まらないように)。
@@ -293,8 +350,8 @@ namespace Iroca {
         // 切り出し中・シーンへの反映が保持中なら、それぞれ参照を持っているので、手放されるまでは使い回されない。
         private void RetireFullOutput() {
             BumpDetailOutput();
-            _displayOutput?.Release();
-            _displayOutput = null;
+            // 縮めた出力も古くなる。拡大表示が要る間は次の縮小に使い回し、要らなければ手放す。
+            DropDisplayOutput(keepForReuse: _detailWanted);
             var old = _fullOutput;
             _fullOutput = null;
             if (old == null) {
@@ -322,6 +379,7 @@ namespace Iroca {
             InvalidateFullOutput();
             // 寸法の違うテクスチャへ移ると使えないので、置いてある出力バッファも手放す。
             _outputBuffers?.Clear();
+            _displayBuffers?.Clear();
             SetDragRequest(null);
             _dragReqStale = true;
             _dragRunning = false;
@@ -432,12 +490,14 @@ namespace Iroca {
 
         private void OnSourceLoaded() {
             BumpDetailSource();
-            // 拡大表示に映す寸法の原本もここで作る(取り込みで小さくなり、「元の解像度」の設定がオフのときだけ。
-            // 4K→2K で数十 ms)。
+            // 拡大表示に映す寸法(取り込みで小さくなり、「元の解像度」の設定がオフのときだけ)をここで決める。
+            // 縮めた原本は、拡大表示が要るときに背景で作る(以前はここでメインスレッドで縮めていた。4K→2K で数十 ms)。
+            ReleaseDisplayBases();
             if (WantsDisplaySize(out int dw, out int dh)) {
-                BuildDisplaySource(dw, dh);
+                SetDisplaySize(dw, dh);
             }
             _deferSourceLoad = false;
+            EnsureDetailBases();
         }
 
         // 処理用の画素を手放し、どのテクスチャを読んだか・読めなかったかも忘れる。拡大表示に映す寸法の原本も手放す。
@@ -445,9 +505,7 @@ namespace Iroca {
         private void DropTrueSource() {
             BumpDetailSource();
             Sources?.Clear();
-            _displaySource?.Release();
-            _displaySource = null;
-            _displayW = _displayH = 0;
+            ReleaseDisplayBases();
         }
 
         // 拡大表示を取り込み後の寸法へ縮めて映すか(取り込みで小さくなり、「元の解像度」の設定がオフ)と、その寸法。
@@ -456,62 +514,194 @@ namespace Iroca {
             return !DetailFullResolution && (w != TrueSourceW || h != TrueSourceH);
         }
 
-        // 拡大表示に映す寸法の原本を作る。いまの原本で作ったフル段の出力があれば、それも同じ寸法へ縮める
-        // (設定をオフへ戻したとき。色替えはやり直さない。確定段のジョブが作るものと同じ縮小なので同じ画素になる)。
-        private void BuildDisplaySource(int w, int h) {
+        // 拡大表示を取り込み後の寸法で映すことにする(縮めた原本・出力はまだ作らない。EnsureDetailBases)。
+        private void SetDisplaySize(int w, int h) {
             BumpDetailSource();
+            _displaySized = true;
             _displayW = w;
             _displayH = h;
-            _displaySource = NativePixels.Allocate(w, h);
-            WorkingResolution.ResizeArea(TrueSource.Ptr, TrueSourceW, TrueSourceH, w, h, _displaySource.Ptr);
-            _displayOutput?.Release();
-            _displayOutput = _fullOutput != null && ReferenceEquals(_fullOutputSource, TrueSource)
-                ? ShrinkToDisplay(_fullOutput)
-                : null;
         }
 
-        // フル段の出力(作業解像度)を拡大表示に映す寸法へ縮めたもの(参照 1 で返す)。
-        private NativePixels ShrinkToDisplay(NativePixels full) {
-            var display = NativePixels.Allocate(_displayW, _displayH);
-            WorkingResolution.ResizeArea(full.Ptr, full.Width, full.Height, _displayW, _displayH, display.Ptr);
-            return display;
-        }
-
-        // 縮めた原本・出力を手放す(拡大表示は作業解像度のものを映す)。
-        private void ReleaseDisplaySource() {
+        // 縮めた原本・出力を手放し、拡大表示を作業解像度のもので映す(設定をオンにした・原本を手放した)。走っている縮小は取り消す。
+        private void ReleaseDisplayBases() {
             BumpDetailSource();
+            _detailBasesJob.Cancel();
             _displaySource?.Release();
             _displaySource = null;
-            _displayOutput?.Release();
-            _displayOutput = null;
+            DropDisplayOutput(keepForReuse: false);
+            _displaySized = false;
             _displayW = _displayH = 0;
+        }
+
+        // 縮めた出力を外す。使い回すなら置き場へ渡し(ほかに持ち主がいる間は渡されない)、そうでなければ参照を返す。
+        private void DropDisplayOutput(bool keepForReuse) {
+            var old = _displayOutput;
+            _displayOutput = null;
+            RetireDisplay(keepForReuse ? _displayBuffers : null, old);
+        }
+
+        // もう書かない縮めた出力を、置き場があれば置き(参照を渡す)、無ければ返す。どのスレッドからでもよい。
+        private static void RetireDisplay(PreviewOutputBuffers buffers, NativePixels b) {
+            if (b == null) {
+                return;
+            }
+            if (buffers != null) {
+                buffers.Retire(b);
+            } else {
+                b.Release();
+            }
+        }
+
+        /// <summary>
+        /// 拡大表示が要る(<see cref="DetailWanted"/>)のに、拡大表示に映す寸法の原本・出力が無ければ、背景のジョブで縮める
+        /// (届いたら <see cref="DetailBasesReady"/>)。原本を縮めるのは読み直したとき・手放した後に 1 回、出力を縮めるのは
+        /// 確定段のジョブが縮めなかったとき(拡大していない間に確定した・走っている間に拡大した・設定をオフへ戻した)だけ。
+        /// 縮め方は確定段のジョブと同じ(同じ入力から同じ <see cref="WorkingResolution.ResizeArea"/>)なので同じ画素になる。
+        /// 何度呼んでもよい(要るものが同じジョブが走っていれば何もしない)。
+        /// </summary>
+        private void EnsureDetailBases() {
+            var source = TrueSource;
+            if (!_detailWanted || !_displaySized || source == null) {
+                return;
+            }
+            var sourceFor = _displaySource == null ? source : null;
+            // 確定段のジョブが縮めたものを持ってくるなら、今の出力からは縮めない(すぐ古くなる)。
+            var full = FullOutput;
+            var outputFor = _displayOutput == null && full != null && !(_previewJob.IsRunning && _fullJobBuildsDisplay)
+                ? full : null;
+            if (sourceFor == null && outputFor == null) {
+                return;
+            }
+            int w = _displayW, h = _displayH, fullVersion = FullOutputVersion;
+            if (_detailBasesJob.IsRunning && ReferenceEquals(_detailBasesJobSource, sourceFor)
+                && ReferenceEquals(_detailBasesJobOutput, outputFor) && _detailBasesJobFullVersion == fullVersion
+                && _detailBasesJobW == w && _detailBasesJobH == h) {
+                return;
+            }
+            _detailBasesJobSource = sourceFor;
+            _detailBasesJobOutput = outputFor;
+            _detailBasesJobFullVersion = fullVersion;
+            _detailBasesJobW = w;
+            _detailBasesJobH = h;
+
+            // 読む間の参照を足し、後始末で返す。縮めた出力の置き場は、寸法が同じで誰も読んでいないものだけを渡す。
+            var buffers = _displayBuffers;
+            var src = sourceFor?.AddRef();
+            var fullForTask = outputFor?.AddRef();
+            var reused = outputFor != null ? buffers?.Take(w, h) : null;
+            bool workStarted = false;
+            _detailBasesJob.Schedule(
+                work: token => {
+                    workStarted = true;
+                    NativePixels shrunkSource = null, shrunkOutput = reused;
+                    bool handedOff = false;
+                    try {
+                        if (src != null) {
+                            shrunkSource = NativePixels.Allocate(w, h);
+                            WorkingResolution.ResizeArea(src.Ptr, src.Width, src.Height, w, h, shrunkSource.Ptr);
+                            token.ThrowIfCancellationRequested();
+                        }
+                        if (fullForTask != null) {
+                            shrunkOutput ??= NativePixels.Allocate(w, h);
+                            WorkingResolution.ResizeArea(fullForTask.Ptr, fullForTask.Width, fullForTask.Height, w, h,
+                                shrunkOutput.Ptr);
+                        }
+                        handedOff = true;
+                        return new DetailBasesResult { source = shrunkSource, output = shrunkOutput };
+                    } finally {
+                        if (!handedOff) {
+                            shrunkSource?.Release();
+                            RetireDisplay(buffers, shrunkOutput);
+                        }
+                    }
+                },
+                apply: result => AdoptDetailBases(result, sourceFor, outputFor, w, h, fullVersion),
+                cleanup: () => {
+                    src?.Release();
+                    fullForTask?.Release();
+                    // 取り消されて計算しなかったときは、取り出した置き場のものを戻す。
+                    if (!workStarted) {
+                        RetireDisplay(buffers, reused);
+                    }
+                },
+                discard: result => {
+                    result.source?.Release();
+                    RetireDisplay(buffers, result.output);
+                });
+        }
+
+        // 縮めた原本・出力を受け取る。縮めている間に原本・確定段の出力・寸法が変わっていたら、そのものは使わない
+        // (古い結果を新しい状態に当てない)。まだ足りないものがあれば頼み直す。
+        private void AdoptDetailBases(DetailBasesResult result, NativePixels sourceFor, NativePixels outputFor,
+            int w, int h, int fullVersion) {
+            bool sameSize = _displaySized && _displayW == w && _displayH == h;
+            bool adopted = false;
+            if (result.source != null && sameSize && _displaySource == null && ReferenceEquals(TrueSource, sourceFor)) {
+                _displaySource = result.source;
+                result.source = null;
+                BumpDetailSource();
+                adopted = true;
+            }
+            if (result.output != null && sameSize && _displayOutput == null && FullOutputVersion == fullVersion
+                && ReferenceEquals(_fullOutput, outputFor) && ReferenceEquals(_fullOutputSource, TrueSource)) {
+                _displayOutput = result.output;
+                result.output = null;
+                BumpDetailOutput();
+                adopted = true;
+            }
+            result.source?.Release();
+            RetireDisplay(_detailWanted ? _displayBuffers : null, result.output);
+            if (adopted) {
+                DetailBasesReady?.Invoke();
+                _host.RequestRepaint();
+            }
+            EnsureDetailBases();
+        }
+
+        // 手を止めて作業配列を返した(タイマーのスレッド)。拡大表示の土台を手放すのはメインスレッドで。
+        private void OnIdleTrimmed() => PreviewJobMainThread.Post(TrimDetailBases);
+
+        // 拡大表示していなければ、縮めた原本・出力を手放す(4K→2K で 16MB ずつ、8K→4K で 64MB ずつ)。拡大したら
+        // 背景で作り直す(EnsureDetailBases)。閉じた後に届いたものは何もしない。
+        private void TrimDetailBases() {
+            if (!_idleTrimHooked || _detailWanted || (_displaySource == null && _displayOutput == null)) {
+                return;
+            }
+            BumpDetailSource();
+            _detailBasesJob.Cancel();
+            _displaySource?.Release();
+            _displaySource = null;
+            DropDisplayOutput(keepForReuse: false);
         }
 
         /// <summary>
         /// 拡大表示の土台を「元の解像度」の設定(<see cref="DetailFullResolution"/>)に合わせる。合っていれば何もしない
-        /// (設定はこの PC のいろか全体のもので、どのウィンドウも次に描くときに合わせる)。土台を作り直したら true
-        /// (表示は今の拡大表示を捨てて作り直す)。色替えの結果には効かない(表示の寸法だけ)。
+        /// (設定はこの PC のいろか全体のもので、どのウィンドウも次に描くときに合わせる)。土台を替えたら true
+        /// (表示は今の拡大表示を捨てて作り直す)。色替えの結果には効かない(表示の寸法だけ)。オフへ戻したときの縮めた
+        /// 原本・出力は、拡大表示が要れば背景で縮める(色替えはやり直さない)。
         /// </summary>
         internal bool SyncDetailResolution() {
             if (TrueSource == null) {
                 return false;
             }
             bool want = WantsDisplaySize(out int dw, out int dh);
-            if (want == (_displaySource != null)) {
+            if (want == _displaySized) {
                 return false;
             }
             if (want) {
-                BuildDisplaySource(dw, dh);
+                SetDisplaySize(dw, dh);
+                EnsureDetailBases();
             } else {
-                ReleaseDisplaySource();
+                ReleaseDisplayBases();
             }
             return true;
         }
 
-        // 拡大表示(詳細クロップ)の座標の土台。取り込み後の寸法で映すときはその寸法の原本、そうでなければ作業解像度の原本。
-        internal NativePixels DetailSource => _displaySource ?? TrueSource;
-        internal int DetailW => _displaySource != null ? _displayW : TrueSourceW;
-        internal int DetailH => _displaySource != null ? _displayH : TrueSourceH;
+        // 拡大表示(詳細クロップ)の座標の土台。取り込み後の寸法で映すときはその寸法の原本(まだ縮めていなければ null)、
+        // そうでなければ作業解像度の原本。
+        internal NativePixels DetailSource => _displaySized ? _displaySource : TrueSource;
+        internal int DetailW => _displaySized ? _displayW : TrueSourceW;
+        internal int DetailH => _displaySized ? _displayH : TrueSourceH;
 
         // 拡大表示の切り出し元(いまの原本で作ったフル段の出力。DetailSource と同じ寸法)。まだ無ければ null。
         internal NativePixels DetailOutput {
@@ -519,7 +709,7 @@ namespace Iroca {
                 if (!ReferenceEquals(_fullOutputSource, TrueSource)) {
                     return null;
                 }
-                return _displaySource != null ? _displayOutput : _fullOutput;
+                return _displaySized ? _displayOutput : _fullOutput;
             }
         }
 
@@ -612,6 +802,7 @@ namespace Iroca {
             Suspend();
             _proxyJob.Dispose();
             _previewJob.Dispose();
+            _detailBasesJob.Dispose();
         }
 
         /// <summary>
@@ -626,6 +817,10 @@ namespace Iroca {
             // 止めたジョブが後から返してくる出力も、置かずにすぐ手放す。
             _outputBuffers?.Close();
             _outputBuffers = null;
+            _displayBuffers?.Close();
+            _displayBuffers = null;
+            NativeMemoryLifecycle.IdleTrimmed -= OnIdleTrimmed;
+            _idleTrimHooked = false;
             // 選択キャッシュ(ゾーンごとに 4K で 64MB・8K で 256MB)はネイティブメモリなので、閉じる・リロードの前に
             // ここで解放すれば OS へ戻る。取り消した計算が後から Store しても残らない(Dispose 済みは保存しない)。
             _selectionCache?.Dispose();
@@ -642,6 +837,7 @@ namespace Iroca {
         private void CancelJobsAndDropPending() {
             _proxyJob.Cancel();
             _previewJob.Cancel();
+            _detailBasesJob.Cancel();
             SetPending(default);
         }
 
@@ -1085,8 +1281,14 @@ namespace Iroca {
             var src = req.srcPixels.AddRef();
             var rawCached = req.rawDisplay?.AddRef();
             var jobMasks = req.maskSnap?.AddRef();
-            // 拡大表示を取り込み後の寸法で映すなら、その寸法(非破壊ビルドと同じ面平均で縮める)。
-            int dispW = _displaySource != null ? _displayW : 0, dispH = _displaySource != null ? _displayH : 0;
+            // 拡大表示を取り込み後の寸法で映し、いま拡大表示が要るなら、その寸法(非破壊ビルドと同じ面平均で縮める)。
+            // 要らなければ縮めない(拡大したときに背景で縮める。EnsureDetailBases)。縮める先は、寸法が同じで誰も
+            // 読んでいない前の縮小を使い回す(取り出したものの参照はこのジョブが持つ)。
+            bool buildDisplay = _detailWanted && _displaySized;
+            int dispW = buildDisplay ? _displayW : 0, dispH = buildDisplay ? _displayH : 0;
+            var displayBuffers = _displayBuffers;
+            NativePixels reusedDisplay = buildDisplay ? displayBuffers?.Take(dispW, dispH) : null;
+            _fullJobBuildsDisplay = buildDisplay;
             bool workStarted = false;
             // もう書かない出力バッファを使い回しへ戻す(参照を渡す。使い回しが無ければ返す)。
             void RetireOutput(NativePixels b) {
@@ -1105,7 +1307,7 @@ namespace Iroca {
                     marks.WorkStart = PreviewLatencyCycle.Now;
                     NativePixels pixels = reused ?? NativePixels.Allocate(req.srcW, req.srcH);
                     bool handedOff = false;
-                    NativePixels display = null, processedDisplay = null, rawForJob = null;
+                    NativePixels display = reusedDisplay, processedDisplay = null, rawForJob = null;
                     try {
                         pixels.CopyFrom(src);
                         marks.CoreStart = PreviewLatencyCycle.Now;
@@ -1136,7 +1338,7 @@ namespace Iroca {
                                 rawForJob.Ptr, req.prevW, req.prevH, req.scale);
                         }
                         if (dispW > 0) {
-                            display = NativePixels.Allocate(dispW, dispH);
+                            display ??= NativePixels.Allocate(dispW, dispH);
                             WorkingResolution.ResizeArea(pixels.Ptr, req.srcW, req.srcH, dispW, dispH, display.Ptr);
                         }
                         marks.WorkEnd = PreviewLatencyCycle.Now;
@@ -1148,7 +1350,7 @@ namespace Iroca {
                             processedDisplay?.Release();
                             rawForJob?.Release();
                             RetireOutput(pixels);
-                            display?.Release();
+                            RetireDisplay(displayBuffers, display);
                         }
                     }
                 },
@@ -1175,16 +1377,12 @@ namespace Iroca {
                     _fullOutputSource = req.srcPixels;
                     // 拡大表示の寸法が変わっていたら(原本を読み直した・「元の解像度」をオンにした)使わない
                     // (原本を読み直したなら _fullOutputSource も別の原本になる)。
-                    if (result.display != null && (result.display.Width != _displayW || result.display.Height != _displayH)) {
-                        result.display.Release();
-                        _displayOutput = null;
-                    } else {
-                        _displayOutput = result.display;
+                    var display = result.display;
+                    if (display != null && (!_displaySized || display.Width != _displayW || display.Height != _displayH)) {
+                        RetireDisplay(_detailWanted ? _displayBuffers : null, display);
+                        display = null;
                     }
-                    // 走っている間に「元の解像度」をオフへ戻したら、縮めたものがまだ無いので、ここで縮める。
-                    if (_displayOutput == null && _displaySource != null && ReferenceEquals(req.srcPixels, TrueSource)) {
-                        _displayOutput = ShrinkToDisplay(result.full);
-                    }
+                    _displayOutput = display;
                     unchecked { FullOutputVersion++; }
                     BumpDetailOutput();
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
@@ -1204,7 +1402,10 @@ namespace Iroca {
                         DebugCaptureHooks.RaiseCaptureComplete(req.debugCap);
                     }
                     _host.RequestRepaint();
-                    // ここまでが受け取りのメインスレッドの処理(拡大表示の土台の縮小・シーンへの反映・デバッグの記録の公開)。
+                    // 拡大表示が要るのに縮めた出力が無い(走っている間に拡大した・「元の解像度」をオフへ戻した)なら、
+                    // 背景で縮める(届くまでの拡大表示は全体の縮小表示の引き伸ばし)。
+                    EnsureDetailBases();
+                    // ここまでが受け取りのメインスレッドの処理(シーンへの反映・デバッグの記録の公開)。
                     marks.ApplyEnd = PreviewLatencyCycle.Now;
                 },
                 cleanup: () => {
@@ -1214,6 +1415,7 @@ namespace Iroca {
                     // 取り消されて計算しなかったときは、取り出した出力バッファを戻す。
                     if (!workStarted) {
                         RetireOutput(reused);
+                        RetireDisplay(displayBuffers, reusedDisplay);
                     }
                 },
                 // 計算は済んだが apply しなかった(後から来た操作で古くなった)出力も戻す。
@@ -1221,7 +1423,7 @@ namespace Iroca {
                     result.processed?.Release();
                     result.raw?.Release();
                     RetireOutput(result.full);
-                    result.display?.Release();
+                    RetireDisplay(displayBuffers, result.display);
                 });
         }
     }

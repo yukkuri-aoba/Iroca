@@ -57,6 +57,16 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// 計算ではないが、手を止めた時期を今から数え直す(拡大表示をやめて、手放せるものができたとき)。走っている計算があれば
+        /// 何もしない(その計算が終わったときに数え直す)。
+        /// </summary>
+        internal static void RearmIdleTrim() {
+            if (Volatile.Read(ref s_running) == 0) {
+                ArmIdleTrim();
+            }
+        }
+
         private static void TrimIfIdle() {
             if (Volatile.Read(ref s_running) != 0 || Volatile.Read(ref s_idleGen) != Volatile.Read(ref s_armedGen)) {
                 return;

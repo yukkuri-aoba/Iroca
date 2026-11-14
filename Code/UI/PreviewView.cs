@@ -250,6 +250,7 @@ namespace Iroca {
             if (_pipeline == null) {
                 _pipeline = new PreviewPipeline(host);
                 _pipeline.SourceInvalidated += OnSourceInvalidated;
+                _pipeline.DetailBasesReady += OnDetailBasesReady;
             }
             _pipeline.Resume();
             _renderer ??= new PreviewRenderer();
@@ -276,6 +277,15 @@ namespace Iroca {
         private void OnSourceInvalidated() {
             _detailHiddenForDrag = false;
             _renderer?.OnSourceInvalidated();
+        }
+
+        // 拡大表示の土台(取り込み後の寸法へ縮めた原本・出力)が背景で届いた。土台が無い間の作り直しは何もせずに
+        // 終わっているので、作り直させる(作り直し待ちが既にあれば、その打刻のまま。体感速度の計測の引き渡しを崩さない)。
+        private void OnDetailBasesReady() {
+            var dv = DetailView;
+            if (dv != null && dv.lastDetailDirtyTime <= 0) {
+                dv.lastDetailDirtyTime = System.Math.Max(double.Epsilon, EditorApplication.timeSinceStartup);
+            }
         }
 
         /// <summary>
@@ -366,6 +376,10 @@ namespace Iroca {
         /// 届いた結果は表示の前の 1 枚だけが残る(<see cref="PreviewPipeline.TakePendingFrame"/>)。
         /// </summary>
         internal void TickWithoutDrawing() {
+            // どこにもプレビューを描いていない(切り出した窓も無いか裏のタブ)間は、拡大表示も要らない。
+            if (_pipeline != null && !IrocaPreviewWindow.IsShown) {
+                _pipeline.DetailWanted = false;
+            }
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null || SourceLoadDeferred || PollSource(sourceTexture) != SourceState.Ready) {
                 return;
@@ -553,6 +567,8 @@ namespace Iroca {
             // 変更前・変更後の両方に重ねる。
             bool detailActive = detScale < 1f &&
                                 effZoom > DetailPreviewView.DetailMinZoom;
+            // 計算の側へ、拡大表示が要るかを伝える(要る間だけ、取り込み後の寸法へ縮めた原本・出力を作る)。
+            _pipeline.DetailWanted = detailActive;
 
             float displayW = previewTexture.width * effZoom;
             float displayH = previewTexture.height * effZoom;
@@ -944,7 +960,7 @@ namespace Iroca {
             string generatingLabel;
             if (IsGenerating) {
                 generatingLabel = Localization.GeneratingPreview;
-            } else if (DetailView.detailJob.IsRunning) {
+            } else if (DetailView.detailJob.IsRunning || _pipeline.BuildingDetailBases) {
                 generatingLabel = Localization.GeneratingDetailPreview;
             } else {
                 generatingLabel = " ";
