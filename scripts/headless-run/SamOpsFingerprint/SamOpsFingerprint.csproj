@@ -29,6 +29,9 @@
     <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\'))=/_/</PathMap>
     <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
     <EmbedUntrackedSources>false</EmbedUntrackedSources>
+    <!-- Harness.csproj と同じく PDB を作らない。コメント・空白だけの変更で AI 提案の鍵が変わらないようにする。 -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
     <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
     <UnityManaged Condition="'$(UnityManaged)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityManaged>
   </PropertyGroup>

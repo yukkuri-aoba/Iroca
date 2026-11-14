@@ -10,8 +10,9 @@ tools/visual_review.py(index や HEAD から書き出したソースを測ると
 - ビルドの前と後で、コンパイルするソースの中身(git の blob の id)を取る。食い違ったら(ビルド中に誰かが
   編集した)作り直す。DLL がどのソースから作られたかを来歴(sources)として返す。
 - ソースの中身が前回のビルドと違うのに DLL のバイト列が同じなら、MSBuild が CoreCompile を飛ばした
-  (mtime を保ったままのコピー・unzip など)とみなし、--no-incremental で作り直す。ソースを少しでも変えると
-  DLL も変わる(決定論ビルドで PDB が文書のチェックサムを持ち、DLL がその PDB の id を持つ)ことを当てにしている。
+  (mtime を保ったままのコピー・unzip など)とみなし、--no-incremental で作り直す。2026-11-15(T8)から PDB を
+  作らないので、コメント・空白だけの変更では DLL が同じになる(実行キャッシュに当たるようにするため)。そのときも
+  見分けが付かないので --no-incremental でもう 1 回ビルドして確かめる(数秒。作り直しても同じ DLL ならそれが正しい)。
 - AI 提案の鍵用の DLL(SamOpsFingerprint)も、ハーネスのすぐ後に同じロックの中でビルドし、鍵をその場で
   計算する(以前は最初に提案を計算するとき、数分後に別にビルドしていて、その間の編集で鍵と DLL が食い違えた)。
 - 作った DLL のフォルダは、DLL の sha256 の先頭 16 桁の名前で snap_root/<sha16>/ へ写し、来歴
@@ -53,8 +54,9 @@ BUILD_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_BUILD_TIMEOUT", "600"))
 RECORD_NAME = "iroca_build_record.json"     # obj/ に置く「ソースの中身 → DLL」の記録(B-7②)
 VERIFIED_NAME = "iroca_build_verified.json"  # scripts/headless-run/obj に置く、確かめ済みのビルドの記録(_verified_build)
 PROVENANCE = "provenance.json"
-# 写さないもの(実行に要らない。UnityEngine.CoreModule.xml だけで 3MB)
-_SNAP_SKIP_SUFFIXES = (".xml", ".exe")
+# 写さないもの(実行に要らない。UnityEngine.CoreModule.xml だけで 3MB)。.pdb は 2026-11-15 から作らないが、
+# 前のビルドの古いものが bin に残る(DLL と合わないので写さない)。
+_SNAP_SKIP_SUFFIXES = (".xml", ".exe", ".pdb")
 
 
 class BuildFailed(RuntimeError):
@@ -482,8 +484,7 @@ def build(source: str, snap_root: Path, work_root: Path | None = None, with_samo
 
     index とコミットは、中身(blob)が作業ツリーと同じなら作業ツリーでビルドする(同じ DLL になり、実行キャッシュに
     当たる)。違えば work_root へ書き出してビルドする(共有の bin/Release に触らない)。書き出したファイルは
-    改行が CRLF になるので、作業ツリーで LF のまま編集したファイルがあると、同じ中身でも DLL のバイト列が違い
-    (PDB が文書のチェックサムを持つ)、キャッシュに当たらない(出力は同じ)。
+    改行が CRLF になるが、PDB を作らないので(2026-11-15)、改行やコメントだけの違いなら同じ DLL になり、キャッシュに当たる。
     """
     snap_root = Path(snap_root)
     if source == "worktree":

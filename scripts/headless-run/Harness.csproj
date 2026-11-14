@@ -41,6 +41,12 @@
     <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\'))=/_/</PathMap>
     <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
     <EmbedUntrackedSources>false</EmbedUntrackedSources>
+    <!-- デバッグ情報(PDB)を作らない(2026-11-15、T8)。PDB は文書ごとのチェックサムを持ち、DLL はその PDB の id を
+         持つので、コメント・空行・空白・改行の種類だけの違いでも DLL のバイト列が変わり、DLL を鍵にする実行キャッシュが
+         全部外れていた。PDB が無ければ DLL は IL とメタデータだけで決まる(コンパイル結果が同じなら同じ DLL)。
+         代わりに、ハーネスが落ちたときのスタックトレースに行番号が出ない(メソッド名は出る)。 -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
   <PropertyGroup>
