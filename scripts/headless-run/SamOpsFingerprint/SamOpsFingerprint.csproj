@@ -40,6 +40,7 @@
     <Compile Include="..\..\..\Code\Core\IrocaNativeMemory.cs" />
     <Compile Include="..\..\..\Code\Core\Foundation\CoreParallelism.cs" />
     <Compile Include="..\..\..\Code\Core\Foundation\RunLabeler.cs" />
+    <Compile Include="..\..\..\Code\Core\Color\OkLab.cs" />
     <Compile Include="..\..\..\Code\Core\MaskRle.cs" />
     <Compile Include="..\..\..\Code\Core\NativeBitMask.cs" />
     <Compile Include="..\..\..\Code\Core\NativeWorkPool.cs" />

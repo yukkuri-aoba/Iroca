@@ -40,7 +40,7 @@ namespace Iroca.EditorTests {
             Set(encodeOnNewSource ? MaskSuggestPhase.Encoding : MaskSuggestPhase.Idle);
         }
 
-        public bool RequestProposal(float u, float v, MaskSuggestGranularity granularity) {
+        public bool RequestProposal(float u, float v, MaskSuggestGranularity granularity, MaskSuggestUse use) {
             if (!modelsOk || phase == MaskSuggestPhase.Error) {
                 return false;
             }

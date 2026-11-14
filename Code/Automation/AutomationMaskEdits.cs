@@ -144,7 +144,7 @@ namespace Iroca {
                     _requested = false;
                     _deadline = 0d;
                 }
-            }, edit.size);
+            }, edit.size, MaskSuggestUse.Region);
             switch (r) {
                 case AiSuggestBroker.Request.Started:
                     // 提案がその場で届いたら、次の件は受け取り先が進めてある。

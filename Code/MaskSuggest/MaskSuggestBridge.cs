@@ -53,6 +53,19 @@ namespace Iroca {
     }
 
     /// <summary>
+    /// AI 提案を何に使うか。後処理の段が用途で変わる(<see cref="IMaskSuggestService.RequestProposal"/>)。
+    /// </summary>
+    internal enum MaskSuggestUse {
+        /// <summary>
+        /// 部分をマスクに当てる(右クリックの「ここも塗る」など・自動化のマスク操作)。粒度が自動・大きいなら、クリックした塊と
+        /// 色の違う離れた塊を外す(SamMaskRefine.DropForeignComponents)。
+        /// </summary>
+        Region,
+        /// <summary>自動調整の証拠。精密化 4 段までで、塊は外さない。</summary>
+        Evidence,
+    }
+
+    /// <summary>
     /// AI マスク提案サービス。実装は Sentis 統合アセンブリ(Iroca.SentisIntegration)が提供し、
     /// [InitializeOnLoad] で <see cref="MaskSuggestBridge.Service"/> に登録する。
     /// Sentis パッケージ不在時は Service == null のままで、UI は何も表示しない(バイト不変)。
@@ -103,8 +116,9 @@ namespace Iroca {
         /// プレビュー UV(下原点)のクリックに対する提案を要求する。推論中に来たクリックは
         /// FIFO で処理待ちに積まれ、順に処理・反映される(捨てられない)。
         /// 戻り値 = 受理したか(false: モデル未ロード・エラー中・ソース未設定)。
+        /// use = 何に使うか(後処理の段が変わる)。
         /// </summary>
-        bool RequestProposal(float u, float v, MaskSuggestGranularity granularity);
+        bool RequestProposal(float u, float v, MaskSuggestGranularity granularity, MaskSuggestUse use);
 
         /// <summary>処理待ちクリック数(処理中の 1 件を含む)。UI の件数表示用。</summary>
         int PendingClickCount { get; }

@@ -106,16 +106,18 @@ namespace Iroca {
                 return false;
             }
             UseSource(svc, sourceKey, pixels);
-            return Submit(svc, owner, u, v, granularity, onResult);
+            return Submit(svc, owner, u, v, granularity, MaskSuggestUse.Region, onResult);
         }
 
         /// <summary>
         /// AI が待機中のときだけ提案を 1 件求める(自動調整の証拠)。準備中・ほかの元の要求が並んでいる間は
         /// <see cref="Request.Busy"/> で、呼ぶ側が後で求め直す(埋め込みの計算は、ここで元を渡したときに始まる)。
         /// 結果は onResult で 1 回だけ返る(取り消し・破棄のときは null)。
+        /// 自動化のマスク操作(右クリックの代わり)も使うので、そのときは use に <see cref="MaskSuggestUse.Region"/> を渡す。
         /// </summary>
         internal static Request RequestWhenIdle(object owner, string sourceKey, NativePixels pixels, float u, float v,
-            Action<MaskSuggestProposal> onResult, MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto) {
+            Action<MaskSuggestProposal> onResult, MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto,
+            MaskSuggestUse use = MaskSuggestUse.Evidence) {
             var svc = Service;
             if (svc == null || onResult == null) {
                 return Request.Unavailable;
@@ -134,7 +136,7 @@ namespace Iroca {
             if (svc.Phase != MaskSuggestPhase.Idle) {
                 return Request.Busy;
             }
-            return Submit(svc, owner, u, v, granularity, onResult) ? Request.Started : Request.Unavailable;
+            return Submit(svc, owner, u, v, granularity, use, onResult) ? Request.Started : Request.Unavailable;
         }
 
         /// <summary>
@@ -252,11 +254,11 @@ namespace Iroca {
         }
 
         private static bool Submit(IMaskSuggestService svc, object owner, float u, float v,
-            MaskSuggestGranularity granularity, Action<MaskSuggestProposal> onResult) {
+            MaskSuggestGranularity granularity, MaskSuggestUse use, Action<MaskSuggestProposal> onResult) {
             // 受け取り先を先に積む(サービスがその場で提案を出しても、誰のものか決まっているように)。
             var t = new Ticket { owner = owner, onResult = onResult };
             s_queue.Add(t);
-            if (svc.RequestProposal(u, v, granularity)) {
+            if (svc.RequestProposal(u, v, granularity, use)) {
                 return true;
             }
             s_queue.Remove(t);

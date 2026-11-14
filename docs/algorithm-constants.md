@@ -147,6 +147,7 @@
 | `Code/MaskSuggest/Ops/SamMaskPostprocess.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.AaTransition.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.Fringe.cs` | 1 |
+| `Code/MaskSuggest/Ops/SamMaskRefine.Foreign.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.Peel.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.Snap.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.Transfer.cs` | 0 |
@@ -597,6 +598,14 @@
 | `GrowReachCells` | `6` | 実測 | — | 描き込みの続きを足す範囲。SAM が端で切る長さの実測（約 5.5d）から 6d |
 | `GrowGap` | `2` | 設計 | — | 続きとして連ねる隙間 2px。縁取り 1px と AA 1px を挟む構造から |
 | `Inf` | `ushort.MaxValue` | 量子化 | — | L1 距離変換で「反対側が無い」を表す番兵。距離は ushort で持ち、本当の距離(辺の和 ≤ 32766)と混ざらない。+1 は int で計算するので桁あふれしない |
+
+## `Code/MaskSuggest/Ops/SamMaskRefine.Foreign.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `ForeignNearColor` | `0.08f` | 実測 | — | 提案の成分ごとに「クリック色に近い画素の割合」を数える OkLab の距離。割合はクリックした成分との比で比べるので、陰影の付いた同じ素材を近いと数えられる幅であればよい。開発側 33 被写体 × 6 クリックの右クリックの提案(自動)で 0.04〜0.15 のどれでも結果が同じ台地の中ほど(2026-11-14)。当てるのは自動・大きいの提案だけで、細かい(細部を狙う)には当てない |
+| `ForeignNearFracRatio` | `0.5f` | 実測 | — | 外す成分の、クリック色の割合の上限(クリックした成分の割合との比)。同じ物差しで 0.3〜0.7 のどれでも結果が同じ台地の中ほど(2026-11-14) |
+| `ForeignRefRadius` | `2` | 設計 | — | クリック色を取る窓の半径(5×5 の中央値)。縁取り・ノイズの 1 画素に当たっても地色を取る |
 
 ## `Code/MaskSuggest/Ops/SamZoomOps.cs`
 

@@ -79,7 +79,7 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(MaskSuggestPhase.Idle, svc.Phase, svc.ErrorMessage);
 
             beforeClick?.Invoke();
-            Assert.IsTrue(svc.RequestProposal(0.5f, 0.5f, MaskSuggestGranularity.Auto));
+            Assert.IsTrue(svc.RequestProposal(0.5f, 0.5f, MaskSuggestGranularity.Auto, MaskSuggestUse.Region));
             yield return WaitFor(
                 () => svc.Phase == MaskSuggestPhase.ProposalReady || svc.Phase == MaskSuggestPhase.Error,
                 "クリックの推論");

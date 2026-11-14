@@ -68,6 +68,18 @@ namespace Iroca {
             SamMaskPostprocess.RefineInPlace(mask.Ptr, px.Ptr, px.Width, px.Height, token);
         }
 
+        /// <summary>
+        /// クリックした塊と色の違う離れた塊を外す(<see cref="SamMaskRefine.DropForeignComponents(bool*, Color32*, int, int, int, int, CancellationToken, float, float)"/>)。
+        /// クリックは px の画素座標(下原点)。画素が無ければ何もしない。外した画素数を返す。
+        /// </summary>
+        public static int DropForeignComponents(NativeBools mask, NativePixels px, int clickX, int clickY,
+            CancellationToken token = default) {
+            if (px == null || mask == null) {
+                return 0;
+            }
+            return SamMaskRefine.DropForeignComponents(mask.Ptr, px.Ptr, px.Width, px.Height, clickX, clickY, token);
+        }
+
         /// <summary>切り出し(参照 1。受け取った側が手放す)。</summary>
         public static NativePixels ExtractCrop(NativePixels px, int x0, int y0, int side)
             => SamZoomOps.ExtractCrop(px.Ptr, px.Width, px.Height, x0, y0, side);

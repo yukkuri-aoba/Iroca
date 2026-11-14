@@ -402,7 +402,7 @@ namespace Iroca {
             // 証拠の要求を(再)試行する。準備中(Busy)なら次の Advance で求め直す。
             private void RequestEvidence() {
                 var r = AiSuggestBroker.RequestWhenIdle(this, _sourceKey, _pixels,
-                    _zone.sampleUV.x, _zone.sampleUV.y, OnEvidence);
+                    _zone.sampleUV.x, _zone.sampleUV.y, OnEvidence, use: MaskSuggestUse.Evidence);
                 switch (r) {
                     case AiSuggestBroker.Request.Started:
                         _requested = true;

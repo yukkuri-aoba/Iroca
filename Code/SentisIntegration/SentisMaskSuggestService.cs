@@ -118,11 +118,13 @@ namespace Iroca.SentisIntegration {
         readonly struct PendingClick {
             public readonly float u, v;
             public readonly MaskSuggestGranularity granularity;
+            public readonly MaskSuggestUse use;
             public readonly long requestedAt; // キュー待ち時間の計測用
-            public PendingClick(float u, float v, MaskSuggestGranularity granularity) {
+            public PendingClick(float u, float v, MaskSuggestGranularity granularity, MaskSuggestUse use) {
                 this.u = u;
                 this.v = v;
                 this.granularity = granularity;
+                this.use = use;
                 requestedAt = MaskSuggestPerf.Now;
             }
         }
@@ -247,6 +249,10 @@ namespace Iroca.SentisIntegration {
             public NativePixels cropPixels;
             public double postMs;
             public double refineMs; // 精密化 4 段(走ったときのみ非 0)
+            // 部分をマスクに当てる用途(MaskSuggestUse.Region)なら、精密化の後に色の違う離れた塊を外す。
+            // クリックは全体の画素座標(下原点)。ズームの第 2 段・第 1 段への退避もこれを見る。
+            public bool dropForeign;
+            public int clickX, clickY;
 
             /// <summary>持っている画素(範囲・切り出し)を返す。配信で範囲を渡した後は切り出しだけ。</summary>
             public void Release() {
@@ -741,14 +747,14 @@ namespace Iroca.SentisIntegration {
 
         public int PendingClickCount => _clickQueue.Count + (_clickInFlight ? 1 : 0);
 
-        public bool RequestProposal(float u, float v, MaskSuggestGranularity granularity) {
+        public bool RequestProposal(float u, float v, MaskSuggestGranularity granularity, MaskSuggestUse use) {
             if (!_modelsLoaded) {
                 return false;
             }
             switch (_phase) {
                 case MaskSuggestPhase.Encoding:
                 case MaskSuggestPhase.Decoding:
-                    _clickQueue.Enqueue(new PendingClick(u, v, granularity));
+                    _clickQueue.Enqueue(new PendingClick(u, v, granularity, use));
                     StateChanged?.Invoke();
                     return true;
                 case MaskSuggestPhase.Idle:
@@ -756,7 +762,7 @@ namespace Iroca.SentisIntegration {
                     if (_embedding == null) {
                         return false;
                     }
-                    _clickQueue.Enqueue(new PendingClick(u, v, granularity));
+                    _clickQueue.Enqueue(new PendingClick(u, v, granularity, use));
                     StartNextClick();
                     return true;
                 default:
@@ -780,7 +786,7 @@ namespace Iroca.SentisIntegration {
         void StartNextClick() {
             var c = _clickQueue.Dequeue();
             _clickInFlight = true;
-            RunDecode(c.u, c.v, c.granularity, MaskSuggestPerf.MsSince(c.requestedAt));
+            RunDecode(c.u, c.v, c.granularity, c.use, MaskSuggestPerf.MsSince(c.requestedAt));
         }
 
         /// <summary>
@@ -813,7 +819,7 @@ namespace Iroca.SentisIntegration {
             }
         }
 
-        void RunDecode(float u, float v, MaskSuggestGranularity granularity, double queueWaitMs) {
+        void RunDecode(float u, float v, MaskSuggestGranularity granularity, MaskSuggestUse use, double queueWaitMs) {
             SetPhase(MaskSuggestPhase.Decoding);
             _clickStartedAt = MaskSuggestPerf.Now;
             _clickQueueWaitMs = queueWaitMs;
@@ -827,7 +833,7 @@ namespace Iroca.SentisIntegration {
                             return;
                         }
                         _clickDecodeMs = MaskSuggestPerf.MsSince(tDec);
-                        StartStage1Post(u, v, granularity, logits, scores);
+                        StartStage1Post(u, v, granularity, use, logits, scores);
                     } catch (Exception e) {
                         FailFromEditorCallback(e, Localization.AiErrProposalFormat);
                     }
@@ -837,7 +843,7 @@ namespace Iroca.SentisIntegration {
                     // 以前は、デコードの失敗はそのままエラーだった。切り替えた後は CPU なので、もう一度失敗したらエラーにする。
                     if (_backend == BackendType.GPUCompute && _phase == MaskSuggestPhase.Decoding) {
                         if (FallBackToCpu("デコード", e.Message, out string werr)) {
-                            RunDecode(u, v, granularity, queueWaitMs);
+                            RunDecode(u, v, granularity, use, queueWaitMs);
                             return;
                         }
                         SetPhase(MaskSuggestPhase.Error, error: werr);
@@ -848,7 +854,8 @@ namespace Iroca.SentisIntegration {
         }
 
         // 第 1 段(全体)の後処理: 粗マスク → ズームの判定 → (ズームしなければ)精密化。
-        void StartStage1Post(float u, float v, MaskSuggestGranularity granularity, float[] logits, float[] scores) {
+        void StartStage1Post(float u, float v, MaskSuggestGranularity granularity, MaskSuggestUse use,
+                             float[] logits, float[] scores) {
             int w = _texW, h = _texH;
             var px = _sourcePixels?.AddRef();   // 読む間の参照(後始末で返す)
             _postJob ??= new PreviewJob<PostOutcome>();
@@ -874,6 +881,10 @@ namespace Iroca.SentisIntegration {
                         // (実 SAM fixture で crop 決定の一致を確認済み)。
                         int cx = Mathf.Clamp((int)(u * w), 0, w - 1);
                         int cy = Mathf.Clamp((int)(v * h), 0, h - 1); // v は下原点 → 下原点行と一致
+                        // 細かいは細部を狙って選ぶ粒度なので外さない(SamMaskRefine.DropForeignComponents の説明)。
+                        o.dropForeign = use == MaskSuggestUse.Region && granularity != MaskSuggestGranularity.Fine;
+                        o.clickX = cx;
+                        o.clickY = cy;
                         int bb = SamNativeOps.ClickComponentBBoxLong(o.mask, cx, cy);
                         bool hasCrop = SamZoomOps.TryDeriveCropRect(bb, cx, cy, w, h,
                                                                     out int x0, out int y0, out int side);
@@ -888,6 +899,9 @@ namespace Iroca.SentisIntegration {
                         if (!hasCrop) {
                             long tr = MaskSuggestPerf.Now;
                             SamNativeOps.RefineInPlace(o.mask, px, ct);
+                            if (o.dropForeign) {
+                                SamNativeOps.DropForeignComponents(o.mask, px, cx, cy, ct);
+                            }
                             o.refineMs = MaskSuggestPerf.MsSince(tr);
                         }
                         return o;
@@ -1117,6 +1131,10 @@ namespace Iroca.SentisIntegration {
                     NativeBools full;
                     int trueCount;
                     try {
+                        // 切り出しの中で外しても、貼り戻した全体で外したのと同じ(提案は切り出しの外に無い)。
+                        if (plan.dropForeign) {
+                            SamNativeOps.DropForeignComponents(res.mask, cropPx, plan.clickX - x0, plan.clickY - y0, ct);
+                        }
                         full = SamNativeOps.PasteCrop(res.mask, w, h, x0, y0, out trueCount);
                     } finally { res.mask.Release(); }
                     return new PostOutcome {
@@ -1166,6 +1184,9 @@ namespace Iroca.SentisIntegration {
                 ct => {
                     long t0 = MaskSuggestPerf.Now;
                     SamNativeOps.RefineInPlace(mask, px, ct);
+                    if (plan.dropForeign) {
+                        SamNativeOps.DropForeignComponents(mask, px, plan.clickX, plan.clickY, ct);
+                    }
                     plan.refineMs = MaskSuggestPerf.MsSince(t0);
                     return plan;
                 },

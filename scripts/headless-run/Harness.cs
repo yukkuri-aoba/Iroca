@@ -2302,6 +2302,26 @@ namespace Iroca {
                         return 0;
                     }
 
+                // --samops-dropforeign <mask.raw> <image.raw RGBA> <out.raw> <clickX> <clickY> [nearColor] [ratio]
+                // : クリック色の割合が低い離れた成分を外す(SamMaskRefine.DropForeignComponents。精密化 4 段・貼り戻しの後)。
+                // クリックは下原点の画素座標。nearColor・ratio は掃引用(既定は製品の定数)。
+                case "--samops-dropforeign": {
+                        var (mw2, mh2, mask2) = ReadMaskRaw(args[1]);
+                        var (iw, ih, rgba2) = ReadRaw(args[2], 4);
+                        if (iw != mw2 || ih != mh2) {
+                            Console.Error.WriteLine("dropforeign: mask/image size mismatch");
+                            return 2;
+                        }
+                        int fx = int.Parse(args[4], inv), fy = int.Parse(args[5], inv);
+                        float nc = args.Length > 6 ? float.Parse(args[6], inv) : SamMaskRefine.ForeignNearColor;
+                        float fr = args.Length > 7 ? float.Parse(args[7], inv) : SamMaskRefine.ForeignNearFracRatio;
+                        var px2 = ToColor32(rgba2, iw * ih);
+                        int removed = SamMaskRefine.DropForeignComponents(mask2, px2, iw, ih, fx, fy, nc, fr);
+                        WriteMaskRaw(args[3], iw, ih, mask2);
+                        Console.WriteLine($"DROPFOREIGN OK {iw}x{ih} removed={removed}");
+                        return 0;
+                    }
+
                 // --samops-refineall <mask.raw> <image.raw RGBA> <out.raw> [reps] : 精密化 4 段を製品の入口
                 // (SamMaskPostprocess.RefineInPlace。提案が画像の一部なら切り出して回す)で通す。
                 // --samops-refine → -fringe → -aainclude → -peel の連鎖(全画像)とビット同一であることの検証に使う。

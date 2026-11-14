@@ -138,6 +138,22 @@ namespace Iroca {
             }
         }
 
+        /// <summary>テスト・ハーネス用。<see cref="DropForeignComponents(bool*, Color32*, int, int, int, int, System.Threading.CancellationToken, float, float)"/>
+        /// の配列版(画素が w*h に足りなければ何もしない)。</summary>
+        public static int DropForeignComponents(bool[] mask, Color32[] pixelsBottomUp, int w, int h, int clickX, int clickY,
+                                                float nearColor = ForeignNearColor, float ratio = ForeignNearFracRatio) {
+            if (mask == null || mask.Length != w * h) {
+                return 0;
+            }
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) {
+                return 0;
+            }
+            fixed (bool* m = mask)
+            fixed (Color32* p = pixelsBottomUp) {
+                return DropForeignComponents(m, p, w, h, clickX, clickY, default, nearColor, ratio);
+            }
+        }
+
         /// <summary>テスト・ハーネス用。<see cref="SnapBoundary(bool*, Color32*, int, int, System.Threading.CancellationToken, int, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void SnapBoundary(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
                                         System.Threading.CancellationToken token = default) {
