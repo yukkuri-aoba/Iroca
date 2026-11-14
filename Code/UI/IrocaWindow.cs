@@ -346,7 +346,9 @@ namespace Iroca {
             }
             // スポイト・ブラシ・開発者向けの「カーソルの下の島を表示」の間も、マウスの移動と出入りを受け取る(見本・カーソル・
             // 島の情報をマウスに付いて動かす。PreviewView.HandleHoverRepaint)。ほかのときは受け取らない(動かすたびに OnGUI が走るため)。
-            bool track = deferred || WantsPreviewHover;
+            // 本体は、プレビューを描いているときだけ(切り出し中・縦並びの本体はプレビューを描かないので、受け取っても動かす物が無い)。
+            bool hover = WantsPreviewHover && (!ReferenceEquals(from, this) || DrawsPreviewInWindow);
+            bool track = deferred || hover;
             if (from.wantsMouseMove != track) {
                 from.wantsMouseMove = track;
             }

@@ -45,6 +45,15 @@ namespace Iroca {
             // 途中でゾーンを触られると待ち中の入力と食い違う）。
             || _autoTune != null;
 
+        /// <summary>設定とプレビューを横に並べるか(狭い窓は縦に並べ、本体にプレビューを描かない)。</summary>
+        private bool IsSideBySideLayout => position.width >= IrocaUiConsts.Layout.SideBySideMinWidth;
+
+        /// <summary>
+        /// 本体がプレビューを描くか: 横並びで、別ウィンドウへ切り出していないとき(<see cref="DrawSideBySideLayout"/>)。
+        /// 縦並び・切り出し中は案内(DrawPreviewDetachedSection)だけを描く。
+        /// </summary>
+        private bool DrawsPreviewInWindow => IsSideBySideLayout && !IrocaPreviewWindow.IsOpen;
+
         private void OnGUI() {
             // 描かれている = 見えている(Scene のクリックを見る条件。IrocaWindow.SceneClick)。
             _windowShown = true;
@@ -93,7 +102,7 @@ namespace Iroca {
 
             EditorGUI.BeginDisabledGroup(blocking);
 
-            bool sideBySide = position.width >= IrocaUiConsts.Layout.SideBySideMinWidth;
+            bool sideBySide = IsSideBySideLayout;
 
             // position.height はウィンドウ枠（タイトル/タブバー）を含むため、
             // 実描画領域はそれより低い。エクスポートが画面外に押し出されないよう安全マージンを引く。
