@@ -320,7 +320,6 @@ namespace Iroca {
             int sx0 = Mathf.Max(0, gx0 - B), sx1 = Mathf.Min(w - 1, gx1 + B);
             int sy0 = Mathf.Max(0, gy0 - B), sy1 = Mathf.Min(h - 1, gy1 + B);
 
-            int len = w * h;
             // 「確かな選択」sel と「選択(強さを問わず)」any を 1 画素 1 bit の行ごとのビット列に持ち、窓の中の
             // 個数は窓の各行のビットを数えて求める(旧: float の 0/1 配列 2 本と、その累積和 2 本を全域に作って
             // いた=4K で 256MB を何度も読み書き)。数は整数なので、どちらで数えても同じ値。
@@ -331,16 +330,19 @@ namespace Iroca {
             ulong* selBits = null;
             ulong* anyBits = null;
             ulong* innerBits = null;
-            // 「面か」の覚え書き(0 = まだ調べていない、FlatYesB / FlatNoB = 調べた結果)。背景の候補を探す
-            // 範囲 G だけ 0 にしてから使う。同じ画素を別の行のスレッドが同時に調べても、書く値は同じ(1 バイトの
-            // 書き込みなので、途中の値が見えることもない)。
+            // 「面か」の覚え書き(0 = まだ調べていない、FlatYesB / FlatNoB = 調べた結果)。背景の候補を探すのは
+            // 調べる画素の ±B(= 範囲 G の中)だけなので、G の大きさで借り、番地は G の左上からの相対で引く
+            // ((yy − gy0)·gW + (xx − gx0))。全部 0 にしてから使う。同じ画素を別の行のスレッドが同時に調べても、
+            // 書く値は同じ(1 バイトの書き込みなので、途中の値が見えることもない)。
+            int gW = Mathf.Max(0, gx1 - gx0 + 1), gH = Mathf.Max(0, gy1 - gy0 + 1);
+            int gLen = gW * gH;
             byte* flatMemo = null;
             try {
                 selBits = (ulong*)s_bytePool.Rent(bitBytes);
                 anyBits = (ulong*)s_bytePool.Rent(bitBytes);
                 new Span<byte>(selBits, bitBytes).Clear();
                 new Span<byte>(anyBits, bitBytes).Clear();
-                flatMemo = s_bytePool.Rent(len);
+                flatMemo = s_bytePool.Rent(Mathf.Max(1, gLen));
                 var po = CoreParallelism.Options(ct);
                 Parallel.For(sy0, sy1 + 1, po, y => {
                     int rowOff = y * w;
@@ -387,7 +389,7 @@ namespace Iroca {
                     }
                 });
                 var flatL = flatMemo;
-                Parallel.For(gy0, gy1 + 1, po, y => ClearWork(flatL, y * w + gx0, gx1 - gx0 + 1));
+                ClearWorkParallel(flatL, gLen, po);
 
                 var rcL = rc;
                 float minChromaSq = MixMinChroma * MixMinChroma;
@@ -562,6 +564,7 @@ namespace Iroca {
                                 int x0w = Mathf.Max(0, x - d), x1w = Mathf.Min(w - 1, x + d);
                                 for (int yy = y0w; yy <= y1w; yy++) {
                                     int r2 = yy * w;
+                                    int gr2 = (yy - gy0) * gW - gx0;   // flatL の行の頭(G 相対。+ xx で引く)
                                     int ady = yy > y ? yy - y : y - yy;
                                     for (int xx = x0w; xx <= x1w; xx++) {
                                         if (ady < d && (xx > x ? xx - x : x - xx) < d) {
@@ -575,7 +578,7 @@ namespace Iroca {
                                         if (o.a == 0 || (maskExcluded != null && maskExcluded[j])) {
                                             continue;
                                         }
-                                        byte fc = flatL[j];
+                                        byte fc = flatL[gr2 + xx];
                                         if (fc == 0) {
                                             // 面の判定: 3×3 の隣が全部未選択で、色度が揃っていて、±R に透明が無い。
                                             float oM = (o.r + o.g + o.b) * (1f / 3f);
@@ -609,7 +612,7 @@ namespace Iroca {
                                                 }
                                             }
                                             fc = flat ? FlatYesB : FlatNoB;
-                                            flatL[j] = fc;
+                                            flatL[gr2 + xx] = fc;
                                         }
                                         if (fc != FlatYesB) {
                                             continue;
