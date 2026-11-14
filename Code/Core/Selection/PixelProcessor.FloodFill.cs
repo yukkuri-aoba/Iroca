@@ -327,15 +327,25 @@ namespace Iroca {
             var po = CoreParallelism.Options(ct);
             // 半透明の選択画素を行並列で数え、番地の一覧にする。以降の段(種・広げる・外す)はこの一覧と
             // その 4 近傍だけを見る(以前は全画素を 1 スレッドで 3〜4 回なめていた)。
+            // 数えるついでに、行ごとに半透明の選択画素がある列の両端を覚え、番地を集める 2 回目の走査はその間だけを見る
+            // (無い行は読まない。2 回の走査の間に strength も α も変わらないので、集まる番地は全幅を見たときと同じ)。
             var rowT = new int[h + 1];
+            var rowX0 = new int[h];
+            var rowX1 = new int[h];
             Parallel.For(0, h, po, y => {
-                int rb = y * w, n = 0;
+                int rb = y * w, n = 0, first = -1, last = -1;
                 for (int x = 0; x < w; x++) {
                     if (strength[rb + x] > 0f && px[rb + x].a < OpaqueAlphaMin) {
+                        if (first < 0) {
+                            first = x;
+                        }
+                        last = x;
                         n++;
                     }
                 }
                 rowT[y + 1] = n;
+                rowX0[y] = first;
+                rowX1[y] = last;
             });
             for (int y = 0; y < h; y++) {
                 rowT[y + 1] += rowT[y];
@@ -346,29 +356,38 @@ namespace Iroca {
             }
             int* tIdx = s_intPool.Rent(nT);
             int* stack = null;
-            bool* reached = null;
+            bool* seed = null;
+            ulong* reached = null;
             try {
                 var tIdxL = tIdx;
                 Parallel.For(0, h, po, y => {
-                    int rb = y * w, k = rowT[y];
-                    for (int x = 0; x < w; x++) {
+                    int k = rowT[y];
+                    if (k == rowT[y + 1]) {
+                        return;
+                    }
+                    int rb = y * w;
+                    for (int x = rowX0[y], x1 = rowX1[y]; x <= x1; x++) {
                         if (strength[rb + x] > 0f && px[rb + x].a < OpaqueAlphaMin) {
                             tIdxL[k++] = rb + x;
                         }
                     }
                 });
-                // reached は半透明の選択画素の番地でしか読まない(Push は IsT を確かめてから呼ぶ)ので、
-                // その番地だけを書けばよい。
-                reached = s_boolPool.Rent(len);
+                // 届いたかの印は 1 画素 1 bit(以前は 1 画素 1 バイトの全画素ぶん。4K 16MB・8K 67MB → 2MB・8MB)。
+                // 語は行の境目で 2 つの行にまたがるので、並列のループからは書かない(種の判定は番号 k ごとの seed に書き、
+                // 印は下の 1 本のループで立てる)。読むのは半透明の選択画素の番地だけだが、語ごと使うので全部 0 にしておく。
+                int words = (int)(((long)len + 63) >> 6);
+                reached = (ulong*)s_bytePool.Rent(checked(words * sizeof(ulong)));
+                ClearWorkParallel(reached, words, po);
+                seed = s_boolPool.Rent(nT);
                 stack = s_intPool.Rent(nT);
-                var reachedL = reached;
+                var seedL = seed;
                 // 種: 残った不透明な選択に 4 近傍で接する半透明の選択画素。種の判定は不透明な画素しか
                 // 読まないので、行の順に依らない。
                 Parallel.For(0, h, po, y => {
                     for (int k = rowT[y], kEnd = rowT[y + 1]; k < kEnd; k++) {
                         int i = tIdxL[k];
                         int x = i - y * w;
-                        reachedL[i] =
+                        seedL[k] =
                                (x > 0 && strength[i - 1] > 0f && px[i - 1].a >= OpaqueAlphaMin)
                             || (x + 1 < w && strength[i + 1] > 0f && px[i + 1].a >= OpaqueAlphaMin)
                             || (y > 0 && strength[i - w] > 0f && px[i - w].a >= OpaqueAlphaMin)
@@ -377,12 +396,20 @@ namespace Iroca {
                 });
                 int sp = 0;
                 for (int k = 0; k < nT; k++) {
-                    if (reached[tIdx[k]]) {
-                        stack[sp++] = tIdx[k];
+                    if (seed[k]) {
+                        int i = tIdx[k];
+                        reached[i >> 6] |= 1UL << (i & 63);
+                        stack[sp++] = i;
                     }
                 }
                 bool IsT(int i) => strength[i] > 0f && px[i].a < OpaqueAlphaMin;
-                void Push(int i) { if (!reached[i]) { reached[i] = true; stack[sp++] = i; } }
+                void Push(int i) {
+                    ulong bit = 1UL << (i & 63);
+                    if ((reached[i >> 6] & bit) == 0) {
+                        reached[i >> 6] |= bit;
+                        stack[sp++] = i;
+                    }
+                }
                 // 指定位置の半透明の選択画素も種にする。届く集合は広げる順に依らない。
                 if (keepX >= 0 && keepX < w && keepY >= 0 && keepY < h && IsT(keepY * w + keepX)) {
                     Push(keepY * w + keepX);
@@ -403,10 +430,11 @@ namespace Iroca {
                         Push(i + w);
                     }
                 }
+                var reachedL = reached;
                 Parallel.For(0, h, po, y => {
                     for (int k = rowT[y], kEnd = rowT[y + 1]; k < kEnd; k++) {
                         int i = tIdxL[k];
-                        if (!reachedL[i]) {
+                        if ((reachedL[i >> 6] & (1UL << (i & 63))) == 0) {
                             strength[i] = 0f;
                         }
                     }
@@ -415,8 +443,11 @@ namespace Iroca {
                 if (stack != null) {
                     s_intPool.Return(stack);
                 }
+                if (seed != null) {
+                    s_boolPool.Return(seed);
+                }
                 if (reached != null) {
-                    s_boolPool.Return(reached);
+                    s_bytePool.Return((byte*)reached);
                 }
                 s_intPool.Return(tIdx);
             }
