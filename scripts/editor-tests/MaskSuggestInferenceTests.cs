@@ -247,6 +247,43 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(2, Reports(3), "ステップが少ないときは、進むたびに知らせる");
         }
 
+        // GPU の推論カーネルの準備(プロジェクトで初めて GPU の推論を使うとき、全カーネルのコンパイルでエディタの更新 1 回が
+        // 十数秒止まっていたのを、1 回の MoveNext で 1 つずつに割る)。Sentis の Resources の下のコンピュートシェーダを、
+        // カーネルの番号の範囲の外まで回して終わること・エラーを出さないこと・進みが 1 まで届くことを見る
+        // (範囲の外の扱いが Unity の版で変わったら、ここで分かる)。AI 統合アセンブリの内部なので名前で呼ぶ。
+        [Test]
+        public void GpuKernelPrewarm_VisitsTheKernelsOfEveryShaderAndEnds() {
+            var type = System.Type.GetType("Iroca.SentisIntegration.SentisKernelPrewarm, Iroca.SentisIntegration");
+            if (type == null) {
+                Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
+            }
+            if (!SystemInfo.supportsComputeShaders || SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) {
+                Assert.Ignore("この環境はコンピュートシェーダを使えない(-nographics など。推論は CPU で、準備は通らない)");
+            }
+            int shaders = Resources.LoadAll<ComputeShader>("Sentis").Length;
+            Assert.Greater(shaders, 0, "Sentis のコンピュートシェーダが Resources/Sentis に無い(置き場が変わったら準備が何もしない)");
+
+            float last = 0f;
+            int reports = 0;
+            System.Action<float> onProgress = p => {
+                Assert.GreaterOrEqual(p, last, "進みが戻った");
+                last = p;
+                reports++;
+            };
+            var prewarm = (IEnumerator)System.Activator.CreateInstance(type,
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                null, new object[] { onProgress }, null);
+            int steps = 0;
+            while (prewarm.MoveNext()) {
+                steps++;
+                Assert.Less(steps, 100000, "終わらない");
+            }
+            int kernels = (int)type.GetProperty("Kernels").GetValue(prewarm);
+            Assert.GreaterOrEqual(kernels, shaders, "どのシェーダにもカーネルが 1 つはあるはず");
+            Assert.AreEqual(shaders, reports, "シェーダを 1 つ終えるごとに進みを知らせる");
+            Assert.AreEqual(1f, last, 1e-6f, "進みが 1 まで届かない");
+        }
+
         [Test]
         public void LeftoverModelImportFolders_OnlyIrocasOwnAreRemoved() {
             // モデルの変換の途中で Unity が落ちると Assets に一時フォルダが残る。次の変換の前に、

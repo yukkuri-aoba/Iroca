@@ -19,7 +19,8 @@ namespace Iroca.SentisIntegration {
     /// 実行モデル(メインスレッド規約は IMaskSuggestService 参照):
     ///   - 前処理(リサイズ/正規化)と後処理(拡大/二値化)は PreviewJob で BG スレッド実行
     ///   - エンコーダ推論は Worker.ScheduleIterable を EditorApplication.update から
-    ///     時間予算で pump(GPU ディスパッチはメインスレッド必須のため)
+    ///     時間予算で pump(GPU ディスパッチはメインスレッド必須のため)。GPU ではドメインで最初の 1 回だけ、その前に
+    ///     推論カーネルを 1 つずつコンパイルさせる(SentisKernelPrewarm。プロジェクトで初めてのとき 1 回の更新が十数秒止まっていた)
     ///   - デコーダ推論はメインスレッドで投げ、出力の読み出しを EditorReadbackPoller で待つ
     ///     (同期の読み出しは GPU の実行が終わるまで 14〜50ms 止まっていた)
     ///   - 埋め込み(4.2MB。ヒープの外の float の並び)はテクスチャキー単位で LRU キャッシュ
@@ -71,6 +72,12 @@ namespace Iroca.SentisIntegration {
         // Unity 起動後の 1 回だけ数秒〜数十秒かかる。クリック後に踏むと「押しても返ってこない」
         // 時間になるので、埋め込み計算の直後に 1 回だけ捨て推論して温めておく。
         bool _decoderWarmed;
+        // このドメインで GPU の推論カーネルを準備したか(StartKernelPrewarm)。コンパイルの結果は Unity が持つので、
+        // ワーカーを作り直しても(窓を閉じて開き直しても)やり直さない。ドメインの再読み込みの後は 1 回だけ回る(速い)。
+        bool _gpuKernelsPrepared;
+        // カーネルの準備に時間がかかったとき、進みの棒のうち準備に充てる割合(残りがエンコーダ)。プロジェクトで初めての
+        // ときは準備が 8〜15 秒・エンコーダが 1 秒弱なので、準備を大きく取る(見た目の配分だけで、処理は変わらない)。
+        const float PrewarmProgressShare = 0.9f;
 
         MaskSuggestPhase _phase = MaskSuggestPhase.NoModel;
         float _progress;
@@ -501,17 +508,66 @@ namespace Iroca.SentisIntegration {
             }
             try {
                 _encInput = EncoderInputTensor(chw);
+                if (_backend == BackendType.GPUCompute && !_gpuKernelsPrepared) {
+                    StartKernelPrewarm(whilePhase, onProgress, onEmbedding, Fail);
+                    return;
+                }
+                ScheduleEncoder(onProgress, onEmbedding, Fail);
+            } catch (Exception e) {
+                Fail(e);
+            }
+        }
+
+        // エンコーダを投げて、エディタの更新で少しずつ進める(入力のテンソル _encInput は作ってある)。
+        void ScheduleEncoder(Action<float> onProgress, Action<NativeBuffer, double, long> onEmbedding, Action<Exception> fail) {
+            try {
                 ThrowIfInducedGpuFailure(ref FailNextGpuEncodesForTests, "encode");
                 var it = _encoder.ScheduleIterable(_encInput);
                 int total = _encoderModel.layers != null ? _encoderModel.layers.Count : 0;
                 _pumpStartedAt = MaskSuggestPerf.Now;
                 _pump.Start(it, total,
-                    onDone: () => ReadEncoderOutput(onEmbedding, Fail),
-                    onError: Fail,
+                    onDone: () => ReadEncoderOutput(onEmbedding, fail),
+                    onError: fail,
                     onProgress: onProgress);
             } catch (Exception e) {
-                Fail(e);
+                fail(e);
             }
+        }
+
+        /// <summary>
+        /// GPU の推論カーネルを 1 つずつコンパイルさせてから(<see cref="SentisKernelPrewarm"/>)、エンコーダを投げる。
+        /// このドメインで GPU のエンコードを初めて始めるときだけ通る。コンパイル済みなら更新 1 回で終わるが、プロジェクトで
+        /// 初めて GPU の推論を使うときは数秒〜十数秒かかる(以前はその全部がエンコーダの最初の 1 段の中で、エディタの更新
+        /// 1 回を止めていた)。その間は、進みの棒をシェーダの数で進める(エンコーダの分は残りの幅で)。
+        /// 失敗しても止めずにエンコーダへ進む(推論で同じ失敗が出れば、普段どおり CPU への切り替えなどで扱う)。
+        /// 取り消し(CancelOps)は pump を止めるので、どちらの通知も来ず、入力のテンソルは CancelOps が捨てる。
+        /// </summary>
+        void StartKernelPrewarm(MaskSuggestPhase whilePhase, Action<float> onProgress,
+                                Action<NativeBuffer, double, long> onEmbedding, Action<Exception> fail) {
+            long t0 = MaskSuggestPerf.Now;
+            var prewarm = new SentisKernelPrewarm(onProgress == null ? null : f => onProgress(f * PrewarmProgressShare));
+            void Continue() {
+                _gpuKernelsPrepared = true;
+                // 更新 1 回で済んだ(コンパイル済みだった)ときは、進みの棒を分けない。
+                bool slow = _pump.Ticks > 1;
+                MaskSuggestPerf.Log(
+                    $"GPU カーネルの準備: {MaskSuggestPerf.MsSince(t0):F0}ms ({prewarm.Kernels} kernels / {_pump.Ticks} ticks)");
+                if (_phase != whilePhase || _encInput == null) {
+                    DisposeEncInput();
+                    return;
+                }
+                Action<float> encoderProgress = onProgress != null && slow
+                    ? p => onProgress(PrewarmProgressShare + (1f - PrewarmProgressShare) * p)
+                    : onProgress;
+                ScheduleEncoder(encoderProgress, onEmbedding, fail);
+            }
+            _pump.Start(prewarm, 0,
+                onDone: Continue,
+                onError: e => {
+                    Debug.LogWarning($"[Iroca] GPU の推論カーネルの準備に失敗しました(推論はそのまま続けます): {e.Message}");
+                    Continue();
+                },
+                onProgress: null);
         }
 
         void ReadEncoderOutput(Action<NativeBuffer, double, long> onEmbedding, Action<Exception> fail) {
