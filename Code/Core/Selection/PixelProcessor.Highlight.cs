@@ -344,36 +344,34 @@ namespace Iroca {
                         return;
                     }
                 }
-                // 候補は下の判定が全画素に真偽を書く。
-                candidate = s_boolPool.Rent(len);
-                // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
-                // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
-                // 行並列(per-index デリゲートの 1670 万回呼び出しを避ける)。全画素に真偽を書くので、先に 0 で埋めない。
-                bool* candLocal = candidate, byColorLocal = candByColor;
-                Parallel.For(0, h, hlbPo, y => {
-                    int rowOff = y * w;
-                    if (byColorLocal != null) {
+                // 画素ごとの候補の配列(全画素ぶん)は、色の表が無いときだけ作る。色の表があれば、下の run の列挙が
+                // 色ごとの判定(byColor[pIdx[i]])を直接引く(画素ごとに写していた値と同じものを読むので、run は同じ)。
+                bool* candLocal = null, byColorLocal = candByColor;
+                if (byColorLocal == null) {
+                    // 候補は下の判定が全画素に真偽を書く。
+                    candidate = s_boolPool.Rent(len);
+                    // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
+                    // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
+                    // 行並列(per-index デリゲートの 1670 万回呼び出しを避ける)。全画素に真偽を書くので、先に 0 で埋めない。
+                    candLocal = candidate;
+                    Parallel.For(0, h, hlbPo, y => {
+                        int rowOff = y * w;
+                        if (pixIdx == null) {
+                            // 色の表が無い: H・S・V が画素の並びのまま入っているので、行をまとめて判定する
+                            // (画素ごとに関数を呼ばない。式は MarkHighlightBandCandidates の 1 か所だけ)。
+                            MarkHighlightBandCandidates(pixH, pixS, pixV, originalPixels, candLocal, rowOff, rowOff + w,
+                                sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
+                            return;
+                        }
+                        // 画素 → 番号だけがあって色の表を渡されていないとき(今の呼び出しには無い)。
                         for (int x = 0; x < w; x++) {
                             int i = rowOff + x;
-                            candLocal[i] = byColorLocal[pIdx[i]];
+                            int slot = pixIdx[i];
+                            candLocal[i] = IsHighlightBandCandidate(pixH[slot], pixS[slot], pixV[slot], originalPixels[i],
+                                sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
                         }
-                        return;
-                    }
-                    if (pixIdx == null) {
-                        // 色の表が無い: H・S・V が画素の並びのまま入っているので、行をまとめて判定する
-                        // (画素ごとに関数を呼ばない。式は MarkHighlightBandCandidates の 1 か所だけ)。
-                        MarkHighlightBandCandidates(pixH, pixS, pixV, originalPixels, candLocal, rowOff, rowOff + w,
-                            sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
-                        return;
-                    }
-                    // 画素 → 番号だけがあって色の表を渡されていないとき(今の呼び出しには無い)。
-                    for (int x = 0; x < w; x++) {
-                        int i = rowOff + x;
-                        int slot = pixIdx[i];
-                        candLocal[i] = IsHighlightBandCandidate(pixH[slot], pixS[slot], pixV[slot], originalPixels[i],
-                            sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
-                    }
-                });
+                    });
+                }
 
                 // core(strength ≥ HlBandCoreThreshold)から、core でない候補だけを 4 近傍で辿って届く画素を
                 // strength=1 にする。core は全部が出発点なので、core を経由する道はその core から始まる道と
@@ -383,20 +381,40 @@ namespace Iroca {
                 // 出力はビット単位で同じ。core の判定は書き換える前の strength で行う(探索も同じ)。
                 // 条件の形(!(s >= THR)、s < 1 のときだけ 1 にする)も探索と同じにしてある。
                 // run = 行の中で、core でない候補の画素が並ぶ区間(手順は RunLabeler。根は確定済みで読むだけ)。
-                runs = RunLabeler.Label(h, (y, ox0, ox1) => {
-                    int rb = y * w, n = 0, x = 0;
-                    while (x < w) {
-                        int i = rb + x;
-                        if (!candLocal[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
-                        int s0 = x;
-                        while (x < w && candLocal[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) {
-                            x++;
+                // 候補の引き方(色の表か画素ごとの配列か)だけが違う 2 つの列挙。画素ごとに分岐しないよう、関数ごと分ける。
+                RowRunScanner scan;
+                if (byColorLocal != null) {
+                    scan = (y, ox0, ox1) => {
+                        int rb = y * w, n = 0, x = 0;
+                        while (x < w) {
+                            int i = rb + x;
+                            if (!byColorLocal[pIdx[i]] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
+                            int s0 = x;
+                            while (x < w && byColorLocal[pIdx[rb + x]] && !(strength[rb + x] >= HlBandCoreThreshold)) {
+                                x++;
+                            }
+                            if (ox0 != null) { ox0[n] = s0; ox1[n] = x - 1; }
+                            n++;
                         }
-                        if (ox0 != null) { ox0[n] = s0; ox1[n] = x - 1; }
-                        n++;
-                    }
-                    return n;
-                }, hlbPo, ct);
+                        return n;
+                    };
+                } else {
+                    scan = (y, ox0, ox1) => {
+                        int rb = y * w, n = 0, x = 0;
+                        while (x < w) {
+                            int i = rb + x;
+                            if (!candLocal[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
+                            int s0 = x;
+                            while (x < w && candLocal[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) {
+                                x++;
+                            }
+                            if (ox0 != null) { ox0[n] = s0; ox1[n] = x - 1; }
+                            n++;
+                        }
+                        return n;
+                    };
+                }
+                runs = RunLabeler.Label(h, scan, hlbPo, ct);
                 int R = runs.Count;
                 if (R == 0) {
                     return;
