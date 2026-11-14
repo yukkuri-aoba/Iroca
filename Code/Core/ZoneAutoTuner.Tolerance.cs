@@ -500,6 +500,13 @@ namespace Iroca {
             // 同じ導出式(K*coreSpread+floor)。色相が一定のパーツではタイトに、陰影で色相が回る
             // パーツでは core 自体の広がりが大きくなるため自動的に緩む。
             float repHueGate = HueGateFromCoreHist(coreHueBins, coreHueCount);
+            // これは CoreHueGate(同じサンプルの HSV・同じ除外マスク)と同じ値: 母集団(不透明・除外の外)・芯の窓
+            // (InCoreWindow。芯の窓は near 窓の内側なので、near 窓で先にふるっても芯に入る画素は変わらない)・
+            // 色相の bin・式(HueGateFromCoreHist)がどれも同じ。直後の複数サンプルの導出がサンプル 0 で控えに当たるよう、
+            // 控えへ入れる(HsvGrid の説明)。
+            if (!hsv.TryGetHueGate(sH, sS, sV, excluded, maskW, maskH, out _)) {
+                hsv.RememberHueGate(sH, sS, sV, excluded, maskW, maskH, repHueGate);
+            }
             // パーツの彩度バンド下限: sS*frac と「near-cluster の彩度 P10*relax」の大きい方。
             // 高彩度均一パーツでは P10≈0.85 が効いて低彩度の別マテリアルを弾く。脱彩する素材では
             // P10 が低く出るので下限も下がり、自パーツの中程度の影は残る。

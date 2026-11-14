@@ -490,16 +490,20 @@ namespace Iroca {
             // 再現率 0.996 → 0.961(はみ出しは増えない)。上げて覆う分は溢れの判定(下の bleeds)が見張る。
             int tolRaise = 0;
             float tolRaiseMax = 0f;
+            // 証拠ドメインの点ごとの「今の result で選ばれるか」(DomainCoverage が数えるついでに残す)。
+            // 未被覆の代表色の探索(TryUncoveredRepresentative)は、直前に数えた被覆と同じ照合(同じ result・
+            // highlightRecovery を切った BuildSimZone)の結果を要るので、照合をもう 1 回かけずにこれを読む。
+            // 印を書くのは補完の前(下の cov)と、周の中の covN だけ。covN の後で result を元に戻すときは周を抜けるので、
+            // 次に印を読むのは、いつも印を書いたときと同じ result の周になる。
+            bool* domSel = chromatic ? hsv.scratch.Bool(domain.Count, clear: false) : null;
             float cov = chromatic
-                ? DomainCoverage(aZone, result, hsv, pixels, width, height, domain) : 1f;
+                ? DomainCoverage(aZone, result, hsv, pixels, width, height, domain, domSel) : 1f;
             int selGlobal = cov < EvCoverTarget
                 ? GlobalSelected(aZone, result, hsv, pixels, width, height, excluded, maskW, maskH) : 0;
             while (cov < EvCoverTarget && added < EvMaxExtraSamples) {
                 ct.ThrowIfCancellationRequested();
-                var sim = BuildSimZone(aZone, result);
-                sim.highlightRecovery = false;
                 var existing = result.autoSamples ?? new List<Color>();
-                if (!TryUncoveredRepresentative(sim, hsv, pixels, width, height, domain,
+                if (!TryUncoveredRepresentative(domSel, pixels, width, hsv, domain,
                         rep, existing, out Color extra)) {
                     break;
                 }
@@ -514,7 +518,7 @@ namespace Iroca {
                     result.tolerance = tolT;
                     foreignCapped = fCapT;
                 }
-                float covN = DomainCoverage(aZone, result, hsv, pixels, width, height, domain);
+                float covN = DomainCoverage(aZone, result, hsv, pixels, width, height, domain, domSel);
                 int selGlobalN = GlobalSelected(aZone, result, hsv, pixels, width, height,
                     excluded, maskW, maskH);
                 // 溢れ判定: 全画面で増えた選択量 vs クリック島で新たに覆えた量 × パーツ多重度
@@ -539,9 +543,12 @@ namespace Iroca {
             Progress(0.78f);
 
             // ── 6. tolerance の上限: 証拠ドメインを覆える最小値 × 余白 ──
+            // 有彩なら、cov はいまの result での被覆と同じ値(補完の周を抜けた時点の result は、cov を数えた result か、
+            // 足すのを取りやめて cov を数えたときの値へ戻したもの)なので、二分探索の最初の 1 本を省く。
+            // 無彩の cov は数えていない仮置き(1f)なので、二分探索の中で数える。
             float tolDerived = result.tolerance;
             result.tolerance = BoundToleranceByEvidence(aZone, result, hsv, pixels, width, height,
-                domain, chromatic ? ChromaTolMin : AchromaTolMin);
+                domain, chromatic ? ChromaTolMin : AchromaTolMin, chromatic ? cov : (float?)null);
 
             // ── 閉ループ検証(従来と同じ全画面視点・同じ順序・同じ封印条件) ──
             // 明部ツヤ救済(VerifyBrightSheenRecall)も従来どおり残す: 「やや脱彩・やや明るい」ツヤ
@@ -803,8 +810,9 @@ namespace Iroca {
 
         // 導出パラメータ(result)を実マッチャーに通し、証拠ドメインのうち選択される(strength > 0)
         // 割合を返す。基底マッチのみ(ハイライト系は成長テストの管轄)。
+        // selOut: null でなければ、ドメインの i 番目が選ばれたかを selOut[i] に書く(長さ domain.Count)。
         private static float DomainCoverage(ColorZone aZone, in TuneResult result, HsvGrid hsv,
-            Color32* pixels, int w, int h, List<GridPt> domain) {
+            Color32* pixels, int w, int h, List<GridPt> domain, bool* selOut = null) {
             if (domain.Count == 0) {
                 return 1f;
             }
@@ -812,6 +820,7 @@ namespace Iroca {
             sim.highlightRecovery = false;
             var matcher = new ColorZone.Matcher(sim);
             // 区間ごとに並列に数えて足す(整数の和なので逐次と同じ値。MatcherLoopOptions の説明)。
+            // 印は点ごとに自分の添字へだけ書くので、区間が並んでも混ざらない。
             const int Chunk = 4096;
             int n = domain.Count;
             var counts = new int[(n + Chunk - 1) / Chunk];
@@ -819,7 +828,11 @@ namespace Iroca {
                 int end = Mathf.Min(n, (ci + 1) * Chunk);
                 int k = 0;
                 for (int i = ci * Chunk; i < end; i++) {
-                    if (Selects(matcher, hsv, pixels, w, h, domain[i], out _)) {
+                    bool s = Selects(matcher, hsv, pixels, w, h, domain[i], out _);
+                    if (selOut != null) {
+                        selOut[i] = s;
+                    }
+                    if (s) {
                         k++;
                     }
                 }
@@ -832,13 +845,15 @@ namespace Iroca {
         // 証拠ドメインの被覆(DomainCoverage)を導出値と同じに保てる最小の tolerance を二分探索し、
         // その EvTolHeadroom 倍(下限 floor)と導出値の小さい方を返す。導出値は上げない。
         // 被覆の「同じ」は EvCoverGainMin(追加サンプルの採否と同じ、意味のある被覆差の最小幅)まで許す。
+        // knownCoverage: いまの result での DomainCoverage を呼ぶ側が数えてあれば、その値(同じ値なので数え直さない)。
         private static float BoundToleranceByEvidence(ColorZone aZone, in TuneResult result, HsvGrid hsv,
-            Color32* pixels, int w, int h, List<GridPt> domain, float floor) {
+            Color32* pixels, int w, int h, List<GridPt> domain, float floor, float? knownCoverage) {
             float derived = result.tolerance;
             if (domain.Count == 0 || derived <= floor) {
                 return derived;
             }
-            float need = DomainCoverage(aZone, result, hsv, pixels, w, h, domain) - EvCoverGainMin;
+            float covNow = knownCoverage ?? DomainCoverage(aZone, result, hsv, pixels, w, h, domain);
+            float need = covNow - EvCoverGainMin;
             var trial = result;
             float lo = 0f, hi = derived;
             for (int i = 0; i < EvTolBisectSteps; i++) {
@@ -853,21 +868,25 @@ namespace Iroca {
             return Mathf.Min(derived, Mathf.Max(floor, hi * EvTolHeadroom));
         }
 
-        // sim で覆えていない証拠ドメイン画素のうち、最も多い V 帯の平均色を新サンプルとして返す。
-        // 既存サンプルと重複(EvDupSep 未満)するなら false(=これ以上足しても増えない)。
-        private static bool TryUncoveredRepresentative(ColorZone sim, HsvGrid hsv, Color32* pixels,
-            int w, int h, List<GridPt> domain, Color primary, List<Color> existing, out Color rep) {
+        // 覆えていない証拠ドメイン画素(selected[i] が偽。DomainCoverage が残した印)のうち、最も多い V 帯の
+        // 平均色を新サンプルとして返す。既存サンプルと重複(EvDupSep 未満)するなら false(=これ以上足しても増えない)。
+        // 和は double で、ドメインの順に逐次に足す(足す順を変えると平均色の下位ビットが変わる)。
+        private static bool TryUncoveredRepresentative(bool* selected, Color32* pixels, int w, HsvGrid hsv,
+            List<GridPt> domain, Color primary, List<Color> existing, out Color rep) {
             const int VB = AutoToneValueBins;
             var cnt = new int[VB];
             // 和は double で持つ(float だと 8K・16K の大きい単色パーツで平均色が数階調ずれる)。
             var sumR = new double[VB];
             var sumG = new double[VB];
             var sumB = new double[VB];
-            var matcher = new ColorZone.Matcher(sim);
-            foreach (var p in domain) {
-                if (Selects(matcher, hsv, pixels, w, h, p, out Color col)) {
+            for (int i = 0; i < domain.Count; i++) {
+                if (selected[i]) {
                     continue;
                 }
+                var p = domain[i];
+                // 色は照合へ渡すのと同じ作り方(Selects の col)。
+                Color32 c = pixels[p.y * w + p.x];
+                var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
                 int vb = Mathf.Clamp((int)(hsv.v[p.gi] * VB), 0, VB - 1);
                 cnt[vb]++; sumR[vb] += col.r; sumG[vb] += col.g; sumB[vb] += col.b;
             }
