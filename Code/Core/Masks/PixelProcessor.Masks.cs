@@ -15,8 +15,9 @@ namespace Iroca {
         /// 画素へはみ出すことがある)、含めるマスクの画素を全強度で足す(除外優先は焼き込み済み)。
         /// ProcessPixelsArrayCore から中身を書き換えずに切り出したもの(0.4.0 の計画の 3-7a)。
         /// </summary>
+        /// <param name="includedBox">含める画素の外接矩形(includedPx を展開したときに取ったもの。含める画素はこの外に無い)。</param>
         private static void ApplyMaskContract(RunContext run, ColorZone zone, float* strength, ulong* zoneMask,
-            bool* includedPx) {
+            bool* includedPx, in SelectionCache.PostBox includedBox) {
             int w = run.W, h = run.H, len = run.Len;
             var po = run.Po;
             ulong* commonMask = run.CommonBits;
@@ -36,7 +37,7 @@ namespace Iroca {
             //     順序に依らず「除外が勝つ」。ブラー等の後段パスより後 = マスク解像度の
             //     ハードエッジになる(除外マスクと同じ WYSIWYG 契約)。
             if (includedPx != null) {
-                ForceIncluded(strength, includedPx, w, h, po);
+                ForceIncluded(strength, includedPx, w, includedBox, po);
                 debug?.RecordStage(zone.id, DebugStages.MaskReapply, ToManaged(strength, len), w, h);
             }
             _sub.Mark(SpBlurReapply);
@@ -138,11 +139,20 @@ namespace Iroca {
             });
         }
 
-        /// <summary>含める画素(included[i] が true)の strength を 1(full strength)にする。他の画素は触らない。</summary>
-        private static void ForceIncluded(float* strength, bool* included, int w, int h, ParallelOptions po) {
-            Parallel.For(0, h, po, y => {
+        /// <summary>
+        /// 含める画素(included[i] が true)の strength を 1(full strength)にする。他の画素は触らない。
+        /// 読むのは含める画素の外接矩形 box の中だけ(外に含める画素は無いので、全画面を読むのと同じ結果。
+        /// 含めるマスクのあるゾーンでは、色だけ変えた 1 手でも毎回ここを通る)。box が空なら何もしない。
+        /// </summary>
+        private static void ForceIncluded(float* strength, bool* included, int w, in SelectionCache.PostBox box,
+            ParallelOptions po) {
+            if (!box.Has) {
+                return;
+            }
+            int x0 = box.MinX, x1 = box.MaxX;
+            Parallel.For(box.MinY, box.MaxY + 1, po, y => {
                 int rowOff = y * w;
-                for (int x = 0; x < w; x++) {
+                for (int x = x0; x <= x1; x++) {
                     int i = rowOff + x;
                     if (included[i]) {
                         strength[i] = 1f;

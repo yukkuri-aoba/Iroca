@@ -136,7 +136,7 @@ namespace Iroca {
                 float* strength = sel.Strength;
 
                 // マスクの契約(除外の掛け直し・含める)。
-                ApplyMaskContract(run, zone, strength, zoneMask, includedPx);
+                ApplyMaskContract(run, zone, strength, zoneMask, includedPx, includedBox);
 
                 // 再着色の段。段どうしは z で値を受け渡す(0.4.0 の計画の 3-7b)。
                 var z = new ZoneState {
