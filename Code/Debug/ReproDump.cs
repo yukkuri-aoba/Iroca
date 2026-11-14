@@ -177,6 +177,7 @@ namespace Iroca.DebugTools {
                 partHueBand = z.partHueBand,
                 chromaCeiling = z.chromaCeiling,
                 holeFillMargin = z.holeFillMargin,
+                matchCutoff = z.matchCutoff,
                 outputSaturation = z.outputSaturation,
                 highlightRecovery = z.highlightRecovery,
                 highlightBandExpand = z.highlightBandExpand,

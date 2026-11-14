@@ -323,6 +323,7 @@ namespace Iroca {
             // 緩和マッチ(穴埋めの許可判定と境界回復が同じ引数で呼ぶ)は色だけで決まるので、
             // 色の表があれば色ごとに 1 回だけ求めて両方で使う(ビット単位で同じ)。色の数の長さ(ノイズの多い 4K で
             // 数百万色)なので、Mono のヒープに作らずプールから借りる(持ち主はゾーンの作業配列。使い終えたらここで返す)。
+            // どちらも照合の上限距離(zone.matchCutoff。主の照合が切り落とした色のまとまりを戻さない)を守る。
             float* RelaxedPalette(float tol) {
                 float* outRel = s_floatPool.Rent(palette.Count);
                 Color32* rCol = palette.Colors;
@@ -331,13 +332,13 @@ namespace Iroca {
                     ForEachPaletteChunk(palette.Count, po, (k0, k1) => {
                         for (int k = k0; k < k1; k++) {
                             Color32 hop = rCol[k];
-                            outRel[k] = GetRelaxedMatchStrength(
+                            outRel[k] = GetRelaxedMatchStrengthWithinCutoff(
                                 rH[k], rS[k], rV[k], sampH, sampS, sampV,
                                 tol, zone.edgeSoftness, zone.valueWeight,
                                 zone.satDistWeight, relaxedSatMin,
                                 hop.r / 255f, hop.g / 255f, hop.b / 255f,
                                 rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold,
-                                zone.chromaCeiling);
+                                zone.chromaCeiling, zone.matchCutoff);
                         }
                     });
                 } catch {
@@ -381,13 +382,13 @@ namespace Iroca {
                         for (int x = ppMinX; x <= ppMaxX; x++) {
                             int i = rowOff + x;
                             Color32 hop = originalPixels[i];
-                            fillAllowedLocal[i] = GetRelaxedMatchStrength(
+                            fillAllowedLocal[i] = GetRelaxedMatchStrengthWithinCutoff(
                                 pixH[HsvSlot(pixIdx, i)], pixS[HsvSlot(pixIdx, i)], pixV[HsvSlot(pixIdx, i)], sampH, sampS, sampV,
                                 fillTol, zone.edgeSoftness, zone.valueWeight,
                                 zone.satDistWeight, relaxedSatMin,
                                 hop.r / 255f, hop.g / 255f, hop.b / 255f,
                                 rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold,
-                                zone.chromaCeiling) > 0f;
+                                zone.chromaCeiling, zone.matchCutoff) > 0f;
                         }
                     });
                     _sub.Mark(SpHoleFillGate);
@@ -413,7 +414,7 @@ namespace Iroca {
                     zone.satDistWeight, relaxedSatMin, antiAliasCleanup,
                     ppMinX, ppMinY, ppMaxX, ppMaxY,
                     originalPixels, relaxedChromaConf, zone.chromaThreshold, zone.chromaCeiling,
-                    cancellationToken, palRelaxed, palIdxRelaxed);
+                    cancellationToken, palRelaxed, palIdxRelaxed, zone.matchCutoff);
                 _sub.Mark(SpBoundary);
                 debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, ToManaged(strength, len), w, h);
             }

@@ -166,6 +166,19 @@ namespace Iroca {
         [Range(0f, 1f)]
         public float holeFillMargin = 0f;
 
+        // 照合の上限距離(0 = 無効)。グレーモード(無彩のサンプル)の照合で、距離がこの値以上の画素を選ばない
+        // (強度もハイライトの候補も 0。ColorZone.Match.cs の MatchOneSample)。穴埋めの許可と境界回復の緩和マッチも、
+        // この値を許容範囲にした緩和マッチで外れる画素は選ばない(PixelProcessor.GetRelaxedMatchStrengthWithinCutoff)。
+        // 自動調整の許容範囲の切り詰め(ZoneAutoTuner.Cut.cs)は、有彩の照合では許容範囲そのものを下げるが、
+        // グレーモードでは許容範囲が縁のぼかしの幅も兼ねていて(全強度は許容範囲の 1 − AchromaEdgeSoftness = 3 割まで)、
+        // 下げると素材の内側まで薄く塗られる。そこで許容範囲は変えず、切り落とす距離だけをここに持つ
+        // (黒い布に対する灰色の部品のように、近い無彩の別の部品を選択から外す)。
+        // 入れるのは自動調整の適用(ZoneAutoTuner.TuneResult.ApplyTo)だけで、ウィンドウには出さない。利用者が許容範囲を
+        // 手で動かしたら外す(SetToleranceManually)。残すと、許容範囲を上げてもこの距離より先が選ばれず、理由が画面に見えない。
+        // サンプル色を取り直したら、島から導くほかの項目と一緒に 0 へ戻す(ZoneAutoTuner.ResetIslandDerived)。
+        [Range(0f, 1f)]
+        public float matchCutoff = 0f;
+
         [Range(0f, 1f)]
         public float chromaThreshold = 0.05f;
 
@@ -222,6 +235,20 @@ namespace Iroca {
         }
 
         /// <summary>
+        /// 利用者が許容範囲を手で変える(自動調整の適用以外で許容範囲を書く所はここを通す)。値が変わったら、
+        /// 自動調整が入れた照合の上限距離(<see cref="matchCutoff"/>)を外す。残すと、許容範囲を上げても上限より先が
+        /// 選ばれず、理由が画面に見えない。同じ値なら何もしない(スライダーを触っていないフレームで外さない)。
+        /// Undo の記録は呼び出し側(記録してから呼べば、許容範囲と上限が同じ記録で戻る)。
+        /// </summary>
+        public void SetToleranceManually(float value) {
+            if (value == tolerance) {
+                return;
+            }
+            tolerance = value;
+            matchCutoff = 0f;
+        }
+
+        /// <summary>
         /// このゾーンのコピーを返します。ゾーンは設定だけを持つ(照合が導く値は <see cref="Matcher"/> が持ち、ゾーンには残らない)。
         /// extraSamples は可変リストなので、クローン間で共有しないよう深いコピーにします。
         /// </summary>
@@ -256,6 +283,7 @@ namespace Iroca {
             partHueBand = d.partHueBand;
             chromaCeiling = d.chromaCeiling;
             holeFillMargin = d.holeFillMargin;
+            matchCutoff = d.matchCutoff;
             chromaThreshold = d.chromaThreshold;
             valueWeight = d.valueWeight;
             satDistWeight = d.satDistWeight;

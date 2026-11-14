@@ -34,30 +34,33 @@ namespace Iroca {
         private static float DefaultPartHueBand => s_zoneDefaults.partHueBand;
         private static float DefaultChromaCeiling => s_zoneDefaults.chromaCeiling;
         private static float DefaultHoleFillMargin => s_zoneDefaults.holeFillMargin;
+        private static float DefaultMatchCutoff => s_zoneDefaults.matchCutoff;
 
         // ─────────────────── 島から導く項目 ───────────────────
-        // サンプルの島(スポイトした部位)から導く 5 項目: 部位の包絡ゲート(shadowValueFloor・partSatCeiling・partHueBand)・
-        // 彩度天井(chromaCeiling)・穴埋めの余白(holeFillMargin)。サンプル色を取り直したら既定へ戻す(残すと、前の部位の
-        // 範囲で新しい部位を切る。点検 2026-11-09 自-3)。「どれが島から導く項目か」の一覧はここだけに置き、ゾーンを戻す側
-        // (EditingSession.ClearIslandDerived)と、適用値を戻して比べる側(AutoTuneService)の両方がここを呼ぶ。
-        // 項目を足すときは、下の 2 つを一緒に直すこと(片方だけだと、取り直した後の値を「手で触った」と見誤る)。
+        // サンプルの島(スポイトした部位)から導く 6 項目: 部位の包絡ゲート(shadowValueFloor・partSatCeiling・partHueBand)・
+        // 彩度天井(chromaCeiling)・穴埋めの余白(holeFillMargin)・照合の上限距離(matchCutoff)。サンプル色を取り直したら
+        // 既定へ戻す(残すと、前の部位の範囲で新しい部位を切る。点検 2026-11-09 自-3)。「どれが島から導く項目か」の一覧は
+        // ここだけに置き、ゾーンを戻す側(EditingSession.ClearIslandDerived)と、適用値を戻して比べる側(AutoTuneService)の
+        // 両方がここを呼ぶ。項目を足すときは、下の 2 つを一緒に直すこと(片方だけだと、取り直した後の値を「手で触った」と見誤る)。
 
-        /// <summary>ゾーンの、島から導く 5 項目を既定へ戻す(内部サンプルは呼び出し側が消す)。</summary>
+        /// <summary>ゾーンの、島から導く 6 項目を既定へ戻す(内部サンプルは呼び出し側が消す)。</summary>
         internal static void ResetIslandDerived(ColorZone zone) {
             zone.shadowValueFloor = DefaultShadowValueFloor;
             zone.partSatCeiling = DefaultPartSatCeiling;
             zone.partHueBand = DefaultPartHueBand;
             zone.chromaCeiling = DefaultChromaCeiling;
             zone.holeFillMargin = DefaultHoleFillMargin;
+            zone.matchCutoff = DefaultMatchCutoff;
         }
 
-        /// <summary>適用値のうち、島から導く 5 項目を既定へ戻したもの。</summary>
+        /// <summary>適用値のうち、島から導く 6 項目を既定へ戻したもの。</summary>
         internal static TuneResult ResetIslandDerived(TuneResult r) {
             r.shadowValueFloor = DefaultShadowValueFloor;
             r.partSatCeiling = DefaultPartSatCeiling;
             r.partHueBand = DefaultPartHueBand;
             r.chromaCeiling = DefaultChromaCeiling;
             r.holeFillMargin = DefaultHoleFillMargin;
+            r.matchCutoff = DefaultMatchCutoff;
             return r;
         }
 
@@ -126,6 +129,10 @@ namespace Iroca {
             public float chromaCeiling;
             // 穴埋めの余白(0=なし)。証拠つき導出だけが値を入れる(従来導出は既定 0 のまま)。
             public float holeFillMargin;
+            // 照合の上限距離(0=無効)。証拠つき導出の許容範囲の切り詰めが、グレーモードの照合で切ったときだけ値を入れる
+            // (ZoneAutoTuner.Cut.cs の冒頭。従来導出と、切らなかったときは 0)。上書きの確認には並べない
+            // (画面に出さない項目で、利用者が手で入れる値ではない。AddZoneOverwrittenSettings)。
+            public float matchCutoff;
 
             // 全体設定(RecolorSettings)は読みも書きもしない(ゾーンの項目だけを導く。2026-11-10 点検 自-2 案 A で
             // 境界の回収の提案を消した。edgeFeather は「ごまかし」なので元から扱わない)。
@@ -182,6 +189,7 @@ namespace Iroca {
                 zone.partHueBand = partHueBand;
                 zone.chromaCeiling = chromaCeiling;
                 zone.holeFillMargin = holeFillMargin;
+                zone.matchCutoff = matchCutoff;
                 // 自動トーン抽出で得た内部サンプル（暗部/中間/明部の代表色）。ユーザーが複数スポイトする
                 // 代わりにアルゴリズムがパーツの濃淡を自動取得した結果で、選択（マッチング）の和集合に
                 // 使われる。出力色は主サンプル基準のまま変わらない。
@@ -534,6 +542,7 @@ namespace Iroca {
                 partHueBand = DefaultPartHueBand,
                 chromaCeiling = DefaultChromaCeiling,
                 holeFillMargin = DefaultHoleFillMargin,
+                matchCutoff = DefaultMatchCutoff,
                 overwrittenSettings = new List<TunedSetting>(),
                 autoSamples = new List<Color>(),
             };
@@ -762,6 +771,7 @@ namespace Iroca {
                 partHueBand = DefaultPartHueBand,
                 chromaCeiling = DefaultChromaCeiling,
                 holeFillMargin = DefaultHoleFillMargin,
+                matchCutoff = DefaultMatchCutoff,
                 overwrittenSettings = new List<TunedSetting>(),
                 autoSamples = new List<Color>(),
             };
@@ -792,6 +802,9 @@ namespace Iroca {
         // ゾーン単位の項目のうち既定値と異なるものを、決まった順で settings へ足す。
         // PreviewOverwrittenSettings(Analyze 前の事前確認)と CollectOverwrittenSettings(TuneResult)で
         // 項目と順序をそろえるための共通部分。
+        // 照合の上限距離(matchCutoff)は並べない: 画面に出さない項目で、ウィンドウの操作で 0 でなくなるのは自動調整の適用
+        // だけ(許容範囲を手で動かす・サンプルを取り直す・詳細設定を戻すと 0 に戻る)。手調整を守るための確認に、利用者が
+        // 見たことも触ったこともない項目を出しても判断の材料にならない(上書きされても、手で入れた値は失われない)。
         private static void AddZoneOverwrittenSettings(ColorZone zone, List<TunedSetting> settings) {
             if (!Mathf.Approximately(zone.tolerance, DefaultTolerance)) {
                 settings.Add(TunedSetting.Tolerance);

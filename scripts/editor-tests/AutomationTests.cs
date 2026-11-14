@@ -500,7 +500,7 @@ namespace Iroca.EditorTests {
 
         [Test]
         public unsafe void ApplyChange_AnotherColor_ResetsEverythingDerivedFromThePreviousIsland() {
-            // 窓でサンプル色を取り直したときと同じに、前の島から導いた内部サンプルと 5 項目を既定へ戻す
+            // 窓でサンプル色を取り直したときと同じに、前の島から導いた内部サンプルと 6 項目を既定へ戻す
             // (点検 自-3)。許容範囲などほかの調整値は残す。
             var state = IrocaSessionState.CreateDefault();
             state.zones.Clear();
@@ -513,6 +513,7 @@ namespace Iroca.EditorTests {
             zone.partHueBand = 0.1f;
             zone.chromaCeiling = 0.5f;
             zone.holeFillMargin = 0.2f;
+            zone.matchCutoff = 0.15f;
             zone.tolerance = 0.37f;
             state.zones.Add(zone);
 
@@ -528,6 +529,7 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(d.partHueBand, zone.partHueBand, "partHueBand");
             Assert.AreEqual(d.chromaCeiling, zone.chromaCeiling, "chromaCeiling");
             Assert.AreEqual(d.holeFillMargin, zone.holeFillMargin, "holeFillMargin");
+            Assert.AreEqual(d.matchCutoff, zone.matchCutoff, "matchCutoff");
             Assert.AreEqual(0.37f, zone.tolerance, "許容範囲は残す");
         }
 

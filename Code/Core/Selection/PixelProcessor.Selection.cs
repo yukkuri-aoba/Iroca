@@ -671,10 +671,11 @@ namespace Iroca {
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
             Color32* originalPixels, float chromaConfidence, float chromaThreshold,
             float chromaCeiling, CancellationToken ct,
-            float* relaxedByColor, int* colorIndex) {
+            float* relaxedByColor, int* colorIndex, float matchCutoff) {
             // relaxedByColor / colorIndex: 色の表(ColorPalette)の番号ごとに、この関数と同じ引数で
-            // GetRelaxedMatchStrength を求めた値と、画素 → 番号。渡されたら画素ごとの計算の代わりに読む
+            // GetRelaxedMatchStrengthWithinCutoff を求めた値と、画素 → 番号。渡されたら画素ごとの計算の代わりに読む
             // (同じ関数に同じ入力を与えた値なのでビット単位で同じ)。
+            // matchCutoff: 照合の上限距離(ColorZone.matchCutoff。0 = 無効)。
             if (passes <= 0) {
                 return;
             }
@@ -704,12 +705,12 @@ namespace Iroca {
                     Color32 rop = originalPixels[idx];
                     rpR = rop.r / 255f; rpG = rop.g / 255f; rpB = rop.b / 255f;
                 }
-                return GetRelaxedMatchStrength(
+                return GetRelaxedMatchStrengthWithinCutoff(
                     pixH[HsvSlot(pixIdx, idx)], pixS[HsvSlot(pixIdx, idx)], pixV[HsvSlot(pixIdx, idx)],
                     sH, sS, sV, tolerance, edgeSoftness, valueWeight,
                     satDistWeight, relaxedSatMin,
                     rpR, rpG, rpB, rcSampR, rcSampG, rcSampB, chromaConfidence, chromaThreshold,
-                    chromaCeiling);
+                    chromaCeiling, matchCutoff);
             }
 
             // パス 1: 矩形を走査。8 近傍に選択済みがあるかは、列ごとの上下 3 画素の OR を左右 3 列で OR して
@@ -766,6 +767,33 @@ namespace Iroca {
                     v = RelaxedAt(idx);
                     return v > 0f;
                 });
+        }
+
+        /// <summary>
+        /// 照合の上限距離(<see cref="ColorZone.matchCutoff"/>)を守る緩和マッチ(穴埋めの許可・境界回復が使う)。
+        /// <paramref name="tolerance"/> の緩和マッチの値を返すが、上限を許容範囲にした緩和マッチで外れる画素は 0 にする
+        /// (主の照合が上限で切り落とした色のまとまりを、穴埋め・境界回復が戻さないように)。上限が 0(無効)か、
+        /// <paramref name="tolerance"/> 以上なら、<see cref="GetRelaxedMatchStrength"/> と同じ値。
+        /// 上限は外れるかどうかだけに使い、強度(縁の段階)は <paramref name="tolerance"/> の方の値のまま。
+        /// </summary>
+        private static float GetRelaxedMatchStrengthWithinCutoff(
+            float pH, float pS, float pV,
+            float sH, float sS, float sV,
+            float tolerance, float edgeSoftness, float valueWeight,
+            float satDistWeight, float relaxedSatMin,
+            float pR, float pG, float pB,
+            float sR, float sG, float sB, float chromaConfidence,
+            float chromaThreshold, float chromaCeiling, float matchCutoff) {
+            float rel = GetRelaxedMatchStrength(pH, pS, pV, sH, sS, sV,
+                tolerance, edgeSoftness, valueWeight, satDistWeight, relaxedSatMin,
+                pR, pG, pB, sR, sG, sB, chromaConfidence, chromaThreshold, chromaCeiling);
+            if (rel > 0f && matchCutoff > 0f && matchCutoff < tolerance
+                && GetRelaxedMatchStrength(pH, pS, pV, sH, sS, sV,
+                    matchCutoff, edgeSoftness, valueWeight, satDistWeight, relaxedSatMin,
+                    pR, pG, pB, sR, sG, sB, chromaConfidence, chromaThreshold, chromaCeiling) <= 0f) {
+                return 0f;
+            }
+            return rel;
         }
 
         /// <summary>

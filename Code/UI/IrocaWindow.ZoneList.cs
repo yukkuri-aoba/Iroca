@@ -710,9 +710,11 @@ namespace Iroca {
 
             DrawZoneAutoTuneButton(zone);
 
-            zone.tolerance = UndoHelper.Slider(UndoTarget,
+            // 手で動かしたら、自動調整が入れた照合の上限距離を外す(SetToleranceManually)。スライダーが Undo を記録してから
+            // 返すので、許容範囲と上限は同じ Undo で戻る。
+            zone.SetToleranceManually(UndoHelper.Slider(UndoTarget,
                 TempContent.Of(Localization.Tolerance, Localization.ToleranceTooltip),
-                zone.tolerance, 0f, 1f);
+                zone.tolerance, 0f, 1f));
 
             // 変更先カラーは自動調整の入力なのでボタンの上（採色の直下）へ移した。
             // ここには自動調整が書き換える出力系スライダーだけを残す。

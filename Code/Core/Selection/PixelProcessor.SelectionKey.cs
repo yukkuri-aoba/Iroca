@@ -39,7 +39,7 @@ namespace Iroca {
             B(z.useFloodFill); F(z.seedUV.x); F(z.seedUV.y); F(z.sampleUV.x); F(z.sampleUV.y);
             F(z.edgeSoftness); F(z.saturationStrictness); F(z.valueWeight); F(z.satDistWeight);
             F(z.satRampScale); F(z.shadowForgivenessSatMin); F(z.shadowValueFloor); F(z.partSatCeiling); F(z.partHueBand); F(z.chromaCeiling); F(z.chromaThreshold); F(z.saturationGuard);
-            F(z.holeFillMargin);
+            F(z.holeFillMargin); F(z.matchCutoff);
             B(z.highlightRecovery); B(z.highlightBandExpand);
             F(edgeFeather); I(aaCleanup); I(holeFillPasses); I(holeFillMinNeighbors);
             // 全体設定の relaxedSatRamp は入れない: 保存形式の互換のためだけに残る値で、処理はどこも読まない。

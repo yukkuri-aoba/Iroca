@@ -213,6 +213,8 @@ namespace Iroca {
             private readonly float saturationGuard, saturationStrictness, satRampScale;
             // 強度のレンジを決めた tolerance。
             private readonly float _cTolerance;
+            // 照合の上限距離(ColorZone.matchCutoff。0 = 無効)。グレーモードの照合だけが読む。
+            private readonly float _cCutoff;
             // 明部(ハイライト)の距離の免除・彩度ゲートの免除を切るか。自動調整の閉ループ検証が、免除だけで選ばれる画素を
             // 切り分けて数えるのに使う。製品の照合はいつも false(免除あり)。
             private readonly bool simDisableBrightForgiveness;
@@ -270,6 +272,7 @@ namespace Iroca {
                 saturationStrictness = zone.saturationStrictness;
                 satRampScale = zone.satRampScale;
                 _cTolerance = zone.tolerance;
+                _cCutoff = zone.matchCutoff;
                 simDisableBrightForgiveness = disableBrightForgiveness;
 
                 // サンプルごとの派生値を構築（主サンプル + 内部サンプル(extraSamples)）。
@@ -454,6 +457,13 @@ namespace Iroca {
                     // 元の AA カバレッジの復元)。地色コアは hardRange 未満で full のまま=陰影は不変。
                     // ユーザーが edgeSoftness を上げている場合はそちらを尊重(floor として作用)。
                     strength = CalculateEdgeStrength(effectiveDist, aaHardRange, aaSoftRange);
+                    // 照合の上限距離(ColorZone.matchCutoff): 自動調整が切り落とした色のまとまりは、強度も
+                    // ハイライトの候補も 0(候補を残すと、ハイライトの段が切り落とした所へ広げ直す)。
+                    // 許容範囲(= 縁のぼかしの幅)は変えないので、上限より内側の強度は上限が無いときと同じ。
+                    bool beyondCutoff = _cCutoff > 0f && effectiveDist >= _cCutoff;
+                    if (beyondCutoff) {
+                        strength = 0f;
+                    }
                     // FF コア判定用: グレーモードの色一致確信度(中性ペナルティ込み effectiveDist を使う)。
                     if (strength > 0f) {
                         matchConf = Mathf.Clamp01(1f - effectiveDist / CoreMatchDistance);
@@ -464,7 +474,7 @@ namespace Iroca {
                     // トリムが PropagateHighlights でコアから滲む。有彩版 CalculateHighlightRecovery の
                     // pS>=HighlightSaturationMax 棄却と同じ趣旨(無彩サンプルには意味ある sample hue が
                     // 無いので彩度ゲートのみ)。
-                    if (highlightRecovery && pV > HighlightValueMin && pS < HighlightSaturationMax) {
+                    if (!beyondCutoff && highlightRecovery && pV > HighlightValueMin && pS < HighlightSaturationMax) {
                         float vDist = Mathf.Abs(pV - sc.sV);
                         highlightPotential = CalculateEdgeStrength(vDist, hardRange, softRange);
                     }

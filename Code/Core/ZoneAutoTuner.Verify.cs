@@ -447,6 +447,7 @@ namespace Iroca {
             sim.partHueBand = result.partHueBand;
             sim.chromaCeiling = result.chromaCeiling;
             sim.holeFillMargin = result.holeFillMargin;
+            sim.matchCutoff = result.matchCutoff;
             sim.extraSamples = result.autoSamples ?? new List<Color>();
             return sim;
         }

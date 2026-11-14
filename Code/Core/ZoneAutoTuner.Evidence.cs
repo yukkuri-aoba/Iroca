@@ -567,13 +567,22 @@ namespace Iroca {
 
             // ── 7. 許容範囲の切り詰め: 選択の境目が入力で見える縁に沿う所まで下げる(ZoneAutoTuner.Cut.cs) ──
             // 閉ループ検証の後(= 最終の許容範囲と内部サンプル)で数える。上げる方向には使わない。
+            // 有彩の照合では許容範囲を下げる。グレーモードの照合では許容範囲が縁のぼかしの幅も兼ねる(下げると素材の内側まで
+            // 薄く塗られる)ので、許容範囲と穴埋めの余白は変えず、照合の上限距離(ColorZone.matchCutoff)に入れる。
+            // 切らなければ上限は 0 のまま(適用のたびに上書きするので、前の調整の上限は残らない)。
             ct.ThrowIfCancellationRequested();
             float cutTol = CutToleranceAtVisibleBoundary(aZone, result, hsv, pixels, width, height,
-                coreList, excluded, maskW, maskH, out float cutFillReach, out string cutDiag);
+                coreList, excluded, maskW, maskH, out float cutFillReach, out bool cutGray, out string cutDiag);
             if (cutTol < result.tolerance) {
-                // 穴埋めの緩和マッチ(許容範囲 × (1 + 余白))が、切り落とした色のまとまりへ届かないようにする。
-                result.holeFillMargin = Mathf.Min(result.holeFillMargin, cutFillReach / cutTol - 1f);
-                result.tolerance = cutTol;
+                if (cutGray) {
+                    // 穴埋めと境界回復の緩和マッチも同じ上限を守る(PixelProcessor.GetRelaxedMatchStrengthWithinCutoff)ので、
+                    // 穴埋めの余白は切り落とした色のまとまりへ届かない。
+                    result.matchCutoff = cutTol;
+                } else {
+                    // 穴埋めの緩和マッチ(許容範囲 × (1 + 余白))が、切り落とした色のまとまりへ届かないようにする。
+                    result.holeFillMargin = Mathf.Min(result.holeFillMargin, cutFillReach / cutTol - 1f);
+                    result.tolerance = cutTol;
+                }
             }
 
             result.normalizedSample = rep;

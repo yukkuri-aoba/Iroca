@@ -123,6 +123,7 @@ namespace Iroca {
             any |= Fraction(ref z.partHueBand, d.partHueBand, nameof(ColorZone.partHueBand), clamped);
             any |= Fraction(ref z.chromaCeiling, d.chromaCeiling, nameof(ColorZone.chromaCeiling), clamped);
             any |= Fraction(ref z.holeFillMargin, d.holeFillMargin, nameof(ColorZone.holeFillMargin), clamped);
+            any |= Fraction(ref z.matchCutoff, d.matchCutoff, nameof(ColorZone.matchCutoff), clamped);
             any |= Fraction(ref z.chromaThreshold, d.chromaThreshold, nameof(ColorZone.chromaThreshold), clamped);
             any |= Fraction(ref z.saturationGuard, d.saturationGuard, nameof(ColorZone.saturationGuard), clamped);
             any |= ColorComponents(ref z.sampleColor, d.sampleColor, nameof(ColorZone.sampleColor), clamped);

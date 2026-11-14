@@ -47,6 +47,9 @@ namespace Iroca {
         public const float ChromaCeiling = 0f;
         // 穴埋めの余白。0 = 余白なし(ColorZone の既定と同じ)。証拠つき自動調整だけが入れる。
         public const float HoleFillMargin = 0f;
+        // 照合の上限距離。0 = 無効(ColorZone の既定と同じ)。製品では自動調整だけが入れる(ハーネスの AUTOTUNE の
+        // 出力を、自動調整なしで再現するときに書く)。
+        public const float MatchCutoff = 0f;
         public const float OutputSaturation = 1.0f;
         // 既定 OFF。**ColorZone.highlightRecovery（= true）と意図的に異なる。**
         //

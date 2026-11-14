@@ -31,8 +31,14 @@ namespace Iroca {
     // 【切らない場合(実測で確かめた形。dev_safe の autotune_gap_2026-11-14.md)】
     //   - 同じ面の続きを切る: 布のしわの陰・肌のわずかな色の段・2 色の髪のなだらかな境。選択の数だけを見る規則(横ばいの
     //     あとの急な伸びの手前で切る)は、これを別の部品と見分けられず、設計 IoU は上がるのに陰や色の段が塗り残った。
-    //   - グレーモードの照合(無彩のサンプル): 許容範囲が縁のぼかしの幅も兼ねていて(全強度は許容範囲の
-    //     1 − AchromaEdgeSoftness = 3 割まで)、許容範囲を下げると素材の内側が薄く塗られる。ここでは切らない。
+    //
+    // 【グレーモードの照合(無彩のサンプル)】境目の探し方は同じだが、切った値の使い方が違う(呼び出し側の
+    // AnalyzeWithEvidence)。グレーモードでは許容範囲が縁のぼかしの幅も兼ねていて(全強度は許容範囲の
+    // 1 − AchromaEdgeSoftness = 3 割まで)、許容範囲を下げると素材の内側まで薄く塗られる。そこで許容範囲は変えず、
+    // 切った値を照合の上限距離(ColorZone.matchCutoff)に入れ、それより遠い画素だけを選ばない(黒い布に対する灰色の部品など)。
+    // 目盛り t の照合は許容範囲を t にしただけのもので、主の照合の上限は「距離 ≥ 上限なら選ばない」なので、上限 t で外れる
+    // 画素は目盛り t で外れる画素とほぼ同じ(彩度整合ゲートの罰は許容範囲に比例するので、色味の乗った灰色のサンプルでは
+    // 少しずれる)。違うのは残る画素の強度で、上限のときは元の許容範囲のぼかしのまま。
     internal static unsafe partial class ZoneAutoTuner {
         // 許容範囲の目盛り(等比)。導出した値から下へこの比で刻む。
         private const float EvCutGridRatio = 1.15f;
@@ -58,11 +64,14 @@ namespace Iroca {
         /// </summary>
         /// <param name="core">証拠の芯(格子の点)。</param>
         /// <param name="fillReach">穴埋めの緩和マッチが届いてよい許容範囲(切った所から上へ、境目が見える縁に沿っている間)。</param>
+        /// <param name="grayMode">照合がグレーモード(無彩のサンプル)か。真なら、呼び出し側は許容範囲でなく照合の上限距離
+        /// (<see cref="ColorZone.matchCutoff"/>)で切る(冒頭の説明)。切らずに返すときも、目盛りを作る前に決まっていれば入れる。</param>
         /// <param name="diag">診断(切ったか、どこからどこへ切ったか)。</param>
         private static float CutToleranceAtVisibleBoundary(ColorZone aZone, in TuneResult result, HsvGrid hsv,
             Color32* pixels, int w, int h, List<GridPt> core, bool* excluded, int maskW, int maskH,
-            out float fillReach, out string diag) {
+            out float fillReach, out bool grayMode, out string diag) {
             diag = " tolCut=-";
+            grayMode = false;
             float tol = result.tolerance;
             fillReach = tol;
             int m = 1;
@@ -74,9 +83,8 @@ namespace Iroca {
             }
             var top = BuildSimZone(aZone, result);
             Color.RGBToHSV(top.sampleColor, out _, out float topS, out float topV);
-            if (topS <= ColorZone.GrayModeEffectiveChromaThreshold(topV, top.chromaThreshold)) {
-                return tol;   // グレーモードの照合では切らない(上の説明)
-            }
+            // グレーモードでも境目の探し方は同じ(切った値を照合の上限距離に入れるのは呼び出し側。冒頭の説明)。
+            grayMode =topS <= ColorZone.GrayModeEffectiveChromaThreshold(topV, top.chromaThreshold);
             // 目盛り: 上端がいまの値、下へ等比。
             var ts = new float[m];
             ts[m - 1] = tol;

@@ -163,11 +163,12 @@ namespace Iroca {
                 && ParamEq(zone.partSatCeiling, r.partSatCeiling)
                 && ParamEq(zone.partHueBand, r.partHueBand)
                 && ParamEq(zone.chromaCeiling, r.chromaCeiling)
-                && ParamEq(zone.holeFillMargin, r.holeFillMargin);
+                && ParamEq(zone.holeFillMargin, r.holeFillMargin)
+                && ParamEq(zone.matchCutoff, r.matchCutoff);
         }
 
-        // 適用値のうち、前のサンプルの島から導いた 5 項目を既定へ戻したもの(サンプル色を取り直したときの
-        // EditingSession.ClearIslandDerived と同じ。手で触っていないので、手調整とは見ない)。5 項目の一覧は Core に 1 つだけ。
+        // 適用値のうち、前のサンプルの島から導いた 6 項目を既定へ戻したもの(サンプル色を取り直したときの
+        // EditingSession.ClearIslandDerived と同じ。手で触っていないので、手調整とは見ない)。6 項目の一覧は Core に 1 つだけ。
         private static ZoneAutoTuner.TuneResult IslandCleared(ZoneAutoTuner.TuneResult r) =>
             ZoneAutoTuner.ResetIslandDerived(r);
 

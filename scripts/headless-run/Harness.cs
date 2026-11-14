@@ -41,6 +41,7 @@ namespace Iroca {
         public float partHueBand { get; set; } = ZonesJsonDefaults.PartHueBand;
         public float chromaCeiling { get; set; } = ZonesJsonDefaults.ChromaCeiling;
         public float holeFillMargin { get; set; } = ZonesJsonDefaults.HoleFillMargin;
+        public float matchCutoff { get; set; } = ZonesJsonDefaults.MatchCutoff;
         public float outputSaturation { get; set; } = ZonesJsonDefaults.OutputSaturation;
         public bool highlightRecovery { get; set; } = ZonesJsonDefaults.HighlightRecovery;
         public bool highlightBandExpand { get; set; } = ZonesJsonDefaults.HighlightBandExpand;
@@ -292,6 +293,7 @@ namespace Iroca {
                 partHueBand = z.partHueBand,
                 chromaCeiling = z.chromaCeiling,
                 holeFillMargin = z.holeFillMargin,
+                matchCutoff = z.matchCutoff,
                 layerIndex = z.layerIndex,
                 useFloodFill = z.useFloodFill,
                 seedUV = (z.seedUV != null && z.seedUV.Length >= 2)
@@ -639,6 +641,7 @@ namespace Iroca {
                         partHueBand = z.partHueBand,
                         chromaCeiling = z.chromaCeiling,
                         holeFillMargin = z.holeFillMargin,
+                        matchCutoff = z.matchCutoff,
                         autoSamples = z.extraSamples.Count,
                         // スポイト位置の正規化が効いたか（true のとき sample は代表地色へ差し替わっている）。
                         normalized = tune.hasNormalizedSample,

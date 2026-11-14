@@ -310,13 +310,41 @@ namespace Iroca.EditorTests {
             input.applied.partHueBand = 0.12f;
             input.applied.chromaCeiling = 0.2f;
             input.applied.holeFillMargin = 0.25f;
+            input.applied.matchCutoff = 0.04f;
             input.applied.ApplyTo(zone);
             Assert.IsTrue(AutoTuneService.UntouchedByUser(zone, input), "テストの前提: 適用値のまま");
 
             EditingSession.ClearIslandDerived(zone);
+            Assert.AreEqual(0f, zone.matchCutoff, "照合の上限距離も島から導く値として戻す");
             Assert.IsTrue(AutoTuneService.UntouchedByUser(zone, input), "色を取り直しただけで手調整と見た");
             zone.partHueBand = 0.05f;
             Assert.IsFalse(AutoTuneService.UntouchedByUser(zone, input), "手で入れた値");
+        }
+
+        // 照合の上限距離は自動調整の適用だけが入れる。許容範囲を手で動かすと外れ(ColorZone.SetToleranceManually)、
+        // それは手調整として見る(許容範囲が適用値と違う)。上限だけが適用値と違うゾーンも、適用値のままとは見ない。
+        [Test]
+        public void MatchCutoff_IsPartOfTheAppliedValues_AndMovingToleranceByHandClearsIt() {
+            var zone = RedZone(clicked: false);
+            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            WaitForAnalysis(run);
+            var input = run.ToInput();
+            input.applied.matchCutoff = 0.04f;
+            input.applied.ApplyTo(zone);
+            Assert.AreEqual(0.04f, zone.matchCutoff, "適用で入る");
+            Assert.IsTrue(AutoTuneService.ValuesIntact(zone, input.applied), "テストの前提: 適用値のまま");
+
+            var other = zone.Clone();
+            other.matchCutoff = 0f;
+            Assert.IsFalse(AutoTuneService.ValuesIntact(other, input.applied), "上限が違うのに適用値のままと見た");
+
+            float tol = zone.tolerance;
+            zone.SetToleranceManually(tol);
+            Assert.AreEqual(0.04f, zone.matchCutoff, "同じ値を書いただけでは外さない");
+            zone.SetToleranceManually(tol + 0.05f);
+            Assert.AreEqual(tol + 0.05f, zone.tolerance, "許容範囲");
+            Assert.AreEqual(0f, zone.matchCutoff, "許容範囲を手で動かしたら上限を外す");
+            Assert.IsFalse(AutoTuneService.UntouchedByUser(zone, input), "手で動かした許容範囲");
         }
     }
 }

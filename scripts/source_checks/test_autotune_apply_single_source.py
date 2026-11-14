@@ -101,7 +101,7 @@ def test_apply_to_covers_every_tune_result_field(tuner_src):
 
 _DIRECT_ASSIGN = re.compile(
     r"\.(?:tolerance|saturationStrictness|saturationGuard|chromaThreshold|highlightRecovery"
-    r"|valueBlend|edgeSoftness|shadowDesaturation|shadowForgivenessSatMin|shadowValueFloor|partSatCeiling|partHueBand|chromaCeiling|holeFillMargin|extraSamples"
+    r"|valueBlend|edgeSoftness|shadowDesaturation|shadowForgivenessSatMin|shadowValueFloor|partSatCeiling|partHueBand|chromaCeiling|holeFillMargin|matchCutoff|extraSamples"
     r"|sampleColor)\s*=\s*(?:result|tune|r)\.")
 
 
@@ -158,7 +158,9 @@ _SITES = [
      (r"\b{f}\s*=(?!=)",), {}),
     ("overwritten-settings", "ZoneAutoTuner.AddZoneOverwrittenSettings",
      lambda: _nested_block(TUNER_CS, r"void\s+AddZoneOverwrittenSettings\s*\("),
-     (r"\bzone\.{f}\b",), {}),
+     (r"\bzone\.{f}\b",),
+     {"matchCutoff": "画面に出さない項目で、ウィンドウの操作で入るのは自動調整の適用だけ(許容範囲を手で動かすと外れる)。"
+                     "手調整を守る確認に並べても判断の材料にならない"}),
     ("sim-zone", "ZoneAutoTuner.Verify.cs の BuildSimZone",
      lambda: _nested_block(VERIFY_CS, r"ColorZone\s+BuildSimZone\s*\("),
      (r"\bsim\.{f}\s*=(?!=)",),

@@ -112,8 +112,9 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(Uv1, Zone.sampleUV, "位置そのものは書く");
         }
 
-        // サンプル色を取り直したら、前の部位の島から導いた値(内部サンプル・包絡ゲート・彩度天井・穴埋めの余白)を
-        // 既定へ戻す(点検 自-3)。許容範囲は残す。Undo 1 回で色と一緒に戻る。同じ色を別の場所で拾い直しただけなら残す。
+        // サンプル色を取り直したら、前の部位の島から導いた値(内部サンプル・包絡ゲート・彩度天井・穴埋めの余白・
+        // 照合の上限距離)を既定へ戻す(点検 自-3)。許容範囲は残す。Undo 1 回で色と一緒に戻る。同じ色を別の場所で
+        // 拾い直しただけなら残す。
         [Test]
         public void ColorRepick_ClearsTheValuesDerivedFromThePreviousIsland_AndUndoBringsThemBack() {
             Pick(Red, Uv1);
@@ -125,6 +126,7 @@ namespace Iroca.EditorTests {
             Zone.partHueBand = 0.12f;
             Zone.chromaCeiling = 0.2f;
             Zone.holeFillMargin = 0.25f;
+            Zone.matchCutoff = 0.06f;
             Zone.tolerance = 0.33f;
             Undo.FlushUndoRecordObjects();
             Undo.IncrementCurrentGroup();
@@ -139,6 +141,7 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(0f, Zone.partHueBand, "別パーツの色相幅");
             Assert.AreEqual(0f, Zone.chromaCeiling, "彩度天井");
             Assert.AreEqual(0f, Zone.holeFillMargin, "穴埋めの余白");
+            Assert.AreEqual(0f, Zone.matchCutoff, "照合の上限距離");
             Assert.AreEqual(0.33f, Zone.tolerance, "許容範囲は残す");
 
             Undo.PerformUndo();
@@ -149,6 +152,31 @@ namespace Iroca.EditorTests {
             Assert.AreEqual(0.12f, Zone.partHueBand);
             Assert.AreEqual(0.2f, Zone.chromaCeiling);
             Assert.AreEqual(0.25f, Zone.holeFillMargin);
+            Assert.AreEqual(0.06f, Zone.matchCutoff);
+        }
+
+        // 許容範囲を手で動かしたら照合の上限距離を外す(ColorZone.SetToleranceManually)。ウィンドウのスライダーと同じく、
+        // 記録(Undo.RecordObject)してから書くと、Undo 1 回で許容範囲と上限がそろって戻る。
+        [Test]
+        public void ManualToleranceChange_ClearsMatchCutoff_AndUndoBringsBothBack() {
+            Pick(Red, Uv1);
+            Undo.IncrementCurrentGroup();
+            Undo.RecordObject(_host, "Auto-tune Zone");
+            Zone.tolerance = 0.3f;
+            Zone.matchCutoff = 0.06f;
+            Undo.FlushUndoRecordObjects();
+            Undo.IncrementCurrentGroup();
+
+            Undo.RecordObject(_host, "Iroca Edit");
+            Zone.SetToleranceManually(0.45f);
+            Undo.FlushUndoRecordObjects();
+            Undo.IncrementCurrentGroup();
+            Assert.AreEqual(0.45f, Zone.tolerance);
+            Assert.AreEqual(0f, Zone.matchCutoff, "手で動かしたら上限を外す");
+
+            Undo.PerformUndo();
+            Assert.AreEqual(0.3f, Zone.tolerance, "Undo で許容範囲が戻る");
+            Assert.AreEqual(0.06f, Zone.matchCutoff, "同じ Undo で上限も戻る");
         }
 
         [Test]

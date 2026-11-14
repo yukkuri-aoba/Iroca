@@ -332,7 +332,7 @@ namespace Iroca {
         /// <summary>
         /// サンプル色を取り直したとき、前のサンプルの島(スポイトした部位)から導いた値を既定へ戻す: 内部サンプルと、
         /// 部位の包絡ゲート(shadowValueFloor・partSatCeiling・partHueBand)・彩度天井(chromaCeiling)・穴埋めの余白
-        /// (holeFillMargin)。残すと、調整し直さずに別の部位の色を取ったとき、前の部位の範囲で新しい部位を切る
+        /// (holeFillMargin)・照合の上限距離(matchCutoff)。残すと、調整し直さずに別の部位の色を取ったとき、前の部位の範囲で新しい部位を切る
         /// (点検 2026-11-09 自-3)。詳細設定で手で入れた値も消す(どれも島から導く値という定義。利用者の判断で推奨どおり)。
         /// 許容範囲などほかの調整値は残す。記録(Undo)は呼び出し側。
         /// </summary>
@@ -341,7 +341,7 @@ namespace Iroca {
                 return;
             }
             zone.extraSamples?.Clear();
-            ZoneAutoTuner.ResetIslandDerived(zone);   // 5 項目の一覧は Core に 1 つだけ置く
+            ZoneAutoTuner.ResetIslandDerived(zone);   // 6 項目の一覧は Core に 1 つだけ置く
         }
 
         /// <summary>連続領域の起点を置く。変わったときだけ記録して true。</summary>

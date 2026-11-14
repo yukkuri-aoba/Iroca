@@ -72,14 +72,22 @@ def _cases():
                 shadowForgivenessSatMin=0.0, outputSaturation=0.0, partHueBand=1.0,
                 highlightRecovery=True),
          G.settings()),
-        # ゾーン: 連続領域のゲートと彩度天井・穴埋めの余白が外れる（デコンタミ OFF で穴埋めを通す）
+        # ゾーン: 連続領域のゲートと彩度天井・穴埋めの余白・照合の上限距離が外れる（デコンタミ OFF で穴埋めを通す）
         ("zone_gates", cloth,
          G.zone(sample=_n((150, 30, 30)), target=blue, tolerance=0.45, chromaThreshold=1.5,
-                shadowValueFloor=-0.4, partSatCeiling=1.3, chromaCeiling=-0.1, holeFillMargin=2.5),
+                shadowValueFloor=-0.4, partSatCeiling=1.3, chromaCeiling=-0.1, holeFillMargin=2.5,
+                matchCutoff=-0.2),
          G.settings(useDecontamination=False),
          G.zone(sample=_n((150, 30, 30)), target=blue, tolerance=0.45, chromaThreshold=1.0,
-                shadowValueFloor=0.0, partSatCeiling=1.0, chromaCeiling=0.0, holeFillMargin=1.0),
+                shadowValueFloor=0.0, partSatCeiling=1.0, chromaCeiling=0.0, holeFillMargin=1.0,
+                matchCutoff=0.0),
          G.settings(useDecontamination=False)),
+        # ゾーン: 照合の上限距離が上へ外れる（グレーモードの照合。上限は許容範囲以上なので、丸めても出力は同じ）
+        ("zone_match_cutoff_above", S.solid((128, 128, 128)),
+         G.zone(sample=_n((128, 128, 128)), target=blue, tolerance=0.30, matchCutoff=1.8),
+         G.settings(),
+         G.zone(sample=_n((128, 128, 128)), target=blue, tolerance=0.30, matchCutoff=1.0),
+         G.settings()),
     ]
 
 

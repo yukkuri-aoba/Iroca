@@ -167,6 +167,34 @@ namespace Iroca.EditorTests {
             }
         }
 
+        // 照合の上限距離(ColorZone.matchCutoff)は 0.4.0 で足した項目。0.3.0 のレシピには無く、読むと 0(無効)になる。
+        // 今の形のレシピとプリセットには書かれ、読み直しても同じ値(NDMF のビルドはレシピから色替えし直すので、落とすと
+        // プレビューとビルドの結果が食い違う)。
+        [Test]
+        public void MatchCutoff_IsOffInOldRecipes_AndSurvivesTodaysRecipeAndPreset() {
+            var recipe = RecipeStore.Create(_texture, IrocaSessionState.CreateDefault(), _assets.Folder);
+            recipe.sessionJson = F.V030RecipeSession;
+            recipe.formatVersion = 1;
+            var old = RecipeStore.Load(recipe);
+            Assert.IsNotNull(old, "読めない");
+            Assert.IsTrue(old.zones.Count > 0 && old.zones.All(z => z.matchCutoff == 0f), "古いレシピのゾーンは上限なし");
+
+            var state = IrocaSessionState.CreateDefault();
+            state.zones.Clear();
+            var zone = EditingSession.NewZone(state.zones, "x");
+            zone.matchCutoff = 0.07f;
+            state.zones.Add(zone);
+            RecipeStore.Save(recipe, state);
+            Assert.AreEqual(0.07f, RecipeStore.Load(recipe).zones[0].matchCutoff, "レシピ");
+            Assert.AreEqual(0.07f, RecipeStore.LoadZones(recipe)[0].matchCutoff, "レシピのゾーンだけを読む口");
+
+            var preset = new IrocaPresetData { zones = IrocaPresetData.WithoutSamplePositions(state.zones) };
+            var readBack = JsonUtility.FromJson<IrocaPresetData>(JsonUtility.ToJson(preset));
+            var applied = new IrocaSessionState();
+            PresetApplier.ApplyZonesAndSettings(readBack, applied);
+            Assert.AreEqual(0.07f, applied.zones[0].matchCutoff, "プリセット");
+        }
+
         // 0.3.x 以前のいろかが書いたレシピのファイル(仕上がりの版の印 outputVersion が無い)は、版 0(0.4.0 より前の仕上がり)として
         // 読む。今の版では仕上がりが変わることがあるので、インスペクタ・窓・アップロードで知らせる対象になる。中身はそのまま読める。
         [Test]
