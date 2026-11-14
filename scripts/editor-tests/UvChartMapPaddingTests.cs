@@ -84,6 +84,25 @@ namespace Iroca.EditorTests {
                                       Take(baked.ExcludeOtherSources(new[] { 1 }, radius)));
         }
 
+        [TestCase(200, 150, 1)]
+        [TestCase(97, 61, 3)]
+        [TestCase(256, 256, 4)]
+        public void BuildBaked_MatchesBuildThenAssignPaddingBaked(int w, int h, int seed) {
+            // 作る間も 2 バイトで持つ道(BuildBaked)は、4 バイトで描いて焼き込む道と全画素で同じ(Mono でも。全件の突き合わせは unit-run)。
+            var sources = RandomSources(seed);
+            using var full = UvChartMap.Build(w, h, sources);
+            full.AssignPadding();
+            using var fast = UvChartMap.BuildBaked(w, h, sources);
+            int radius = fast.DefaultPaddingRadius;
+            Assert.IsTrue(fast.Raster == null && fast.Owner == null);
+            for (int y = -1; y <= h; y++) {
+                for (int x = -1; x <= w; x++) {
+                    Assert.AreEqual(full.ChartAt(x, y, radius), fast.ChartAt(x, y, radius), $"({x}, {y})");
+                }
+            }
+            CollectionAssert.AreEqual(Take(full.MaskOf(c => c % 2 == 1, radius)), Take(fast.MaskOf(c => c % 2 == 1, radius)));
+        }
+
         [Test]
         public void Baked_PacksOwnersIntoTwoBytesPerPixel() {
             // 焼き込んだ地図は窓が開いている間ずっと持つ。島の数が 65535 未満なら 1 画素 2 バイト(以前は 4 バイト)。

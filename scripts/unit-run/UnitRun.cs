@@ -2018,5 +2018,185 @@ namespace Iroca.UnitRun {
             }
             Check.Equal(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection), "強さの領域が残っていない");
         }
+
+        // ─────────────── UV の地図: 作る間も 2 バイトで持つ道(UvChartMap.BuildBaked) ───────────────
+        // BuildBaked は、島が 65535 未満ならラスタと距離を 2 バイトで持って描き・にじみ代を割り当てる。結果(各画素の持ち主・
+        // 半径の外を落とすこと・同じ距離のときの持ち主の決まり方)が、4 バイトの道(Build → AssignPaddingBaked)と、
+        // 焼き込まない道(Build → AssignPadding してから同じ半径で引く)のどちらとも全画素で同じことを見る。
+
+        // 離れた三角形・辺を共有する四角・大きく重なる三角形を混ぜる(同じ距離の取り合いと、後の三角形が勝つ所を作る)。
+        // UV は 0..1 の外へ少しはみ出させ、メッシュの 1 つには Tiling / Offset を掛ける。
+        private static List<UvChartSource> UvRandomSources(int seed, int meshes, int perMesh) {
+            var rng = new Random(seed);
+            float R(float lo, float hi) => lo + (float)rng.NextDouble() * (hi - lo);
+            var sources = new List<UvChartSource>();
+            for (int s = 0; s < meshes; s++) {
+                var uv = new List<UnityEngine.Vector2>();
+                var tris = new List<int>();
+                for (int k = 0; k < perMesh; k++) {
+                    float cx = R(-0.05f, 1.05f), cy = R(-0.05f, 1.05f), r = R(0.005f, k % 7 == 0 ? 0.3f : 0.08f);
+                    int b = uv.Count;
+                    if (k % 2 == 0) {
+                        uv.Add(new UnityEngine.Vector2(cx - r, cy - r));
+                        uv.Add(new UnityEngine.Vector2(cx + r, cy - r));
+                        uv.Add(new UnityEngine.Vector2(cx + r, cy + r));
+                        uv.Add(new UnityEngine.Vector2(cx - r, cy + r));
+                        tris.AddRange(new[] { b, b + 1, b + 2, b, b + 2, b + 3 });
+                    } else {
+                        uv.Add(new UnityEngine.Vector2(cx, cy + r));
+                        uv.Add(new UnityEngine.Vector2(cx - r, cy - r));
+                        uv.Add(new UnityEngine.Vector2(cx + R(0f, r), cy - r));
+                        tris.AddRange(new[] { b, b + 1, b + 2 });
+                    }
+                }
+                sources.Add(new UvChartSource {
+                    name = "s" + s,
+                    uv = uv.ToArray(),
+                    triangles = tris.ToArray(),
+                    scale = s == 1 ? new UnityEngine.Vector2(0.5f, 0.5f) : UnityEngine.Vector2.one,
+                    offset = s == 1 ? new UnityEngine.Vector2(0.25f, 0.5f) : UnityEngine.Vector2.zero,
+                });
+            }
+            return sources;
+        }
+
+        // ポインタを読むのはここだけ(テストのメソッドには unsafe を付けない。BytesOf の説明)。
+        private static unsafe bool UvHasNoFourByteArrays(UvChartMap m) =>
+            m.Raster == null && m.Owner == null && m.OwnerDistance == null;
+
+        private static bool[] UvTake(NativeBools mask) {
+            var array = mask.ToArray();
+            mask.Release();
+            return array;
+        }
+
+        // 3 つの地図が、範囲の外を含む全画素の持ち主と、いくつかのマスクで同じか。
+        private static void UvCheckSame(UvChartMap full, UvChartMap baked, UvChartMap fast, int w, int h, int radius,
+            string what) {
+            Check.Equal(full.ChartCount, fast.ChartCount, what + ": 島の数");
+            Check.True(full.ChartSource.SequenceEqual(fast.ChartSource), what + ": 島 → メッシュの対応が違う");
+            int owned = 0, padded = 0;
+            for (int y = -1; y <= h; y++) {
+                for (int x = -1; x <= w; x++) {
+                    int want = full.ChartAt(x, y, radius);
+                    int viaInt = baked.ChartAt(x, y, radius);
+                    int via16 = fast.ChartAt(x, y, radius);
+                    if (want != viaInt || want != via16) {
+                        throw new Exception($"{what}: ({x}, {y}) の持ち主 焼き込まない {want} / 4 バイト {viaInt} / 2 バイト {via16}");
+                    }
+                    if (want >= 0) {
+                        owned++;
+                        if (full.ChartAt(x, y, 0) < 0) {
+                            padded++;
+                        }
+                    }
+                }
+            }
+            Check.True(owned > 0, what + ": 持ち主のある画素が無い(テストの前提)");
+            if (radius > 0) {
+                Check.True(padded > 0, what + ": にじみ代で割り当てた画素が無い(テストの前提)");
+            }
+            Func<int, bool>[] selects = { c => c == 0, c => c % 2 == 1, c => true };
+            foreach (var sel in selects) {
+                var want = UvTake(full.MaskOf(sel, radius));
+                Check.True(want.SequenceEqual(UvTake(fast.MaskOf(sel, radius))), what + ": MaskOf が違う");
+            }
+            Check.True(UvTake(full.ExcludeOtherSources(new[] { 1 }, radius))
+                    .SequenceEqual(UvTake(fast.ExcludeOtherSources(new[] { 1 }, radius))),
+                what + ": ExcludeOtherSources が違う");
+        }
+
+        public static void UvChart_BuildBakedMatchesFourByteAndUnbakedPaths() {
+            var cases = new (int w, int h, int seed, int radius)[] {
+                (200, 150, 1, -1), (200, 150, 2, 0), (97, 61, 3, 3), (256, 256, 4, 20), (333, 517, 5, -1),
+                (640, 9, 7, 100), (64, 64, 8, 70000),
+            };
+            long beforeOther = IrocaNativeMemory.LiveBytesOf(NativeUsage.Other);
+            long beforeWork = IrocaNativeMemory.LiveBytesOf(NativeUsage.Work);
+            int saved = CoreParallelism.Override;
+            try {
+                foreach (var (w, h, seed, r) in cases) {
+                    var sources = UvRandomSources(seed, 3, 40);
+                    int radius = r < 0 ? UvChartMap.DefaultPaddingRadiusFor(w, h) : r;
+                    using var full = UvChartMap.Build(w, h, sources);
+                    full.AssignPadding();
+                    using var baked = UvChartMap.Build(w, h, sources);
+                    baked.AssignPaddingBaked(radius);
+                    // 並列度を変えても同じ(列パスの帯の分け方が変わる)。
+                    foreach (int degree in s_copyDegrees) {
+                        CoreParallelism.Override = degree;
+                        using var fast = r < 0
+                            ? UvChartMap.BuildBaked(w, h, sources)
+                            : UvChartMap.BuildBaked(w, h, sources, radius);
+                        Check.True(UvHasNoFourByteArrays(fast), $"{w}x{h}: 2 バイトの道で 4 バイトの配列が残っている");
+                        UvCheckSame(full, baked, fast, w, h, radius, $"{w}x{h} seed {seed} 半径 {radius} 並列度 {degree}");
+                        bool rejected = false;
+                        try {
+                            fast.ChartAt(0, 0, radius + 1);
+                        } catch (InvalidOperationException) {
+                            rejected = true;
+                        }
+                        Check.True(rejected, $"{w}x{h}: 焼き込んだのと別の半径で引けた");
+                    }
+                }
+            } finally {
+                CoreParallelism.Override = saved;
+            }
+            Check.Equal(beforeOther, IrocaNativeMemory.LiveBytesOf(NativeUsage.Other), "地図の領域が残っている");
+            Check.Equal(beforeWork, IrocaNativeMemory.LiveBytesOf(NativeUsage.Work), "距離の領域が残っている");
+        }
+
+        public static void UvChart_BuildBakedPeakIsFourBytesPerPixel() {
+            // 作る間の山: 2 バイトのラスタ(Other。そのまま常駐する持ち主になる)と 2 バイトの距離(Work)だけ。
+            // 4 バイトの道は 4 バイトのラスタ + 4 バイトの距離(1 画素 8 バイト)。
+            const int W = 512, H = 384;
+            var sources = UvRandomSources(9, 3, 40);
+            long px = (long)W * H;
+            IrocaNativeMemory.ResetPeaks();
+            long other0 = IrocaNativeMemory.LiveBytesOf(NativeUsage.Other);
+            long work0 = IrocaNativeMemory.LiveBytesOf(NativeUsage.Work);
+            using (var fast = UvChartMap.BuildBaked(W, H, sources)) {
+                Check.Equal(px * sizeof(ushort), IrocaNativeMemory.PeakBytesOf(NativeUsage.Other) - other0, "ラスタの山");
+                Check.Equal(px * sizeof(ushort), IrocaNativeMemory.PeakBytesOf(NativeUsage.Work) - work0, "距離の山");
+                Check.Equal(px * sizeof(ushort), IrocaNativeMemory.LiveBytesOf(NativeUsage.Other) - other0, "常駐");
+                Check.Equal(work0, IrocaNativeMemory.LiveBytesOf(NativeUsage.Work), "距離を返していない");
+            }
+            Check.Equal(other0, IrocaNativeMemory.LiveBytesOf(NativeUsage.Other), "地図を返していない");
+        }
+
+        public static void UvChart_BuildBakedWithTooManyChartsKeepsFourBytes() {
+            // 島が 65535 以上なら 2 バイトに収まらないので、4 バイトの道(Build → AssignPaddingBaked)と同じ。
+            const int W = 600, H = 600, Side = 260;   // 260² = 67,600 個の離れた三角形 = 67,600 個の島
+            var uv = new UnityEngine.Vector2[Side * Side * 3];
+            var tris = new int[Side * Side * 3];
+            float cell = 1f / Side;
+            for (int gy = 0; gy < Side; gy++) {
+                for (int gx = 0; gx < Side; gx++) {
+                    int b = (gy * Side + gx) * 3;
+                    float x = gx * cell, y = gy * cell;
+                    uv[b] = new UnityEngine.Vector2(x + 0.1f * cell, y + 0.1f * cell);
+                    uv[b + 1] = new UnityEngine.Vector2(x + 0.9f * cell, y + 0.1f * cell);
+                    uv[b + 2] = new UnityEngine.Vector2(x + 0.1f * cell, y + 0.9f * cell);
+                    tris[b] = b;
+                    tris[b + 1] = b + 1;
+                    tris[b + 2] = b + 2;
+                }
+            }
+            var sources = new List<UvChartSource> {
+                new UvChartSource { name = "many", uv = uv, triangles = tris },
+                new UvChartSource { name = "one", uv = new[] { new UnityEngine.Vector2(0f, 0f), new UnityEngine.Vector2(0.01f, 0f), new UnityEngine.Vector2(0f, 0.01f) }, triangles = new[] { 0, 1, 2 } },
+            };
+            int radius = UvChartMap.DefaultPaddingRadiusFor(W, H);
+            using var full = UvChartMap.Build(W, H, sources);
+            Check.True(full.ChartCount >= ushort.MaxValue, "テストの前提: 島が 65535 以上");
+            full.AssignPadding();
+            using var baked = UvChartMap.Build(W, H, sources);
+            baked.AssignPaddingBaked(radius);
+            long other0 = IrocaNativeMemory.LiveBytesOf(NativeUsage.Other);
+            using var fast = UvChartMap.BuildBaked(W, H, sources);
+            Check.Equal((long)W * H * sizeof(int), IrocaNativeMemory.LiveBytesOf(NativeUsage.Other) - other0,
+                "島が多い地図が 4 バイトのままでない");
+            UvCheckSame(full, baked, fast, W, H, radius, "島 67,601 個");
+        }
     }
 }

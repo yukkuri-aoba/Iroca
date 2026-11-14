@@ -314,8 +314,7 @@ namespace Iroca {
             if (_found == null || _found.found.Count == 0) {
                 return null;
             }
-            _map = UvChartMap.Build(_masks.Width, _masks.Height, _found.Sources());
-            _map.AssignPaddingBaked(_map.DefaultPaddingRadius);
+            _map = UvChartMap.BuildBaked(_masks.Width, _masks.Height, _found.Sources());
             return _map;
         }
 

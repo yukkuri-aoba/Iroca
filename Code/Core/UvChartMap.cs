@@ -50,6 +50,8 @@ namespace Iroca {
     /// 引くにじみ代の半径が決まっているときは <see cref="AssignPaddingBaked"/> で、半径の外を落とした
     /// 持ち主の配列だけを持つ(4K で Raster・Owner・OwnerDistance の 192MB → 64MB)。島の数が 65535 未満なら、
     /// その配列を 1 画素 2 バイトに詰め直す(4K で 32MB・8K で 128MB。窓が開いている間ずっと持つので効く)。
+    /// 半径が先に決まっているなら <see cref="BuildBaked(int,int,IReadOnlyList{UvChartSource},int)"/> で、作る間も 2 バイトで持つ
+    /// (作る間の山が 1 画素 8 バイト → 4 バイト)。
     /// 画素ごとの配列はヒープの外に置くので、使い終わったら <see cref="Dispose"/> する。
     /// </summary>
     internal sealed unsafe class UvChartMap : System.IDisposable {
@@ -134,20 +136,117 @@ namespace Iroca {
         /// テクスチャ空間では区別できないので、マスクとしてはどちらでも同じ画素になる。
         /// UV が 0..1 の外にある三角形は、はみ出した部分を描かない(折り返さない)。
         /// </summary>
-        public static UvChartMap Build(int w, int h, IReadOnlyList<UvChartSource> sources) {
+        public static UvChartMap Build(int w, int h, IReadOnlyList<UvChartSource> sources) =>
+            BuildInt(w, h, sources, SplitCharts(sources, default));
+
+        private static UvChartMap BuildInt(int w, int h, IReadOnlyList<UvChartSource> sources, ChartSplit split) {
             var mem = new NativeBuffer((long)w * h * sizeof(int), NativeUsage.Other);
             try {
                 int* raster = (int*)mem.Ptr;
                 ForRanges(w * h, (i0, i1) => new System.Span<int>(raster + i0, i1 - i0).Fill(-1));
                 // 描くのは元の順のまま(後の source・後の三角形が勝つ)。
                 var chartSource = new List<int>();
-                ForEachTriangle(sources, w, h, chartSource, null,
-                    (chart, a, b, c) => RasterizeTriangle(raster, w, h, a, b, c, chart));
+                ForEachTriangle(split, sources, w, h, chartSource, null,
+                    (chart, a, b, c) => RasterizeTriangle(raster, w, h, a, b, c, chart), default);
                 return new UvChartMap(w, h, mem, chartSource.ToArray());
             } catch {
                 mem.Release();
                 throw;
             }
+        }
+
+        /// <summary>
+        /// <see cref="Build"/> して既定の半径(<see cref="DefaultPaddingRadius"/>)で <see cref="AssignPaddingBaked"/> したのと同じ地図を作る。
+        /// </summary>
+        public static UvChartMap BuildBaked(int w, int h, IReadOnlyList<UvChartSource> sources) =>
+            BuildBaked(w, h, sources, DefaultPaddingRadiusFor(w, h));
+
+        /// <summary>
+        /// <see cref="Build"/> してから <see cref="AssignPaddingBaked"/>(maxPadding) したのと同じ地図を作る(どの画素の持ち主も同じ)。
+        /// 島の数が 65535 未満なら、描く・にじみ代を割り当てる間も 1 画素 2 バイトのラスタと 2 バイトの距離で持つ
+        /// (作る間の山が 1 画素 8 バイト → 4 バイト。8K で 512MB → 256MB)。詰め直しの全画素のパスも要らない。
+        /// 島が多いとき(と、距離が 2 バイトに収まらない寸法のとき)は Build → AssignPaddingBaked と同じ 4 バイトの道。
+        /// </summary>
+        public static UvChartMap BuildBaked(int w, int h, IReadOnlyList<UvChartSource> sources, int maxPadding) {
+            if (maxPadding < 0) {
+                throw new System.ArgumentOutOfRangeException(nameof(maxPadding));
+            }
+            var split = SplitCharts(sources, default);
+            if (!Fits16(split.total, w, h)) {
+                var map = BuildInt(w, h, sources, split);
+                try {
+                    map.AssignPaddingBaked(maxPadding);
+                    return map;
+                } catch {
+                    map.Dispose();
+                    throw;
+                }
+            }
+            int len = w * h;
+            var mem = new NativeBuffer((long)len * sizeof(ushort), NativeUsage.Other);
+            try {
+                ushort* raster = (ushort*)mem.Ptr;
+                ForRanges(len, (i0, i1) => new System.Span<ushort>(raster + i0, i1 - i0).Fill(NoChart16));
+                // 描く順・内側の判定は Build と同じ(島の番号は 65535 未満なので 2 バイトに収まる)。
+                var chartSource = new List<int>();
+                ForEachTriangle(split, sources, w, h, chartSource, null,
+                    (chart, a, b, c) => RasterizeTriangle(raster, w, h, a, b, c, (ushort)chart), default);
+                // 持ち主はラスタをそのまま作り替える(AssignPaddingBaked と同じ)。
+                using (var distMem = new NativeBuffer((long)len * sizeof(ushort), NativeUsage.Work)) {
+                    ushort* dist = (ushort*)distMem.Ptr;
+                    ComputePaddingInPlace16(raster, dist, w, h);
+                    ForRanges(len, (i0, i1) => {
+                        for (int i = i0; i < i1; i++) {
+                            if (dist[i] > maxPadding) {
+                                raster[i] = NoChart16;
+                            }
+                        }
+                    });
+                }
+                var baked = new UvChartMap(w, h, null, chartSource.ToArray());
+                baked._owner16 = mem;
+                baked._baked = true;
+                baked._bakedRadius = maxPadding;
+                return baked;
+            } catch {
+                mem.Release();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 2 バイトの道(<see cref="BuildBaked(int,int,IReadOnlyList{UvChartSource},int)"/>)で作れるか: 島の番号が
+        /// <see cref="NoChart16"/> 未満で、距離(L1。最大で w + h − 2)が <see cref="PaddingInf16"/> 未満に収まる。
+        /// </summary>
+        private static bool Fits16(int chartCount, int w, int h) =>
+            chartCount < NoChart16 && (long)w + h - 2 < PaddingInf16;
+
+        /// <summary>メッシュごとの島分け(<see cref="ComputeCharts"/>)の結果。</summary>
+        private sealed class ChartSplit {
+            public int[][] charts;   // メッシュ → 三角形ごとの島の番号(そのメッシュの中での番号)。UV か三角形の無いメッシュは null
+            public int[] counts;     // メッシュ → 島の数
+            public int total;        // 全メッシュの島の数(地図の ChartCount になる)
+        }
+
+        // 島分けはメッシュごとに独立(UV と三角形だけで決まる)なので、全メッシュの分を並列に求める。
+        private static ChartSplit SplitCharts(IReadOnlyList<UvChartSource> sources, CancellationToken token) {
+            var charts = new int[sources.Count][];
+            var chartCounts = new int[sources.Count];
+            Parallel.For(0, sources.Count,
+                CoreParallelism.Options(token), s => {
+                    var src = sources[s];
+                    if (src?.uv == null || src.triangles == null || src.triangles.Length < 3) {
+                        return;
+                    }
+                    charts[s] = ComputeCharts(src.uv, src.triangles, out chartCounts[s]);
+                });
+            int total = 0;
+            for (int s = 0; s < sources.Count; s++) {
+                if (charts[s] != null) {
+                    total += chartCounts[s];
+                }
+            }
+            return new ChartSplit { charts = charts, counts = chartCounts, total = total };
         }
 
         /// <summary>三角形 1 つ: 島の通し番号(全メッシュを通した番号)と、3 頂点の画素の座標(下原点)。</summary>
@@ -162,18 +261,14 @@ namespace Iroca {
         /// chartLocal(null でよい)に「島の通し番号 → そのメッシュの中での島の番号」を足す。
         /// </summary>
         internal static void ForEachTriangle(IReadOnlyList<UvChartSource> sources, int w, int h,
-            List<int> chartSource, List<int> chartLocal, TriangleVisitor visit, CancellationToken token = default) {
-            // チャート分けはメッシュごとに独立(UV と三角形だけで決まる)なので、先に全メッシュの分を並列に求める。
-            var charts = new int[sources.Count][];
-            var chartCounts = new int[sources.Count];
-            Parallel.For(0, sources.Count,
-                CoreParallelism.Options(token), s => {
-                    var src = sources[s];
-                    if (src?.uv == null || src.triangles == null || src.triangles.Length < 3) {
-                        return;
-                    }
-                    charts[s] = ComputeCharts(src.uv, src.triangles, out chartCounts[s]);
-                });
+            List<int> chartSource, List<int> chartLocal, TriangleVisitor visit, CancellationToken token = default) =>
+            ForEachTriangle(SplitCharts(sources, token), sources, w, h, chartSource, chartLocal, visit, token);
+
+        // 島分けを先に済ませた版(地図は島の数で配列の幅を決めてから描く)。
+        private static void ForEachTriangle(ChartSplit split, IReadOnlyList<UvChartSource> sources, int w, int h,
+            List<int> chartSource, List<int> chartLocal, TriangleVisitor visit, CancellationToken token) {
+            var charts = split.charts;
+            var chartCounts = split.counts;
             for (int s = 0; s < sources.Count; s++) {
                 var src = sources[s];
                 int[] local = charts[s];
@@ -271,8 +366,12 @@ namespace Iroca {
             }
         }
 
-        /// <summary>画素中心 (x+0.5, y+0.5) が三角形の内側(辺上を含む)なら id を書く。向きは問わない。</summary>
-        private static void RasterizeTriangle(int* raster, int w, int h, Vector2 p0, Vector2 p1, Vector2 p2, int id) {
+        /// <summary>
+        /// 画素中心 (x+0.5, y+0.5) が三角形の内側(辺上を含む)なら id を書く。向きは問わない。
+        /// ラスタは 4 バイト(int)か 2 バイト(ushort。<see cref="BuildBaked(int,int,IReadOnlyList{UvChartSource},int)"/>)。
+        /// </summary>
+        private static void RasterizeTriangle<T>(T* raster, int w, int h, Vector2 p0, Vector2 p1, Vector2 p2, T id)
+            where T : unmanaged {
             float area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
             if (area == 0f || float.IsNaN(area)) {
                 return;
@@ -386,6 +485,8 @@ namespace Iroca {
         }
 
         private const int PaddingInf = int.MaxValue / 2;
+        // 2 バイトの距離の「届かない」。距離は最大 w + h − 2 なので、それが届かないより小さい寸法でだけ使う(Fits16)。
+        private const ushort PaddingInf16 = ushort.MaxValue;
 
         /// <summary>
         /// にじみ代の距離変換。dist に距離(届かない画素は <see cref="PaddingInf"/>)、owner に持ち主を書く。
@@ -445,10 +546,71 @@ namespace Iroca {
         }
 
         /// <summary>
+        /// <see cref="ComputePadding"/> を owner = raster(その場で作り替える)で呼んだのと同じことを、2 バイトの持ち主
+        /// (<see cref="NoChart16"/> = どのチャートでもない)と 2 バイトの距離(届かない = <see cref="PaddingInf16"/>)でする。
+        /// 走査の順・比べ方は 1 行ずつ同じ(同じ距離のときの持ち主の決まり方も同じ)。距離は w + h − 2 以下で
+        /// <see cref="PaddingInf16"/> より小さい(<see cref="Fits16"/>)ので、4 バイトの道と大小の比べた結果が変わらない。
+        /// 式を変えるときは両方を変える。
+        /// </summary>
+        private static void ComputePaddingInPlace16(ushort* owner, ushort* dist, int w, int h) {
+            var po = CoreParallelism.Options(default);
+
+            // 行パス: 同じ行の中で一番近いチャート画素(左からの走査 → 右からの走査で近い方)
+            Parallel.For(0, h, po, y => {
+                int row = y * w;
+                int lastX = -1;
+                for (int x = 0; x < w; x++) {
+                    int i = row + x;
+                    if (owner[i] != NoChart16) { lastX = x; dist[i] = 0; } else if (lastX >= 0) { dist[i] = (ushort)(x - lastX); owner[i] = owner[row + lastX]; } else { dist[i] = PaddingInf16; owner[i] = NoChart16; }
+                }
+                // 右からの走査では、チャート画素を距離 0 で見分ける(外側の画素は左からの走査で持ち主の番号に書き換わっている)。
+                lastX = -1;
+                for (int x = w - 1; x >= 0; x--) {
+                    int i = row + x;
+                    if (dist[i] == 0) { lastX = x; continue; }
+                    if (lastX >= 0 && lastX - x < dist[i]) { dist[i] = (ushort)(lastX - x); owner[i] = owner[row + lastX]; }
+                }
+            });
+
+            // 列パス: min over y' (行距離(y') + |y - y'|) を前進/後退走査で合成する
+            int dop = po.MaxDegreeOfParallelism;
+            int chunk = (w + dop - 1) / dop;
+            Parallel.For(0, dop, po, p => {
+                int x0 = p * chunk, x1 = System.Math.Min(w, x0 + chunk);
+                if (x0 >= x1) {
+                    return;
+                }
+                for (int y = 1; y < h; y++) {
+                    int row = y * w, prev = row - w;
+                    for (int x = x0; x < x1; x++) {
+                        if (dist[prev + x] >= PaddingInf16) {
+                            continue;
+                        }
+                        int v = dist[prev + x] + 1;
+                        if (v < dist[row + x]) { dist[row + x] = (ushort)v; owner[row + x] = owner[prev + x]; }
+                    }
+                }
+                for (int y = h - 2; y >= 0; y--) {
+                    int row = y * w, next = row + w;
+                    for (int x = x0; x < x1; x++) {
+                        if (dist[next + x] >= PaddingInf16) {
+                            continue;
+                        }
+                        int v = dist[next + x] + 1;
+                        if (v < dist[row + x]) { dist[row + x] = (ushort)v; owner[row + x] = owner[next + x]; }
+                    }
+                }
+            });
+        }
+
+        /// <summary>
         /// にじみ代として扱う最大距離(px)。これより遠い画素はどのチャートのものでもないとみなす。
         /// テクスチャのにじみ代は 2048 で 8〜16px 程度が多いので、長辺の 1/64(4096 で 64px)で余裕を持たせる。
         /// </summary>
-        public int DefaultPaddingRadius => System.Math.Max(4, System.Math.Max(Width, Height) / 64);
+        public int DefaultPaddingRadius => DefaultPaddingRadiusFor(Width, Height);
+
+        /// <summary>w×h の地図の <see cref="DefaultPaddingRadius"/>(地図を作る前に引く用)。</summary>
+        public static int DefaultPaddingRadiusFor(int w, int h) => System.Math.Max(4, System.Math.Max(w, h) / 64);
 
         /// <summary>画素 (x, y)(行 0 = 下端)の持ち主チャート。maxPadding より遠いにじみ代・範囲外は -1。</summary>
         public int ChartAt(int x, int y, int maxPadding) {

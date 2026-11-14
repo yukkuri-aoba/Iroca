@@ -155,8 +155,7 @@ namespace Iroca {
                 if (pointCount > 0) {
                     // メッシュは AddMeshes が探したもの(同じ元テクスチャで探した同じ結果)を使う。
                     if (found != null && found.found.Count > 0) {
-                        chart = UvChartMap.Build(w, h, found.Sources());
-                        chart.AssignPaddingBaked(chart.DefaultPaddingRadius);
+                        chart = UvChartMap.BuildBaked(w, h, found.Sources());
                     }
                     for (int i = 0; i < pointCount; i++) {
                         var p = new PointInfo { uv = new[] { pointsUv[i * 2], pointsUv[i * 2 + 1] } };

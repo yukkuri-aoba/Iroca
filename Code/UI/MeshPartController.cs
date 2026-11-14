@@ -307,18 +307,11 @@ namespace Iroca {
 
         // 引くのは既定の半径だけなので、半径の外を落とした持ち主だけを持つ(4K で 192MB → 64MB)。
         // 計算だけ(Unity の API を使わない)なので、背景のスレッドで呼んでよい。
-        static UvChartMap BuildMap(int w, int h, IReadOnlyList<UvChartSource> sources) {
-            var map = UvChartMap.Build(w, h, sources);
-            try {
-                map.AssignPaddingBaked(map.DefaultPaddingRadius);
-                return map;
-            } catch {
-                map.Dispose();
-                throw;
-            }
-        }
+        // 島が 65535 未満なら、作る間も 1 画素 4 バイト(2 バイトのラスタと距離。8K で 256MB)で済む(UvChartMap.BuildBaked)。
+        static UvChartMap BuildMap(int w, int h, IReadOnlyList<UvChartSource> sources) =>
+            UvChartMap.BuildBaked(w, h, sources);
 
-        // 先に作るのは一辺 4096 まで。8K では地図が 256MB(作る間は 512MB)になり、右クリックの「メッシュの形で」を使わなくても
+        // 先に作るのは一辺 4096 まで。8K では地図が 128MB(作る間は 256MB。島が 65535 以上なら 256MB・512MB)になり、右クリックの「メッシュの形で」を使わなくても
         // 窓を開いている間持ち続けることになる。辺が 4096 を超えるテクスチャは少ないので(2026-11-08 に手元の 2,489 枚で 0.6%)、
         // 超えるときは右クリックのときに Map() が作る(そのときだけ止まる)。
         const int MaxPrebuildSide = 4096;
