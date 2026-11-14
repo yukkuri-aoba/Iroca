@@ -40,6 +40,9 @@ namespace Iroca.EditorTests {
     /// 中身は MemoryBenchTests.Scenarios.cs。0.4.0 の計画の 0-1)。recipeBuild で windowOpen が true なら、同じテクスチャを
     /// いろかのウィンドウで編集している最中にビルドする(ウィンドウが持つメモリの上にビルドの山が乗る場面)。
     /// windowIdleSeconds が 1 以上なら、編集してからその秒数だけ手を止めた後にビルドする(手を止めたときの縮小の後)。
+    /// recipeApply は、pngs の画像ごとにレシピを 1 つ作り、それらを使うアバター(1 つのコンポーネントに全部のレシピ)を
+    /// 非破壊ビルド(NonDestructiveApplier.Apply)に通す(レシピが複数あるときの Play・アップロード)。importFormat を書けば
+    /// Standalone の取り込み形式をそれで上書きする(BC7・DXT5 など。空なら非圧縮)。
     /// 結果は IROCA_MEM_REPORT が指すファイルへ 1 行 1 計測の JSON で書く。Mono ヒープ・Unity のネイティブ(nativeAlloc/Reserved)・
     /// いろかが自分で持つネイティブ(irocaNative、無い版は -1)・プロセスの Private と WS。hashOutput なら出力の指紋(hash)も書くので、
     /// 基準と変更後で Mono の出力が同じかを 8K でも比べられる(同じ JSON・同じ手順なら同じ値になる)。
@@ -50,7 +53,7 @@ namespace Iroca.EditorTests {
     /// </summary>
     [Category("Memory")]
     public partial class MemoryBenchTests {
-        [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; public int importMaxSize; public int exportAfterStep = -1; public int cancelOverlapRounds; public int refineRounds; public bool window; public string scenario = ""; public bool windowOpen; public int windowIdleSeconds; }
+        [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; public int importMaxSize; public int exportAfterStep = -1; public int cancelOverlapRounds; public int refineRounds; public bool window; public string scenario = ""; public bool windowOpen; public int windowIdleSeconds; public List<string> pngs = new List<string>(); public string importFormat = ""; }
         [Serializable] private class CasesDto { public int steps = 12; public int releaseWaitSeconds = 60; public bool gcEachStep; public bool reuseOutput; public bool hashOutput = true; public int threads; public List<CaseDto> cases = new List<CaseDto>(); }
 
         [StructLayout(LayoutKind.Sequential)]

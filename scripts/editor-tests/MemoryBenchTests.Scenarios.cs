@@ -21,6 +21,7 @@ namespace Iroca.EditorTests {
     /// <item>recipeBuild: マスクつきのレシピから、NDMF のビルドと同じ差し替えテクスチャを作る（B1）。手ごとにゾーンを
     /// 少し変えて保存し、キャッシュに当たらないようにする。ケースの windowOpen が true なら、同じテクスチャをウィンドウで
     /// 編集している最中にビルドする(<see cref="RunRecipeBuildWithWindow"/>)。</item>
+    /// <item>recipeApply: レシピが複数あるアバターを非破壊ビルドに通す(<see cref="RunRecipeApplyScenario"/>)。</item>
     /// <item>autoTune: 自動化 API で、色で指定したゾーンを自動調整つきで足す（証拠なしの解析。A5）。</item>
     /// <item>mcpRecolor: 自動化 API で PNG に書き出す（A6）。</item>
     /// </list>
@@ -35,6 +36,7 @@ namespace Iroca.EditorTests {
             switch (c.scenario) {
                 case "maskPaint": RunMaskPaintScenario(c, cfg, sb); break;
                 case "recipeBuild": RunRecipeBuildScenario(c, cfg, sb); break;
+                case "recipeApply": RunRecipeApplyScenario(c, cfg, sb); break;
                 case "autoTune": RunAutomationScenario(c, cfg, sb, autoTune: true); break;
                 case "mcpRecolor": RunAutomationScenario(c, cfg, sb, autoTune: false); break;
                 case AiScenario: break;   // フレームを回すので別のテスト(MemoryBenchTests.Ai.cs)
@@ -124,30 +126,7 @@ namespace Iroca.EditorTests {
             var tex = ImportBenchTexture(c, out string assetPath);
             var (zones, settings) = LoadZones(File.ReadAllText(c.zones));
             try {
-                var state = new IrocaSessionState();
-                state.zones.AddRange(zones);
-                settings.CopyTo(state);
-                // マスクはマスク編集と同じく元のファイルの寸法で持つ。共通は中央の縦帯、ゾーンごとに上端の帯を
-                // 「塗らない」、下端の帯を「ここも塗る」にする。画素数の大きさの配列を作ると Mono のヒープがその分
-                // 広がったままになり、ビルドがマスクを展開する分(1.3 の B1)が見えなくなるので、保存形式(RLE)を直接書く。
-                PngSize(c.png, out int mw, out int mh);
-                MaskRegionEdit.CanvasSize(mw, mh, tex.width, tex.height, out mw, out mh);
-                var mask = state.maskState;
-                mask.schemaVersion = MaskState.CurrentSchemaVersion;
-                mask.width = mw;
-                mask.height = mh;
-                mask.commonMaskBase64 = BandRle(mw, mh, 0.45f, 0.55f, vertical: true);
-                for (int i = 0; i < zones.Count; i++) {
-                    mask.zones.Add(new MaskZoneEntry {
-                        zoneId = zones[i].id,
-                        maskBase64 = BandRle(mw, mh, 0.90f - 0.02f * i, 0.92f - 0.02f * i, vertical: false)
-                    });
-                    mask.zoneIncludes.Add(new MaskZoneEntry {
-                        zoneId = zones[i].id,
-                        maskBase64 = BandRle(mw, mh, 0.02f * i, 0.02f * i + 0.02f, vertical: false)
-                    });
-                }
-                var recipe = RecipeStore.Create(tex, state, BenchDir);
+                var (recipe, state) = CreateBenchRecipe(c.png, tex, zones, settings);
                 if (c.windowOpen) {
                     RunRecipeBuildWithWindow(c, cfg, sb, tex, recipe);
                     return;
@@ -177,6 +156,139 @@ namespace Iroca.EditorTests {
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                 sb.Append(Sample(c.name, "liveAfterSteps", cfg.steps, 0)).Append('\n');
             } finally { FinishScenario(c, cfg, sb, assetPath); }
+        }
+
+        // ゾーンとマスクの帯を持つレシピを作る(recipeBuild・recipeApply)。マスクはマスク編集と同じく元のファイルの寸法で持つ。
+        // 共通は中央の縦帯、ゾーンごとに上端の帯を「塗らない」、下端の帯を「ここも塗る」にする。画素数の大きさの配列を作ると
+        // Mono のヒープがその分広がったままになり、ビルドがマスクを展開する分(1.3 の B1)が見えなくなるので、保存形式(RLE)を直接書く。
+        private static (IrocaRecipe recipe, IrocaSessionState state) CreateBenchRecipe(string png, Texture2D tex,
+            List<ColorZone> zones, RecolorSettings settings) {
+            var state = new IrocaSessionState();
+            state.zones.AddRange(zones);
+            settings.CopyTo(state);
+            PngSize(png, out int mw, out int mh);
+            MaskRegionEdit.CanvasSize(mw, mh, tex.width, tex.height, out mw, out mh);
+            var mask = state.maskState;
+            mask.schemaVersion = MaskState.CurrentSchemaVersion;
+            mask.width = mw;
+            mask.height = mh;
+            mask.commonMaskBase64 = BandRle(mw, mh, 0.45f, 0.55f, vertical: true);
+            for (int i = 0; i < zones.Count; i++) {
+                mask.zones.Add(new MaskZoneEntry {
+                    zoneId = zones[i].id,
+                    maskBase64 = BandRle(mw, mh, 0.90f - 0.02f * i, 0.92f - 0.02f * i, vertical: false)
+                });
+                mask.zoneIncludes.Add(new MaskZoneEntry {
+                    zoneId = zones[i].id,
+                    maskBase64 = BandRle(mw, mh, 0.02f * i, 0.02f * i + 0.02f, vertical: false)
+                });
+            }
+            return (RecipeStore.Create(tex, state, BenchDir), state);
+        }
+
+        // ───────────── recipeApply ─────────────
+
+        // レシピが複数あるアバターの非破壊ビルド(Play・アップロードの NonDestructiveApplier.Apply)。pngs の画像ごとに
+        // レシピを作り、子の Renderer がそれぞれの画像を使うアバターの根に、全部のレシピを持つコンポーネントを 1 つ置く。
+        // 手ごとにゾーンを少し変えて保存し(キャッシュに当たらない)、アバターを作り直して Apply を呼ぶ(apply。ms は全体、
+        // cpuMs はプロセスの CPU 時間、sub にレシピごとの BuildTexture の時間・ビルドの間の Private の最大・いろかのネイティブの
+        // 用途ごとの最大)。最後に同じレシピのまま 1 回(applyCached。キャッシュから)。
+        private static void RunRecipeApplyScenario(CaseDto c, CasesDto cfg, StringBuilder sb) {
+            var pngs = c.pngs != null && c.pngs.Count > 0 ? c.pngs : new List<string> { c.png };
+            var textures = new List<Texture2D>();
+            var recipes = new List<IrocaRecipe>();
+            var states = new List<IrocaSessionState>();
+            var baseTol = new List<float[]>();
+            try {
+                for (int i = 0; i < pngs.Count; i++) {
+                    var tex = ImportBenchTexture(pngs[i], $"{c.name}_{i}", c.importMaxSize, c.importFormat, out _);
+                    var (zones, settings) = LoadZones(File.ReadAllText(c.zones));
+                    var (recipe, state) = CreateBenchRecipe(pngs[i], tex, zones, settings);
+                    textures.Add(tex);
+                    recipes.Add(recipe);
+                    states.Add(state);
+                    baseTol.Add(zones.Select(z => z.tolerance).ToArray());
+                }
+                GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                sb.Append(Sample(c.name, "start", 0, 0)).Append('\n');
+                for (int k = 0; k <= cfg.steps; k++) {
+                    bool cachedRun = k == cfg.steps;
+                    if (!cachedRun) {
+                        for (int i = 0; i < recipes.Count; i++) {
+                            var zones = states[i].zones;
+                            for (int z = 0; z < zones.Count; z++) {
+                                zones[z].tolerance = baseTol[i][z] + 0.002f * (k + 1);
+                            }
+                            RecipeStore.Save(recipes[i], states[i]);
+                        }
+                    }
+                    RecipeTextureBuilder.WaitForCacheWrites();
+                    GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                    var root = new GameObject(c.name + "-avatar");
+                    var host = new BenchApplyHost();
+                    try {
+                        for (int i = 0; i < textures.Count; i++) {
+                            var part = new GameObject("part" + i);
+                            part.transform.SetParent(root.transform, false);
+                            var mat = new Material(Shader.Find("Standard")) { name = "mat" + i, mainTexture = textures[i] };
+                            host.Created.Add(mat);
+                            part.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                        }
+                        var component = root.AddComponent<IrocaRecolor>();
+                        component.recipes.AddRange(recipes);
+
+                        IrocaNativeMemory.ResetPeaks();
+                        double ms, cpuMs;
+                        long maxPrivate;
+                        using (var watch = new PrivatePeakWatch()) {
+                            var proc = System.Diagnostics.Process.GetCurrentProcess();
+                            var cpu0 = proc.TotalProcessorTime;
+                            var sw = Stopwatch.StartNew();
+                            NonDestructiveApplier.Apply(root, host);
+                            ms = sw.Elapsed.TotalMilliseconds;
+                            proc.Refresh();
+                            cpuMs = (proc.TotalProcessorTime - cpu0).TotalMilliseconds;
+                            maxPrivate = watch.Stop();
+                        }
+                        Assert.IsEmpty(host.Problems, $"{c.name}: " + string.Join(", ", host.Problems));
+                        Assert.AreEqual(textures.Count, host.BuildMs.Count, $"{c.name}: 作ったテクスチャの数");
+                        string builds = string.Join(",", host.BuildMs.Select((b, i) => "b" + i + "=" + b.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)));
+                        sb.Append(Sample(c.name, cachedRun ? "applyCached" : "apply", k, ms,
+                            sub: builds + ",cpuMs=" + cpuMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)
+                                 + "," + NativeBreakdown(peak: true) + ",maxPrivate=" + maxPrivate)).Append('\n');
+                    } finally {
+                        UnityEngine.Object.DestroyImmediate(root);
+                        foreach (var o in host.Created) {
+                            if (o != null) {
+                                UnityEngine.Object.DestroyImmediate(o);
+                            }
+                        }
+                    }
+                }
+                RecipeTextureBuilder.WaitForCacheWrites();
+                GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                sb.Append(Sample(c.name, "liveAfterSteps", cfg.steps, 0, sub: NativeBreakdown(peak: false))).Append('\n');
+            } finally { FinishScenario(c, cfg, sb, null); }
+        }
+
+        // 非破壊ビルドの橋渡し(NDMF の BuildHost と同じく RecipeTextureBuilder.Build で作る)。作ったものは後で捨てる。
+        private sealed class BenchApplyHost : NonDestructiveApplier.IHost {
+            public readonly List<UnityEngine.Object> Created = new List<UnityEngine.Object>();
+            public readonly List<double> BuildMs = new List<double>();
+            public readonly List<string> Problems = new List<string>();
+
+            public Texture2D BuildTexture(IrocaRecipe recipe, out RecipeTextureBuilder.Failure failure) {
+                var sw = Stopwatch.StartNew();
+                var tex = RecipeTextureBuilder.Build(recipe, out failure);
+                BuildMs.Add(sw.Elapsed.TotalMilliseconds);
+                return tex;
+            }
+
+            public void SaveAsset(UnityEngine.Object generated) => Created.Add(generated);
+            public void RegisterReplaced(UnityEngine.Object original, UnityEngine.Object replacement) { }
+            public void Report(NonDestructiveApplier.Problem problem, IrocaRecolor component, IrocaRecipe recipe,
+                RecipeTextureBuilder.Failure failure) => Problems.Add(problem + ":" + failure);
+            public void RewriteAnimatedMaterials(Func<Transform, bool> inScope, Func<Material, Material> mapping) { }
         }
 
         // recipeBuild の windowOpen: 同じテクスチャをいろかのウィンドウで編集している最中に、非破壊ビルドが走る場面。
@@ -416,17 +528,29 @@ namespace Iroca.EditorTests {
         // ───────────── 共通 ─────────────
 
         // png を一時アセットとして取り込む(ウィンドウの場面と同じ。Max Size は importMaxSize、0 なら 16384)。
-        private static Texture2D ImportBenchTexture(CaseDto c, out string assetPath) {
-            assetPath = $"{BenchDir}/{c.name}.png";
+        private static Texture2D ImportBenchTexture(CaseDto c, out string assetPath)
+            => ImportBenchTexture(c.png, c.name, c.importMaxSize, "", out assetPath);
+
+        // format が空なら非圧縮。書けば Standalone の取り込み形式をそれで上書きする(TextureImporterFormat の名前。BC7・DXT5 など)。
+        private static Texture2D ImportBenchTexture(string png, string name, int importMaxSize, string format, out string assetPath) {
+            assetPath = $"{BenchDir}/{name}.png";
             Directory.CreateDirectory(BenchDir);
-            File.Copy(c.png, assetPath, true);
+            File.Copy(png, assetPath, true);
             AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport);
             var imp = (TextureImporter)AssetImporter.GetAtPath(assetPath);
-            imp.maxTextureSize = c.importMaxSize > 0 ? c.importMaxSize : 16384;
-            imp.textureCompression = TextureImporterCompression.Uncompressed;
+            imp.maxTextureSize = importMaxSize > 0 ? importMaxSize : 16384;
+            if (string.IsNullOrEmpty(format)) {
+                imp.textureCompression = TextureImporterCompression.Uncompressed;
+            } else {
+                var ps = imp.GetPlatformTextureSettings("Standalone");
+                ps.overridden = true;
+                ps.maxTextureSize = imp.maxTextureSize;
+                ps.format = (TextureImporterFormat)Enum.Parse(typeof(TextureImporterFormat), format);
+                imp.SetPlatformTextureSettings(ps);
+            }
             imp.SaveAndReimport();
             var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
-            Assert.IsNotNull(tex, $"{c.name}: 取り込めません");
+            Assert.IsNotNull(tex, $"{name}: 取り込めません");
             return tex;
         }
 
