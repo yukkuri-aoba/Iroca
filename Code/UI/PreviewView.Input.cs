@@ -90,7 +90,8 @@ namespace Iroca {
                             // 見えている範囲と倍率が変わるので拡大表示を作り直させる。できるまでは前の切り出しを
                             // 新しい倍率で(元の画像の座標の位置に)描き続ける。
                             DetailView.OnViewMoved();
-                            _host.RequestRepaint();
+                            // 倍率の表示もプレビューの見出し行にあるので、プレビューを描いている窓だけを描き直す。
+                            _host.RequestPreviewRepaint();
                         }
 
                         // ストップが動かなくてもイベントは消費し、外側スクロールビューが
@@ -144,7 +145,8 @@ namespace Iroca {
                         // パンで見えている範囲が変わるので拡大表示を作り直させる。
                         DetailView.OnViewMoved();
                         e.Use();
-                        _host.RequestRepaint();
+                        // 動くのはプレビューの中だけ。切り出しているときに本体の窓全体を描き直さない。
+                        _host.RequestPreviewRepaint();
                     }
                     break;
 
@@ -217,7 +219,8 @@ namespace Iroca {
                     if (maskView.isPainting && GUIUtility.hotControl == controlId) {
                         PaintAtScreenPos(e.mousePosition, previewRect);
                         e.Use();
-                        _host.RequestRepaint();
+                        // 塗っている間に変わる表示はプレビューの中だけ(本体とマスク編集の窓は、離したときに描き直す)。
+                        _host.RequestPreviewRepaint();
                     }
                     break;
 
