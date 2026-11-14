@@ -433,6 +433,16 @@ namespace Iroca {
                 return;
             }
 
+            // 右クリックの「メッシュの形で」に使う UV の地図を先に作り始める(探索は次の更新で 1 回・地図は背景。
+            // MeshPartController.FoundForDrawing)。始めるのがマスク欄の「メッシュ」行と島の表示だけだと、欄を畳み島の表示も
+            // 切っていれば、最初の右クリックが探索と地図作りの全部をメインスレッドで待つ(2026-11-12 からは、開発者向けの
+            // 島の情報が描くたびに探索の結果を読んでいて、その副作用で始まっていた)。右クリックのメニューは
+            // メッシュの項目を毎回出す(ShowPreviewContextMenu)ので、条件はプレビューを描いていること。読むのは Layout のときだけ
+            // (探し終えた後は、作り始めたかを比べるだけ)。最初のプレビューが出てから始めて、その計算と取り合わない。
+            if (Event.current.type == EventType.Layout) {
+                _ = maskView.MeshParts?.FoundForDrawing;
+            }
+
             int srcW = TrueSourceW;
             int srcH = TrueSourceH;
             float scale = (srcW > IrocaConsts.Preview.MaxSize || srcH > IrocaConsts.Preview.MaxSize)

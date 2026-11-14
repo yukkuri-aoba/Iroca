@@ -72,6 +72,10 @@ namespace Iroca {
 
         // カーソルの下の島の情報(ほかの目印より上に出す)。
         private void DrawUvDetailHover(Rect previewRect) {
+            // 出さないときは探索の結果も読まない(描くたびに呼ばれる。地図の先読みは Draw の Layout が始める)。
+            if (!UvDetailOverlay.HoverActive) {
+                return;
+            }
             var found = _host._maskView?.MeshParts?.FoundForDrawing;
             _uvDetail?.DrawHoverInfo(previewRect, found, Event.current.mousePosition);
         }
