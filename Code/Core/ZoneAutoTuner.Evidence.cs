@@ -565,6 +565,17 @@ namespace Iroca {
                 chromatic, foreignCapped, vConnHiBin, ct, report, 0.88f, NoProgress,
                 evidence, evW, evH, ref result);
 
+            // ── 7. 許容範囲の切り詰め: 選択の境目が入力で見える縁に沿う所まで下げる(ZoneAutoTuner.Cut.cs) ──
+            // 閉ループ検証の後(= 最終の許容範囲と内部サンプル)で数える。上げる方向には使わない。
+            ct.ThrowIfCancellationRequested();
+            float cutTol = CutToleranceAtVisibleBoundary(aZone, result, hsv, pixels, width, height,
+                coreList, excluded, maskW, maskH, out float cutFillReach, out string cutDiag);
+            if (cutTol < result.tolerance) {
+                // 穴埋めの緩和マッチ(許容範囲 × (1 + 余白))が、切り落とした色のまとまりへ届かないようにする。
+                result.holeFillMargin = Mathf.Min(result.holeFillMargin, cutFillReach / cutTol - 1f);
+                result.tolerance = cutTol;
+            }
+
             result.normalizedSample = rep;
             result.hasNormalizedSample = repApplied;
             result.evidenceDiag =
@@ -575,7 +586,8 @@ namespace Iroca {
                 + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}"
                 + $" tolDerived={tolDerived:F4} partSat={result.partSatCeiling:F3} partHue={result.partHueBand:F3}"
                 + $" holeMargin={result.holeFillMargin:F2}" + $" tolRaise={tolRaise} tolRaiseMax={tolRaiseMax:F4}"
-                + GrayModeDiag(chromatic, repApplied ? rep : zone.sampleColor, result.chromaThreshold) + retryDiag;
+                + GrayModeDiag(chromatic, repApplied ? rep : zone.sampleColor, result.chromaThreshold) + retryDiag
+                + cutDiag;
             Progress(0.98f);
 
             CollectOverwrittenSettings(zone, ref result);

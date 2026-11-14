@@ -75,7 +75,7 @@ KINDS = {"定義", "量子化", "計算", "近似", "設計", "実測", "不明"
 # 選択の段（dev_safe の切除計測で 1 つずつ外して測った単位）。台帳の「段」の欄に使う記号。
 STAGES = {
     "BF", "SF", "MS", "DG", "CG", "QS", "CC", "EN", "HP", "HB", "EH", "FF", "CR", "SG", "PS", "PH", "DT",
-    "FH", "BE", "RN", "SA", "EV", "NM", "AS", "FC", "HE", "EG", "XS", "TB", "CV", "—",
+    "FH", "BE", "RN", "SA", "EV", "NM", "AS", "FC", "HE", "EG", "XS", "TB", "CV", "TC", "—",
 }
 
 _NUM_TYPES = r"(?:float|int|double|long|byte|uint|ulong|short)"
