@@ -2,7 +2,6 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace Iroca {
     /// <summary>
@@ -13,9 +12,6 @@ namespace Iroca {
     internal sealed unsafe class NativeFloatBuffer : IDisposable {
         private readonly NativeBuffer _mem;
         public int Length { get; }
-
-        // 大きい一括コピーは帯に分けて並列にする(4K の 64MB を 1 本で写すと数十 ms かかる)。
-        private const int CopyChunk = 1 << 18;
 
         public NativeFloatBuffer(int length) {
             if (length <= 0) {
@@ -102,6 +98,7 @@ namespace Iroca {
             }
         }
 
+        // 大きい一括コピーは帯に分けて並列にする(NativeBuffer.CopyParallel。4K の 64MB を 1 本で写すと数十 ms かかる)。
         private void Copy(float* other, int count, bool toNative) {
             float* mine = (float*)_mem.Ptr;
             if (mine == null) {
@@ -110,16 +107,12 @@ namespace Iroca {
             if (count < 0 || count > Length) {
                 throw new ArgumentOutOfRangeException(nameof(count));
             }
-            int chunks = (count + CopyChunk - 1) / CopyChunk;
-            Parallel.For(0, chunks, CoreParallelism.Options(), c => {
-                int s0 = c * CopyChunk;
-                long bytes = (long)Math.Min(CopyChunk, count - s0) * sizeof(float);
-                if (toNative) {
-                    Buffer.MemoryCopy(other + s0, mine + s0, bytes, bytes);
-                } else {
-                    Buffer.MemoryCopy(mine + s0, other + s0, bytes, bytes);
-                }
-            });
+            long bytes = (long)count * sizeof(float);
+            if (toNative) {
+                NativeBuffer.CopyParallel(other, mine, bytes);
+            } else {
+                NativeBuffer.CopyParallel(mine, other, bytes);
+            }
         }
 
     }

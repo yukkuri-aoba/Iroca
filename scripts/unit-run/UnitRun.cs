@@ -1728,5 +1728,78 @@ namespace Iroca.UnitRun {
                 }
             }
         }
+
+        // ─── 一括の写し(NativeBuffer.CopyParallel。NativePixels.CopyFrom・NativeFloatBuffer の出し入れ) ───
+        // 帯に分けても分けなくても、元と全バイト同じ。帯は 1M 画素(4MB)以上なので、その境目の前後・帯の数で割り切れない
+        // 大きさ・小さいものを、並列度を変えて写す(並列度 3 では大きいものの帯の数が並列度で頭打ちになる)。
+        private static readonly (int w, int h)[] s_copySizes = {
+            (1, 1), (7, 3), (1023, 1025), (1024, 1024), (1025, 1024), (1447, 1449), (2048, 1024), (1531, 1777), (2600, 2601),
+        };
+        private static readonly int[] s_copyDegrees = { 0, 1, 3, 7 };   // 0 は既定(CoreParallelism.Default)
+
+        // 画素の領域の中身(バイトの並び)。ポインタを読むのはここだけ(テストのメソッドには unsafe を付けない。
+        // test_unit_run.py は unsafe の付かない形のメソッドだけをテスト名としてソースから拾うため)。
+        private static unsafe Span<byte> BytesOf(NativePixels p) => new Span<byte>(p.Ptr, p.Length * 4);
+
+        public static void ParallelCopy_PixelsEqualSource() {
+            var rng = new Random(20261114);
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels);
+            int saved = CoreParallelism.Override;
+            try {
+                foreach (var (w, h) in s_copySizes) {
+                    var src = new UnityEngine.Color32[w * h];
+                    for (int i = 0; i < src.Length; i++) {
+                        int v = rng.Next();
+                        src[i] = new UnityEngine.Color32((byte)v, (byte)(v >> 8), (byte)(v >> 16), (byte)(v >> 24));
+                    }
+                    var a = NativePixels.CopyOf(src, w, h);
+                    var b = NativePixels.Allocate(w, h);
+                    try {
+                        foreach (int degree in s_copyDegrees) {
+                            CoreParallelism.Override = degree;
+                            BytesOf(b).Fill(0xA5);
+                            b.CopyFrom(a);
+                            Check.True(BytesOf(b).SequenceEqual(MemoryMarshal.AsBytes(src.AsSpan())),
+                                $"{w}x{h}(並列度 {degree}): 写した画素が元と違う");
+                        }
+                    } finally {
+                        b.Release();
+                        a.Release();
+                    }
+                }
+            } finally {
+                CoreParallelism.Override = saved;
+            }
+            Check.Equal(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels), "画素の領域が残っていない");
+        }
+
+        public static void ParallelCopy_FloatBufferRoundTrips() {
+            var rng = new Random(20261115);
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection);
+            int saved = CoreParallelism.Override;
+            try {
+                foreach (var (w, h) in s_copySizes) {
+                    int n = w * h;
+                    var src = new float[n];
+                    for (int i = 0; i < n; i++) {
+                        src[i] = BitConverter.Int32BitsToSingle(rng.Next());   // NaN の並びも、ビットのまま写ること
+                    }
+                    var back = new float[n];
+                    using (var buf = new NativeFloatBuffer(n)) {
+                        foreach (int degree in s_copyDegrees) {
+                            CoreParallelism.Override = degree;
+                            Array.Clear(back, 0, n);
+                            buf.CopyFrom(src, n);
+                            buf.CopyTo(back, n);
+                            Check.True(MemoryMarshal.AsBytes(back.AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(src.AsSpan())),
+                                $"{n} 個(並列度 {degree}): 出し入れした値が元と違う");
+                        }
+                    }
+                }
+            } finally {
+                CoreParallelism.Override = saved;
+            }
+            Check.Equal(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection), "強さの領域が残っていない");
+        }
     }
 }

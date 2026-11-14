@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Iroca {
     /// <summary>ヒープの外のメモリの用途(数え上げの区分。<see cref="IrocaNativeMemory"/>)。</summary>
@@ -124,5 +125,32 @@ namespace Iroca {
 
         /// <summary>持ち主が 1 つのときの後始末(<see cref="Release"/> と同じ)。</summary>
         public void Dispose() => Release();
+
+        // 一括の写しを並列にするときの帯の最小の大きさ(4MB。画素なら 1M 画素)。これより小さい写しは 1 本のまま
+        // (帯を配る手間の方が大きい)。4K の画素(64MB)を 1 本で写すと数十 ms かかる。
+        private const long CopyMinBandBytes = 4L << 20;
+
+        /// <summary>
+        /// ヒープの外の大きい塊どうし(または管理配列との間)の一括の写し。bytes バイトを src から dst へ写す(重ならないこと)。
+        /// 大きいときは帯に分けて並列に写す(帯の数は <see cref="CoreParallelism.Max"/> まで、1 本は
+        /// <see cref="CopyMinBandBytes"/> 以上)。写すだけなので、どう分けても中身は同じ。
+        /// 画素(<see cref="NativePixels.CopyFrom"/>)と選択キャッシュの強さ(<see cref="NativeFloatBuffer"/>)が使う。
+        /// メインスレッドから呼んでよい(呼んだスレッドも帯を受け持ち、終わるまで戻らない)。
+        /// </summary>
+        internal static unsafe void CopyParallel(void* src, void* dst, long bytes) {
+            if (bytes <= 0) {
+                return;
+            }
+            int bands = (int)Math.Min(CoreParallelism.Max(), Math.Max(1L, bytes / CopyMinBandBytes));
+            if (bands <= 1) {
+                Buffer.MemoryCopy(src, dst, bytes, bytes);
+                return;
+            }
+            byte* s = (byte*)src, d = (byte*)dst;
+            Parallel.For(0, bands, CoreParallelism.Options(degree: bands), b => {
+                long b0 = bytes * b / bands, b1 = bytes * (b + 1) / bands;
+                Buffer.MemoryCopy(s + b0, d + b0, b1 - b0, b1 - b0);
+            });
+        }
     }
 }

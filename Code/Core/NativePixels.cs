@@ -69,7 +69,10 @@ namespace Iroca {
         /// <summary>参照を 1 つ返す。最後の参照ならすぐ解放する(どのスレッドからでもよい)。返しすぎは投げる。</summary>
         public void Release() => _mem.Release();
 
-        /// <summary>寸法が同じ別の領域の中身をそのまま写す。</summary>
+        /// <summary>
+        /// 寸法が同じ別の領域の中身をそのまま写す。大きいときは帯に分けて並列に写す(<see cref="NativeBuffer.CopyParallel"/>。
+        /// 確定段のたびに 4K で 64MB・8K で 256MB を写すので、1 本だと数十 ms がそのまま待ちに乗っていた)。
+        /// </summary>
         public void CopyFrom(NativePixels src) {
             if (src == null) {
                 throw new ArgumentNullException(nameof(src));
@@ -77,7 +80,7 @@ namespace Iroca {
             if (src.Width != Width || src.Height != Height) {
                 throw new ArgumentException($"size mismatch: {src.Width}x{src.Height} -> {Width}x{Height}", nameof(src));
             }
-            Buffer.MemoryCopy(src.Ptr, Ptr, _bytes, _bytes);
+            NativeBuffer.CopyParallel(src.Ptr, Ptr, _bytes);
         }
 
         /// <summary>中身を管理配列へ写す(小さい表示用や、デバッグの書き出し用)。</summary>
