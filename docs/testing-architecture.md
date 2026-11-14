@@ -503,6 +503,13 @@ DLL の印と同じ `IROCA_CACHE_GC_DLL_DAYS`（既定 1 日）使われなけ�
 テストを相手で回すと、手元では pytest が始まらず、この掃除も走らない。そこで `tools/remote_test.py` は、相手へ送る前に
 手元の dev_safe でも pytest の開始時と同じ `maybe_sweep` を呼ぶ（使われなくなった DLL の分は毎回・印の期限は手元の 2TB では
 1 日、日数での掃除は 6 時間に 1 回。ふだん 0.1 秒かからない）。
+**キャッシュの効率**（同日）: 一度でも当たった実行キャッシュは 1 割強（開発機 362/2842 件・テスト用 PC 209/1458 件）で、
+C# を変えるたびに全件を作り直す。そこで実行キャッシュは **zstd（レベル 3）で縮めて置く**（`fixtures._RAWZ_MAGIC` で始まる。
+4096² の 64MB が約 8 分の 1、縮める・戻すとも 1 件 約 0.02 秒。縮める前の古いエントリもそのまま読める。戻した配列はビット一致）。
+また、使い回されない中間ファイルを使い終えたら消す: `sam_proposal.proposal_for_click_full` は呼び手が渡した作業ディレクトリ
+（logits・post・クロップ。提案は結果キャッシュ、クロップの埋め込みは `cropemb/` に残る）を、`measure_evidence_autotune.run_case`
+は自分で書いた証拠・含めるマスクの raw を、ハーネスへ渡し終えたら消す（開発機で `_sam_freeze_work` 133GB・`_spike/evidence` 64GB
+が、作った後にほぼ一度も読まれずに残っていた）。
 `tools/visual_review.py compare --engine csharp` の固定設定のケースも同じ `run_harness_many`
 （キャッシュ + `--batch`）を通るが、**選択を使い回さずに**（`share_selection=False`、鍵に `noshare`）測る（2026-11-10、点検 D-3）。
 書き出しは選択キャッシュを使わないので、出荷ゲートはその経路を測る。回帰が使い回して測った同じケースの出力がキャッシュにあれば
