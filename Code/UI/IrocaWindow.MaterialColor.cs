@@ -309,9 +309,11 @@ namespace Iroca {
                         continue;
                     }
                     // このマテリアルが映す所を一番多く塗っているゾーンの色(ビルド・シーンのプレビューと同じ選び方)。
-                    // 色替えしていないパーツなら選ばれない(合わせても変わらないので、切り替えにも案内にも出さない)。
+                    // 色替えしていないパーツなら選ばれない。選ばれても、影がそのパーツの元の色に合わせたものでなければ
+                    // (画風の紫・灰の影、白・黒・灰のパーツ)合わせても変わらない。どちらも切り替えにも案内にも出さない。
                     var area = ShadowArea.Of(m, SceneRenderersUsing(m));
-                    if (!MaterialShadowColors.TryChooseColors(shares, area, colors, out var sample, out var target)) {
+                    if (!MaterialShadowColors.TryChooseColors(shares, area, colors, out var sample, out var target)
+                        || !MaterialShadowColors.NeedsMatch(m, sample, target)) {
                         continue;
                     }
                     (_shadowEligible ??= new List<Material>()).Add(m);
@@ -323,9 +325,7 @@ namespace Iroca {
                         _shadowMatchedCount++;
                         continue;
                     }
-                    if (MaterialShadowColors.NeedsMatch(m, sample, target)) {
-                        (_shadowMismatch ??= new List<Material>()).Add(m);
-                    }
+                    (_shadowMismatch ??= new List<Material>()).Add(m);
                 }
             }
         }

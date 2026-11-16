@@ -325,17 +325,42 @@ namespace Iroca.EditorTests {
             var root = Node("avatar", null);
             var leftMesh = Quad("left", root.transform, left, 0f, 0.5f);
             var rightMesh = Quad("right", root.transform, right, 0.5f, 1f);
-            var red = new Color(1f, 0.3f, 0.3f);
+            // 右のパーツの影は、ピンクの布に合わせたピンクの影。
+            var pinkShadow = new Color(0.85f, 0.68f, 0.72f, 1f);
+            right.SetColor("_ShadowColor", pinkShadow);
+            // ピンクから青へ(色相が大きく変わるので、合わせた影の変化が見て分かる)。
+            var blue = new Color(0.4f, 0.55f, 1f);
             var c = root.AddComponent<IrocaRecolor>();
-            c.recipes.Add(RecipeWith(src, Zone(Sample, Target), Zone(Pink, red)));
+            c.recipes.Add(RecipeWith(src, Zone(Sample, Target), Zone(Pink, blue)));
             c.shadowMatchMaterials.Add(left);
             c.shadowMatchMaterials.Add(right);
 
             NonDestructiveApplier.Apply(root, new Host());
 
             AssertColor(Expected, leftMesh.GetComponent<Renderer>().sharedMaterial.GetColor("_ShadowColor"), "左のパーツ");
-            AssertColor(ShadowColorMatch.Compute(BlueShadow, Pink, red),
-                rightMesh.GetComponent<Renderer>().sharedMaterial.GetColor("_ShadowColor"), "右のパーツが最初のゾーンの色になった");
+            var rightExpected = ShadowColorMatch.Compute(pinkShadow, Pink, blue);
+            Assert.IsTrue(ShadowColorMatch.Differs(pinkShadow, rightExpected), "右の影が変わらない組で確かめている");
+            AssertColor(rightExpected, rightMesh.GetComponent<Renderer>().sharedMaterial.GetColor("_ShadowColor"),
+                "右のパーツが自分のゾーンの色になっていない");
+        }
+
+        // 影が塗ったパーツの元の色に合わせたものでなければ(画風の紫の影・白い布の影)、オンにしても変えない。
+        [Test]
+        public void Applier_StylisticShadow_IsKept() {
+            var src = Tex("src");
+            var mat = LilToon(src);
+            var purple = new Color(0.75f, 0.68f, 0.75f, 1f);
+            mat.SetColor("_ShadowColor", purple);
+            var root = Node("avatar", null);
+            var mesh = Node("mesh", root.transform, mat);
+            var c = root.AddComponent<IrocaRecolor>();
+            c.recipes.Add(Recipe(src));
+            c.shadowMatchMaterials.Add(mat);
+
+            NonDestructiveApplier.Apply(root, new Host());
+
+            AssertColor(purple, mesh.GetComponent<Renderer>().sharedMaterial.GetColor("_ShadowColor"), "画風の紫の影を変えた");
+            Assert.IsFalse(MaterialShadowColors.NeedsMatch(mat, Sample, Target), "画風の影で案内を出す");
         }
 
         [Test]

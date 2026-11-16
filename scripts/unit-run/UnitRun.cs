@@ -1813,19 +1813,63 @@ namespace Iroca.UnitRun {
             return L;
         }
 
-        // 青い影 × 緑の塗り先: 色味の向きは塗り先へ回り、明るさと不透明度は変わらない。
+        // サンプル色と同じ色味の向きの影(OkLab の明るさ 0.7・色味 0.05)。不透明度は BlueShadow と同じ。
+        private static Color ShadowAt(float degreesFromSample) {
+            float hue = OkHue(PaleBlue) + degreesFromSample * Mathf.Deg2Rad;
+            OkLab.OklabToRgbInGamut(0.7f, 0.05f * Mathf.Cos(hue), 0.05f * Mathf.Sin(hue), out float r, out float g, out float b);
+            return new Color(r, g, b, BlueShadow.a);
+        }
+
+        private static float HueGapDegrees(Color x, Color y)
+            => Mathf.Abs(Mathf.DeltaAngle(OkHue(x) * Mathf.Rad2Deg, OkHue(y) * Mathf.Rad2Deg));
+
+        // 青い布に合わせた青い影 × 緑の塗り先: 色味の向きは塗り先へ回り、明るさと不透明度は変わらない。
         public static void ShadowMatch_TurnsHueToTargetAndKeepsLightness() {
-            var matched = ShadowColorMatch.Compute(BlueShadow, PaleBlue, PaleGreen);
-            Check.True(Mathf.Abs(OkHue(matched) - OkHue(PaleGreen)) < 0.05f, "hue follows target");
-            Check.True(Mathf.Abs(OkLight(matched) - OkLight(BlueShadow)) < 0.005f, "lightness kept");
-            Check.True(matched.a == BlueShadow.a, "alpha kept");
-            Check.True(ShadowColorMatch.Differs(BlueShadow, matched), "visible change");
+            var aligned = ShadowAt(0f);
+            var matched = ShadowColorMatch.Compute(aligned, PaleBlue, PaleGreen);
+            Check.True(HueGapDegrees(matched, PaleGreen) < 3f, "hue follows target");
+            Check.True(Mathf.Abs(OkLight(matched) - OkLight(aligned)) < 0.005f, "lightness kept");
+            Check.True(matched.a == aligned.a, "alpha kept");
+            Check.True(ShadowColorMatch.Differs(aligned, matched), "visible change");
+            // 影とパーツの色の小さなずれ(作った人が付けたもの)は、回した後も同じ向きに残る(少し離れた影は回す量も少し減る)。
+            var slightly = ShadowAt(10f);
+            var turned = ShadowColorMatch.Compute(slightly, PaleBlue, PaleGreen);
+            float signed = Mathf.DeltaAngle(OkHue(PaleGreen) * Mathf.Rad2Deg, OkHue(turned) * Mathf.Rad2Deg);
+            Check.True(signed > 9f && signed < 25f, $"offset kept ({signed} deg)");
         }
 
         // 無彩色の塗り先なら影も無彩色になる。
         public static void ShadowMatch_GrayTargetGivesNeutralShadow() {
-            var matched = ShadowColorMatch.Compute(BlueShadow, PaleBlue, new Color(0.5f, 0.5f, 0.5f));
+            var matched = ShadowColorMatch.Compute(ShadowAt(0f), PaleBlue, new Color(0.5f, 0.5f, 0.5f));
             Check.True(Mathf.Abs(matched.r - matched.g) < 0.01f && Mathf.Abs(matched.g - matched.b) < 0.01f, "neutral");
+        }
+
+        // パーツの色と関係の無い画風の影(青い布に紫の影など。色味の向きが 45 度以上離れる)は変えない。
+        public static void ShadowMatch_StylisticShadowIsKept() {
+            foreach (float degrees in new[] { 45f, 70f, 180f, -60f }) {
+                var style = ShadowAt(degrees);
+                var matched = ShadowColorMatch.Compute(style, PaleBlue, PaleGreen);
+                Check.True(matched == style, $"kept at {degrees} deg");
+                Check.Equal(0f, ShadowColorMatch.Affinity(style, PaleBlue), $"affinity at {degrees} deg");
+            }
+        }
+
+        // 白・黒・灰のパーツ(元の色に向きが無い)の影は、どのパーツのものか分からないので変えない。
+        public static void ShadowMatch_AchromaticPartKeepsShadow() {
+            var aligned = ShadowAt(0f);
+            foreach (var part in new[] { Color.white, new Color(0.5f, 0.5f, 0.5f), new Color(0.05f, 0.05f, 0.05f) }) {
+                Check.True(ShadowColorMatch.Compute(aligned, part, PaleGreen) == aligned, $"kept on {part}");
+            }
+        }
+
+        // 向きが少し離れた影は、離れているほど回す量が減る(なめらかに)。
+        public static void ShadowMatch_PartialAffinityTurnsPartway() {
+            float full = HueGapDegrees(ShadowAt(0f), ShadowColorMatch.Compute(ShadowAt(0f), PaleBlue, PaleGreen));
+            float part = HueGapDegrees(ShadowAt(30f), ShadowColorMatch.Compute(ShadowAt(30f), PaleBlue, PaleGreen));
+            Check.True(part > 5f && part < full - 5f, $"turned {part} of {full}");
+            Check.True(ShadowColorMatch.Affinity(ShadowAt(0f), PaleBlue) > 0.99f, "aligned");
+            float a15 = ShadowColorMatch.Affinity(ShadowAt(15f), PaleBlue), a30 = ShadowColorMatch.Affinity(ShadowAt(30f), PaleBlue);
+            Check.True(a15 > a30 && a30 > 0f, "decreasing");
         }
 
         // 色味の無い影は、どの塗り先でも見て分かる色にならない(案内を出さない)。

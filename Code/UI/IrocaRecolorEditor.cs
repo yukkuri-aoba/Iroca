@@ -192,8 +192,11 @@ namespace Iroca {
                 }
                 EditorGUILayout.EndHorizontal();
                 // オンでも、このマテリアルが映す所をどのゾーンもほとんど塗っていなければ(色替えしていないパーツ)、影の色は変えない。
+                // 塗っていても、影がそのパーツの元の色に合わせたものでなければ(画風の影・白黒灰のパーツ)変えない。
                 if (on && shares != null && !chosen) {
                     EditorGUILayout.LabelField(Localization.ShadowMatchNotRecoloredHere, EditorStyles.wordWrappedMiniLabel);
+                } else if (chosen && !MaterialShadowColors.NeedsMatch(m, sample, target)) {
+                    EditorGUILayout.LabelField(Localization.ShadowMatchNotForThisPart, EditorStyles.wordWrappedMiniLabel);
                 }
                 // 影色テクスチャが別に描かれていると、影の色を合わせても影の部分はそのテクスチャの色のまま。
                 foreach (var shadowTexture in MaterialShadowColors.SeparateShadowTextures(m, source)) {

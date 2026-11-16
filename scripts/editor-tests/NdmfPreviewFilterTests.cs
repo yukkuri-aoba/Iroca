@@ -160,7 +160,8 @@ namespace Iroca.EditorTests {
             var mat = Track(new Material(shader));
             mat.SetTexture(MaterialColorSettings.MainTextureProperty(mat), src);
             mat.SetFloat("_UseShadow", 1f);
-            var blue = new Color(0.606f, 0.693f, 0.784f, 1f);
+            // 赤い布に合わせた赤みの影(布と色味の向きがそろっているので、塗り先へ回す)。変数名は以前のまま。
+            var blue = new Color(0.85f, 0.62f, 0.6f, 1f);
             mat.SetColor("_ShadowColor", blue);
             var avatar = AvatarRoot();
             var mesh = Mesh("mesh", mat, avatar);
@@ -178,6 +179,7 @@ namespace Iroca.EditorTests {
             var zones = RecipeStore.LoadZones(recipe);
             var sample = zones[0].sampleColor;
             var target = zones[0].targetColor;
+            Assert.IsTrue(ShadowColorMatch.Differs(blue, ShadowColorMatch.Compute(blue, sample, target)), "影が変わらない組で確かめている");
             var proxy = ProxyOf(mesh);
             var node = TestAssets.Wait(filter.Instantiate(matching, new List<(Renderer, Renderer)> { (mesh, proxy) },
                 new ComputeContext("node")));
