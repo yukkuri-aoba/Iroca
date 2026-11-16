@@ -55,6 +55,9 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
 素朴な基準線（クリック画素の色から CIELAB ΔE76 ≤ 16 の球、design IoU で採点）に 0.05 以上負けた数を並べて
 採否の目安を出す。`sweep` は定数の掃引から台地とアバター単位の交差検証（LOAO）を出す。採否の決まりは
 `.claude/instructions/improvement-cycle.md` の「過学習を防ぐ採否の物差し」。
+2026-11-16 から、`compare` と `holdout_eval.py` は差の確からしさも出す（`dev_safe/scripts/cluster_stats.py`）。
+アバター平均の Δ に、アバターを復元抽出するブートストラップの 95% 区間と、符号反転の並べ替え検定の p を付ける。
+同じアバターの被写体・クリックは独立でないので、ケースを独立とみなすと区間が狭く出すぎるため、アバターを単位にする。
 
 GTは採点とテスト用クリック位置の選定に使う。`oneshot` / `assisted_include` の処理入力に
 GTマスクを渡さない。証拠・含める・除外・採点GTは役割を別に記録する。
