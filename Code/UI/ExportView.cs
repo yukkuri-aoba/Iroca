@@ -191,6 +191,9 @@ namespace Iroca {
                     EditorGUILayout.HelpBox(Localization.BoundRecipeUnreadable, MessageType.Warning);
                 }
             }
+            // lilToon の影の色を変更先カラーに合わせるか(合わせられるマテリアルがあるときだけ出る)。設定は登録先の
+            // 「Iroca Recolor」が持つので、登録のボタンの下に置く。
+            _host.DrawShadowMatchToggle();
             // 以前書き出した画像をマテリアルに差していると非破壊が効かないので、登録で戻せることを知らせる。
             int exportUsers = ExportUsersCount();
             if (exportUsers > 0) {
@@ -273,6 +276,9 @@ namespace Iroca {
                 if (BoundRecipeUnreadable(_host.BoundRecipe)) {
                     h += HelpBoxHeight(Localization.BoundRecipeUnreadable);
                 }
+            }
+            if (_host != null && _host.HasShadowMatchToggle()) {
+                h += lineH;           // 影の色を変更先カラーに合わせる
             }
             int exportUsers = ExportUsersCount();
             if (exportUsers > 0) {      // 書き出した画像を使うマテリアルの案内

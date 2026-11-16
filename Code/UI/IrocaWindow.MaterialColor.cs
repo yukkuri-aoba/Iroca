@@ -220,66 +220,150 @@ namespace Iroca {
 
         // ───────────── 影の色を塗り先に合わせる ─────────────
 
-        // 影の色が塗り先とずれていて、まだ合わせる設定になっていないマテリアル(案内に出す)。読み直しの間隔は上と同じ。
+        // 影の色を合わせられるマテリアル(lilToon で影を使い、元テクスチャをメインに使う)。「アバターに反映」欄の
+        // 「影の色を変更先カラーに合わせる」に出す。無ければ null。読み直しの間隔は上と同じ。
+        [System.NonSerialized] private List<Material> _shadowEligible;
+        // そのうち、影の色を合わせる設定になっている数(シーンの「Iroca Recolor」のどれかに入っている)。
+        [System.NonSerialized] private int _shadowMatchedCount;
+        // 影の色が塗り先とずれていて、まだ合わせる設定になっていないマテリアル(案内に出す)。
         [System.NonSerialized] private List<Material> _shadowMismatch;
         // 影色テクスチャが元テクスチャと別に描かれているマテリアルとそのテクスチャ(影はその色のまま残るので案内に出す)。
         [System.NonSerialized] private List<(Material material, Texture texture)> _shadowTextures;
         [System.NonSerialized] private double _shadowMismatchReadAt;
+        // 上を何の読み取り結果から作ったか(テクスチャを替えたら、間隔を待たずに作り直す)。
+        [System.NonSerialized] private List<List<MaterialColorSettings.Report>> _shadowStateGroups;
 
         // Layout のときだけ読み直す(同じフレームの Repaint と並ぶ要素をそろえる)。シーンの部品を探すので毎フレームは読まない。
-        private void RefreshShadowMismatch() {
-            if (Event.current.type != EventType.Layout) {
+        // 案内(テクスチャ欄の下)と切り替え(「アバターに反映」欄)の両方から呼ぶ。同じフレームの 2 回目は何もしない。
+        private void RefreshShadowState() {
+            if (Event.current == null || Event.current.type != EventType.Layout) {
                 return;
             }
+            // 切り替えの高さは案内より先に(書き出し欄の高さの見積もりで)求めるので、読み取り結果もここで新しくする。
+            RefreshMaterialColors();
+            var groups = _materialColorGroups;
             double now = EditorApplication.timeSinceStartup;
             // シーンの全「Iroca Recolor」を探すので、マウスを押している間(スライダーのドラッグ中)は読み直さない。
-            if (now - _shadowMismatchReadAt < MaterialColorRereadSeconds || GUIUtility.hotControl != 0) {
+            // 読み取り結果が替わったとき(テクスチャを替えた・マテリアルを読み直した)は待たない。
+            if (ReferenceEquals(groups, _shadowStateGroups)
+                && (now - _shadowMismatchReadAt < MaterialColorRereadSeconds || GUIUtility.hotControl != 0)) {
                 return;
             }
+            _shadowStateGroups = groups;
             _shadowMismatchReadAt = now;
+            _shadowEligible = null;
+            _shadowMatchedCount = 0;
             _shadowMismatch = null;
             _shadowTextures = null;
-            var groups = _materialColorGroups;
             var source = SourceTexture;
             if (source == null || groups == null) {
                 return;
             }
-            if (!MaterialShadowColors.TryGetColors(Session?.zones, out var sample, out var target)) {
-                return;
-            }
-            // シーンの「Iroca Recolor」は、影の色がずれているマテリアルが見つかってから探す(ほとんどのマテリアルは、ずれていない)。
+            // 塗り先の色が決まっていなければ、ずれは測れない(案内は出さない)。切り替えは色と関係なく出す。
+            bool hasColors = MaterialShadowColors.TryGetColors(Session?.zones, out var sample, out var target);
+            // シーンの「Iroca Recolor」は、影の色を合わせられるマテリアルが見つかってから探す。
             IrocaRecolor[] components = null;
             foreach (var g in groups) {
                 foreach (var r in g) {
                     var m = r.material;
-                    if (r.slot != MaterialColorSettings.Slot.Main || !MaterialShadowColors.MainTextureIs(m, source)) {
+                    if (r.slot != MaterialColorSettings.Slot.Main || !MaterialShadowColors.MainTextureIs(m, source)
+                        || !MaterialShadowColors.IsEligible(m)) {
                         continue;
                     }
-                    foreach (var t in MaterialShadowColors.SeparateShadowTextures(m, source)) {
-                        (_shadowTextures ??= new List<(Material, Texture)>()).Add((m, t));
-                    }
-                    if (!MaterialShadowColors.NeedsMatch(m, sample, target)) {
-                        continue;
+                    (_shadowEligible ??= new List<Material>()).Add(m);
+                    if (hasColors) {
+                        foreach (var t in MaterialShadowColors.SeparateShadowTextures(m, source)) {
+                            (_shadowTextures ??= new List<(Material, Texture)>()).Add((m, t));
+                        }
                     }
                     components ??= Object.FindObjectsByType<IrocaRecolor>(FindObjectsInactive.Include, FindObjectsSortMode.None);
                     if (RecipeRegistration.HasShadowMatch(components, m, source)) {
+                        _shadowMatchedCount++;
                         continue;
                     }
-                    (_shadowMismatch ??= new List<Material>()).Add(m);
+                    if (hasColors && MaterialShadowColors.NeedsMatch(m, sample, target)) {
+                        (_shadowMismatch ??= new List<Material>()).Add(m);
+                    }
                 }
             }
         }
 
         /// <summary>
+        /// 「アバターに反映」欄に「影の色を変更先カラーに合わせる」を出すか(影の色を合わせられるマテリアルがある)。
+        /// 書き出し欄の高さの見積もり(<see cref="ExportView.GetSectionHeight"/>)と描画の両方が使う。
+        /// </summary>
+        internal bool HasShadowMatchToggle() {
+            if (SourceTexture == null) {
+                return false;
+            }
+            RefreshShadowState();
+            return _shadowEligible != null && _shadowEligible.Count > 0;
+        }
+
+        // 切り替えのツールチップ(対象のマテリアルの名前を入れる)と、何から作ったか。
+        [System.NonSerialized] private string _shadowToggleTooltip;
+        [System.NonSerialized] private List<Material> _shadowToggleTooltipFor;
+        [System.NonSerialized] private LanguageMode _shadowToggleTooltipLang;
+
+        /// <summary>
+        /// 「アバターに反映」欄の「影の色を変更先カラーに合わせる」。このテクスチャをメインに使う lilToon のマテリアルを
+        /// まとめて切り替える(一部だけ合わせているときは混在の表示)。マテリアルごとの切り替えは「Iroca Recolor」のインスペクタ。
+        /// 設定は「Iroca Recolor」が持つ。テクスチャ欄の下の案内の「影の色も合わせる」と同じ設定で、案内を閉じた後や、
+        /// 合わせた後に外したいときもここで切り替えられる。
+        /// </summary>
+        internal void DrawShadowMatchToggle() {
+            if (!HasShadowMatchToggle()) {
+                return;
+            }
+            var eligible = _shadowEligible;
+            var lang = Localization.CurrentLanguage;
+            if (!ReferenceEquals(_shadowToggleTooltipFor, eligible) || _shadowToggleTooltipLang != lang) {
+                var names = new List<string>(eligible.Count);
+                foreach (var m in eligible) {
+                    names.Add(m != null ? m.name : "");
+                }
+                _shadowToggleTooltip = string.Format(Localization.ShadowMatchWindowTooltipFormat,
+                    string.Join(Localization.MaterialColorListSeparator, names));
+                _shadowToggleTooltipFor = eligible;
+                _shadowToggleTooltipLang = lang;
+            }
+            bool all = _shadowMatchedCount >= eligible.Count;
+            bool mixed = _shadowMatchedCount > 0 && !all;
+            bool changed = GUI.changed;
+            EditorGUI.showMixedValue = mixed;
+            bool next = EditorGUILayout.ToggleLeft(TempContent.Of(Localization.ShadowMatchHeader, _shadowToggleTooltip), all);
+            EditorGUI.showMixedValue = false;
+            // 表示の作り直し(ゾーンの変更の検出)は起こさない。設定はコンポーネントにあり、色替えの計算とは関係ない。
+            GUI.changed = changed;
+            if (next == all) {
+                return;
+            }
+            var chosen = new List<Material>(eligible);
+            // オンは確認画面(登録)を出すことがあるので、描画の途中で開かない。オフも同じ順で行う。
+            EditorApplication.delayCall += () => {
+                if (this == null) {
+                    return;
+                }
+                if (next) {
+                    MatchShadowColors(chosen);
+                } else {
+                    UnmatchShadowColors(chosen);
+                }
+            };
+        }
+
+        /// <summary>
         /// 影の色の案内。マテリアルの影の色は色替えしてもそのままで、元の布に合わせた色だと白に近い所に色が残って見える。
         /// ボタンで Iroca Recolor に設定を足す(マテリアルそのものは変えない)。閉じると、そのテクスチャでは Unity を閉じるまで出さない。
+        /// 足した後の切り替えは「アバターに反映」欄(<see cref="DrawShadowMatchToggle"/>)。
         /// </summary>
         private void DrawShadowColorNotice() {
-            // 閉じてある案内のためには読み直さない(読み直しはシーンの「Iroca Recolor」の全探索を含み、0.5 秒ごとに走る)。
+            // 閉じてある案内のためには読み直さない(読み直しはシーンの「Iroca Recolor」の全探索を含み、0.5 秒ごとに走る。
+            // 「アバターに反映」欄の切り替えが出ているときは、そちらが読み直す)。
             if (SourceTexture == null || TextureNoticeDismissed(IrocaPrefs.ShadowColorDismissedPrefix)) {
                 return;
             }
-            RefreshShadowMismatch();
+            RefreshShadowState();
             var materials = _shadowMismatch;
             var textures = _shadowTextures;
             bool mismatch = materials != null && materials.Count > 0;
@@ -335,6 +419,25 @@ namespace Iroca {
             foreach (var c in components) {
                 RecipeRegistration.AddShadowMatch(c, materials);
             }
+            Undo.CollapseUndoOperations(group);
+            _shadowMismatchReadAt = 0;
+            RequestRepaint();
+        }
+
+        /// <summary>
+        /// このテクスチャのレシピを持つ、開いているシーンの Iroca Recolor から、影の色を合わせる設定を外す(Undo 可)。
+        /// 合わせているかの判定(<see cref="RecipeRegistration.HasShadowMatch"/>)と同じ顔ぶれから外す。
+        /// </summary>
+        internal void UnmatchShadowColors(List<Material> materials) {
+            var source = SourceTexture;
+            if (source == null) {
+                return;
+            }
+            var components = Object.FindObjectsByType<IrocaRecolor>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            Undo.IncrementCurrentGroup();
+            int group = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName(Localization.ShadowMatchHeader);
+            RecipeRegistration.RemoveShadowMatch(components, materials, source);
             Undo.CollapseUndoOperations(group);
             _shadowMismatchReadAt = 0;
             RequestRepaint();

@@ -374,13 +374,52 @@ namespace Iroca {
         /// </summary>
         internal static bool HasShadowMatch(IrocaRecolor[] components, Material material, Texture2D source) {
             foreach (var c in components) {
-                if (c.shadowMatchMaterials == null || !c.shadowMatchMaterials.Contains(material) || c.recipes == null) {
+                if (c == null || c.shadowMatchMaterials == null || !c.shadowMatchMaterials.Contains(material)) {
                     continue;
                 }
-                foreach (var recipe in c.recipes) {
-                    if (recipe != null && recipe.sourceTexture == source) {
-                        return true;
+                if (HasRecipeFor(c, source)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// <paramref name="components"/> のうち <paramref name="source"/> のレシピを持つものから、<paramref name="materials"/> の
+        /// 影の色を合わせる設定を外す(Undo 可。呼び出し側の Undo グループに入る)。外した後は <see cref="HasShadowMatch"/> が
+        /// false になる。外した数を返す。
+        /// </summary>
+        internal static int RemoveShadowMatch(IrocaRecolor[] components, IEnumerable<Material> materials, Texture2D source) {
+            int removed = 0;
+            foreach (var c in components) {
+                if (c == null || c.shadowMatchMaterials == null || !HasRecipeFor(c, source)) {
+                    continue;
+                }
+                bool recorded = false;
+                foreach (var m in materials) {
+                    if (!c.shadowMatchMaterials.Contains(m)) {
+                        continue;
                     }
+                    if (!recorded) {
+                        Undo.RecordObject(c, "Iroca: Match Shadow Color");
+                        recorded = true;
+                    }
+                    removed += c.shadowMatchMaterials.RemoveAll(x => x == m);
+                }
+                if (recorded) {
+                    EditorUtility.SetDirty(c);
+                }
+            }
+            return removed;
+        }
+
+        private static bool HasRecipeFor(IrocaRecolor component, Texture2D source) {
+            if (component.recipes == null) {
+                return false;
+            }
+            foreach (var recipe in component.recipes) {
+                if (recipe != null && recipe.sourceTexture == source) {
+                    return true;
                 }
             }
             return false;

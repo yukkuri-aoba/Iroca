@@ -282,6 +282,34 @@ namespace Iroca.EditorTests {
             CollectionAssert.AreEqual(new[] { inScope }, c.shadowMatchMaterials);
         }
 
+        // いろかウィンドウの「影の色を変更先カラーに合わせる」を外すと、そのテクスチャのレシピを持つコンポーネントから外れ、
+        // 合わせているかの判定(HasShadowMatch)も false になる。ほかのテクスチャのレシピだけを持つコンポーネントには触らない。
+        [Test]
+        public void RemoveShadowMatch_ClearsOnlyComponentsWithTheSourceRecipe() {
+            var src = Tex("src");
+            var other = Tex("other");
+            var mat = LilToon(src);
+            var keep = LilToon(src);
+            var root = Node("avatar", null);
+            Node("mesh", root.transform, mat);
+            var c = root.AddComponent<IrocaRecolor>();
+            c.recipes.Add(Recipe(src));
+            c.shadowMatchMaterials.Add(mat);
+            c.shadowMatchMaterials.Add(keep);
+            var unrelatedRoot = Node("unrelated", null);
+            var unrelated = unrelatedRoot.AddComponent<IrocaRecolor>();
+            unrelated.recipes.Add(Recipe(other));
+            unrelated.shadowMatchMaterials.Add(mat);
+            var components = new[] { c, unrelated };
+            Assert.IsTrue(RecipeRegistration.HasShadowMatch(components, mat, src));
+
+            Assert.AreEqual(1, RecipeRegistration.RemoveShadowMatch(components, new[] { mat }, src));
+            Assert.IsFalse(RecipeRegistration.HasShadowMatch(components, mat, src), "外した後も合わせている判定のまま");
+            CollectionAssert.AreEqual(new[] { keep }, c.shadowMatchMaterials, "指定していないマテリアルまで外した");
+            CollectionAssert.AreEqual(new[] { mat }, unrelated.shadowMatchMaterials, "ほかのテクスチャのレシピのコンポーネントから外した");
+            Assert.AreEqual(0, RecipeRegistration.RemoveShadowMatch(components, new[] { mat }, src));
+        }
+
         private sealed class Host : NonDestructiveApplier.IHost {
             public Texture2D BuildTexture(IrocaRecipe recipe, out RecipeTextureBuilder.Failure failure) {
                 failure = RecipeTextureBuilder.Failure.None;

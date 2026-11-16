@@ -1649,8 +1649,8 @@ namespace Iroca {
             : "The shadow color texture \"{1}\" of material \"{0}\" is not recolored, so the shaded parts keep its colors. Recolor that texture to the same color in Iroca too.";
         public static string ShadowColorMatchButton => IsJapanese ? "影の色も合わせる" : "Match shadow color";
         public static string ShadowColorMatchButtonTooltip => IsJapanese
-            ? "影の色を変更先カラーに合わせる設定を「Iroca Recolor」に足します。シーンのプレビューと再生・アップロードにだけ効き、マテリアルそのものは変わりません。まだ登録していなければ、先に「アバターに非破壊で登録」します。"
-            : "Adds a setting to \"Iroca Recolor\" that matches the shadow color to the target color. It only affects the scene preview and play/upload; the material itself is not changed. If not registered yet, this registers to the avatar first.";
+            ? "影の色を変更先カラーに合わせる設定を「Iroca Recolor」に足します。シーンのプレビューと再生・アップロードにだけ効き、マテリアルそのものは変わりません。まだ登録していなければ、先に「アバターに非破壊で登録」します。\n足した後は、「アバターに反映」の「影の色を変更先カラーに合わせる」で切り替えられます。"
+            : "Adds a setting to \"Iroca Recolor\" that matches the shadow color to the target color. It only affects the scene preview and play/upload; the material itself is not changed. If not registered yet, this registers to the avatar first.\nAfterwards, you can switch it with \"Match shadow color to target color\" under \"Apply to Avatar\".";
         public static string ShadowColorDismissTooltip => IsJapanese
             ? "このテクスチャではこの案内を表示しません。次に Unity を開いたときにまた出ます。"
             : "Hide this notice for this texture. It comes back the next time you open Unity.";
@@ -1658,6 +1658,10 @@ namespace Iroca {
         public static string ShadowMatchToggleTooltip => IsJapanese
             ? "オンにすると、シーンのプレビューと再生・アップロードで、このマテリアルの影の色を変更先カラーに合わせます。マテリアルそのものは変わりません。合わせる色は、レシピの最初の有効なゾーンの色から決まります。見本は左が元の 1 影の色、右が合わせた色です。"
             : "When on, the shadow color of this material follows the target color in the scene preview and in play/upload. The material itself is not changed. The color comes from the first enabled zone of the recipe. The swatches show the original first shadow color (left) and the matched color (right).";
+        // いろかウィンドウの「アバターに反映」の切り替え。{0} = 対象のマテリアルの名前の並び。
+        public static string ShadowMatchWindowTooltipFormat => IsJapanese
+            ? "オンにすると、シーンのプレビューと再生・アップロードで、このテクスチャをメインに使う lilToon のマテリアル（{0}）の影の色を、変更先カラーに合わせます。マテリアルそのものは変わりません。\n設定は「Iroca Recolor」に入ります。まだ登録していなければ、先に「アバターに非破壊で登録」します。\nマテリアルごとの切り替えと、合わせた後の色の見本は、「Iroca Recolor」のインスペクタにあります。"
+            : "When on, the shadow color of the lilToon materials that use this texture as the main texture ({0}) follows the target color in the scene preview and in play/upload. The materials themselves are not changed.\nThe setting is stored in \"Iroca Recolor\". If not registered yet, this registers to the avatar first.\nTo switch each material separately and to see the matched colors, use the \"Iroca Recolor\" inspector.";
 
         public static string RecolorEmptyEntry => IsJapanese
             ? "空の欄があります。レシピを設定するか、欄を消してください。"
