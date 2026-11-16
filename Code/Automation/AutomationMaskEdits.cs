@@ -287,11 +287,7 @@ namespace Iroca {
             if (_masks != null) {
                 return;
             }
-            int fileW = 0, fileH = 0;
-            if (AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(_texture)) is TextureImporter ti) {
-                ti.GetSourceTextureWidthAndHeight(out fileW, out fileH);
-            }
-            MaskRegionEdit.CanvasSize(fileW, fileH, _texture.width, _texture.height, out int w, out int h);
+            CanvasSize(_texture, out int w, out int h);
             _masks = new MaskWorkspace();
             if (_state.maskState != null) {
                 _masks.DecodeFrom(_state.maskState);
@@ -303,6 +299,18 @@ namespace Iroca {
                     _masks.Reset(w, h);
                 }
             }
+        }
+
+        /// <summary>
+        /// マスクの土台の寸法(窓の EnsureMasks と同じ規則: 元画像の寸法)。自動調整の漏れの確かめ(<see cref="AutomationAutoTune"/>)が、
+        /// マスクがまだ無いテクスチャに「塗らない」を書くときも使う。
+        /// </summary>
+        internal static void CanvasSize(Texture2D texture, out int w, out int h) {
+            int fileW = 0, fileH = 0;
+            if (AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(texture)) is TextureImporter ti) {
+                ti.GetSourceTextureWidthAndHeight(out fileW, out fileH);
+            }
+            MaskRegionEdit.CanvasSize(fileW, fileH, texture.width, texture.height, out w, out h);
         }
 
         // チャート地図(ヒープの外)。右クリックと同じく、マスクの寸法で作り、にじみ代を割り当てる。

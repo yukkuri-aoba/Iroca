@@ -138,6 +138,12 @@ namespace Iroca {
                 // マスクの契約(除外の掛け直し・含める)。
                 ApplyMaskContract(run, zone, strength, zoneMask, includedPx, includedBox);
 
+                // 選択だけを回すとき(SimulateSelection)は、ここで強度を書いて止まる(作業配列は finally が返す)。
+                if (run.SelectionOnly != null) {
+                    run.SelectionOnly.Write(strength, w, h, UnionBox(sel.Box, includedBox), po);
+                    return;
+                }
+
                 // 再着色の段。段どうしは z で値を受け渡す(0.4.0 の計画の 3-7b)。
                 var z = new ZoneState {
                     Zone = zone,

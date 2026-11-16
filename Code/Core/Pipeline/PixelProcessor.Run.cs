@@ -45,6 +45,43 @@ namespace Iroca {
             public int PerfCount;
             public SubPhaseClock Sub;
             public long Tp;
+            // 選択だけを回すときの書き先(SimulateSelection)。null = ふつうの処理。あれば、ゾーンの処理はマスクの
+            // 契約の後で強度をここへ書いて止まり、再着色の段は走らない。
+            public SelectionSink SelectionOnly;
+        }
+
+        /// <summary>
+        /// 選択だけを回したときの書き先(<see cref="SimulateSelection"/>)。どちらも null 可、長さは Len。
+        /// 指す先の持ち主は呼び出し側。
+        /// </summary>
+        private sealed class SelectionSink {
+            public bool* Selected;     // 強度 > RecolorMinStrength(再着色のループが塗る画素)
+            public float* Strength;    // マスクの契約を掛けた後の強度
+
+            /// <summary>
+            /// マスクの契約の後の強度を書く。後段が読むのは範囲 scan の中だけ(<see cref="ZoneState.Scan"/>)なので、
+            /// その外は 0 として書く(ぼかしの書き先は範囲の外を書かない)。行ごとに自分の行だけを書く。
+            /// </summary>
+            public void Write(float* strength, int w, int h, in SelectionCache.PostBox scan, ParallelOptions po) {
+                bool* sel = Selected;
+                float* outS = Strength;
+                bool has = scan.Has;
+                int x0 = scan.MinX, x1 = scan.MaxX, y0 = scan.MinY, y1 = scan.MaxY;
+                Parallel.For(0, h, po, y => {
+                    int rowOff = y * w;
+                    bool rowIn = has && y >= y0 && y <= y1;
+                    for (int x = 0; x < w; x++) {
+                        int i = rowOff + x;
+                        float s = rowIn && x >= x0 && x <= x1 ? strength[i] : 0f;
+                        if (sel != null) {
+                            sel[i] = s > RecolorMinStrength;
+                        }
+                        if (outS != null) {
+                            outS[i] = s;
+                        }
+                    }
+                });
+            }
         }
 
         /// <summary>

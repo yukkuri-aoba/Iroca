@@ -16,15 +16,19 @@ namespace Iroca {
     ///
     /// AI の推論は EditorApplication.update で少しずつ進むので、この仕事もメインスレッドの <see cref="Advance"/>
     /// で進める(update と、MCP の問い合わせのたび)。解析そのものは背景のスレッドで走る。
+    /// 漏れの確かめ(<see cref="AutoTuneService.Run.LeakExclusion"/>)で外す範囲があれば、ウィンドウと同じく、ゾーンの値と一緒に
+    /// そのゾーンの「塗らない」へ書く(マスク操作 <see cref="AutomationMaskEdits"/> と同じ入口 <see cref="MaskWorkspace.ApplyRegion"/>
+    /// で書き、保存形式へ戻す)。
     /// </summary>
-    internal sealed class AutomationAutoTune {
+    internal sealed unsafe class AutomationAutoTune {
         private readonly IrocaSessionState _state;
+        private readonly Texture2D _texture;
         private readonly List<string> _zoneIds;
         private readonly List<string> _warnings;
         // 作業解像度の原本(参照を 1 つ持つ。終わったら返す)と、AI の元のキー(窓のプレビューと同じ形)。
         private NativePixels _pixels;
         private readonly string _key;
-        // 除外マスク(状態のマスクを 1 回だけ展開する。終わったら返す)。
+        // 除外マスク(状態のマスクを 1 回だけ展開する。終わったら返す)。漏れの確かめで外す範囲もここへ書いて、状態へ戻す。
         private MaskWorkspace _masks;
 
         private int _index;
@@ -39,6 +43,11 @@ namespace Iroca {
         /// </summary>
         public readonly Dictionary<string, string> How = new Dictionary<string, string>();
 
+        /// <summary>
+        /// ゾーンの id → 漏れの確かめで「塗らない」にした塊の数と、マスクで新しく塗らない側にした画素数(外していないゾーンは無い)。
+        /// </summary>
+        public readonly Dictionary<string, (int parts, int pixels)> LeakExcluded = new Dictionary<string, (int, int)>();
+
         public bool Done => _index >= _zoneIds.Count;
         public int Total => _zoneIds.Count;
         public int Finished => _index;
@@ -47,6 +56,7 @@ namespace Iroca {
         public AutomationAutoTune(IrocaSessionState state, Texture2D texture, NativePixels pixels,
             List<string> zoneIds, List<string> warnings) {
             _state = state;
+            _texture = texture;
             _pixels = pixels.AddRef();
             _key = AiSuggestBroker.SourceKey(texture, pixels.Width, pixels.Height);
             _zoneIds = zoneIds ?? new List<string>();
@@ -83,14 +93,22 @@ namespace Iroca {
                 }
                 if (_run == null) {
                     NativeBools excluded = CombinedExclusion(zone.id, out int mw, out int mh);
-                    _run = AutoTuneService.Start(zone, _pixels, _key, excluded, mw, mh, retryAiError: !_askedAi);
+                    // 漏れの確かめで選択を回すときのマスク(この依頼の設定・マスク。持ち主は自動調整になる)。
+                    MaskSnapshot snapshot = _masks.Width > 0 && _masks.Height > 0 ? _masks.ToSnapshot() : null;
+                    _run = AutoTuneService.Start(zone, _pixels, _key, excluded, mw, mh,
+                        RecolorSettings.From(_state), snapshot, retryAiError: !_askedAi);
                     _askedAi |= _run.AskedAi;
                 }
                 _run.Advance();
                 var run = _run;
                 switch (run.Status) {
                     case AutoTuneService.Status.Done:
-                        run.ApplyTo(zone);
+                        try {
+                            run.ApplyTo(zone);
+                            ApplyLeakExclusion(zone, run);
+                        } finally {
+                            run.ReleaseLeakExclusion();
+                        }
                         How[zone.id ?? ""] = run.Method;
                         break;
                     case AutoTuneService.Status.Failed:
@@ -162,14 +180,54 @@ namespace Iroca {
             _warnings.Add($"auto-tune of '{zone.name}' was skipped ({failure}); it keeps its current settings.");
         }
 
+        // 漏れの確かめで外す範囲を、そのゾーンの「塗らない」へ書き、保存形式へ戻す(続くゾーンの自動調整と、最後の保存・比較が読む)。
+        // 書き方はマスク操作の「ここは塗らない」と同じ(塗った範囲の記録が残り、「消す」で戻せる)。
+        private void ApplyLeakExclusion(ColorZone zone, AutoTuneService.Run run) {
+            if (!run.HasLeakExclusion || _texture == null) {
+                return;
+            }
+            EnsureMaskCanvas();
+            var region = run.LeakRegionFor(_masks, _texture);
+            if (region == null) {
+                return;
+            }
+            try {
+                if (!_masks.ApplyRegion(region.Ptr, zone.id, MaskRegionOp.DontPaintHere, null, out var result)
+                    || result.changed == 0) {
+                    return;
+                }
+                _state.maskState ??= new MaskState();
+                _masks.EncodeTo(_state.maskState);
+                LeakExcluded[zone.id ?? ""] = (run.LeakExcludedParts, result.changed);
+            } finally {
+                region.Release();
+            }
+        }
+
+        // マスクの土台が無ければ、マスク操作と同じ寸法で作る(今あるマスクの寸法は変えない。除外の展開と同じ土台に書く)。
+        private void EnsureMaskCanvas() {
+            EnsureMasksDecoded();
+            if (_masks.Width > 0 && _masks.Height > 0) {
+                return;
+            }
+            AutomationMaskEdits.CanvasSize(_texture, out int w, out int h);
+            _masks.Reset(w, h);
+        }
+
+        // 状態のマスクを展開する(1 回だけ)。
+        private void EnsureMasksDecoded() {
+            if (_masks != null) {
+                return;
+            }
+            _masks = new MaskWorkspace();
+            if (_state.maskState != null) {
+                _masks.DecodeFrom(_state.maskState);
+            }
+        }
+
         // UI(IrocaWindow.BuildCombinedExclusionForZone)と同じ: 共通の除外 ∪ そのゾーンの除外。無ければ null。
         private NativeBools CombinedExclusion(string zoneId, out int mw, out int mh) {
-            if (_masks == null) {
-                _masks = new MaskWorkspace();
-                if (_state.maskState != null) {
-                    _masks.DecodeFrom(_state.maskState);
-                }
-            }
+            EnsureMasksDecoded();
             mw = _masks.Width;
             mh = _masks.Height;
             if (mw <= 0 || mh <= 0) {

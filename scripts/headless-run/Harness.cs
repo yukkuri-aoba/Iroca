@@ -477,6 +477,11 @@ namespace Iroca {
                 DebugCaptureHooks.DisablePalette = true;
             }
 
+            // --leak-probe / --leak-judge: 自動調整の後の漏れの確かめ(ZoneAutoTuner.Leak.cs)を、AI の提案を外から渡して回す。
+            if (args.Length >= 1 && (args[0] == "--leak-probe" || args[0] == "--leak-judge")) {
+                return RunLeak(args);
+            }
+
             // --batch <json>: 同一入力・複数ゾーン設定をまとめて処理する(テスト実行の高速化)。
             if (args.Length >= 2 && args[0] == "--batch") {
                 return RunBatch(args[1]);
@@ -716,6 +721,210 @@ namespace Iroca {
             WriteRawRgba(outPath, w, h, pixels);
             Console.WriteLine($"OK {w}x{h} -> {outPath} (zones={zoneList.Count})");
             return 0;
+        }
+
+        // ─── 漏れの確かめ(--leak-probe / --leak-judge。Code/Core/ZoneAutoTuner.Leak.cs) ───
+        // 自動調整の後の段を、AI の提案を外(Python の SAM)から渡して実 C# で回す。製品の Unity 側の流れ(提案の要求・保存)は持たない。
+        //   --leak-probe <in.raw RGBA> <mask.raw 1=除外> <zones.json> <sel_out.raw> [--zone i] [--sel sel.raw]
+        //     zones JSON の i 番目(既定 0)のゾーン(自動調整を当てた後の値。証拠 evidenceMask が要る)の選択を
+        //     PixelProcessor.SimulateSelection で作り(--sel を渡せばそれを読む)、sel_out.raw(1 = 選ばれた)に書き、
+        //     塊と問い合わせ点を stdout の LEAKPROBE 行(JSON)に出す。
+        //   --leak-judge <in.raw RGBA> <mask.raw> <zones.json> <proposals.json> <exclude_out.raw> [--zone i] [--sel sel.raw]
+        //     proposals.json = {"blobs": [{"proposal": raw か null, "flood": bool, "fine": raw か null, "fineFlood": bool}, ...]}
+        //     (塊ごとの自動・細かい提案。並びは LEAKPROBE の blobs と同じにする)。選択を同じように作り(--sel なら読む)、
+        //     判定して除外マスクを exclude_out.raw(1 = 除外)に書き、塊ごとの判定を stdout の LEAKJUDGE 行(JSON)に出す。
+        //     [--cover-max v] [--seam-min v] [--fine-max v] は判定の閾値の差し替え(テストの掃引用。省略した項目は製品の閾値
+        //     ZoneAutoTuner.LeakThresholds.Default。1 つも渡さなければ製品と同じ呼び出し)。
+        // 画素の位置 x, y は raw の並び(添字 y*w + x。raw は行 0 = 画像の下端の規約)。dev_safe の fixtures は numpy の配列
+        // (行 0 = 上)をそのまま raw に書くので、Python から見た y は numpy の行と同じ値になる。
+        // マスク(mask.raw・ゾーン別の excludeMask / includeMask)は通常の実行と同じく選択に効く。全体設定は zones JSON の settings。
+        private static unsafe int RunLeak(string[] args) {
+            bool judge = args[0] == "--leak-judge";
+            int nPos = judge ? 5 : 4;
+            var pos = new List<string>();
+            int zoneIndex = 0;
+            string selPath = null;
+            // 判定の閾値(--leak-judge だけ。省略した項目は製品の閾値。テストの掃引用)。
+            var thresholds = ZoneAutoTuner.LeakThresholds.Default;
+            bool customThresholds = false;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            for (int i = 1; i < args.Length; i++) {
+                string a = args[i];
+                bool isThreshold = a == "--cover-max" || a == "--seam-min" || a == "--fine-max";
+                if (a == "--zone" || a == "--sel" || (judge && isThreshold)) {
+                    if (i + 1 >= args.Length) {
+                        Console.Error.WriteLine($"{a} の値がありません");
+                        return 2;
+                    }
+                    string val = args[++i];
+                    if (a == "--zone") {
+                        zoneIndex = int.Parse(val, ic);
+                    } else if (a == "--sel") {
+                        selPath = val;
+                    } else {
+                        double d = double.Parse(val, System.Globalization.NumberStyles.Float, ic);
+                        if (a == "--cover-max") {
+                            thresholds.CoverMax = d;
+                        } else if (a == "--seam-min") {
+                            thresholds.SeamMin = d;
+                        } else {
+                            thresholds.FineCoverMax = d;
+                        }
+                        customThresholds = true;
+                    }
+                } else if (a.StartsWith("--", StringComparison.Ordinal)) {
+                    Console.Error.WriteLine($"unknown arg: {args[i]}");
+                    return 2;
+                } else {
+                    pos.Add(args[i]);
+                }
+            }
+            if (pos.Count != nPos) {
+                Console.Error.WriteLine(judge
+                    ? "usage: Harness --leak-judge <in.raw> <mask.raw> <zones.json> <proposals.json> <exclude_out.raw> [--zone i] [--sel sel.raw]"
+                      + " [--cover-max v] [--seam-min v] [--fine-max v]"
+                    : "usage: Harness --leak-probe <in.raw> <mask.raw> <zones.json> <sel_out.raw> [--zone i] [--sel sel.raw]");
+                return 2;
+            }
+
+            var (w, h, pixels) = ReadRgbaRaw(pos[0]);
+            var (mw, mh, common) = ReadMaskRaw(pos[1]);
+            var masks = new MaskSnapshot { common = NativeBitMask.FromBools(common, mw, mh), width = mw, height = mh, zones = null };
+            var (zoneList, st, zoneMasks, evidencePaths) = LoadZones(pos[2]);
+            AttachZoneMasks(masks, zoneMasks);
+            if (zoneIndex < 0 || zoneIndex >= zoneList.Count) {
+                Console.Error.WriteLine($"--zone {zoneIndex} が zones JSON の範囲の外です(ゾーン {zoneList.Count} 個)");
+                return 2;
+            }
+            var zone = zoneList[zoneIndex];
+            string evPath = evidencePaths[zoneIndex];
+            if (string.IsNullOrEmpty(evPath)) {
+                Console.Error.WriteLine("漏れの確かめには、ゾーンの証拠(zones JSON の evidenceMask)が要ります");
+                return 2;
+            }
+            var (ew, eh, evidence) = ReadMaskRaw(evPath);
+            if (ew != w || eh != h) {
+                Console.Error.WriteLine($"証拠の寸法 {ew}x{eh} がテクスチャ {w}x{h} と違います");
+                return 2;
+            }
+
+            bool[] sel;
+            double selMs = 0;
+            var sw = Stopwatch.StartNew();
+            if (selPath != null) {
+                var (sw2, sh2, given) = ReadMaskRaw(selPath);
+                if (sw2 != w || sh2 != h) {
+                    Console.Error.WriteLine($"--sel の寸法 {sw2}x{sh2} がテクスチャ {w}x{h} と違います");
+                    return 2;
+                }
+                sel = given;
+            } else {
+                sel = new bool[w * h];
+                var settings = st.ToRecolorSettings();
+                fixed (Color32* p = pixels)
+                fixed (bool* s = sel) {
+                    PixelProcessor.SimulateSelection(p, w, h, zone.Clone(), in settings, masks, s, null);
+                }
+                selMs = sw.Elapsed.TotalMilliseconds;
+            }
+            long selPx = 0, evPx = 0;
+            for (int i = 0; i < sel.Length; i++) {
+                if (sel[i]) {
+                    selPx++;
+                }
+                if (evidence[i]) {
+                    evPx++;
+                }
+            }
+            if (!judge) {
+                WriteMaskRaw(pos[3], w, h, sel);
+                sw.Restart();
+                ZoneAutoTuner.LeakBlob[] blobs;
+                fixed (bool* s = sel)
+                fixed (bool* e = evidence) {
+                    blobs = ZoneAutoTuner.FindLeakBlobs(s, e, w, h);
+                }
+                double blobMs = sw.Elapsed.TotalMilliseconds;
+                var list = new List<object>();
+                foreach (var b in blobs) {
+                    list.Add(new { x = b.X, y = b.Y, area = b.Area, depthSq = b.DepthSq });
+                }
+                Console.WriteLine("LEAKPROBE " + JsonSerializer.Serialize(new {
+                    w, h, yOrigin = "raw", selPx, evidencePx = evPx,
+                    selMs = Math.Round(selMs, 1), blobMs = Math.Round(blobMs, 1), blobs = list,
+                }));
+                return 0;
+            }
+
+            // --leak-judge: 塊ごとの提案を読む(並びは LEAKPROBE の blobs と同じ)。
+            var handles = new List<System.Runtime.InteropServices.GCHandle>();
+            try {
+                bool* Pin(string path, string what) {
+                    var (pw, ph, m) = ReadMaskRaw(path);
+                    if (pw != w || ph != h) {
+                        throw new InvalidDataException($"{what} の寸法 {pw}x{ph} がテクスチャ {w}x{h} と違います: {path}");
+                    }
+                    var hd = System.Runtime.InteropServices.GCHandle.Alloc(m, System.Runtime.InteropServices.GCHandleType.Pinned);
+                    handles.Add(hd);
+                    return (bool*)hd.AddrOfPinnedObject();
+                }
+                var coarse = new List<ZoneAutoTuner.LeakProposal>();
+                var fine = new List<ZoneAutoTuner.LeakProposal>();
+                using (var doc = JsonDocument.Parse(File.ReadAllText(pos[3]))) {
+                    foreach (var b in doc.RootElement.GetProperty("blobs").EnumerateArray()) {
+                        string pp = b.TryGetProperty("proposal", out var pe) && pe.ValueKind == JsonValueKind.String ? pe.GetString() : null;
+                        string fp = b.TryGetProperty("fine", out var fe) && fe.ValueKind == JsonValueKind.String ? fe.GetString() : null;
+                        bool pf = b.TryGetProperty("flood", out var pfe) && pfe.ValueKind == JsonValueKind.True;
+                        bool ff = b.TryGetProperty("fineFlood", out var ffe) && ffe.ValueKind == JsonValueKind.True;
+                        coarse.Add(new ZoneAutoTuner.LeakProposal { Mask = pp != null ? Pin(pp, "proposal") : null, Flood = pf });
+                        fine.Add(new ZoneAutoTuner.LeakProposal { Mask = fp != null ? Pin(fp, "fine") : null, Flood = ff });
+                    }
+                }
+                var exclude = new bool[w * h];
+                sw.Restart();
+                ZoneAutoTuner.LeakVerdict[] verdicts;
+                int exPx;
+                fixed (Color32* p = pixels)
+                fixed (bool* s = sel)
+                fixed (bool* e = evidence)
+                fixed (bool* x = exclude) {
+                    // 閾値を渡さなければ製品と同じ呼び出し(省略 = 製品の閾値)。
+                    verdicts = customThresholds
+                        ? ZoneAutoTuner.JudgeLeaks(p, s, e, w, h, coarse.ToArray(), fine.ToArray(), x, out exPx,
+                            thresholds: thresholds)
+                        : ZoneAutoTuner.JudgeLeaks(p, s, e, w, h, coarse.ToArray(), fine.ToArray(), x, out exPx);
+                }
+                double judgeMs = sw.Elapsed.TotalMilliseconds;
+                WriteMaskRaw(pos[4], w, h, exclude);
+                double? Num(double v) => double.IsNaN(v) ? (double?)null : v;
+                var list = new List<object>();
+                foreach (var v in verdicts) {
+                    string decision = v.Decision switch {
+                        ZoneAutoTuner.LeakDecision.Skip => "skip",
+                        ZoneAutoTuner.LeakDecision.SamePart => "same-part",
+                        ZoneAutoTuner.LeakDecision.Keep => "keep",
+                        _ => "exclude",
+                    };
+                    list.Add(new {
+                        decision, proposalPx = v.ProposalPixels, same = Num(v.Same), cover = Num(v.Cover), seam = Num(v.Seam),
+                        seamPairs = v.SeamPairs, outlinePairs = v.OutlinePairs, needsFine = v.NeedsFine,
+                        finePx = v.FinePixels, fineCover = Num(v.FineCover), excludablePx = v.ExcludablePixels,
+                    });
+                }
+                Console.WriteLine("LEAKJUDGE " + JsonSerializer.Serialize(new {
+                    w, h, selPx, evidencePx = evPx, excludedPx = exPx,
+                    coverMax = thresholds.CoverMax, seamMin = thresholds.SeamMin, fineMax = thresholds.FineCoverMax,
+                    selMs = Math.Round(selMs, 1), judgeMs = Math.Round(judgeMs, 1), blobs = list,
+                }));
+                return 0;
+            } catch (InvalidDataException ex) {
+                Console.Error.WriteLine(ex.Message);
+                return 2;
+            } finally {
+                foreach (var hd in handles) {
+                    hd.Free();
+                }
+            }
         }
 
         // PerfReport のフェーズ別(PHASE)とサブ段(SUBPHASE)の内訳を stderr へ出す。

@@ -193,6 +193,34 @@ namespace Iroca {
                 cancellationToken, debug, selectionCache, sourcePixels);
         }
 
+        /// <summary>
+        /// 1 つのゾーンの選択だけを、製品が塗るときと同じ道(<see cref="ProcessPixelsArrayCore"/> → RunZone の
+        /// 選択 → マスクの契約)に通し、最終の強度を返す。再着色の段は走らせない(マスクの契約の後で止まる。
+        /// <see cref="RunContext.SelectionOnly"/>)。自動調整の後の確かめ(<see cref="ZoneAutoTuner.FindLeakBlobs"/>。
+        /// 別の部品の一部だけが塗られた所を外す)が、ゾーンが実際に塗る画素を知るのに使う。
+        /// pixels(w*h 画素。並びは処理の入口と同じ下原点)は読むだけで、処理が返るまで呼び出し側が保つこと。
+        /// zone は範囲へ丸められうる(ProcessPixelsArrayCore の冒頭)ので写しを渡す。masks は null 可(除外・含めるなし)。
+        /// selected(w*h 要素。null 可)には「強度 &gt; <see cref="RecolorMinStrength"/>」(再着色のループが塗る画素)を、
+        /// strength(w*h 要素。null 可)にはマスクの契約を掛けた後の強度を書く。どちらも全画素を書く。混色帯(再着色の段が
+        /// 選択の外側の縁に被覆率で塗る画素)は入らない。選択キャッシュ・デバッグの記録・計測の知らせ(PerfReport)は使わない。
+        /// 作業配列をプールから借りるので、製品では計算の間(NativeMemoryLifecycle.WorkStarted 〜 WorkEnded)に呼ぶ。
+        /// </summary>
+        internal static void SimulateSelection(Color32* pixels, int w, int h, ColorZone zone,
+            in RecolorSettings settings, MaskSnapshot masks, bool* selected, float* strength,
+            CancellationToken cancellationToken = default) {
+            if (pixels == null) {
+                throw new System.ArgumentNullException(nameof(pixels));
+            }
+            if (zone == null) {
+                throw new System.ArgumentNullException(nameof(zone));
+            }
+            CheckSize(w, h);
+            var sink = new SelectionSink { Selected = selected, Strength = strength };
+            // 入力の控えに pixels そのものを渡す(選択だけなら pixels へは書かないので、写さない)。
+            ProcessPixelsArrayCore(pixels, w, h, masks, new[] { zone }, in settings,
+                cancellationToken, null, null, pixels, sink);
+        }
+
         // 寸法の検証(画素数は int に収まること)。戻り値は画素数。
         private static long CheckSize(int w, int h) {
             if (w <= 0 || h <= 0) {
@@ -233,7 +261,8 @@ namespace Iroca {
             CancellationToken cancellationToken,
             IDebugCapture debug,
             SelectionCache selectionCache,
-            Color32* sourcePixels) {
+            Color32* sourcePixels,
+            SelectionSink selectionOnly = null) {
             // 全体設定を同じ名前のローカルへ展開する。in 引数はラムダから参照できないので、
             // 本体(ラムダを含む)はこのローカルだけを読み、settings は以降参照しない。
             float edgeFeather = settings.edgeFeather;
@@ -307,7 +336,9 @@ namespace Iroca {
                 // po を占有率の 0 埋め・HSV 計算 + foreach 内の全 Parallel.For で共用。
                 // MaxDegreeOfParallelism で Unity Editor のスレッドプール圧迫を防ぐ。
                 var po = CoreParallelism.Options(cancellationToken);
-                if (sortedZones.Count > 1) {
+                if (selectionOnly != null) {
+                    // 選択だけ(SimulateSelection): 占有率とその印を読むのは再着色の段だけなので借りない。
+                } else if (sortedZones.Count > 1) {
                     rb.Claimed = s_floatPool.Rent(len);
                     ClearWorkParallel(rb.Claimed, len, po);
                 } else if (sortedZones.Count == 1 && sortedZones[0] != null
@@ -384,6 +415,7 @@ namespace Iroca {
                     PhaseTicks = _phaseTicks,
                     PerfZones = _perfZones,
                     Sub = _sub,
+                    SelectionOnly = selectionOnly,
                 };
 
                 foreach (var zone in sortedZones) {
@@ -407,6 +439,9 @@ namespace Iroca {
                 if (ownsOriginal) {
                     s_color32Pool.Return(originalPixels);
                 }
+            }
+            if (selectionOnly != null) {
+                return;   // 選択だけ: 計測の知らせは出さない(プレビューの計測と混ざらないように)
             }
             var _perfPhases = new PhasePerfEntry[PhaseCount];
             for (int p = 0; p < PhaseCount; p++) {

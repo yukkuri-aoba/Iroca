@@ -71,6 +71,11 @@ namespace Iroca.EditorTests {
         private static MaskSuggestProposal LeftHalf(bool flood = false)
             => new MaskSuggestProposal { mask = NativeBools.CopyOf(LeftHalfMask(), W, H), width = W, height = H, floodWarning = flood };
 
+        // 全体設定は既定、マスクは無し。この絵(左半分の赤・右半分の青)では、証拠(左半分)の外に塗られた塊が無いので、
+        // 漏れの確かめは塊を探すだけで終わる(AI に提案を頼み直さない。確かめそのものは AutoTuneLeakCheckTests)。
+        private AutoTuneService.Run Start(ColorZone zone, string key)
+            => AutoTuneService.Start(zone, _pixels, key, null, 0, 0, RecolorSettings.Default, null);
+
         private static void WaitForAnalysis(AutoTuneService.Run run) {
             var sw = Stopwatch.StartNew();
             while (run.Status == AutoTuneService.Status.Analyzing) {
@@ -93,7 +98,7 @@ namespace Iroca.EditorTests {
         [Test]
         public unsafe void ZoneWithoutPosition_IsAnalysedWithoutEvidence_AndWithoutAskingTheAi() {
             var zone = RedZone(clicked: false);
-            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var run = Start(zone, "k");
             Assert.AreEqual(AutoTuneService.Status.Analyzing, run.Status);
             Assert.AreEqual(AutoTuneService.ReasonNoSamplePosition, run.ConventionalReason);
             Assert.IsFalse(run.AskedAi);
@@ -111,7 +116,7 @@ namespace Iroca.EditorTests {
         public void ClickedZone_AfterAnAiError_RetriesTheAi() {
             _svc.Set(MaskSuggestPhase.Error);
             var zone = RedZone(clicked: true);
-            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var run = Start(zone, "k");
             Assert.AreEqual(AutoTuneService.Status.WaitingForEvidence, run.Status, run.Failure + " " + run.FailureDetail);
             Assert.AreEqual(1, _svc.cancelAlls, "エラーを解いていない");
             run.Cancel();
@@ -120,7 +125,7 @@ namespace Iroca.EditorTests {
         [Test]
         public unsafe void ClickedZone_WaitsForTheAiAndUsesItsRegionAsEvidence() {
             var zone = RedZone(clicked: true);
-            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var run = Start(zone, "k");
             Assert.AreEqual(AutoTuneService.Status.WaitingForEvidence, run.Status);
             Assert.IsTrue(run.AskedAi);
             Assert.IsFalse(run.EvidencePreparing, "AI が待機中なら、その場で受け付けられる");
@@ -154,7 +159,7 @@ namespace Iroca.EditorTests {
         [Test]
         public void EvidenceRegion_IsReturnedAfterAnalysis_AndLeftUnchanged() {
             var zone = RedZone(clicked: true);
-            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var run = Start(zone, "k");
             var proposal = LeftHalf();
             var region = proposal.mask.AddRef();   // テストが中身と参照の数を見るための参照
             try {
@@ -177,7 +182,7 @@ namespace Iroca.EditorTests {
             bool keepBefore = AutoTuneService.KeepEvidenceForRepro;
             AutoTuneService.KeepEvidenceForRepro = false;
             try {
-                var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+                var run = Start(zone, "k");
                 _svc.Finish(LeftHalf());
                 WaitForAnalysis(run);
                 Assert.IsTrue(run.HadEvidence, "証拠を使った解析そのものは変わらない");
@@ -192,7 +197,7 @@ namespace Iroca.EditorTests {
         [Test]
         public void RegionThatSpreadToTheBackground_IsNotUsedAsEvidence() {
             var zone = RedZone(clicked: true);
-            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var run = Start(zone, "k");
             _svc.Finish(LeftHalf(flood: true));
             Assert.AreEqual(AutoTuneService.ReasonEvidenceFlood, run.ConventionalReason);
             WaitForAnalysis(run);
@@ -204,7 +209,7 @@ namespace Iroca.EditorTests {
         public void WaitsWhileTheAiPrepares() {
             _svc.encodeOnNewSource = true;
             var zone = RedZone(clicked: true);
-            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var run = Start(zone, "k");
             Assert.AreEqual(AutoTuneService.Status.WaitingForEvidence, run.Status);
             Assert.IsTrue(run.EvidencePreparing, "埋め込みの計算中は受け付けられていない");
             run.Advance();
@@ -221,35 +226,35 @@ namespace Iroca.EditorTests {
             var zone = RedZone(clicked: true);
 
             Assert.AreEqual(AutoTuneService.Failure.SourceNotShared,
-                AutoTuneService.Start(zone, _pixels, null, null, 0, 0).Failure, "AI と共有できる元が無い");
+                Start(zone, null).Failure, "AI と共有できる元が無い");
 
             _svc.modelsOk = false;
-            var noModel = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var noModel = Start(zone, "k");
             Assert.AreEqual(AutoTuneService.Status.Failed, noModel.Status);
             Assert.AreEqual(AutoTuneService.Failure.AiUnavailable, noModel.Failure, "証拠なしの導出へ落とさない");
 
             MaskSuggestBridge.Service = null;
             Assert.AreEqual(AutoTuneService.Failure.AiUnavailable,
-                AutoTuneService.Start(zone, _pixels, "k", null, 0, 0).Failure);
+                Start(zone, "k").Failure);
             Assert.AreEqual(1, _pixels.RefCount, "始められなかったら参照は返す");
         }
 
         [Test]
         public void CancelAndLostProposals_DoNotAnalyse() {
             var zone = RedZone(clicked: true);
-            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var run = Start(zone, "k");
             run.Cancel();
             Assert.AreEqual(AutoTuneService.Failure.Cancelled, run.Failure);
             Assert.IsFalse(AiSuggestBroker.HasLive, "待っていた提案も取り消す");
             Assert.AreEqual(1, _pixels.RefCount);
 
-            var lost = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var lost = Start(zone, "k");
             AiSuggestBroker.Release(new object());   // ほかの持ち主の取り消しでは消えない
             Assert.AreEqual(AutoTuneService.Status.WaitingForEvidence, lost.Status);
             AiSuggestBroker.Cancel(lost);            // 届かなかった(取り消し・破棄)
             Assert.AreEqual(AutoTuneService.Failure.NoEvidence, lost.Failure);
 
-            var error = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var error = Start(zone, "k");
             _svc.queue.Clear();
             _svc.Set(MaskSuggestPhase.Error);
             Assert.AreEqual(AutoTuneService.Failure.AiError, error.Failure, "エラーで捨てられたらその理由");
@@ -264,7 +269,7 @@ namespace Iroca.EditorTests {
             zone.saturationGuard += 0.2f;
             Assert.IsFalse(AutoTuneService.UntouchedByUser(zone, null));
 
-            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var run = Start(zone, "k");
             WaitForAnalysis(run);
             run.ApplyTo(zone);
             var input = run.ToInput();
@@ -281,7 +286,7 @@ namespace Iroca.EditorTests {
         public void UntouchedByUser_AfterUndoingTheAutoTune() {
             var zone = RedZone(clicked: false);
             var before = zone.Clone();
-            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var run = Start(zone, "k");
             WaitForAnalysis(run);
             run.ApplyTo(zone);
             var input = run.ToInput();
@@ -301,7 +306,7 @@ namespace Iroca.EditorTests {
         [Test]
         public void UntouchedByUser_AfterTheColorRepickClearedTheIslandValues() {
             var zone = RedZone(clicked: false);
-            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var run = Start(zone, "k");
             WaitForAnalysis(run);
             var input = run.ToInput();
             // 証拠つきの導出が入れる島の値(この絵の従来の導出は入れないので、適用値として足す)。
@@ -326,7 +331,7 @@ namespace Iroca.EditorTests {
         [Test]
         public void MatchCutoff_IsPartOfTheAppliedValues_AndMovingToleranceByHandClearsIt() {
             var zone = RedZone(clicked: false);
-            var run = AutoTuneService.Start(zone, _pixels, "k", null, 0, 0);
+            var run = Start(zone, "k");
             WaitForAnalysis(run);
             var input = run.ToInput();
             input.applied.matchCutoff = 0.04f;

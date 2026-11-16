@@ -75,6 +75,15 @@ namespace Iroca {
                 }
                 return job.changedZoneIds.Contains(z.id) && !job.req.autoTune ? "skipped: autoTune=false" : "";
             }, out _);
+            // 自動調整の漏れの確かめで「塗らない」にした所(ゾーンの id で突き合わせる)。
+            if (job.tune != null) {
+                foreach (var info in r.zones) {
+                    if (info.zoneId != null && job.tune.LeakExcluded.TryGetValue(info.zoneId, out var leak)) {
+                        info.autoTuneExcludedParts = leak.parts;
+                        info.autoTuneExcludedPixels = leak.pixels;
+                    }
+                }
+            }
         }
 
         // 編集状態のゾーンの一覧を結果の形で足す(並びは優先度の順。先頭が最も高い)。commonExcludedFraction は全ゾーン共通の除外の割合。

@@ -1110,6 +1110,11 @@ namespace Iroca {
         public static string AutoTuneDoneWithEvidence => IsJapanese
             ? "自動調整が完了しました（AI 提案を参照）"
             : "Auto-tune complete (used AI suggestion)";
+        // 自動調整が、色の近い別の部品の陰やツヤだけが一緒に選ばれていた所を、AI で確かめて「塗らない」にしたとき、完了の知らせの
+        // 2 行目に足す。{0} = か所の数。
+        public static string AutoTuneLeakExcludedFormat => IsJapanese
+            ? "別の部品の一部 {0} か所を、塗らない範囲にしました（「ここのマスクを消す」で戻せます）"
+            : "Set {0} spot(s) on other parts not to be painted (\"Clear the mask here\" undoes it)";
         // 証拠（AI 提案セグメント）を待っている間の進捗表示。
         public static string AutoTuneEvidenceFetching => IsJapanese
             ? "AI 提案を取得中…"

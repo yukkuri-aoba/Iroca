@@ -85,6 +85,10 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "プリセットの一覧のファイルの数(このテクスチャで作ったかの印)",
     ("Code/UI/PresetsView.cs", "new int[files.Length]"):
         "プリセットの一覧のファイルの数(並べ替えの順番)",
+    ("Code/Application/AutoTuneService.cs", "new bool[blobs.Length]"):
+        "漏れの確かめの塊の数(多くても ZoneAutoTuner.LeakMaxBlobs = 6)。塊ごとの「背景まで広がった」の印",
+    ("Code/Application/AutoTuneService.cs", "new bool[props.Length]"):
+        "漏れの確かめの塊の数(多くても 6)。塊ごとの「細かい提案が要る」の印",
 }
 
 

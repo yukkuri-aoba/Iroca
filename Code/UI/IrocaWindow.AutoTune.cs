@@ -107,9 +107,11 @@ namespace Iroca {
                 // 証拠の元のキーは、画素がプレビュー・右クリックの AI 提案と同じ原本のときだけ渡す
                 // (フォールバックの画素で同じキーを使うと、別の画素の埋め込みと取り違える)。
                 string key = trueSource && _previewView != null ? _previewView.TrueSourceCacheKey() : null;
-                // 除外マスクの持ち主は自動調整になる(終わったら返す)。
+                // 除外マスクとマスクのスナップショットの持ち主は自動調整になる(終わったら返す)。スナップショットは、漏れの確かめで
+                // 導いた値の選択をプレビューと同じ設定・マスクで回すのに使う。
                 NativeBools excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
-                var run = AutoTuneService.Start(zone, pixels, key, excluded, mw, mh);
+                var run = AutoTuneService.Start(zone, pixels, key, excluded, mw, mh,
+                    RecolorSettings.From(Session), BuildMaskSnapshot());
                 if (run.Status == AutoTuneService.Status.Failed) {
                     NotifyAutoTuneFailure(run);
                     return;
@@ -240,26 +242,56 @@ namespace Iroca {
             EditorApplication.update -= TickAutoTune;
         }
 
-        private void ApplyAutoTune(AutoTuneService.Run run) {
+        // internal は AutoTuneLeakCheckTests が、確かめの結果を当てる Undo を確かめるため。
+        internal void ApplyAutoTune(AutoTuneService.Run run) {
+            try { ApplyAutoTuneCore(run); } finally { run.ReleaseLeakExclusion(); }
+        }
+
+        private void ApplyAutoTuneCore(AutoTuneService.Run run) {
             // 実行中に削除・追加された可能性があるため、live zone を id で引き直す。
             var targetZone = FindZoneById(run.ZoneId);
             if (targetZone == null) {
                 return;
             }
 
-            // 結果は押してから数秒後に届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
-            SeparateUndo.Record("Auto-tune Zone", () => {
-                Undo.RegisterCompleteObjectUndo(UndoTarget, "Auto-tune Zone");
-                run.ApplyTo(targetZone);
-            });
+            // 漏れの確かめで外す範囲(別の部品の陰・ツヤだけが塗られていた所)を、マスクの寸法にする。
+            NativeBools leak = null;
+            if (run.HasLeakExclusion && _maskView != null) {
+                _maskView.EnsureMasks();
+                leak = run.LeakRegionFor(_maskView.Workspace, SourceTexture);
+            }
+            bool leakApplied = false;
+            MaskRegionEditResult leakResult = default;
+            try {
+                // 結果は押してから数秒後に届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。外す範囲は同じ 1 回分で、
+                // 右クリックの「ここは塗らない」と同じ入口から書く(塗った範囲の記録が残り、「ここのマスクを消す」で戻せる)。
+                // マスクを先に書く: その記録(RecordMaskEdit)が今のマスクを版にしてから文書を記録するので、後のゾーンの値の記録と
+                // 合わせて、Undo で値とマスクの両方が押す前へ戻る(逆の順だと、先に記録した文書の版がマスクの履歴に無い)。
+                SeparateUndo.Record("Auto-tune Zone", () => {
+                    if (leak != null) {
+                        var dest = new MaskPaintView.MaskDestination(targetZone.id, MaskRegionOp.DontPaintHere);
+                        leakApplied = _maskView.ApplyRegion(leak, dest, out leakResult);
+                    }
+                    Undo.RegisterCompleteObjectUndo(UndoTarget, "Auto-tune Zone");
+                    run.ApplyTo(targetZone);
+                });
+            } finally {
+                leak?.Release();
+            }
             (_autoTuneInputs ??= new Dictionary<string, AutoTuneService.Input>())[targetZone.id] = run.ToInput();
             Editing.NotifyChanged(EditChange.Content);
             (_autoTuneProvenance ??= new Dictionary<string, string>())[targetZone.id] = run.Provenance;
             if (MaskSuggestPerf.Enabled && run.Result.evidenceDiag != null) {
                 MaskSuggestPerf.Log($"自動調整の証拠: {run.Result.evidenceDiag}");
             }
-            ShowNotification(new GUIContent(
-                run.UsedEvidence ? Localization.AutoTuneDoneWithEvidence : Localization.AutoTuneDone));
+            if (MaskSuggestPerf.Enabled && run.LeakDiag.Length > 0) {
+                MaskSuggestPerf.Log($"自動調整の漏れの確かめ: {run.LeakDiag}");
+            }
+            string done = run.UsedEvidence ? Localization.AutoTuneDoneWithEvidence : Localization.AutoTuneDone;
+            if (leakApplied && leakResult.changed > 0) {
+                done += "\n" + string.Format(Localization.AutoTuneLeakExcludedFormat, run.LeakExcludedParts);
+            }
+            ShowNotification(new GUIContent(done));
             Repaint();
         }
 

@@ -112,6 +112,11 @@ namespace Iroca {
             // "skipped: 理由")。AI の証拠を渡しても使えずに従来の導出へ戻ったら "conventional (evidence not usable: 理由)"。
             // この依頼で調整しなかったゾーンは空
             public string autoTune = "";
+            // この依頼の自動調整が、色の近い別の部品の陰・ツヤだけが選ばれていた所を AI で確かめて「塗らない」にした数と、
+            // 新しく塗らない側にしたマスクの画素数(その分は excludedFraction にも入る)。外さなかったゾーンは 0。
+            // 戻すときは masks の op:'clear'(その場所のマスクを入れた操作の範囲を消す)
+            public int autoTuneExcludedParts;
+            public int autoTuneExcludedPixels;
             // このゾーンのマスクが画像全体に占める割合(除外・含める)
             public float excludedFraction;
             public float includedFraction;

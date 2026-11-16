@@ -17,7 +17,12 @@ namespace Iroca.EditorTests {
         public MaskSuggestProposal ready;
         public int flushes, cancelAlls, gpuReleases, requests;
 
-        public struct Vector2Like { public float u, v; }
+        public struct Vector2Like {
+            public float u, v;
+            // 求められた粒度と使い方(自動調整の証拠・漏れの確かめは Evidence、右クリックは Region)。
+            public MaskSuggestGranularity granularity;
+            public MaskSuggestUse use;
+        }
 
         public MaskSuggestPhase Phase => phase;
         public float Progress => 0f;
@@ -45,7 +50,7 @@ namespace Iroca.EditorTests {
                 return false;
             }
             requests++;
-            queue.Enqueue(new Vector2Like { u = u, v = v });
+            queue.Enqueue(new Vector2Like { u = u, v = v, granularity = granularity, use = use });
             if (errorOnRequest) {
                 // 本物と同じく、エラーでは処理待ちを捨てる。
                 queue.Clear();

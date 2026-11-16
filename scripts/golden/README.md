@@ -27,6 +27,7 @@ Python 再実装はもう存在せず、**C# が唯一の正**である（当時
 | `test_golden_csharp.py` | pytest ゲート（C# を走らせ golden と照合） |
 | `test_selection_key_audit.py` | 選択キャッシュキーの網羅性監査。Harness の `--selkey-audit` で `ColorZone` の public フィールドを 1 つずつ摂動し、`BuildSelectionKey` への反映漏れ（選択キャッシュの誤ヒット）を分類台帳 `SELECTION_IRRELEVANT` と突き合わせる |
 | `test_palette_parity.py` | 色の表あり・なしのパリティ。色の表（`PixelProcessor.Palette.cs`）がある経路と画素ごとの経路は同じ式の別実装なので、全ケースと、ハイライト帯の成長が効く合成 2 ケースを、通常の実行と `IROCA_NO_PALETTE=1`（表を作らない）で回してビット単位で比べる。片側だけを変えた変異 5 種（照合・帯成長の候補判定・無彩の領域 L・再着色アンカー・再着色の色ごとの表）をすべて検出することを確かめてある |
+| `test_leak_check.py` | 自動調整の後の漏れの確かめ（`Code/Core/ZoneAutoTuner.Leak.cs`）と選択だけを回す入口（`PixelProcessor.SimulateSelection`）を、Harness の `--leak-probe` / `--leak-judge` で合成の小さな画像に当てる。選択だけの入口の選んだ画素 = 平塗りの画像で色替えが変えた画素・塊の取り出し（証拠の周り 8 画素・8 近傍・面積の下限・最大 6 個）と問い合わせ点・判定（同じ部品・一部だけ塗られた部品・細かい提案・見える縁・提案が無い / 背景まで広がった） |
 | `test_harness_selfchecks.py` | Harness の自己検査モードを回す。`--previewselftest`（RecolorPreview の既知の不変量）、`--samops-aainclude-crop`（クロップ実行が全画像の `--samops-aainclude` とビット同一）、`--samops-refineall`（精密化 4 段を外接矩形＋余白で回しても全画像とビット同一）、`--selcache-mask`（マスクだけを変えた再生成が選択キャッシュを持ち越してもフル再計算と同じ。右クリックの宛先が読む値も、除外の画素は 0）ほか |
 
 合成入力は C# の主要経路（基底再着色 / 無彩ターゲット / グレーモード / OkLab L リマップ /

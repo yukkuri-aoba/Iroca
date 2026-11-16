@@ -130,6 +130,8 @@ namespace Iroca.DebugTools {
                         zm.autoTuneInputTarget.AddRange(new[] { ati.target.r, ati.target.g, ati.target.b });
                         zm.autoTuneMaskUsed = ati.maskUsed;
                         zm.autoTuneParamsIntact = AutoTuneService.ParamsIntact(zones[i], ati);
+                        zm.autoTuneLeakParts = ati.leakParts;
+                        zm.autoTuneLeakPixels = ati.leakPixels;
                         if (ati.evidence != null && ati.evW == w && ati.evH == h
                             && ati.evidence.Length >= ((long)w * h + 63) >> 6) {
                             zm.autoTuneEvidence = $"zone{i}_evidence.png";
@@ -236,6 +238,10 @@ namespace Iroca.DebugTools {
             public bool autoTuneMaskUsed;
             // 書き出し時点でゾーンのパラメータが自動調整の適用値のまま(手で触っていない)か。
             public bool autoTuneParamsIntact;
+            // 自動調整の漏れの確かめで外した塊の数と画素数(作業解像度)。0 でなければ、excludeMask には導出の後に足した
+            // 「塗らない」が入っている(導出の時点の除外マスクより広い。由来 autoTune の "leak=…" にも載る)。
+            public int autoTuneLeakParts;
+            public int autoTuneLeakPixels;
         }
 
         [Serializable]
