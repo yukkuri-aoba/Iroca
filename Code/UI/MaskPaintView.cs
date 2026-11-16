@@ -326,6 +326,9 @@ namespace Iroca {
                 ClearActiveMask();
                 _host.Editing.CommitMaskEdit();
                 _host.Editing.NotifyChanged(EditChange.Masks);
+                // この窓(MaskBrushWindow)での操作は本体の窓を描き直さない。本体にプレビューがあると、
+                // カーソルを乗せるまで消したマスクが見えたままだった(2026-11-16)。
+                stateChanged = true;
             }
 
             EditorGUILayout.HelpBox(
