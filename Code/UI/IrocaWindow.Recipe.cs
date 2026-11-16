@@ -206,8 +206,8 @@ namespace Iroca {
             } else {
                 LivePreview.SetTarget(null, null);
             }
-            bool hasColors = MaterialShadowColors.TryGetColors(Session?.zones, out var sample, out var target);
-            LivePreview.SetShadowColors(hasColors, sample, target);
+            // 影の色を合わせるときのゾーンの色(どのゾーンがどこを塗るかは、プレビューの確定段が知らせる)。
+            LivePreview.SetShadowZoneColors(Session?.zones);
         }
 
         // ───────────── 外(自動化 API・MCP)からの変更 ─────────────

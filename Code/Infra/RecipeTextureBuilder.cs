@@ -66,7 +66,7 @@ namespace Iroca {
 
             BeginCompute();
             try {
-                if (!TryRecolorNative(recipe, out var pixels, out bool fromFile, out failure)) {
+                if (!TryRecolorNative(recipe, out var pixels, out bool fromFile, out var shares, out failure)) {
                     return null;
                 }
                 Texture2D tex;
@@ -76,8 +76,27 @@ namespace Iroca {
                     pixels.Release();
                 }
                 TryStoreCache(key, tex);
+                RecipeZoneShares.Store(key, shares);
                 FinishLike(tex, like);
                 return tex;
+            } finally {
+                EndCompute();
+            }
+        }
+
+        /// <summary>
+        /// レシピの色替えで、どのゾーンがどこを塗るか(<see cref="ZoneShareGrid"/>)だけを求める(<see cref="RecipeZoneShares"/> が、
+        /// 差し替えテクスチャをキャッシュから読んで計算しなかったときに使う)。色替えを 1 回走らせ、画素は捨てる。作れなければ null。
+        /// メインスレッドで呼ぶ。
+        /// </summary>
+        internal static ZoneShareGrid ComputeZoneShares(IrocaRecipe recipe) {
+            BeginCompute();
+            try {
+                if (!TryRecolorNative(recipe, out var pixels, out _, out var shares, out _)) {
+                    return null;
+                }
+                pixels.Release();
+                return shares;
             } finally {
                 EndCompute();
             }
@@ -222,6 +241,8 @@ namespace Iroca {
             public Action<Texture2D> done;
             // 画素が原本ファイルを読んだものか(取り込み済みテクスチャの画素なら false。ApplyAlphaSource)。メインスレッドで書く。
             public bool fromFile;
+            // 計算が控えた、どのゾーンがどこを塗るか(計算のスレッドで書き、計算の後にメインスレッドで読む)。
+            public ZoneShareGrid shares;
         }
 
         // 色替えの計算を、前に投げた計算の後ろにつなぐ(メインスレッド)。pixels が null なら、計算のスレッドで PNG(srcPath)を
@@ -251,7 +272,7 @@ namespace Iroca {
                             return null;
                         }
                     }
-                    Recolor(pixels, state, ct);
+                    b.shares = Recolor(pixels, state, ct);
                     return pixels;
                 } catch {
                     pixels?.Release();
@@ -348,6 +369,7 @@ namespace Iroca {
                         Compress(tex, like, b.fromFile);
                     }
                     TryStoreCache(key, tex);
+                    RecipeZoneShares.Store(key, b.shares);
                     FinishLike(tex, like);
                     return tex;
                 }, tex));
@@ -375,7 +397,7 @@ namespace Iroca {
         internal static bool TryRecolor(IrocaRecipe recipe, out Color32[] pixels, out int width, out int height,
             out Failure failure) {
             pixels = null; width = height = 0;
-            if (!TryRecolorNative(recipe, out var native, out _, out failure)) {
+            if (!TryRecolorNative(recipe, out var native, out _, out _, out failure)) {
                 return false;
             }
             try {
@@ -392,9 +414,12 @@ namespace Iroca {
         // 非破壊ビルド・シーンのプレビューはいろかのウィンドウを閉じた後にも走るので、管理配列で持つとその分
         // (4K で 64MB)Mono のヒープが広がったまま残る。
         // fromFile は、画素が原本ファイルを読んだものか(取り込み済みテクスチャの画素なら false)。
-        private static bool TryRecolorNative(IrocaRecipe recipe, out NativePixels pixels, out bool fromFile, out Failure failure) {
+        // shares は、同じ計算が控えた、どのゾーンがどこを塗るか(影の色をマテリアルごとに合わせるのに使う)。
+        private static bool TryRecolorNative(IrocaRecipe recipe, out NativePixels pixels, out bool fromFile,
+            out ZoneShareGrid shares, out Failure failure) {
             pixels = null;
             fromFile = false;
+            shares = null;
             if (!TryLoadState(recipe, out var state, out failure)) {
                 return false;
             }
@@ -402,7 +427,7 @@ namespace Iroca {
                 return false;
             }
             try {
-                Recolor(pixels, state);
+                shares = Recolor(pixels, state);
             } catch {
                 pixels.Release();
                 pixels = null;
@@ -411,10 +436,30 @@ namespace Iroca {
             return true;
         }
 
-        // 画素をその場で色替えする(バックグラウンドスレッドから呼んでよい)。
-        private static unsafe void Recolor(NativePixels pixels, IrocaSessionState state,
-            CancellationToken cancellationToken = default)
-            => SessionRecolor.Apply(pixels.Ptr, pixels.Width, pixels.Height, state, cancellationToken);
+        /// <summary>
+        /// 画素をその場で色替えする(バックグラウンドスレッドから呼んでよい)。<see cref="SessionRecolor.Apply(Color32*, int, int, IrocaSessionState, CancellationToken)"/>
+        /// と同じ計算で、選択を格子の点だけ控えて(<see cref="SelectionCache.ForSamples"/>。控えても計算は同じで、出力は変わらない)、
+        /// どのゾーンがどこを塗るかを返す(有効なゾーンが無ければ null で、画素は変えない)。
+        /// </summary>
+        private static unsafe ZoneShareGrid Recolor(NativePixels pixels, IrocaSessionState state,
+            CancellationToken cancellationToken = default) {
+            var input = RecolorInput.FromSaved(state);
+            if (input == null) {
+                return null;
+            }
+            int w = pixels.Width, h = pixels.Height;
+            try {
+                int[] samples = ZoneShareGrid.Samples(w, h, out _, out _);
+                bool[] counted = ZoneShareGrid.Opaque(pixels.Ptr, samples);
+                using (var selection = SelectionCache.ForSamples(samples)) {
+                    PixelProcessor.ProcessPixelsNative(pixels.Ptr, w, h, input.Masks, input.Zones, input.Settings,
+                        cancellationToken, selectionCache: selection);
+                    return ZoneShareGrid.Capture(selection, true, samples, w, h, input.Zones, input.Masks, counted);
+                }
+            } finally {
+                input.ReleaseMasks();
+            }
+        }
 
         // レシピの編集状態を読み、色替えするものがあるか確かめる(軽い)。
         private static bool TryLoadState(IrocaRecipe recipe, out IrocaSessionState state, out Failure failure) {

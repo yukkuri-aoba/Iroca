@@ -1656,12 +1656,15 @@ namespace Iroca {
             : "Hide this notice for this texture. It comes back the next time you open Unity.";
         public static string ShadowMatchHeader => IsJapanese ? "影の色を変更先カラーに合わせる" : "Match shadow color to target color";
         public static string ShadowMatchToggleTooltip => IsJapanese
-            ? "オンにすると、シーンのプレビューと再生・アップロードで、このマテリアルの影の色を変更先カラーに合わせます。マテリアルそのものは変わりません。合わせる色は、レシピの最初の有効なゾーンの色から決まります。見本は左が元の 1 影の色、右が合わせた色です。"
-            : "When on, the shadow color of this material follows the target color in the scene preview and in play/upload. The material itself is not changed. The color comes from the first enabled zone of the recipe. The swatches show the original first shadow color (left) and the matched color (right).";
+            ? "オンにすると、シーンのプレビューと再生・アップロードで、このマテリアルの影の色を変更先カラーに合わせます。マテリアルそのものは変わりません。合わせる色は、このマテリアルが映す所を一番多く塗っているゾーンの色です（パーツごとにマテリアルを分けていれば、パーツごとの色になります）。色替えしていない所の方が広ければ、影の色は変えません。見本は左が元の 1 影の色、右が合わせた色です。"
+            : "When on, the shadow color of this material follows the target color in the scene preview and in play/upload. The material itself is not changed. The color comes from the zone that paints the most of what this material shows (so materials split by part each follow their own part). If most of it is not recolored, the shadow color is kept. The swatches show the original first shadow color (left) and the matched color (right).";
+        public static string ShadowMatchNotRecoloredHere => IsJapanese
+            ? "このマテリアルが映す所は、色替えしていない所の方が広いので、影の色は変えません。"
+            : "Most of what this material shows is not recolored, so its shadow color is kept.";
         // いろかウィンドウの「アバターに反映」の切り替え。{0} = 対象のマテリアルの名前の並び。
         public static string ShadowMatchWindowTooltipFormat => IsJapanese
-            ? "オンにすると、シーンのプレビューと再生・アップロードで、このテクスチャをメインに使う lilToon のマテリアル（{0}）の影の色を、変更先カラーに合わせます。マテリアルそのものは変わりません。\n設定は「Iroca Recolor」に入ります。まだ登録していなければ、先に「アバターに非破壊で登録」します。\nマテリアルごとの切り替えと、合わせた後の色の見本は、「Iroca Recolor」のインスペクタにあります。"
-            : "When on, the shadow color of the lilToon materials that use this texture as the main texture ({0}) follows the target color in the scene preview and in play/upload. The materials themselves are not changed.\nThe setting is stored in \"Iroca Recolor\". If not registered yet, this registers to the avatar first.\nTo switch each material separately and to see the matched colors, use the \"Iroca Recolor\" inspector.";
+            ? "オンにすると、シーンのプレビューと再生・アップロードで、このテクスチャをメインに使う lilToon のマテリアル（{0}）の影の色を、変更先カラーに合わせます。マテリアルそのものは変わりません。\n合わせる色はマテリアルごとに、そのマテリアルが映す所を一番多く塗っているゾーンの色です（パーツごとにマテリアルを分けていれば、パーツごとの色になります）。色替えしていないパーツのマテリアルは対象に入りません。\n設定は「Iroca Recolor」に入ります。まだ登録していなければ、先に「アバターに非破壊で登録」します。\nマテリアルごとの切り替えと、合わせた後の色の見本は、「Iroca Recolor」のインスペクタにあります。"
+            : "When on, the shadow color of the lilToon materials that use this texture as the main texture ({0}) follows the target color in the scene preview and in play/upload. The materials themselves are not changed.\nEach material follows the zone that paints the most of what it shows (so materials split by part each follow their own part). Materials of parts that are not recolored are not included.\nThe setting is stored in \"Iroca Recolor\". If not registered yet, this registers to the avatar first.\nTo switch each material separately and to see the matched colors, use the \"Iroca Recolor\" inspector.";
 
         public static string RecolorEmptyEntry => IsJapanese
             ? "空の欄があります。レシピを設定するか、欄を消してください。"

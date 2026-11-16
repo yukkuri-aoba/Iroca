@@ -142,24 +142,40 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 編集中の色(<see cref="MaterialShadowColors.TryGetColors(IList{ColorZone}, out Color, out Color)"/>)を知らせる
-        /// (ウィンドウは毎フレーム呼んでよい)。シーンのプレビューは、変わったらマテリアルの複製の影の色を塗り直す
-        /// (色を動かしている間に NDMF の作り直しを起こさないよう、<see cref="ShadowColorsVersion"/> で見る)。
+        /// 編集中のゾーンの色(<see cref="ZoneColors"/>)を知らせる(ウィンドウは毎フレーム呼んでよい。変わったときだけ覚え直す)。
+        /// シーンのプレビューは、変わったらマテリアルの複製の影の色を塗り直す(色を動かしている間に NDMF の作り直しを
+        /// 起こさないよう、<see cref="ShadowVersion"/> で見る)。
         /// </summary>
-        public static void SetShadowColors(bool has, Color sample, Color target) {
-            if (has == HasShadowColors && (!has || (sample == ShadowSample && target == ShadowTarget))) {
+        public static void SetShadowZoneColors(IList<ColorZone> zones) {
+            if (ShadowZoneColors.SameAs(zones)) {
                 return;
             }
-            HasShadowColors = has;
-            ShadowSample = sample;
-            ShadowTarget = target;
-            ShadowColorsVersion++;
+            ShadowZoneColors = ZoneColors.From(zones);
+            ShadowVersion++;
         }
 
-        internal static bool HasShadowColors { get; private set; }
-        internal static Color ShadowSample { get; private set; }
-        internal static Color ShadowTarget { get; private set; }
-        internal static int ShadowColorsVersion { get; private set; }
+        /// <summary>
+        /// 編集中の色替えで、どのゾーンがどこを塗るか(<see cref="ZoneShareGrid"/>。プレビューの確定段ごと)を知らせる。
+        /// 影の色をマテリアルごとに、そのマテリアルが映す所を一番多く塗ったゾーンの色に合わせるのに使う。
+        /// </summary>
+        public static void SetShadowShares(Texture2D source, ZoneShareGrid shares) {
+            if (source == null || (ShadowSharesSource == source && ReferenceEquals(ShadowShares, shares))) {
+                return;
+            }
+            ShadowSharesSource = source;
+            ShadowShares = shares;
+            ShadowVersion++;
+        }
+
+        internal static ZoneColors ShadowZoneColors { get; private set; } = ZoneColors.Empty;
+        /// <summary><see cref="ShadowShares"/> を作った元テクスチャ(別のテクスチャのものは使わない)。</summary>
+        internal static Texture2D ShadowSharesSource { get; private set; }
+        internal static ZoneShareGrid ShadowShares { get; private set; }
+        internal static int ShadowVersion { get; private set; }
+
+        /// <summary><paramref name="source"/> の編集中の、どのゾーンがどこを塗るか(まだ無い・別のテクスチャなら null)。</summary>
+        internal static ZoneShareGrid ShadowSharesOf(Texture2D source)
+            => source != null && ShadowSharesSource == source ? ShadowShares : null;
 
         /// <summary>
         /// 色替えの結果(Mono のヒープの外の画素。ドラッグ中の縮小版か、確定のフル解像度)を置く。<paramref name="source"/> が

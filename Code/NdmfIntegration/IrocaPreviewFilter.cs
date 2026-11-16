@@ -426,8 +426,10 @@ namespace Iroca.NdmfIntegration {
                 public bool matchShadow;
             }
 
-            // ライブで影の色を合わせている複製(ウィンドウで色を動かしたら OnFrame で塗り直す)。
-            private readonly List<(Material clone, Material original)> _liveShadowClones = new List<(Material, Material)>();
+            // ライブで影の色を合わせている複製と、元のマテリアル・元テクスチャ・そのマテリアルが映す所(ウィンドウで色を
+            // 動かしたら OnFrame で塗り直す)。
+            private readonly List<(Material clone, Material original, Texture2D source, ShadowArea area)> _liveShadowClones =
+                new List<(Material, Material, Texture2D, ShadowArea)>();
             private int _liveShadowVersion = -1;
 
             private readonly List<Slot> _slots = new List<Slot>();
@@ -632,9 +634,14 @@ namespace Iroca.NdmfIntegration {
                     }
                     clone.SetTexture(s.property, texture);
                     if (s.matchShadow) {
+                        // 影の色は、そのマテリアルが映す所(このグループで、そのマテリアルで描くサブメッシュ)を一番多く
+                        // 塗ったゾーンの色に合わせる(パーツごとにマテリアルを分けて 1 枚のテクスチャを共有していても、
+                        // パーツごとに合う)。どのゾーンもほとんど塗っていなければ元の色のまま。
+                        var area = ShadowArea.Of(s.material, proxies);
                         if (s.recipe == null) {
-                            _liveShadowClones.Add((clone, s.material));
-                        } else if (MaterialShadowColors.TryGetColors(s.recipeAsset, out var sample, out var target)) {
+                            _liveShadowClones.Add((clone, s.material, s.source, area));
+                        } else if (MaterialShadowColors.TryChooseColors(RecipeZoneShares.Get(s.recipeAsset, computeIfMissing: true),
+                                       area, MaterialShadowColors.ColorsOf(s.recipeAsset), out var sample, out var target)) {
                             MaterialShadowColors.Apply(clone, s.material, sample, target);
                         }
                     }
@@ -691,17 +698,20 @@ namespace Iroca.NdmfIntegration {
                 Replace(proxy);
             }
 
-            // ウィンドウで色を動かしたら、ライブの複製の影の色を塗り直す(NDMF の作り直しは起こさない)。
+            // ウィンドウで色を動かした・プレビューの確定段で塗る所が変わったら、ライブの複製の影の色を塗り直す
+            // (NDMF の作り直しは起こさない)。合わせる色が決まらない(そのマテリアルが映す所をどのゾーンもほとんど
+            // 塗っていない・塗る所がまだ届いていない)ものは元の影の色へ戻す。
             private void UpdateLiveShadowColors() {
-                if (_liveShadowClones.Count == 0 || _liveShadowVersion == LivePreview.ShadowColorsVersion) {
+                if (_liveShadowClones.Count == 0 || _liveShadowVersion == LivePreview.ShadowVersion) {
                     return;
                 }
-                _liveShadowVersion = LivePreview.ShadowColorsVersion;
-                foreach (var (clone, source) in _liveShadowClones) {
-                    if (LivePreview.HasShadowColors) {
-                        MaterialShadowColors.Apply(clone, source, LivePreview.ShadowSample, LivePreview.ShadowTarget);
+                _liveShadowVersion = LivePreview.ShadowVersion;
+                foreach (var (clone, original, source, area) in _liveShadowClones) {
+                    if (MaterialShadowColors.TryChooseColors(LivePreview.ShadowSharesOf(source), area, LivePreview.ShadowZoneColors,
+                            out var sample, out var target)) {
+                        MaterialShadowColors.Apply(clone, original, sample, target);
                     } else {
-                        MaterialShadowColors.Restore(clone, source);
+                        MaterialShadowColors.Restore(clone, original);
                     }
                 }
             }

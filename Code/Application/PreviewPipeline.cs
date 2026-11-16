@@ -131,6 +131,8 @@ namespace Iroca {
         private readonly PreviewJob<FullResult> _previewJob = new PreviewJob<FullResult>();
         private struct FullResult {
             public NativePixels processed, raw, full, display;
+            // どのゾーンがどこを塗るか(影の色をマテリアルごとに合わせるのに、シーンのプレビューへ知らせる)。
+            public ZoneShareGrid shares;
         }
         // 段階的リファインの第1段。ソースが大きい(scale<1)とき、まず縮小プロキシで概要を即表示する
         // 専用ジョブ。完了 apply で _previewJob(フル解像度)を同一スナップショットでスケジュールする。
@@ -1319,6 +1321,14 @@ namespace Iroca {
                             sourcePixels: src.Ptr);
                         marks.CoreEnd = PreviewLatencyCycle.Now;
                         marks.CoreReport = DebugCaptureHooks.TakeThreadPerfReport();
+                        // いま控えた選択から、どのゾーンがどこを塗るかを粗い格子で読む(影の色をマテリアルごとに合わせる。
+                        // 格子は約 6.5 万点なので、確定段 1 回に数 ms)。
+                        ZoneShareGrid shares = null;
+                        if (selCache != null && req.source != null) {
+                            int[] samples = ZoneShareGrid.Samples(req.srcW, req.srcH, out _, out _);
+                            shares = ZoneShareGrid.Capture(selCache, false, samples, req.srcW, req.srcH, req.zonesSnapshot,
+                                jobMasks, ZoneShareGrid.Opaque(src.Ptr, samples));
+                        }
 
                         // 表示用(縮小しないテクスチャは表示の上限 IrocaConsts.Preview.MaxSize 以下なので、出力そのものを上げる)。
                         if (req.scale < 1f) {
@@ -1343,7 +1353,9 @@ namespace Iroca {
                         }
                         marks.WorkEnd = PreviewLatencyCycle.Now;
                         handedOff = true;
-                        return new FullResult { processed = processedDisplay, raw = rawForJob, full = pixels, display = display };
+                        return new FullResult {
+                            processed = processedDisplay, raw = rawForJob, full = pixels, display = display, shares = shares,
+                        };
                     } finally {
                         // 取り消し・例外で結果を渡さなかった作業バッファは、もう書かないので使い回しへ戻す。
                         if (!handedOff) {
@@ -1395,6 +1407,7 @@ namespace Iroca {
                     // シーンのアバターにはフル解像度の結果を映す(取り込み済みテクスチャの寸法へは LivePreview が合わせる。
                     // 映している間は LivePreview が参照を持つ)。
                     LivePreview.Push(req.source, result.full, TrueSourceFromFile);
+                    LivePreview.SetShadowShares(req.source, result.shares);
                     _host.PublishDebugCapture(req.debugCap);
                     // 充填完了したキャプチャを（メインスレッドの）ここで初めて公開する。
                     // 生成時に公開すると、DebugWindow が Add 中のリストを foreach して競合する。

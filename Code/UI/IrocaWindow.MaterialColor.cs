@@ -220,8 +220,10 @@ namespace Iroca {
 
         // ───────────── 影の色を塗り先に合わせる ─────────────
 
-        // 影の色を合わせられるマテリアル(lilToon で影を使い、元テクスチャをメインに使う)。「アバターに反映」欄の
-        // 「影の色を変更先カラーに合わせる」に出す。無ければ null。読み直しの間隔は上と同じ。
+        // 影の色を合わせられるマテリアル(lilToon で影を使い、元テクスチャをメインに使い、映す所を一番多く塗っているのが
+        // 色の決まったゾーン)。「アバターに反映」欄の「影の色を変更先カラーに合わせる」に出す。無ければ null。
+        // 色替えしていないパーツのマテリアル(同じテクスチャを共有する肌など)は入れない(合わせても影の色は変わらない)。
+        // 読み直しの間隔は上と同じ。
         [System.NonSerialized] private List<Material> _shadowEligible;
         // そのうち、影の色を合わせる設定になっている数(シーンの「Iroca Recolor」のどれかに入っている)。
         [System.NonSerialized] private int _shadowMatchedCount;
@@ -230,8 +232,39 @@ namespace Iroca {
         // 影色テクスチャが元テクスチャと別に描かれているマテリアルとそのテクスチャ(影はその色のまま残るので案内に出す)。
         [System.NonSerialized] private List<(Material material, Texture texture)> _shadowTextures;
         [System.NonSerialized] private double _shadowMismatchReadAt;
-        // 上を何の読み取り結果から作ったか(テクスチャを替えたら、間隔を待たずに作り直す)。
+        // 上を何の読み取り結果・どのゾーンがどこを塗るかから作ったか(テクスチャを替えた・プレビューの確定段が新しい塗る所を
+        // 知らせたら、間隔を待たずに作り直す)。
         [System.NonSerialized] private List<List<MaterialColorSettings.Report>> _shadowStateGroups;
+        [System.NonSerialized] private ZoneShareGrid _shadowStateShares;
+
+        // 開いているシーンの、マテリアル → それを使う Renderer(マテリアルが映す所を求める。ShadowArea)。シーンの Renderer の
+        // 顔ぶれが変わったら(SceneRendererChanges)作り直す。
+        [System.NonSerialized] private Dictionary<Material, List<Renderer>> _sceneRenderersByMaterial;
+        [System.NonSerialized] private int _sceneRenderersVersion = -1;
+
+        private List<Renderer> SceneRenderersUsing(Material material) {
+            if (_sceneRenderersByMaterial == null || _sceneRenderersVersion != SceneRendererChanges.Version) {
+                _sceneRenderersVersion = SceneRendererChanges.Version;
+                _sceneRenderersByMaterial = new Dictionary<Material, List<Renderer>>();
+                foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None)) {
+                    if (EditorUtility.IsPersistent(r)) {
+                        continue;
+                    }
+                    foreach (var m in r.sharedMaterials) {
+                        if (m == null) {
+                            continue;
+                        }
+                        if (!_sceneRenderersByMaterial.TryGetValue(m, out var list)) {
+                            _sceneRenderersByMaterial.Add(m, list = new List<Renderer>());
+                        }
+                        if (!list.Contains(r)) {
+                            list.Add(r);
+                        }
+                    }
+                }
+            }
+            return _sceneRenderersByMaterial.TryGetValue(material, out var found) ? found : null;
+        }
 
         // Layout のときだけ読み直す(同じフレームの Repaint と並ぶ要素をそろえる)。シーンの部品を探すので毎フレームは読まない。
         // 案内(テクスチャ欄の下)と切り替え(「アバターに反映」欄)の両方から呼ぶ。同じフレームの 2 回目は何もしない。
@@ -242,25 +275,30 @@ namespace Iroca {
             // 切り替えの高さは案内より先に(書き出し欄の高さの見積もりで)求めるので、読み取り結果もここで新しくする。
             RefreshMaterialColors();
             var groups = _materialColorGroups;
+            var source = SourceTexture;
+            // どのゾーンがどこを塗るか(プレビューの確定段が知らせる。まだ無ければ、どのマテリアルも選べない)。
+            var shares = LivePreview.ShadowSharesOf(source);
             double now = EditorApplication.timeSinceStartup;
             // シーンの全「Iroca Recolor」を探すので、マウスを押している間(スライダーのドラッグ中)は読み直さない。
-            // 読み取り結果が替わったとき(テクスチャを替えた・マテリアルを読み直した)は待たない。
-            if (ReferenceEquals(groups, _shadowStateGroups)
+            // 読み取り結果・塗る所が替わったとき(テクスチャを替えた・マテリアルを読み直した・確定段が届いた)は待たない。
+            if (ReferenceEquals(groups, _shadowStateGroups) && ReferenceEquals(shares, _shadowStateShares)
                 && (now - _shadowMismatchReadAt < MaterialColorRereadSeconds || GUIUtility.hotControl != 0)) {
                 return;
             }
             _shadowStateGroups = groups;
+            _shadowStateShares = shares;
             _shadowMismatchReadAt = now;
             _shadowEligible = null;
             _shadowMatchedCount = 0;
             _shadowMismatch = null;
             _shadowTextures = null;
-            var source = SourceTexture;
-            if (source == null || groups == null) {
+            if (source == null || groups == null || shares == null) {
                 return;
             }
-            // 塗り先の色が決まっていなければ、ずれは測れない(案内は出さない)。切り替えは色と関係なく出す。
-            bool hasColors = MaterialShadowColors.TryGetColors(Session?.zones, out var sample, out var target);
+            var colors = ZoneColors.From(Session?.zones);
+            if (colors.IsEmpty) {
+                return;
+            }
             // シーンの「Iroca Recolor」は、影の色を合わせられるマテリアルが見つかってから探す。
             IrocaRecolor[] components = null;
             foreach (var g in groups) {
@@ -270,18 +308,22 @@ namespace Iroca {
                         || !MaterialShadowColors.IsEligible(m)) {
                         continue;
                     }
+                    // このマテリアルが映す所を一番多く塗っているゾーンの色(ビルド・シーンのプレビューと同じ選び方)。
+                    // 色替えしていないパーツなら選ばれない(合わせても変わらないので、切り替えにも案内にも出さない)。
+                    var area = ShadowArea.Of(m, SceneRenderersUsing(m));
+                    if (!MaterialShadowColors.TryChooseColors(shares, area, colors, out var sample, out var target)) {
+                        continue;
+                    }
                     (_shadowEligible ??= new List<Material>()).Add(m);
-                    if (hasColors) {
-                        foreach (var t in MaterialShadowColors.SeparateShadowTextures(m, source)) {
-                            (_shadowTextures ??= new List<(Material, Texture)>()).Add((m, t));
-                        }
+                    foreach (var t in MaterialShadowColors.SeparateShadowTextures(m, source)) {
+                        (_shadowTextures ??= new List<(Material, Texture)>()).Add((m, t));
                     }
                     components ??= Object.FindObjectsByType<IrocaRecolor>(FindObjectsInactive.Include, FindObjectsSortMode.None);
                     if (RecipeRegistration.HasShadowMatch(components, m, source)) {
                         _shadowMatchedCount++;
                         continue;
                     }
-                    if (hasColors && MaterialShadowColors.NeedsMatch(m, sample, target)) {
+                    if (MaterialShadowColors.NeedsMatch(m, sample, target)) {
                         (_shadowMismatch ??= new List<Material>()).Add(m);
                     }
                 }

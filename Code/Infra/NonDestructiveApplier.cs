@@ -273,6 +273,26 @@ namespace Iroca {
                        && MaterialShadowColors.MainTextureIs(root, source);
             }
 
+            // 影の色を合わせる複製に、そのマテリアルが映す所を一番多く塗ったゾーンの色で影の色を書く(どのゾーンもほとんど
+            // 塗っていなければ元の色のまま)。映す所は、このコンポーネントの範囲で元のマテリアル(か、その複製)を使う Renderer から
+            // 求める。どこを塗るかの控えは、テクスチャを作った計算が残したもの(無ければここで 1 回計算する)。
+            ZoneShareGrid shadowShares = null;
+            bool shadowSharesRead = false;
+            List<Renderer> shadowScope = null;
+            Material RootOf(Material m) => state.cloneRoots.TryGetValue(m, out var cloneRoot) ? cloneRoot : m;
+            void MatchShadow(Material clone, Material root) {
+                if (!shadowSharesRead) {
+                    shadowSharesRead = true;
+                    shadowShares = RecipeZoneShares.Get(recipe, computeIfMissing: true);
+                }
+                shadowScope ??= new List<Renderer>(component.GetComponentsInChildren<Renderer>(true));
+                var area = ShadowArea.Of(root, shadowScope, RootOf);
+                if (MaterialShadowColors.TryChooseColors(shadowShares, area, MaterialShadowColors.ColorsOf(recipe),
+                        out var sample, out var target)) {
+                    MaterialShadowColors.Apply(clone, root, sample, target);
+                }
+            }
+
             // 元テクスチャを参照していれば複製して差し替えたものを返す(参照していなければ null)。
             // Renderer の欄とアニメーションのキーフレームの両方から呼ぶ(同じマテリアルは同じ複製になる)。
             Material Swap(Material original) {
@@ -318,8 +338,8 @@ namespace Iroca {
                     clone.name = original.name;
                     ReplaceTexture(clone, source, recolored);
                     state.cloneRoots[clone] = root;
-                    if (matchShadow && MaterialShadowColors.TryGetColors(recipe, out var sample, out var target)) {
-                        MaterialShadowColors.Apply(clone, root, sample, target);
+                    if (matchShadow) {
+                        MatchShadow(clone, root);
                     }
                     host.SaveAsset(clone);
                     host.RegisterReplaced(original, clone);

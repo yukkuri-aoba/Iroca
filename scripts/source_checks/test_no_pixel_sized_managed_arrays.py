@@ -89,6 +89,18 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "漏れの確かめの塊の数(多くても ZoneAutoTuner.LeakMaxBlobs = 6)。塊ごとの「背景まで広がった」の印",
     ("Code/Application/AutoTuneService.cs", "new bool[props.Length]"):
         "漏れの確かめの塊の数(多くても 6)。塊ごとの「細かい提案が要る」の印",
+    ("Code/Infra/ZoneShareGrid.cs", "new int[gridW * gridH]"):
+        "影の色を合わせるための粗い格子の点(ZoneShareGrid.TargetCells = 65536 以下。原本の大きさに依らない)",
+    ("Code/Infra/ZoneShareGrid.cs", "new bool[samples.Length]"):
+        "同じ粗い格子の点の数(65536 以下)。点ごとの「不透明か」の印",
+    ("Code/Infra/ZoneShareGrid.cs", "new byte[(_counted.Length + 7) / 8]"):
+        "同じ粗い格子の点の数(65536 以下)の印を 8 点ずつ詰めたもの(ファイルへ書く)",
+    ("Code/Infra/ZoneShareGrid.cs", "new byte[zoneIds.Length]"):
+        "ゾーンの数(ゾーンごとの取り分の配列の配列)",
+    ("Code/Infra/ZoneShareGrid.cs", "new long[_zoneIds.Length]"):
+        "ゾーンの数(ゾーンごとの取り分の合計)",
+    ("Code/Infra/ShadowArea.cs", "new bool[grid.GridW * grid.GridH]"):
+        "影の色を合わせるための粗い格子の点(65536 以下)。マテリアルが映す所の印",
 }
 
 

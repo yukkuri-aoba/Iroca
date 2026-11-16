@@ -33,6 +33,12 @@ namespace Iroca {
             public int renderers;
             public readonly List<KeyValuePair<string, int>> inner = new List<KeyValuePair<string, int>>();
             public readonly List<Material> shadowMaterials = new List<Material>();
+            // 子の全 Renderer(影の色を合わせるとき、マテリアルが映す所を求める。ShadowArea)。
+            public readonly List<Renderer> scopeRenderers = new List<Renderer>();
+            // どのゾーンがどこを塗るか(ビルドかシーンのプレビューが控えたもの。無ければ null)。数えたとき(Layout)の後、
+            // 最初に影の欄を描くときに 1 回だけ読む(同じフレームの Layout と Repaint で行の数が食い違わない)。
+            public ZoneShareGrid shares;
+            public bool sharesRead;
         }
 
         private void ForgetScopesOnLayout() {
@@ -143,7 +149,7 @@ namespace Iroca {
             } else {
                 var scope = Scope(component, source);
                 DrawScope(scope, source);
-                DrawShadowMatch(component, source, scope, Summary(recipe).Zones(recipe));
+                DrawShadowMatch(component, recipe, source, scope);
             }
 
             using (new EditorGUI.DisabledScope(source == null)) {
@@ -154,13 +160,19 @@ namespace Iroca {
         }
 
         // 範囲で元テクスチャをメインに使う、影のあるマテリアルごとの「影の色を合わせる」。設定はこのコンポーネントが持ち、
-        // マテリアルそのものは変えない。
-        private static void DrawShadowMatch(IrocaRecolor component, Texture2D source, ScopeInfo scope, List<ColorZone> zones) {
+        // マテリアルそのものは変えない。合わせる色はマテリアルごとに、そのマテリアルが映す所を一番多く塗ったゾーンの色
+        // (どこを塗るかは、ビルドかシーンのプレビューが控えたもの。まだ無ければ見本を出さない)。
+        private static void DrawShadowMatch(IrocaRecolor component, IrocaRecipe recipe, Texture2D source, ScopeInfo scope) {
             var materials = scope.shadowMaterials;
             if (materials.Count == 0) {
                 return;
             }
-            bool hasColors = MaterialShadowColors.TryGetColors(zones, out var sample, out var target);
+            if (!scope.sharesRead) {
+                scope.sharesRead = true;
+                scope.shares = RecipeZoneShares.Get(recipe, computeIfMissing: false);
+            }
+            var shares = scope.shares;
+            var colors = MaterialShadowColors.ColorsOf(recipe);
 
             EditorGUILayout.LabelField(Localization.ShadowMatchHeader, EditorStyles.miniBoldLabel);
             foreach (var m in materials) {
@@ -168,14 +180,21 @@ namespace Iroca {
                     continue;   // 数えた後に消えた素材(次の Layout で数え直す)
                 }
                 bool on = component.shadowMatchMaterials != null && component.shadowMatchMaterials.Contains(m);
+                Color sample = default, target = default;
+                bool chosen = on && shares != null && MaterialShadowColors.TryChooseColors(shares,
+                    ShadowArea.Of(m, scope.scopeRenderers), colors, out sample, out target);
                 EditorGUILayout.BeginHorizontal();
                 bool next = EditorGUILayout.ToggleLeft(TempContent.Of(m.name, Localization.ShadowMatchToggleTooltip), on);
-                if (on && hasColors && MaterialShadowColors.TryGetPreview(m, sample, target, out var before, out var after)) {
+                if (chosen && MaterialShadowColors.TryGetPreview(m, sample, target, out var before, out var after)) {
                     var rect = GUILayoutUtility.GetRect(48f, EditorGUIUtility.singleLineHeight, GUILayout.ExpandWidth(false));
                     EditorGUI.DrawRect(new Rect(rect.x, rect.y + 2f, rect.width / 2f, rect.height - 4f), new Color(before.r, before.g, before.b, 1f));
                     EditorGUI.DrawRect(new Rect(rect.x + rect.width / 2f, rect.y + 2f, rect.width / 2f, rect.height - 4f), new Color(after.r, after.g, after.b, 1f));
                 }
                 EditorGUILayout.EndHorizontal();
+                // オンでも、このマテリアルが映す所をどのゾーンもほとんど塗っていなければ(色替えしていないパーツ)、影の色は変えない。
+                if (on && shares != null && !chosen) {
+                    EditorGUILayout.LabelField(Localization.ShadowMatchNotRecoloredHere, EditorStyles.wordWrappedMiniLabel);
+                }
                 // 影色テクスチャが別に描かれていると、影の色を合わせても影の部分はそのテクスチャの色のまま。
                 foreach (var shadowTexture in MaterialShadowColors.SeparateShadowTextures(m, source)) {
                     EditorGUILayout.HelpBox(string.Format(Localization.ShadowColorTextureNoticeFormat, m.name, shadowTexture.name),
@@ -240,6 +259,7 @@ namespace Iroca {
             var innerPlan = PreviewTargeting.PlanOf(InnerComponents(component));
             var inner = new Dictionary<GameObject, HashSet<Material>>();
             foreach (var r in component.GetComponentsInChildren<Renderer>(true)) {
+                info.scopeRenderers.Add(r);
                 GameObject owner = innerPlan.TryFindOwner(r.transform, source, out var registered) ? registered.owner : null;
                 bool any = false;
                 foreach (var m in r.sharedMaterials) {

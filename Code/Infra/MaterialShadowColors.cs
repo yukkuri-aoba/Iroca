@@ -8,6 +8,7 @@ namespace Iroca {
     /// <see cref="IrocaRecolor.shadowMatchMaterials"/> の実体。マテリアルの影の色を読み、複製へ塗り先に合わせた色を書く。
     /// 元のマテリアルには書き込まない。非破壊ビルド(<see cref="NonDestructiveApplier"/>)・シーンのプレビュー・
     /// いろかウィンドウの案内・インスペクタが同じ判断を使う。今は lilToon だけ(影の色の欄の名前がシェーダーごとに違う)。
+    /// 合わせる色はマテリアルごとに選ぶ(<see cref="TryChooseColors"/>。そのマテリアルが映す所を一番多く塗ったゾーンの色)。
     /// </summary>
     internal static class MaterialShadowColors {
         // lilToon の 1〜3 影の色。掛かる先はメインテクスチャか影色テクスチャ。
@@ -25,56 +26,50 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 合わせる色を決めるゾーン: 有効で、サンプルと変更先の色が決まっている最初のもの。
-        /// 影の色はマテリアルに 1 つなので、複数の色へ塗り分けていてもこのゾーンの色に合わせる。
+        /// マテリアル 1 つの影の色を合わせる色(サンプル色 → 変更先カラー)を選ぶ。影の色はマテリアルに 1 つなので、
+        /// マテリアルが映す所(<paramref name="area"/>)を一番多く塗っているゾーンの色に合わせる(<see cref="ZoneShareGrid.Choose"/>)。
+        /// 1 枚のテクスチャをパーツごとのマテリアルで共有していても、パーツごとに、そのパーツを塗った色になる。
+        /// どのゾーンにも塗られていない所の方が多い(色替えしていないパーツ)・そのゾーンの色が決まっていない・
+        /// <paramref name="grid"/> が無いときは false(影の色は変えない)。<paramref name="area"/> が null なら、テクスチャ全体で選ぶ。
         /// </summary>
-        public static bool TryGetColors(IList<ColorZone> zones, out Color sample, out Color target) {
+        public static bool TryChooseColors(ZoneShareGrid grid, ShadowArea area, ZoneColors colors,
+            out Color sample, out Color target) {
             sample = target = default;
-            if (zones == null) {
+            if (grid == null || colors == null) {
                 return false;
             }
-            for (int i = 0; i < zones.Count; i++) {
-                var z = zones[i];
-                if (z == null || !z.enabled || !z.sampleColorSet || !z.HasTargetColor) {
-                    continue;
-                }
-                sample = z.sampleColor;
-                target = z.targetColor;
-                return true;
-            }
-            return false;
+            string zone = grid.Choose(area != null ? area.On(grid) : null);
+            return colors.TryGet(zone, out sample, out target);
         }
 
         /// <summary>
-        /// <see cref="TryGetColors(IList{ColorZone}, out Color, out Color)"/> のレシピ版(読めないレシピは false)。
-        /// 非破壊ビルドは影を合わせる複製ごとに、シーンのプレビューは差し替えの枠ごとに呼ぶ。レシピの中身(マスク込みの JSON。
-        /// 4K で数 MB)は、中身が変わったときだけ読む(ゾーンだけ)。以前は呼ばれるたびに全部を解析していた。
+        /// レシピのゾーンの色(<see cref="ZoneColors"/>。読めないレシピは空)。非破壊ビルドは影を合わせる複製ごとに、シーンの
+        /// プレビューは差し替えの枠ごとに呼ぶ。レシピの中身(マスク込みの JSON。4K で数 MB)は、中身が変わったときだけ読む
+        /// (ゾーンだけ)。
         /// </summary>
-        public static bool TryGetColors(IrocaRecipe recipe, out Color sample, out Color target) {
-            sample = target = default;
+        public static ZoneColors ColorsOf(IrocaRecipe recipe) {
             string json = recipe != null ? recipe.sessionJson : null;
             if (string.IsNullOrEmpty(json)) {
-                return false;
+                return ZoneColors.Empty;
             }
             if (!s_recipeColors.TryGetValue(json, out var known) || known.formatVersion != recipe.formatVersion) {
-                var fresh = new RecipeColors { formatVersion = recipe.formatVersion };
                 var zones = RecipeStore.LoadZones(recipe);
-                fresh.has = zones != null && TryGetColors(zones, out fresh.sample, out fresh.target);
+                var fresh = new RecipeColors {
+                    formatVersion = recipe.formatVersion,
+                    colors = zones != null ? ZoneColors.From(zones) : ZoneColors.Empty,
+                };
                 s_recipeColors.Remove(json);
                 s_recipeColors.Add(json, fresh);
                 known = fresh;
             }
-            sample = known.sample;
-            target = known.target;
-            return known.has;
+            return known.colors;
         }
 
-        // レシピの中身(sessionJson の文字列の参照)→ 合わせる色。同じ参照なら中身も同じ。弱い参照の表なので、レシピが文字列を
+        // レシピの中身(sessionJson の文字列の参照)→ ゾーンの色。同じ参照なら中身も同じ。弱い参照の表なので、レシピが文字列を
         // 手放せば覚えた分も消える(RecipeTextureBuilder の鍵の覚えと同じ作り)。読めるかは形式の版でも変わるので、版も覚える。
         private sealed class RecipeColors {
             public int formatVersion;
-            public bool has;
-            public Color sample, target;
+            public ZoneColors colors;
         }
 
         private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<string, RecipeColors> s_recipeColors =

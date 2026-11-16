@@ -18,6 +18,8 @@ namespace Iroca.EditorTests {
 
         private TestAssets _assets;
         private readonly List<Object> _created = new List<Object>();
+        // 非破壊ビルドが残す、どのゾーンがどこを塗るかの控え(後で消す)。
+        private readonly List<string> _shareFiles = new List<string>();
 
         [SetUp] public void SetUp() => _assets = TestAssets.Create();
 
@@ -29,6 +31,11 @@ namespace Iroca.EditorTests {
                 }
             }
             _created.Clear();
+            foreach (var f in _shareFiles) {
+                try { System.IO.File.Delete(f); } catch (System.IO.IOException) { /* 次回 */ }
+            }
+            _shareFiles.Clear();
+            RecipeZoneShares.ClearMemory();
             _assets.Dispose();
         }
 
@@ -82,13 +89,7 @@ namespace Iroca.EditorTests {
             CollectionAssert.IsEmpty(MaterialShadowColors.SeparateShadowTextures(standard, src));
         }
 
-        private IrocaRecipe Recipe(Texture2D src) {
-            var zone = new ColorZone { sampleColor = Sample, sampleColorSet = true, targetColor = Target, tolerance = 0.2f };
-            zone.EnsureId();
-            var state = new IrocaSessionState();
-            state.zones.Add(zone);
-            return RecipeStore.Create(src, state, _assets.Folder);
-        }
+        private IrocaRecipe Recipe(Texture2D src) => RecipeWith(src, Zone(Sample, Target));
 
         private GameObject Node(string name, Transform parent, Material mat = null) {
             var go = Track(mat != null ? GameObject.CreatePrimitive(PrimitiveType.Cube) : new GameObject());
@@ -103,6 +104,49 @@ namespace Iroca.EditorTests {
         }
 
         private static Color Expected => ShadowColorMatch.Compute(BlueShadow, Sample, Target);
+
+        private static readonly Color Pink = new Color(250 / 255f, 200 / 255f, 210 / 255f);
+
+        // 左半分が Sample の色、右半分がピンクのテクスチャ。
+        private Texture2D HalfAndHalf(string name) {
+            const int w = 16, h = 8;
+            var px = new Color32[w * h];
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    px[y * w + x] = x < w / 2 ? new Color32(172, 217, 254, 255) : new Color32(250, 200, 210, 255);
+                }
+            }
+            string path = _assets.WritePng(name, px, w, h);
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
+        private static ColorZone Zone(Color sample, Color target) {
+            var zone = new ColorZone { sampleColor = sample, sampleColorSet = true, targetColor = target, tolerance = 0.2f };
+            zone.EnsureId();
+            return zone;
+        }
+
+        private IrocaRecipe RecipeWith(Texture2D src, params ColorZone[] zones) {
+            var state = new IrocaSessionState();
+            state.zones.AddRange(zones);
+            var recipe = RecipeStore.Create(src, state, _assets.Folder);
+            _shareFiles.Add(RecipeZoneShares.CachePath(RecipeTextureBuilder.CacheKey(recipe, src)));
+            return recipe;
+        }
+
+        // UV が横の [u0, u1] の帯だけを覆う板(パーツごとのマテリアルが、アトラスの一部だけを映す)。
+        private GameObject Quad(string name, Transform parent, Material mat, float u0, float u1) {
+            var go = Track(new GameObject(name));
+            go.transform.SetParent(parent, false);
+            var mesh = Track(new Mesh {
+                vertices = new[] { new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(0, 1, 0), new Vector3(1, 1, 0) },
+                uv = new[] { new Vector2(u0, 0), new Vector2(u1, 0), new Vector2(u0, 1), new Vector2(u1, 1) },
+                triangles = new[] { 0, 2, 1, 2, 3, 1 },
+            });
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            return go;
+        }
 
         private static void AssertColor(Color expected, Color actual, string message) {
             Assert.AreEqual(expected.r, actual.r, 1e-3f, message);
@@ -217,37 +261,81 @@ namespace Iroca.EditorTests {
             AssertColor(BlueShadow, mesh.GetComponent<Renderer>().sharedMaterial.GetColor("_ShadowColor"), "重ね描きの層の色替えで変えた");
         }
 
-        // レシピから合わせる色を読む(非破壊ビルドとシーンのプレビューが、複製・枠ごとに呼ぶ)。中身が同じ間は読み直さず、
+        // レシピのゾーンの色を読む(非破壊ビルドとシーンのプレビューが、複製・枠ごとに呼ぶ)。中身が同じ間は読み直さず、
         // 中身か形式の版が変われば読み直す。
         [Test]
-        public void TryGetColors_FromRecipe_FollowsTheRecipeContent() {
+        public void ColorsOf_FromRecipe_FollowsTheRecipeContent() {
             var src = Tex("src");
             var recipe = Recipe(src);
-            Assert.IsTrue(MaterialShadowColors.TryGetColors(recipe, out var sample, out var target));
+            string id = RecipeStore.LoadZones(recipe)[0].id;
+            var colors = MaterialShadowColors.ColorsOf(recipe);
+            Assert.IsTrue(colors.TryGet(id, out var sample, out var target));
             AssertColor(Sample, sample, "サンプルの色");
             AssertColor(Target, target, "塗り先の色");
-            Assert.IsTrue(MaterialShadowColors.TryGetColors(recipe, out _, out target), "2 回目(覚えから)");
-            AssertColor(Target, target, "塗り先の色(2 回目)");
+            Assert.AreSame(colors, MaterialShadowColors.ColorsOf(recipe), "2 回目(覚えから)で読み直した");
 
             // 中身が変わったら、新しい色を読む。
             var changed = RecipeStore.Load(recipe);
             changed.zones[0].targetColor = Color.yellow;
             RecipeStore.Save(recipe, changed);
-            Assert.IsTrue(MaterialShadowColors.TryGetColors(recipe, out _, out target));
+            Assert.IsTrue(MaterialShadowColors.ColorsOf(recipe).TryGet(id, out _, out target));
             AssertColor(Color.yellow, target, "レシピを書き換えた後の塗り先の色");
 
-            // 読めない形式の版になったら false(中身の文字列は同じ)。
+            // 読めない形式の版になったら空(中身の文字列は同じ)。
             int version = recipe.formatVersion;
             UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
             try {
                 recipe.formatVersion = IrocaRecipe.CurrentFormatVersion + 1;
-                Assert.IsFalse(MaterialShadowColors.TryGetColors(recipe, out _, out _), "読めない版のレシピから色を返した");
+                Assert.IsTrue(MaterialShadowColors.ColorsOf(recipe).IsEmpty, "読めない版のレシピから色を返した");
             } finally {
                 recipe.formatVersion = version;
                 UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false;
             }
-            Assert.IsTrue(MaterialShadowColors.TryGetColors(recipe, out _, out _), "版を戻した後");
-            Assert.IsFalse(MaterialShadowColors.TryGetColors((IrocaRecipe)null, out _, out _));
+            Assert.IsFalse(MaterialShadowColors.ColorsOf(recipe).IsEmpty, "版を戻した後");
+            Assert.IsTrue(MaterialShadowColors.ColorsOf(null).IsEmpty);
+        }
+
+        // パーツごとにマテリアルを分けて 1 枚のテクスチャ(左半分が水色・右半分がピンク)を共有しているとき、影の色は
+        // マテリアルごとに、そのマテリアルが映す所を塗ったゾーンの色に合わせる。色替えしていないパーツの影は変えない。
+        [Test]
+        public void Applier_PartsSharingATexture_EachFollowsItsOwnZone() {
+            var src = HalfAndHalf("atlas");
+            var left = LilToon(src);
+            var right = LilToon(src);
+            var root = Node("avatar", null);
+            var leftMesh = Quad("left", root.transform, left, 0f, 0.5f);
+            var rightMesh = Quad("right", root.transform, right, 0.5f, 1f);
+            var c = root.AddComponent<IrocaRecolor>();
+            c.recipes.Add(RecipeWith(src, Zone(Sample, Target)));
+            c.shadowMatchMaterials.Add(left);
+            c.shadowMatchMaterials.Add(right);
+
+            NonDestructiveApplier.Apply(root, new Host());
+
+            AssertColor(Expected, leftMesh.GetComponent<Renderer>().sharedMaterial.GetColor("_ShadowColor"), "塗ったパーツが合っていない");
+            AssertColor(BlueShadow, rightMesh.GetComponent<Renderer>().sharedMaterial.GetColor("_ShadowColor"),
+                "色替えしていないパーツの影まで変えた");
+        }
+
+        [Test]
+        public void Applier_PartsSharingATexture_TwoZones_EachMaterialGetsItsZoneColor() {
+            var src = HalfAndHalf("atlas2");
+            var left = LilToon(src);
+            var right = LilToon(src);
+            var root = Node("avatar", null);
+            var leftMesh = Quad("left", root.transform, left, 0f, 0.5f);
+            var rightMesh = Quad("right", root.transform, right, 0.5f, 1f);
+            var red = new Color(1f, 0.3f, 0.3f);
+            var c = root.AddComponent<IrocaRecolor>();
+            c.recipes.Add(RecipeWith(src, Zone(Sample, Target), Zone(Pink, red)));
+            c.shadowMatchMaterials.Add(left);
+            c.shadowMatchMaterials.Add(right);
+
+            NonDestructiveApplier.Apply(root, new Host());
+
+            AssertColor(Expected, leftMesh.GetComponent<Renderer>().sharedMaterial.GetColor("_ShadowColor"), "左のパーツ");
+            AssertColor(ShadowColorMatch.Compute(BlueShadow, Pink, red),
+                rightMesh.GetComponent<Renderer>().sharedMaterial.GetColor("_ShadowColor"), "右のパーツが最初のゾーンの色になった");
         }
 
         [Test]

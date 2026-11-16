@@ -103,7 +103,9 @@ namespace Iroca.EditorTests {
             var state = new IrocaSessionState();
             state.zones.Add(zone);
             var recipe = RecipeStore.Create(src, state, _assets.Folder);
-            _cacheFiles.Add(RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src)));
+            string key = RecipeTextureBuilder.CacheKey(recipe, src);
+            _cacheFiles.Add(RecipeTextureBuilder.CachePath(key));
+            _cacheFiles.Add(RecipeZoneShares.CachePath(key));
             return recipe;
         }
 
@@ -172,8 +174,10 @@ namespace Iroca.EditorTests {
             var matching = GroupOf(filter.FindTargets(new ComputeContext("test")), mesh);
             Assert.AreNotEqual(plain, matching, "設定を変えたのに同じグループ(NDMF がノードを作り直さない)");
 
-            // レシピの出来上がりを映すとき: レシピの色に合わせる。
-            MaterialShadowColors.TryGetColors(recipe, out var sample, out var target);
+            // レシピの出来上がりを映すとき: レシピの色に合わせる(このマテリアルが映す所を塗るのは、このゾーンだけ)。
+            var zones = RecipeStore.LoadZones(recipe);
+            var sample = zones[0].sampleColor;
+            var target = zones[0].targetColor;
             var proxy = ProxyOf(mesh);
             var node = TestAssets.Wait(filter.Instantiate(matching, new List<(Renderer, Renderer)> { (mesh, proxy) },
                 new ComputeContext("node")));
@@ -185,9 +189,12 @@ namespace Iroca.EditorTests {
                 node.Dispose();
             }
 
-            // ウィンドウで編集中: ウィンドウの色に追従し、NDMF の作り直しは要らない。
+            // ウィンドウで編集中: ウィンドウの色に追従し、NDMF の作り直しは要らない。どのゾーンがどこを塗るかはプレビューの
+            // 確定段が知らせる(ここでは、レシピの計算が控えたものを渡す)。
             LivePreview.SetTarget(src, recipe);
-            LivePreview.SetShadowColors(true, sample, new Color(1f, 0.8f, 0.8f));
+            LivePreview.SetShadowShares(src, RecipeZoneShares.Get(recipe, computeIfMissing: true));
+            zones[0].targetColor = new Color(1f, 0.8f, 0.8f);
+            LivePreview.SetShadowZoneColors(zones);
             var liveProxy = ProxyOf(mesh);
             var liveNode = TestAssets.Wait(filter.Instantiate(GroupOf(filter.FindTargets(new ComputeContext("test")), mesh),
                 new List<(Renderer, Renderer)> { (mesh, liveProxy) }, new ComputeContext("node")));
@@ -196,17 +203,19 @@ namespace Iroca.EditorTests {
                 var clone = liveProxy.sharedMaterial;
                 AssertColor(ShadowColorMatch.Compute(blue, sample, new Color(1f, 0.8f, 0.8f)), clone.GetColor("_ShadowColor"), "ウィンドウの色に合っていない");
 
-                LivePreview.SetShadowColors(true, sample, target);
+                zones[0].targetColor = target;
+                LivePreview.SetShadowZoneColors(zones);
                 liveNode.OnFrame(mesh, liveProxy);
                 AssertColor(ShadowColorMatch.Compute(blue, sample, target), clone.GetColor("_ShadowColor"), "色の変更に追従していない");
 
-                LivePreview.SetShadowColors(false, default, default);
+                LivePreview.SetShadowZoneColors(null);
                 liveNode.OnFrame(mesh, liveProxy);
                 AssertColor(blue, clone.GetColor("_ShadowColor"), "色が決まらなくなったら元の影の色へ戻す");
                 Assert.IsInstanceOf<RenderTexture>(clone.mainTexture, "テクスチャまで戻した");
             } finally {
                 liveNode.Dispose();
-                LivePreview.SetShadowColors(false, default, default);
+                LivePreview.SetShadowZoneColors(null);
+                LivePreview.SetShadowShares(src, null);
             }
         }
 

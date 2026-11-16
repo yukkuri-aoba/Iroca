@@ -445,6 +445,85 @@ namespace Iroca {
             return uv != null ? new UvChartSource { uv = uv, triangles = tris } : null;
         }
 
+        /// <summary>
+        /// <paramref name="renderers"/> のうち、<paramref name="material"/> で描くサブメッシュの UV(Tiling / Offset はそのマテリアルの
+        /// メインテクスチャのもの)。<paramref name="rootOf"/> を渡すと、Renderer のマテリアルをそれで元のマテリアルへ戻してから比べる
+        /// (非破壊ビルドの 2 段目は、Renderer に複製が入っている)。同じメッシュ・同じサブメッシュは 1 回。読めないものは飛ばす。
+        /// 影の色をマテリアルごとに合わせるとき、マテリアルがテクスチャのどこを映すかを知るのに使う(<see cref="ShadowArea"/>)。
+        /// </summary>
+        internal static List<UvChartSource> SourcesUsing(Material material, IEnumerable<Renderer> renderers,
+            System.Func<Material, Material> rootOf = null) {
+            var list = new List<UvChartSource>();
+            if (material == null || renderers == null) {
+                return list;
+            }
+            var reads = new MeshReads();
+            var seen = new HashSet<(int, int)>();
+            foreach (var r in renderers) {
+                Mesh mesh = r != null ? SharedMeshOf(r) : null;
+                if (mesh == null) {
+                    continue;
+                }
+                var mats = r.sharedMaterials;
+                int n = Mathf.Min(mats.Length, mesh.subMeshCount);
+                for (int s = 0; s < n; s++) {
+                    var m = mats[s];
+                    if (m == null || (rootOf != null ? rootOf(m) : m) != material || !seen.Add((mesh.GetInstanceID(), s))) {
+                        continue;
+                    }
+                    var src = Read(mesh, s, reads, out _);
+                    if (src == null) {
+                        continue;
+                    }
+                    string prop = MaterialColorSettings.MainTextureProperty(m);
+                    if (prop != null) {
+                        src.scale = m.GetTextureScale(prop);
+                        src.offset = m.GetTextureOffset(prop);
+                    }
+                    list.Add(src);
+                }
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// <see cref="SourcesUsing"/> が読むサブメッシュの顔ぶれの指紋(メッシュ・サブメッシュ・頂点と添字の数・Tiling / Offset)。
+        /// メッシュを読まずに求まるので、読んだ結果を使い回せるかの判定に使う。
+        /// </summary>
+        internal static long SourcesSignature(Material material, IEnumerable<Renderer> renderers,
+            System.Func<Material, Material> rootOf = null) {
+            unchecked {
+                long hash = 17;
+                if (material == null || renderers == null) {
+                    return hash;
+                }
+                foreach (var r in renderers) {
+                    Mesh mesh = r != null ? SharedMeshOf(r) : null;
+                    if (mesh == null) {
+                        continue;
+                    }
+                    var mats = r.sharedMaterials;
+                    int n = Mathf.Min(mats.Length, mesh.subMeshCount);
+                    for (int s = 0; s < n; s++) {
+                        var m = mats[s];
+                        if (m == null || (rootOf != null ? rootOf(m) : m) != material) {
+                            continue;
+                        }
+                        hash = hash * 31 + mesh.GetInstanceID();
+                        hash = hash * 31 + s;
+                        hash = hash * 31 + mesh.vertexCount;
+                        hash = hash * 31 + (long)mesh.GetIndexCount(s);
+                        string prop = MaterialColorSettings.MainTextureProperty(m);
+                        if (prop != null) {
+                            hash = hash * 31 + m.GetTextureScale(prop).GetHashCode();
+                            hash = hash * 31 + m.GetTextureOffset(prop).GetHashCode();
+                        }
+                    }
+                }
+                return hash;
+            }
+        }
+
         /// <summary>同じメッシュ・同じサブメッシュが複数の Renderer から見つかったら 1 つにする(UV は同じ)。</summary>
         private static Result Dedup(Result r) {
             var seen = new HashSet<(int, int)>();
