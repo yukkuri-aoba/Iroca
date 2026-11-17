@@ -388,6 +388,7 @@
 | `AnchorRetrySatrFrac` | `0.25f` | 実測 | — | 推定し直しの境。実測で乗り換えたとき 0〜0.20、正しいとき 0.31 以上の間 |
 | `AnchorMaterialSatrFrac` | `OklabRemapFullChromaFrac` | 設計 | — | 推定し直しで地色から外す飽和度比。L 再マップの線（OklabRemapFullChromaFrac）と同じ |
 | `AnchorMaterialHueCos` | `0.70710678f` | 実測 | — | 推定し直しで外す色相差 45°。正解画素の 97% が 25° 以内という実測に余裕を取った |
+| `AnchorOtherMaterialMaxFrac` | `0.5f` | 設計 | — | 1 段目の代表 C を取った画素のうち、推定し直しと同じ基準で別の素材になる画素の割合の上限。超えたら（過半数が別の素材なら）その基準はサンプルの素材の地色ではないとみなして推定し直す。飽和度の境（`AnchorRetrySatrFrac`）は淡い別の素材しか見ず、鮮やかな別の色相（赤い布に入った黄色の飾り）へ乗り換えたのを見逃した（2026-11-17。記録は dev_safe/docs/anchor-other-hue-2026-11-17.md） |
 | `RecolorMemoSize` | `8192` | 計算 | — | 無彩パスの再着色メモの枠数（2 のべき）。当たり率だけに効く |
 
 ## `Code/Core/Selection/PixelProcessor.Selection.cs`

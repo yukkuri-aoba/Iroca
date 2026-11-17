@@ -151,7 +151,17 @@ namespace Iroca {
         //   20° ずれても本体が残る幅。色相が定まらない無彩の画素(HSV の彩度が ColorZone.ChromaGateActivateSat 未満)も
         //   外す。推定し直しはサンプルに色相があるときだけ行う(白・灰のサンプルは色で素材を見分けられない)。
         // 1 段目で済むケース(ワンショット 57 件のすべて、固定設定 19 被写体のうち 14)は出力が変わらない。
+        // AnchorOtherMaterialMaxFrac: 1 段目の代表 C を取った画素(地色の山の窓か明るい面の L 帯)のうち、推定し直しと同じ
+        //   基準(AnchorMaterial.Rejects)でサンプルと別の素材になる画素がこの割合を超えたら推定し直す(2026-11-17)。
+        //   上の飽和度の境は「サンプルより淡い別の素材」だけを見ていて、鮮やかさの足りる別の色相の素材には働かなかった。
+        //   赤い布を水色に塗ると、許容範囲 0.171〜0.184 でだけ布全体が暗く鮮やかすぎる青になった: 選択に入った生成りで
+        //   コア画素の中央値が赤い地色の山より上へ動いて山を見失い、明るい面が黄色の飾り(基準の飽和度はサンプルの 0.7 倍)に
+        //   乗った。0.185 からは生成りが増えて飽和度の境で推定し直していた。代表の画素の過半数が別の素材なら、その基準は
+        //   サンプルの素材の地色ではない(過半数 = 設計)。許容範囲を 0.05〜0.40 で動かした 203 クリックで出力が変わったのは
+        //   19 クリック(塗り先との色差の最大が良くなった 10・悪くなった 0)、ワンショットの 330 件は良悪 0、GT の無い素材の
+        //   411 件は変わった 3 件がすべて良くなった(dev_safe/docs/anchor-other-hue-2026-11-17.md)。
         private const float AnchorRetrySatrFrac = 0.25f;
+        private const float AnchorOtherMaterialMaxFrac = 0.5f;
         private const float AnchorMaterialSatrFrac = OklabRemapFullChromaFrac;
         private const float AnchorMaterialHueCos = 0.70710678f;  // cos 45°
 
@@ -191,8 +201,9 @@ namespace Iroca {
         /// スポイト位置非依存にする。
         /// マッチング・wash には影響しない(呼び出し側がアンカー 2 値だけを置き換える)。
         ///
-        /// 推定は 2 段構え。1 段目は全候補で推定する。サンプルに色相があり、1 段目が失敗したか基準の飽和度が
-        /// サンプルの AnchorRetrySatrFrac 倍に届かなければ、サンプルと別の素材(AnchorMaterial)を外して推定し直す。
+        /// 推定は 2 段構え。1 段目は全候補で推定する。サンプルに色相があり、1 段目が失敗したか、基準の飽和度が
+        /// サンプルの AnchorRetrySatrFrac 倍に届かないか、代表 C を取った画素の AnchorOtherMaterialMaxFrac を超える割合が
+        /// サンプルと別の素材なら、サンプルと別の素材(AnchorMaterial)を外して推定し直す。
         ///
         /// percentile はヒストグラム離散化のため厳密値と最大 1/255 の差を許容する。
         /// </summary>
@@ -213,19 +224,20 @@ namespace Iroca {
             CancellationToken ct = default,
             ColorPalette palette = null,
             AnchorCoreCounts pre = null) {
+            float sampleSatr = Mathf.Sqrt(sampleA * sampleA + sampleB * sampleB) / Mathf.Max(sampleL, 1e-4f);
+            // 白・灰のサンプルは色で素材を見分けられないので、推定し直さない(従来どおり。別の素材の割合も数えない)。
+            var material = sampleHasHue ? new AnchorMaterial(sampleA, sampleB, sampleSatr) : default;
             bool ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
-                out anchorL, out anchorC, default, statsExclude, claimed, ct, palette, pre);
-            // 白・灰のサンプルは色で素材を見分けられないので、推定し直さない(従来どおり)。
+                out anchorL, out anchorC, default, statsExclude, claimed, ct, palette, pre, material, out float otherFrac);
             if (!sampleHasHue) {
                 return ok;
             }
-            float sampleSatr = Mathf.Sqrt(sampleA * sampleA + sampleB * sampleB) / Mathf.Max(sampleL, 1e-4f);
             float minSatr = AnchorRetrySatrFrac * sampleSatr;
-            if (ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr) {
+            if (ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr && otherFrac <= AnchorOtherMaterialMaxFrac) {
                 return true;
             }
             ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
-                out anchorL, out anchorC, new AnchorMaterial(sampleA, sampleB, sampleSatr), statsExclude, claimed, ct, palette, pre);
+                out anchorL, out anchorC, material, statsExclude, claimed, ct, palette, pre, default, out _);
             return ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr;
         }
 
@@ -347,6 +359,8 @@ namespace Iroca {
         // 画素の candL/candC は未初期化(プール再利用のゴミ)であり、後のパスが読むと壊れる。
         // (material で外した画素は pass1 が candC を負にするので、後のパスの飽和度の下限で必ず落ちる。)
         // pass 3 で代表 C を取るのは、地色の山を使うなら山の窓、使わなければ明るい面の L 帯。
+        // check.Active なら、その代表 C を取った画素のうち check で別の素材とみなす画素の割合を otherFrac に返す
+        // (推定し直すかの判定。AnchorOtherMaterialMaxFrac。統計そのものには効かない)。それ以外は 0。
         private static bool TryComputeRecolorAnchorOnce(
             Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
@@ -356,9 +370,12 @@ namespace Iroca {
             float* claimed,
             CancellationToken ct,
             ColorPalette palette,
-            AnchorCoreCounts pre = null) {
+            AnchorCoreCounts pre,
+            AnchorMaterial check,
+            out float otherFrac) {
             anchorL = 0f;
             anchorC = 0f;
+            otherFrac = 0f;
             // 空矩形(選択 0 画素。後段の範囲は (0,0,-1,-1))は候補 0 件。下の長さが 0 になり、色の表が無い経路で
             // 長さ 0 の作業配列を借りて例外で止まっていた(点検 A-1)。色の表の経路は元から false を返す。
             if (bbMaxX < bbMinX || bbMaxY < bbMinY) {
@@ -374,7 +391,7 @@ namespace Iroca {
                 return TryComputeRecolorAnchorByColor(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
                     out anchorL, out anchorC, material, statsExclude, claimed, ct,
                     palette.Index, palette.OkL, palette.OkC, palette.Colors, palette.Count,
-                    pre != null && pre.ColorCount == palette.Count ? pre : null);
+                    pre != null && pre.ColorCount == palette.Count ? pre : null, check, out otherFrac);
             }
 
             // コア画素(strength>=AnchorStrengthMin & a>=128)の OkLab (L, C) を pass1 で一度だけ
@@ -473,9 +490,11 @@ namespace Iroca {
                     anchorL = (modeBin + AnchorModeHalfBins + 1) / 255f;
                 }
 
-                // pass 3: 代表 C = 地色の山の窓(コア画素)か、明るい面の L 帯(地色画素)の chroma 中央値
-                var cHist = new int[256];
-                int bandCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, cHist, (y0, y1, hist) => {
+                // pass 3: 代表 C = 地色の山の窓(コア画素)か、明るい面の L 帯(地色画素)の chroma 中央値。
+                // 後半の 1 ビン目(256)には、そのうち check で別の素材とみなす画素の数を数える(pass 1 と同じく 1 つの
+                // 配列で並列に数え、終わってから分ける)。
+                var cHists = new int[512];
+                int bandCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, cHists, (y0, y1, hist) => {
                     int n = 0;
                     for (int y = y0; y < y1; y++) {
                         int rowOff = y * w;
@@ -503,6 +522,12 @@ namespace Iroca {
                             }
                             hist[Mathf.Clamp((int)(c / AnchorChromaHistMax * 255f), 0, 255)]++;
                             n++;
+                            if (check.Active) {
+                                OkLab.RgbToOklab(px[i].r, px[i].g, px[i].b, out _, out float ca, out float cb);
+                                if (check.Rejects(px[i], ca, cb)) {
+                                    hist[256]++;
+                                }
+                            }
                         }
                     }
                     return n;
@@ -510,6 +535,9 @@ namespace Iroca {
                 if (bandCount < 1) {
                     return false;
                 }
+                var cHist = new int[256];
+                Array.Copy(cHists, 0, cHist, 0, 256);
+                otherFrac = cHists[256] / (float)bandCount;
                 anchorC = Histogram.ValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
                 return anchorC > 1e-4f;
             } finally {
@@ -597,9 +625,11 @@ namespace Iroca {
             out float anchorL, out float anchorC,
             AnchorMaterial material,
             bool* statsExclude, float* claimed, CancellationToken ct,
-            int* pIdx, float* pL, float* pC, Color32* pCol, int colorCount, AnchorCoreCounts pre) {
+            int* pIdx, float* pL, float* pC, Color32* pCol, int colorCount, AnchorCoreCounts pre,
+            AnchorMaterial check, out float otherFrac) {
             anchorL = 0f;
             anchorC = 0f;
+            otherFrac = 0f;
             // 色ごとの個数(色の数の長さ)は作業配列のプールから借り、抜けるときに返す(0.4.0 の 3-12)。
             // 呼び出し側が数えてあれば(pre。1 段目・推定し直し・彩度の分位で同じ数え上げを使い回す)数え直さない。
             using var scratch = new WorkScratch();
@@ -699,6 +729,7 @@ namespace Iroca {
             // 3: 代表 C = 地色の山の窓(コア画素)か、明るい面の L 帯(地色)の chroma 中央値
             var cHist = new int[256];
             int bandCount = 0;
+            int otherCount = 0;  // そのうち check で別の素材とみなす画素の数(画素ごとの経路の hist[256] と同じ)
             for (int k = 0; k < colorCount; k++) {
                 int c = cnt[k];
                 if (c == 0) {
@@ -723,10 +754,18 @@ namespace Iroca {
                 }
                 cHist[Mathf.Clamp((int)(ch / AnchorChromaHistMax * 255f), 0, 255)] += c;
                 bandCount += c;
+                if (check.Active) {
+                    Color32 pk = pCol[k];
+                    OkLab.RgbToOklab(pk.r, pk.g, pk.b, out _, out float ca, out float cb);
+                    if (check.Rejects(pk, ca, cb)) {
+                        otherCount += c;
+                    }
+                }
             }
             if (bandCount < 1) {
                 return false;
             }
+            otherFrac = otherCount / (float)bandCount;
             anchorC = Histogram.ValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
             return anchorC > 1e-4f;
         }
