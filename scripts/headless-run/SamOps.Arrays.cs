@@ -26,6 +26,24 @@ namespace Iroca {
         }
 
         /// <summary>
+        /// テスト・ハーネス用。<see cref="SelectAndUpscaleByColor(float[], float[], int, int, float, Color32*, System.Threading.CancellationToken, float, float)"/>
+        /// の画素が配列の版(null か texW*texH に足りなければ、既定の自動と同じ)。
+        /// </summary>
+        public static Result SelectAndUpscaleByColor(float[] logits, float[] scores, int texW, int texH,
+                                                     float floodRejectFrac, Color32[] pixelsBottomUp,
+                                                     System.Threading.CancellationToken token = default,
+                                                     float growOverlap = ByColorGrowOverlap,
+                                                     float stabilityTie = ByColorStabilityTie) {
+            if (pixelsBottomUp != null && pixelsBottomUp.Length < texW * texH) {
+                pixelsBottomUp = null;
+            }
+            fixed (Color32* p = pixelsBottomUp) {
+                return SelectAndUpscaleByColor(logits, scores, texW, texH, floodRejectFrac, p, token,
+                                               growOverlap, stabilityTie);
+            }
+        }
+
+        /// <summary>
         /// テスト・ハーネス用。<see cref="RefineInPlace(bool*, Color32*, int, int, System.Threading.CancellationToken)"/> の配列版
         /// (マスクが texW*texH 個でないか、画素が足りなければ何もしない)。
         /// </summary>

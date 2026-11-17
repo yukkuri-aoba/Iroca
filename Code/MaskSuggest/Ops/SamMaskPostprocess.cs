@@ -90,37 +90,7 @@ namespace Iroca {
         public static Selection SelectChannels(float[] logits, float[] scores, int texW, int texH,
                                                float floodRejectFrac = DefaultFloodRejectFrac,
                                                MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto) {
-            SamImageOps.GetResizedSize(texW, texH, out int newW, out int newH);
-            // 低解像度空間での有効域(パディング除去相当)。1024→256 は 1/4。
-            float lw = newW * (LowRes / (float)SamImageOps.InputSize);
-            float lh = newH * (LowRes / (float)SamImageOps.InputSize);
-            int lwCeil = Mathf.Min(LowRes, Mathf.CeilToInt(lw));
-            int lhCeil = Mathf.Min(LowRes, Mathf.CeilToInt(lh));
-
-            // multimask の各チャンネルの面積比と安定度を低解像度で測る。
-            var area = new float[4];
-            var stability = new float[4];
-            for (int c = 1; c < 4; c++) {
-                int cOff = c * LowRes * LowRes;
-                int count = 0, hi = 0, lo = 0;
-                for (int y = 0; y < lhCeil; y++) {
-                    int row = cOff + y * LowRes;
-                    for (int x = 0; x < lwCeil; x++) {
-                        float v = logits[row + x];
-                        if (v > 0f) {
-                            count++;
-                        }
-                        if (v > StabilityOffset) {
-                            hi++;
-                        }
-                        if (v > -StabilityOffset) {
-                            lo++;
-                        }
-                    }
-                }
-                area[c] = count / (lw * lh);
-                stability[c] = lo > 0 ? hi / (float)lo : 0f;
-            }
+            MeasureChannels(logits, texW, texH, out float[] area, out float[] stability);
 
             bool InFloodRange(int c) => area[c] > 0f && area[c] < floodRejectFrac;
             bool IsStable(int c) => InFloodRange(c) && stability[c] >= StabilityThreshold;
@@ -149,6 +119,43 @@ namespace Iroca {
                 areaFrac = area[chosen],
                 floodWarning = warn,
             };
+        }
+
+        /// <summary>
+        /// multimask の各チャンネル(1..3)の面積比(キャンバスの有効域に対する比)と安定度を低解像度ロジットで測る
+        /// (添字 0 は使わない)。<see cref="SelectChannels"/> と <see cref="SelectAndUpscaleByColor"/> が共有する。
+        /// </summary>
+        static void MeasureChannels(float[] logits, int texW, int texH, out float[] area, out float[] stability) {
+            SamImageOps.GetResizedSize(texW, texH, out int newW, out int newH);
+            // 低解像度空間での有効域(パディング除去相当)。1024→256 は 1/4。
+            float lw = newW * (LowRes / (float)SamImageOps.InputSize);
+            float lh = newH * (LowRes / (float)SamImageOps.InputSize);
+            int lwCeil = Mathf.Min(LowRes, Mathf.CeilToInt(lw));
+            int lhCeil = Mathf.Min(LowRes, Mathf.CeilToInt(lh));
+
+            area = new float[4];
+            stability = new float[4];
+            for (int c = 1; c < 4; c++) {
+                int cOff = c * LowRes * LowRes;
+                int count = 0, hi = 0, lo = 0;
+                for (int y = 0; y < lhCeil; y++) {
+                    int row = cOff + y * LowRes;
+                    for (int x = 0; x < lwCeil; x++) {
+                        float v = logits[row + x];
+                        if (v > 0f) {
+                            count++;
+                        }
+                        if (v > StabilityOffset) {
+                            hi++;
+                        }
+                        if (v > -StabilityOffset) {
+                            lo++;
+                        }
+                    }
+                }
+                area[c] = count / (lw * lh);
+                stability[c] = lo > 0 ? hi / (float)lo : 0f;
+            }
         }
 
         /// <summary>母集団 pool の中で面積が最小/最大のチャンネル(同面積はスコアで決着)。</summary>

@@ -147,6 +147,7 @@
 | `Code/MaskSuggest/Ops/MaskSuggestGranularity.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamCoordMapper.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamImageOps.cs` | 0 |
+| `Code/MaskSuggest/Ops/SamMaskPostprocess.ByColor.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskPostprocess.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.AaTransition.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.Fringe.cs` | 1 |
@@ -616,6 +617,16 @@
 | `EncoderInputLength` | `3 * InputSize * InputSize` | 定義 | — | エンコーダ入力（CHW の 3 チャンネル × InputSize²）の要素数。書き先の大きさで、出力に関係しない |
 | `Mean` | `{ 123.675f, 116.28f, 103.53f }` | 定義 | — | SAM の前処理の画素平均（参照実装の pixel_mean） |
 | `Std` | `{ 58.395f, 57.12f, 57.375f }` | 定義 | — | SAM の前処理の画素標準偏差（参照実装の pixel_std） |
+
+## `Code/MaskSuggest/Ops/SamMaskPostprocess.ByColor.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `ByColorBinStep` | `0.03f` | 近似 | — | 右クリックの自動の候補選びで、色の分布を数える OkLab の升の幅。重なりは隣の升まで見るので、陰影で少しずれた同じ素材の色が同じか隣の升に入る幅。精密化前の候補の試算(開発側 33 被写体 × 6 クリック)で 0.03 と 0.05 が同じ結果(2026-11-17) |
+| `ByColorGrowOverlap` | `0.3f` | 実測 | — | 大きい候補へ広げてよい、増える部分と今の候補の色の分布の重なりの下限。色の違う隣の部品はほぼ 0、陰の付き方が違う同じ素材の別の島は 0.4 前後(凍結クリックのパンツで 0.39)。実 C# の全経路(開発側 33 被写体 × 6 クリック)で 0.3〜0.5 が同じ最良、0.2・0.1 は効きが減るだけで悪化 0。0.4 以上は凍結クリックのパンツが崩れるので、0.3 を選んだ(2026-11-17) |
+| `ByColorStabilityTie` | `0.02f` | 実測 | — | 起点を選ぶとき安定度が「ほぼ同じ」とみなす差。隣の部品を巻き込んだ大きい候補は安定度が 0.03〜0.10 下がり、ツヤと部品全体のようにどちらもはっきりした候補の差は 0.005〜0.014 だった。実 C# の全経路で 0.02〜0.03 が同じ結果、0.01 で目のツヤの 1 件が崩れる(2026-11-17) |
+| `ByColorAbRange` | `0.4f` | 定義 | — | OkLab の a・b を数える範囲。sRGB の色域は a −0.234〜0.276・b −0.312〜0.199 に収まる |
+| `ByColorMinAlpha` | `128` | 設計 | — | 色を数える画素の不透明度の下限。透明な所の RGB は意味を持たないので外す(半分より不透明なら数える) |
 
 ## `Code/MaskSuggest/Ops/SamMaskPostprocess.cs`
 

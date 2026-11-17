@@ -2468,6 +2468,34 @@ namespace Iroca {
                         return 0;
                     }
 
+                // --samops-post-bycolor <texW> <texH> <floodFrac> <logits.bin> <scores.bin> <out.raw> <image.raw RGBA>
+                //                      [growOverlap] [stabilityTie]
+                // : 右クリックの提案(用途 Region・粒度 自動)の候補選び+拡大(SamMaskPostprocess.SelectAndUpscaleByColor。
+                // 精密化しない)。growOverlap・stabilityTie は掃引用(既定は製品の定数)。出力は --samops-post と同じ形。
+                case "--samops-post-bycolor": {
+                        int w = int.Parse(args[1], inv), h = int.Parse(args[2], inv);
+                        float frac = float.Parse(args[3], inv);
+                        float[] logits = ReadF32(args[4], 4 * 256 * 256);
+                        float[] scores = ReadF32(args[5], 4);
+                        var (iw, ih, rgbaC) = ReadRaw(args[7], 4);
+                        if (iw != w || ih != h) {
+                            Console.Error.WriteLine("post-bycolor: image size mismatch");
+                            return 2;
+                        }
+                        float grow = args.Length > 8 ? float.Parse(args[8], inv) : SamMaskPostprocess.ByColorGrowOverlap;
+                        float tie = args.Length > 9 ? float.Parse(args[9], inv) : SamMaskPostprocess.ByColorStabilityTie;
+                        var pxC = ToColor32(rgbaC, iw * ih);
+                        var res = SamMaskPostprocess.SelectAndUpscaleByColor(logits, scores, w, h, frac, pxC,
+                                                                             growOverlap: grow, stabilityTie: tie);
+                        bool[] resMask = res.mask.ToArray();
+                        res.mask.Release();
+                        WriteMaskRaw(args[6], w, h, resMask);
+                        Console.WriteLine(string.Format(inv,
+                            "POST channel={0} score={1:R} area={2:R} warn={3}",
+                            res.channel, res.score, res.areaFrac, res.floodWarning ? 1 : 0));
+                        return 0;
+                    }
+
                 // --samops-refine <mask.raw> <image.raw RGBA> <out.raw> : 境界色スナップ単体
                 case "--samops-refine": {
                         var (mw2, mh2, mask2) = ReadMaskRaw(args[1]);

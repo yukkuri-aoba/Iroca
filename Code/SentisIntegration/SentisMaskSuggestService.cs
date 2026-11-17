@@ -252,6 +252,9 @@ namespace Iroca.SentisIntegration {
             // 部分をマスクに当てる用途(MaskSuggestUse.Region)なら、精密化の後に色の違う離れた塊を外す。
             // クリックは全体の画素座標(下原点)。ズームの第 2 段・第 1 段への退避もこれを見る。
             public bool dropForeign;
+            // 部分をマスクに当てる用途で粒度が自動なら、候補を色で選ぶ(SamMaskPostprocess.SelectAndUpscaleByColor)。
+            // ズームの第 2 段もこれを見る。
+            public bool byColor;
             public int clickX, clickY;
 
             /// <summary>持っている画素(範囲・切り出し)を返す。配信で範囲を渡した後は切り出しだけ。</summary>
@@ -867,12 +870,18 @@ namespace Iroca.SentisIntegration {
                     // 空配列へ PasteCrop した結果で置き換える)ため、発火時に精密化すると
                     // その分(4K 実測 0.8-1.4s)が丸ごと捨てられる。不発時のみ従来と同一
                     // 順序・同一入力で精密化する(= SelectAndUpscale(px) と厳密同値)。
-                    var s1 = SamNativeOps.SelectAndUpscale(logits, scores, w, h, null, granularity, ct);
+                    // 右クリックの自動は、隣の部品を巻き込んだ大きい候補を避けて色で選ぶ(画素は色を比べるのに読むだけで、
+                    // 精密化はここでもしない)。自動調整の証拠と、利用者が大きさを選んだ細かい・大きいは既定の選び方。
+                    bool byColor = use == MaskSuggestUse.Region && granularity == MaskSuggestGranularity.Auto;
+                    var s1 = byColor
+                        ? SamNativeOps.SelectAndUpscaleByColor(logits, scores, w, h, px, ct)
+                        : SamNativeOps.SelectAndUpscale(logits, scores, w, h, null, granularity, ct);
                     var o = new PostOutcome {
                         mask = s1.mask,
                         score = s1.score,
                         areaFrac = s1.areaFrac,
                         floodWarning = s1.floodWarning,
+                        byColor = byColor,
                     };
                     try {
                         // ズームイン再推論の判定: クリック成分が小さい(=256²ロジットで形状表現
@@ -1127,10 +1136,16 @@ namespace Iroca.SentisIntegration {
             _postJob.Schedule(
                 ct => {
                     long t0 = MaskSuggestPerf.Now;
-                    var res = SamNativeOps.SelectAndUpscale(logits, scores, side, side, cropPx, granularity, ct);
+                    // 色で選ぶときは、選んだ後に精密化する(SelectAndUpscale に画素を渡したときと同じ順)。
+                    var res = plan.byColor
+                        ? SamNativeOps.SelectAndUpscaleByColor(logits, scores, side, side, cropPx, ct)
+                        : SamNativeOps.SelectAndUpscale(logits, scores, side, side, cropPx, granularity, ct);
                     NativeBools full;
                     int trueCount;
                     try {
+                        if (plan.byColor) {
+                            SamNativeOps.RefineInPlace(res.mask, cropPx, ct);
+                        }
                         // 切り出しの中で外しても、貼り戻した全体で外したのと同じ(提案は切り出しの外に無い)。
                         if (plan.dropForeign) {
                             SamNativeOps.DropForeignComponents(res.mask, cropPx, plan.clickX - x0, plan.clickY - y0, ct);

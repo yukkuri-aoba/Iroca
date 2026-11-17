@@ -93,6 +93,15 @@ namespace Iroca {
             => SamMaskPostprocess.SelectAndUpscale(logits, scores, texW, texH, SamMaskPostprocess.DefaultFloodRejectFrac,
                 px == null ? null : px.Ptr, granularity, token);
 
+        /// <summary>
+        /// 右クリックの提案(用途 Region・粒度 自動)の候補選びと拡大(<see cref="SamMaskPostprocess.SelectAndUpscaleByColor(float[], float[], int, int, float, Color32*, CancellationToken, float, float)"/>。
+        /// 精密化はしない)。px は候補の色を比べるのに読む(texW*texH 画素。null なら既定の自動と同じ)。結果のマスクは受け取った側が手放す。
+        /// </summary>
+        public static SamMaskPostprocess.Result SelectAndUpscaleByColor(float[] logits, float[] scores, int texW, int texH,
+            NativePixels px, CancellationToken token = default)
+            => SamMaskPostprocess.SelectAndUpscaleByColor(logits, scores, texW, texH,
+                SamMaskPostprocess.DefaultFloodRejectFrac, px == null ? null : px.Ptr, token);
+
         /// <summary>クリック画素を含む連結成分の外接矩形の長辺(<see cref="SamZoomOps.ClickComponentBBoxLong(bool*, int, int, int, int)"/>)。</summary>
         public static int ClickComponentBBoxLong(NativeBools mask, int clickX, int clickY)
             => SamZoomOps.ClickComponentBBoxLong(mask.Ptr, mask.Width, mask.Height, clickX, clickY);
