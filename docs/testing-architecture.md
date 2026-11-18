@@ -376,6 +376,12 @@ abcheck は作業ツリーのハーネスを `tools/harness_build.py` でビル�
 Unity 本体は要らない（.NET と Unity の DLL だけ）。実測（2026-11-13、相手は上と同じ・基準のビルド込み）: 全グループ
 1451 件で 3 分 29 秒（abcheck 本体 196 秒・3 並列）。手元の結果（一致 1451 / 不一致 0）と同じだった。
 
+**計測スクリプトもこの入口で回せる**（2026-11-18〜）: `--` の後ろは python の引数なら何でもよいので、
+`generalization_report.py run`・`highlight_recall.py run`・`probe_*`・`measure_*`・`sweep_*` も相手で回る。
+結果は相手の dev_safe に出るので、`--fetch dev_safe/<出力先>` で持ち帰る（本体からの相対パス。dev_safe は本体の下にある）。
+`holdout_eval.py` は見た回数の記録（`Tests/Baselines/holdout_log.jsonl`）が相手側に残るので、回したら必ず持ち帰る。
+compare・sweep・freeze など軽い集計は手元でよい。
+
 **リモートで回さないもの**: 視覚レビュー（`visual_review.py` の snapshot・compare・approve）は承認を手元の
 作業ツリーと索引の中身に結び付けるので手元で回す。Unity 実機の EditMode テストも手元（相手に Unity 本体が無い）。
 

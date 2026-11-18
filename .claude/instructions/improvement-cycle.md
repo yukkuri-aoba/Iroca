@@ -17,8 +17,14 @@
    ```
    `tools/remote_test.py` は LAN のテスト用 PC につながればそこで回し、つながらなければ手元で回す（`--` の後ろは
    `python` に渡す引数そのまま。作業ツリーの今の中身を測る）。pytest と abcheck
-   （`python tools/remote_test.py -- dev_safe/scripts/refactor_abcheck/abcheck.py`）はこの入口を使う。視覚レビュー
-   （`visual_review.py`）・EditMode は手元で回す。仕組みは `docs/testing-architecture.md` の「テスト用の別 PC で回す」。
+   （`python tools/remote_test.py -- dev_safe/scripts/refactor_abcheck/abcheck.py`）はこの入口を使う。
+   **重い計測スクリプトも同じ入口で回す**（2026-11-18〜）。結果のファイルは `--fetch` で持ち帰る:
+   - `generalization_report.py run`: `--fetch dev_safe/_spike/generalization/<label>.json`（`--sieve` なら
+     `<label>.sieve_stop.txt` も）。compare・sweep・freeze は軽いので手元で回す。
+   - `highlight_recall.py run`・`probe_*.py`・`measure_*.py`・`sweep_*.py`: 出力先を `--fetch` する。
+   - `holdout_eval.py`: 見た回数を `dev_safe/Tests/Baselines/holdout_log.jsonl` に記録するので、回したら
+     `--fetch dev_safe/Tests/Baselines/holdout_log.jsonl` で必ず持ち帰る（手元と相手の両方で回すと記録が分かれる）。
+   視覚レビュー（`visual_review.py`）・EditMode は手元で回す。仕組みは `docs/testing-architecture.md` の「テスト用の別 PC で回す」。
    採否判断に使う計測（この手順 1 と手順 5）では、環境変数 `IROCA_CSHARP_GATE_FULL=1`（旧名 `VACC_CSHARP_GATE_FULL` も効く）と `IROCA_AUTOTUNE_GATE_FULL=1`（旧名 `VACC_AUTOTUNE_GATE_FULL` も効く）を立てる。立てないと品質ゲートは 1 被写体しか測らず、残りを測らないまま「全パス」と見誤る。
 2. **失敗分析** — 最もスコアを落とす／誤検出・見逃しが目立つケースを特定し、原因を具体的に仮説化する（色空間、閾値、連結成分処理、マスク膨張/収縮など）。
 3. **変更前スナップショット** — 旧出力を保存する:
