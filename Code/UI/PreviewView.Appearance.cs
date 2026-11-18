@@ -37,13 +37,14 @@ namespace Iroca {
             _renderer.TickAppearance(report, AppearanceActive);
         }
 
+        private static GUIContent AppearanceContent => TempContent.Of(Localization.AppearanceMode, Localization.AppearanceModeTooltip);
+
         /// <summary>操作行の「アバターの色」ボタン。マテリアルに色の設定があるときだけ出す。</summary>
         private void DrawAppearanceToggle() {
             if (!_appearanceAvailableAtLayout) {
                 return;
             }
-            bool on = GUILayout.Toggle(appearanceMode,
-                TempContent.Of(Localization.AppearanceMode, Localization.AppearanceModeTooltip),
+            bool on = GUILayout.Toggle(appearanceMode, AppearanceContent,
                 EditorStyles.miniButton, GUILayout.ExpandWidth(false));
             if (on == appearanceMode) {
                 return;

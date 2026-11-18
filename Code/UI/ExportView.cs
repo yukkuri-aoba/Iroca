@@ -88,28 +88,39 @@ namespace Iroca {
         }
 
         // 並びと高さは GetSectionHeight と対で保つ(食い違うとエクスポート欄が画面外へ押し出される)。
+        //
+        // この欄はウィンドウの下端に固定で出続けるので、行を少なくする(2026-11-18)。見出しは実行ボタンの行のラベルにし
+        // (以前は見出しの行と大きなボタンの行で 2 行)、書き出しの設定は 2 行にまとめる(以前は 4〜5 行)。
         public void DrawExportSection() {
 #if IROCA_NDMF_PRESENT
             // 非破壊(NDMF)が主: 元のテクスチャを書き換えず、アバターのビルド時にだけ差し替える。
             // テクスチャへの書き出しは、配布する衣装や NDMF を使わない場面のために畳んで残す。
-            EditorGUILayout.LabelField(Localization.StepPrefixExport + Localization.ApplyToAvatar, EditorStyles.boldLabel);
             EditorGUI.BeginDisabledGroup(_host.SourceTexture == null);
-            DrawRegister(primary: true);
-            EditorGUILayout.Space(4);
+            if (HeadingButtonRow(Localization.StepPrefixExport + Localization.ApplyToAvatar, RegisterContent)) {
+                _host.RegisterToAvatar();
+            }
+            DrawRegisterDetails();
             textureExportFoldout = EditorGUILayout.Foldout(textureExportFoldout,
                 TempContent.Of(Localization.ExportAsTexture, Localization.ExportAsTextureTooltip), true);
             if (textureExportFoldout) {
-                DrawTextureExport(primary: false);
+                DrawTextureExportOptions();
+                if (GUILayout.Button(ApplyAndSaveContent)) {
+                    ApplyRecolor();
+                }
             }
 #else
-            EditorGUILayout.LabelField(Localization.StepPrefixExport + Localization.Export, EditorStyles.boldLabel);
             // 外側の DisabledScope（IrocaWindow.OnGUI で囲まれる）を壊さないよう、
             // GUI.enabled の直接代入ではなく BeginDisabledGroup を使う。
             EditorGUI.BeginDisabledGroup(_host.SourceTexture == null);
-            DrawTextureExport(primary: true);
-            EditorGUILayout.Space(4);
-            EditorGUILayout.HelpBox(Localization.NdmfUnavailable(NdmfSupport.State), MessageType.Warning);
-            DrawRegister(primary: false);
+            if (HeadingButtonRow(Localization.StepPrefixExport + Localization.Export, ApplyAndSaveContent)) {
+                ApplyRecolor();
+            }
+            DrawTextureExportOptions();
+            // NDMF が無いので非破壊の登録は使えない。理由の案内の右に登録のボタンを置く(押すと、使えない理由と直し方を出す)。
+            if (NoticeBox.Draw(NdmfUnavailableText, MessageType.Warning, RegisterColumnWidth(), RegisterContent) == 0) {
+                _host.RegisterToAvatar();
+            }
+            DrawRegisterDetails();
 #endif
 
             // 直近のエラー（消えない表示）。書き出し欄を畳んでも見えるよう外に置く。
@@ -123,40 +134,63 @@ namespace Iroca {
             EditorGUI.EndDisabledGroup();
         }
 
-        /// <summary>テクスチャへの書き出し(PNG)。primary のときだけ実行ボタンを大きくする。</summary>
-        private void DrawTextureExport(bool primary) {
+        private static GUIContent RegisterContent =>
+            TempContent.Of(Localization.RegisterNonDestructive, Localization.RegisterNonDestructiveTooltip);
+
+        private static GUIContent ApplyAndSaveContent =>
+            TempContent.Of(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip);
+
+        [System.NonSerialized] private static GUIStyle s_headingStyle;
+
+        // 見出しの文字(太字)を行の高さの中ほどに置く。
+        private static GUIStyle HeadingStyle {
+            get {
+                if (s_headingStyle == null) {
+                    s_headingStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleLeft };
+                }
+                return s_headingStyle;
+            }
+        }
+
+        /// <summary>
+        /// 「④ …」の見出しを左のラベルの列に、主の操作のボタンを残りの幅に置いた 1 行。ボタンが押されたら true。
+        /// ラベルの列は設定行と同じ幅(見出しが入りきらなければ見出しの幅)なので、下の設定行と左右の端がそろう。
+        /// </summary>
+        private static bool HeadingButtonRow(string heading, GUIContent button) {
+            var row = EditorGUILayout.GetControlRect(false, PrimaryButtonHeight);
+            var headingContent = TempContent.Of(heading);
+            float labelW = HeadingLabelWidth(headingContent);
+            GUI.Label(new Rect(row.x, row.y, labelW, row.height), headingContent, HeadingStyle);
+            return GUI.Button(new Rect(row.x + labelW, row.y, Mathf.Max(0f, row.width - labelW), row.height), button);
+        }
+
+        private static float HeadingLabelWidth(GUIContent heading) =>
+            Mathf.Max(EditorGUIUtility.labelWidth, Mathf.Ceil(HeadingStyle.CalcSize(heading).x) + 4f);
+
+        /// <summary>
+        /// テクスチャへの書き出しの設定を 2 行で描く。1 行目は「新規ファイルとして保存」とファイル名、2 行目は
+        /// 「インポート設定を引き継ぐ」と書き出し先を開くボタン。ファイル名の欄は新規ファイルにしないときも消さずに
+        /// 無効にする(出し入れで欄の高さが変わると、上の設定列とプレビューが上下に跳ねる)。
+        /// </summary>
+        private void DrawTextureExportOptions() {
             var saveAsNewContent = TempContent.Of(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip);
             var inheritContent = TempContent.Of(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip);
-            // トグルのラベルが入りきる幅までラベル列を広げる。狭いウィンドウの既定のラベル幅（120）では
-            // 「インポート設定を引き継ぐ」の末尾が欠ける。
-            float prevLabelWidth = EditorGUIUtility.labelWidth;
-            EditorGUIUtility.labelWidth = Mathf.Max(prevLabelWidth, Mathf.Ceil(Mathf.Max(
+            // トグルの列はラベルの列と同じ幅で、文言が入りきらなければ文言の幅まで広げる。
+            float toggleW = Mathf.Max(EditorGUIUtility.labelWidth, Mathf.Ceil(Mathf.Max(
                 EditorStyles.label.CalcSize(saveAsNewContent).x,
-                EditorStyles.label.CalcSize(inheritContent).x)) + 4f);
+                EditorStyles.label.CalcSize(inheritContent).x)) + ToggleBoxWidth);
 
-            saveAsNewFile = EditorGUILayout.Toggle(saveAsNewContent, saveAsNewFile);
-
-            inheritImportSettings = EditorGUILayout.Toggle(inheritContent, inheritImportSettings);
-
-            if (saveAsNewFile) {
-                newFileName = EditorGUILayout.TextField(
-                    TempContent.Of(Localization.FileName, Localization.FileNameTooltip),
-                    newFileName);
+            var row = EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight);
+            saveAsNewFile = EditorGUI.ToggleLeft(new Rect(row.x, row.y, toggleW, row.height), saveAsNewContent, saveAsNewFile);
+            var nameRect = new Rect(row.x + toggleW, row.y, Mathf.Max(0f, row.width - toggleW), row.height);
+            using (new EditorGUI.DisabledScope(!saveAsNewFile)) {
+                newFileName = EditorGUI.TextField(nameRect, newFileName);
             }
-            EditorGUIUtility.labelWidth = prevLabelWidth;
-
-            // ソロ表示はプレビュー専用。保存すると全ゾーンが適用されるので、
-            // 「見えているもの＝保存されるもの」でないことをここで明示する。
-            if (_host.SoloZone != null) {
-                EditorGUILayout.HelpBox(Localization.ExportSoloWarning, MessageType.Info);
-            }
-
-            var applyContent = TempContent.Of(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip);
-            if (primary ? GUILayout.Button(applyContent, GUILayout.Height(PrimaryButtonHeight)) : GUILayout.Button(applyContent)) {
-                ApplyRecolor();
-            }
+            // 欄の名前(「ファイル名」)は書かず、説明はツールチップで出す(欄の上に、イベントを取らない透明なラベルを重ねる)。
+            GUI.Label(nameRect, TempContent.Of("", Localization.FileNameTooltip), GUIStyle.none);
 
             EditorGUILayout.BeginHorizontal();
+            inheritImportSettings = EditorGUILayout.ToggleLeft(inheritContent, inheritImportSettings, GUILayout.Width(toggleW));
             if (GUILayout.Button(TempContent.Of(Localization.OpenFolder, Localization.OpenFolderTooltip))) {
                 string path = AssetDatabase.GetAssetPath(_host.SourceTexture);
                 if (!string.IsNullOrEmpty(path)) {
@@ -171,14 +205,19 @@ namespace Iroca {
                 }
             }
             EditorGUILayout.EndHorizontal();
+
+            // ソロ表示はプレビュー専用。保存すると全ゾーンが適用されるので、
+            // 「見えているもの＝保存されるもの」でないことをここで明示する。
+            if (_host.SoloZone != null) {
+                EditorGUILayout.HelpBox(Localization.ExportSoloWarning, MessageType.Info);
+            }
         }
 
-        /// <summary>非破壊(NDMF)の登録。primary のときだけボタンを大きくする。</summary>
-        private void DrawRegister(bool primary) {
-            var registerContent = TempContent.Of(Localization.RegisterNonDestructive, Localization.RegisterNonDestructiveTooltip);
-            if (primary ? GUILayout.Button(registerContent, GUILayout.Height(PrimaryButtonHeight)) : GUILayout.Button(registerContent)) {
-                _host.RegisterToAvatar();
-            }
+        // ToggleLeft のチェックの箱と文言の間の分(文言の幅に足す)。
+        private const float ToggleBoxWidth = 20f;
+
+        /// <summary>非破壊(NDMF)の登録の付属: 保存先のレシピ・影の色の設定・書き出した画像を使うマテリアルの案内。</summary>
+        private void DrawRegisterDetails() {
             var bound = _host.BoundRecipe;
             if (bound != null) {
                 // 表示だけ(差し替えは「いろかで開く」で行う。ここでドロップされても結び付けない)。
@@ -220,7 +259,9 @@ namespace Iroca {
             newFileName = baseNameWithoutExtension + PathUtils.RecoloredSuffix;
         }
 
-        private const float PrimaryButtonHeight = 32f;
+        // 主の操作(登録・適用して保存)のボタンの高さ。見出しと同じ行に置くので、ふつうのボタンより少しだけ高くして目立たせる
+        // (以前は見出しの下に 32 の高さで置いていた)。
+        private const float PrimaryButtonHeight = 24f;
 
         /// <summary>
         /// エクスポートセクションの描画想定高さを返す。
@@ -230,19 +271,19 @@ namespace Iroca {
         public float GetSectionHeight() {
             float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
 
-            float h = lineH;          // 見出しラベル
+            float h = PrimaryButtonHeight + EditorGUIUtility.standardVerticalSpacing;   // 見出しと主の操作の行
 #if IROCA_NDMF_PRESENT
-            h += RegisterHeight(primary: true);
-            h += 4f;                  // Space(4)
+            h += RegisterDetailsHeight();
             h += lineH;               // 「テクスチャとして書き出す」の折りたたみ
             if (textureExportFoldout) {
-                h += TextureExportHeight(primary: false);
+                h += TextureExportOptionsHeight();
+                h += lineH;           // 適用して保存
             }
 #else
-            h += TextureExportHeight(primary: true);
-            h += 4f;                  // Space(4)
-            h += NdmfUnavailableHelpBoxHeight();
-            h += RegisterHeight(primary: false);
+            h += TextureExportOptionsHeight();
+            h += NoticeBox.Height(NdmfUnavailableText, MessageType.Warning, RegisterColumnWidth(), 1,
+                EditorGUIUtility.currentViewWidth) + EditorGUIUtility.standardVerticalSpacing;
+            h += RegisterDetailsHeight();
 #endif
             if (!string.IsNullOrEmpty(_lastError)) {
                 // エラー HelpBox +「閉じる」ボタン。エラーの文は長く(パスを含む)、狭い窓では何行にも折り返すので、文で測る
@@ -252,25 +293,19 @@ namespace Iroca {
             return h;
         }
 
-        private float TextureExportHeight(bool primary) {
+        private float TextureExportOptionsHeight() {
             float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
-            float h = lineH;          // saveAsNewFile トグル
-            if (saveAsNewFile) {
-                h += lineH;           // ファイル名フィールド
-            }
-            h += lineH;               // inheritImportSettings トグル
+            float h = lineH * 2f;     // 新規ファイル＋ファイル名 / インポート設定＋フォルダを開く・Project で表示
             // HelpBox は内容と幅で高さが変わるので、文で測る(HelpBoxHeight)。
             if (_host != null && _host.SoloZone != null) {
                 h += HelpBoxHeight(Localization.ExportSoloWarning);   // ソロ表示中の注意
             }
-            h += primary ? PrimaryButtonHeight + EditorGUIUtility.standardVerticalSpacing : lineH; // ApplyAndSave ボタン
-            h += lineH;               // OpenFolder / Project で表示（1 行に横並び）
             return h;
         }
 
-        private float RegisterHeight(bool primary) {
+        private float RegisterDetailsHeight() {
             float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
-            float h = primary ? PrimaryButtonHeight + EditorGUIUtility.standardVerticalSpacing : lineH; // アバターに非破壊で登録
+            float h = 0f;
             if (_host != null && _host.BoundRecipe != null) {
                 h += lineH;           // 保存先のレシピ
                 if (BoundRecipeUnreadable(_host.BoundRecipe)) {
@@ -288,7 +323,11 @@ namespace Iroca {
         }
 
 #if !IROCA_NDMF_PRESENT
-        private static float NdmfUnavailableHelpBoxHeight() => HelpBoxHeight(Localization.NdmfUnavailable(NdmfSupport.State));
+        private static string NdmfUnavailableText => Localization.NdmfUnavailable(NdmfSupport.State);
+
+        // NDMF が無いときの案内の右に置く登録のボタンの列の幅(文言が入りきる幅)。上部の案内の列の幅
+        // (NoticeBox.ColumnWidth)には入れない。あちらはテクスチャ欄の下の案内どうしで幅をそろえるためのもの。
+        private static float RegisterColumnWidth() => Mathf.Ceil(GUI.skin.button.CalcSize(RegisterContent).x);
 #endif
 
         // 長い HelpBox は縦並び(狭幅)では 3 行以上に折り返すので固定の 40 では足りない。

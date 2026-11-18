@@ -51,11 +51,17 @@ namespace Iroca {
         /// 配列の確保は気にしない。ボタンが無ければ全幅で描く。
         /// </summary>
         public static int Draw(string text, MessageType type, params GUIContent[] buttons) {
+            return Draw(text, type, ColumnWidth(), buttons);
+        }
+
+        /// <summary>
+        /// ボタンの列の幅を指定して描く。上部の案内(テクスチャ欄の下)以外の場所で使う(列の幅をそろえる相手が違う)。
+        /// </summary>
+        public static int Draw(string text, MessageType type, float columnW, params GUIContent[] buttons) {
             if (buttons == null || buttons.Length == 0) {
                 EditorGUILayout.HelpBox(text, type);
                 return -1;
             }
-            float columnW = ColumnWidth();
             var buttonStyle = GUI.skin.button;
             var m = buttonStyle.margin;
             float buttonH = buttonStyle.CalcSize(buttons[0]).y;
@@ -99,6 +105,23 @@ namespace Iroca {
             }
             GUI.changed = changedBefore;
             return pressed;
+        }
+
+        /// <summary>
+        /// <see cref="Draw(string, MessageType, float, GUIContent[])"/> が使う高さの見積もり(上下の余白を含む)。
+        /// 描く前に高さを決める欄(書き出し欄。<see cref="ExportView.GetSectionHeight"/>)が使う。
+        /// <paramref name="totalWidth"/> は案内を置く行の幅。
+        /// </summary>
+        public static float Height(string text, MessageType type, float columnW, int buttonCount, float totalWidth) {
+            var helpBox = EditorStyles.helpBox;
+            var buttonStyle = GUI.skin.button;
+            var m = buttonStyle.margin;
+            float buttonH = buttonStyle.CalcSize(TempContent.Of("A")).y;
+            float gap = Mathf.Max(m.top, m.bottom);
+            float stackH = buttonCount * buttonH + Mathf.Max(0, buttonCount - 1) * gap;
+            float boxW = Mathf.Max(60f, totalWidth - (columnW + m.left + m.right) - helpBox.margin.horizontal);
+            float textH = helpBox.CalcHeight(new GUIContent(text, Icon(type)), boxW);
+            return Mathf.Max(textH, stackH) + helpBox.margin.vertical;
         }
 
         // 案内の絵(EditorGUI.HelpBox が描くものと同じ。高さの見積もりに使う)。

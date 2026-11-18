@@ -77,6 +77,24 @@ namespace Iroca {
             availableColumnHeight - _chromeAboveViewportH - ViewportBottomPadding);
 
         /// <summary>
+        /// 高さ <paramref name="columnHeight"/> のカラムで、正方形の画像を枠の高さいっぱいに全体表示するのに要るカラムの幅
+        /// (<see cref="ComputeFitScale"/> の幅と高さの制約がちょうど釣り合う幅)。ホストはこれを目安に左右の列を分け、
+        /// 横に広い窓でプレビューが幅で頭打ちになって下が空くのを防ぐ(2026-11-18)。枠より上の UI の高さがまだ
+        /// 測れていなければ 0。テクスチャの縦横比は見ない(切り替えるたびに設定列の幅が動かないように)。
+        /// </summary>
+        internal float ColumnWidthForSquareFit(float columnHeight) {
+            if (columnHeight <= 0f || _chromeAboveViewportH <= 0f) {
+                return 0f;
+            }
+            float budget = Mathf.Max(IrocaConsts.Preview.MinViewportHeight,
+                columnHeight - _chromeAboveViewportH - ViewportBottomPadding);
+            var pad = GUI.skin.scrollView.padding;
+            float side = budget - pad.vertical - FitSlack;
+            var vBar = GUI.skin.verticalScrollbar;
+            return side + pad.horizontal + FitSlack + vBar.fixedWidth + vBar.margin.left;
+        }
+
+        /// <summary>
         /// 全体表示(ズーム 100%)の倍率。枠の内側(スクロールビューの余白と比較モードの見出し・
         /// パネル間隔を除く)に、画像全体がスクロールバー無しで収まる最大の倍率。
         /// </summary>
@@ -504,56 +522,26 @@ namespace Iroca {
                 _cachedZoomLabelShort = string.Format(Localization.ZoomLabelShort, zoomPercent);
             }
 
-            DrawTitleRow(true, maxZoom);
-
-            // 操作行: 比較/差分トグル・元を表示・生成状態を 1 行にまとめる。以前は
-            // それぞれ 1 行ずつ計 3 行を使っており、既定ウィンドウ高(IrocaWindow.ShowWindow)
-            // ではプレビュー枠の残り高が等倍 512px に届かず、100% でも縦スクロールバーが
-            // 常に出ていた。トグルは内容幅に縮め、生成状態は右端に置く。
-            // ズーム率は見出し行にある（この行に並べると既定幅に収まらない。DrawTitleRow 参照）。
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Toggle(comparisonMode, TempContent.Of(Localization.ComparisonMode, Localization.ComparisonModeTooltip), EditorStyles.miniButtonLeft, GUILayout.ExpandWidth(false)) != comparisonMode) {
-                comparisonMode = !comparisonMode;
-                if (comparisonMode) {
-                    diffMode = false;
-                }
-                // 画像の並び(位置)が変わるので、拡大表示の切り出しを新しい並びで作り直す。
-                DetailView.OnViewMoved();
-            }
-            if (GUILayout.Toggle(diffMode, TempContent.Of(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight, GUILayout.ExpandWidth(false)) != diffMode) {
-                diffMode = !diffMode;
-                // 拡大表示の差分は、変更後の切り出しと同じ範囲の変更前の切り出しから描く。今の切り出しの分は
-                // 描くときにその場で作る(ShownDetailRawForDiff)ので、作り直しは待たない。
-                if (diffMode) {
-                    comparisonMode = false;
-                }
-            }
-            // 押している間だけ変更前を表示する。前後比較(横並び)は高ズームで使えず、差分表示は
-            // 「変わった画素」しか示さないため、拡大して細部を見ているときに「元はどうだったか」を
-            // 確かめる手段が無かった。比較モード中は両方が既に並んでいるので無効化する。
+            // 見出し(題名・ズーム)と操作(比較/差分・元を表示)。カラムに 1 行で収まるなら 1 行に並べ、収まらない
+            // 既定幅では見出し行と操作行の 2 行にする(2026-11-18。広い窓で 1 行ぶんプレビューを高くする)。
+            // 判定はカラム幅と Layout で決めた表示の有無だけで決まるので、同じフレームの Layout と Repaint で同じ並びになる。
             bool peekOriginal;
-            using (new EditorGUI.DisabledScope(comparisonMode || rawPreviewTexture == null)) {
-                peekOriginal = GUILayout.RepeatButton(
-                    TempContent.Of(Localization.PeekOriginal, Localization.PeekOriginalTooltip),
-                    EditorStyles.miniButton, GUILayout.ExpandWidth(false));
+            var header = HeaderLayout();
+            if (header != HeaderMode.TwoRows) {
+                EditorGUILayout.BeginHorizontal();
+                DrawTitleLabel();
+                peekOriginal = DrawViewModeControls();
+                GUILayout.FlexibleSpace();
+                DrawZoomControls(maxZoom, longZoomLabel: header == HeaderMode.OneRowLongZoom);
+                EditorGUILayout.EndHorizontal();
+            } else {
+                DrawTitleRow(true, maxZoom);
+                EditorGUILayout.BeginHorizontal();
+                peekOriginal = DrawViewModeControls();
+                EditorGUILayout.EndHorizontal();
             }
-            peekOriginal &= !comparisonMode && rawPreviewTexture != null;
-            // RepeatButton は押されている間 true を返し続けるが、Editor は要求が無いと
-            // 再描画しない。押下中は継続的に再描画を要求しないと 1 フレームで戻って見える。
-            if (peekOriginal) {
-                _host.RequestPreviewRepaint();
-            }
-            DrawAppearanceToggle();
 
-            GUILayout.FlexibleSpace();
-            // MinWidth(0): 生成状態ラベルは文字数が多く、既定では「文字幅＝最小幅」として
-            // この行の最小幅に丸ごと乗る。狭いカラムではそれがカラム幅を超え、外側 ScrollView が
-            // カラムより広い clientWidth を配ってしまう(GUIScrollGroup の仕様。frameW のコメント参照)。
-            // 最小幅 0 にすると足りない分は文字が切れるだけで、他の要素の配置には影響しない。
-            GUILayout.Label(generatingLabel, GUILayout.MinWidth(0f));
-            EditorGUILayout.EndHorizontal();
-
-            DrawInteractionModeRow();
+            DrawInteractionModeRow(generatingLabel);
 
             // 比較/差分トグルを押したイベントではパネル数が変わり得るので、全体表示の倍率をここで揃え直す。
             int panelCount = PanelCount;
@@ -1025,7 +1013,11 @@ namespace Iroca {
         /// プレビューを別ウィンドウへ切り出していると手掛かりが画面の外にあり、
         /// 「押したのに何も起きない」「意図せず塗ってしまった」の原因になっていた。
         /// </summary>
-        private void DrawInteractionModeRow() {
+        /// <param name="generatingLabel">
+        /// 生成状態(生成していないときは空白)。この行の右端に置く。以前は操作行の右端にあったが、広い窓で見出しと操作を
+        /// 1 行にまとめると、その位置はズームの欄になる(2026-11-18)。
+        /// </param>
+        private void DrawInteractionModeRow(string generatingLabel) {
             var maskView = _host._maskView;
 
             // ★実際にクリックを取る側の優先順位をそのまま写す★（PreviewView.Draw 末尾の
@@ -1069,8 +1061,12 @@ namespace Iroca {
                 // 変えたりするとプレビュー枠が上下に跳ね、chrome 実測（_chromeAboveViewportH）も揺れる。
                 DrawIdleRow();
             }
+            // 生成状態は、生成していないときも空白を描いて要素の並びを変えない(Layout と Repaint で数がそろう)。
+            // MinWidth(0): 狭いカラムで文字幅が行の最小幅に乗り、外側 ScrollView がカラムより広い幅を配らないように
+            // (GUIScrollGroup の仕様。Draw の frameW のコメント参照)。足りない分は文字が切れるだけ。
+            GUILayout.FlexibleSpace();
+            GUILayout.Label(generatingLabel, EditorStyles.miniLabel, GUILayout.MinWidth(0f), GUILayout.ExpandWidth(false));
             if (soloZone != null) {
-                GUILayout.FlexibleSpace();
                 var prevContent = GUI.contentColor;
                 GUI.contentColor = IrocaColors.ActiveMaskTarget;
                 string zoneName = string.IsNullOrEmpty(soloZone.name)
@@ -1085,50 +1081,156 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 「③ プレビュー」見出し行。プレビューが確立していれば、ズーム率とリセットを右端に置く。
+        /// 「③ プレビュー」見出し行(2 行に分けるとき)。プレビューが確立していれば、ズーム率とリセットを右端に置く。
         ///
         /// ズーム率はもともと比較/差分と同じ操作行にあったが、「元を表示」「リセット」を足した
         /// 結果その行が既定ウィンドウ幅（右カラム ~408px）に収まらなくなり、ズーム率を miniLabel に
         /// 落として詰めていた。それでも右端の生成状態ラベルは幅 0 近くまで潰れて読めず、
         /// miniLabel はボタンの文字より小さく上寄りに描かれて行の中で浮いて見えた。
         /// 見出し行は題名以外が空いているので、ズーム率は元の文字サイズのままこちらへ置く。
+        /// 1 行に収まる幅なら、見出しと操作を同じ行に並べる(<see cref="HeaderLayout"/>)。
         /// </summary>
         private void DrawTitleRow(bool showZoom, float maxZoom) {
             EditorGUILayout.BeginHorizontal();
-            var title = TempContent.Of(Localization.StepPrefixPreview + Localization.Preview);
-            GUILayout.Label(title, EditorStyles.boldLabel, GUILayout.ExpandWidth(false));
+            DrawTitleLabel();
             if (showZoom) {
                 GUILayout.FlexibleSpace();
-                // ズームは Ctrl+スクロールのみ。拡大したあと初期表示へ戻す手段がスクロールを
-                // 戻し切ることしか無かったので、リセットボタンだけ置く（−／＋／全体の段階ボタンは
-                // 見た目が煩雑になったため 2026-09-14 に撤去）。
-                var reset = TempContent.Of(Localization.ZoomReset, Localization.ZoomResetTooltip);
-                var zoom = TempContent.Of(_cachedZoomLabel, Localization.ZoomHint);
                 // 狭いカラムでは「(Ctrl+スクロール)」を省く。省かないと行がカラムより広くなり、
                 // 右端のリセットボタンが見えない位置へ押し出される(外側 ScrollView はカラムより広い
                 // 内容を黙って切る。frameW のコメント参照)。判定はカラム幅だけで決まるので、
                 // 同一フレームの Layout と Repaint で同じ文言になる。
-                if (!TitleRowFits(title, zoom, reset)) {
-                    zoom.text = _cachedZoomLabelShort;
-                }
-                GUILayout.Label(zoom, GUILayout.ExpandWidth(false));
-                bool smooth = GUILayout.Toggle(SmoothMagnify, SmoothContent, EditorStyles.miniButton, GUILayout.ExpandWidth(false));
-                if (smooth != SmoothMagnify) {
-                    SmoothMagnify = smooth;
-                    _host.RequestRepaint();
-                }
-                bool fullRes = GUILayout.Toggle(DetailFullResolution, DetailFullResolutionContent, EditorStyles.miniButton, GUILayout.ExpandWidth(false));
-                if (fullRes != DetailFullResolution) {
-                    // 土台の作り直しは次の Draw の始め(SyncDetailResolution)。このイベントの残りは今の土台のまま描く。
-                    DetailFullResolution = fullRes;
-                    _host.RequestRepaint();
-                }
-                if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.ExpandWidth(false))) {
-                    ResetZoom(maxZoom);
-                }
+                float need = TitleWidth() + ZoomButtonsWidth() + ZoomLabelWidth(longLabel: true);
+                DrawZoomControls(maxZoom, longZoomLabel: FitsColumn(need));
             }
             EditorGUILayout.EndHorizontal();
         }
+
+        private static GUIContent TitleContent => TempContent.Of(Localization.StepPrefixPreview + Localization.Preview);
+
+        private static void DrawTitleLabel() {
+            GUILayout.Label(TitleContent, EditorStyles.boldLabel, GUILayout.ExpandWidth(false));
+        }
+
+        /// <summary>
+        /// 比較/差分トグル・元を表示・アバターの見え方の操作を描き、「元を表示」が押されているかを返す。
+        /// トグルは内容幅に縮める(以前はそれぞれ 1 行ずつ使い、既定ウィンドウ高ではプレビューが等倍に届かなかった)。
+        /// </summary>
+        private bool DrawViewModeControls() {
+            if (GUILayout.Toggle(comparisonMode, ComparisonContent, EditorStyles.miniButtonLeft, GUILayout.ExpandWidth(false)) != comparisonMode) {
+                comparisonMode = !comparisonMode;
+                if (comparisonMode) {
+                    diffMode = false;
+                }
+                // 画像の並び(位置)が変わるので、拡大表示の切り出しを新しい並びで作り直す。
+                DetailView.OnViewMoved();
+            }
+            if (GUILayout.Toggle(diffMode, DiffContent, EditorStyles.miniButtonRight, GUILayout.ExpandWidth(false)) != diffMode) {
+                diffMode = !diffMode;
+                // 拡大表示の差分は、変更後の切り出しと同じ範囲の変更前の切り出しから描く。今の切り出しの分は
+                // 描くときにその場で作る(ShownDetailRawForDiff)ので、作り直しは待たない。
+                if (diffMode) {
+                    comparisonMode = false;
+                }
+            }
+            // 押している間だけ変更前を表示する。前後比較(横並び)は高ズームで使えず、差分表示は
+            // 「変わった画素」しか示さないため、拡大して細部を見ているときに「元はどうだったか」を
+            // 確かめる手段が無かった。比較モード中は両方が既に並んでいるので無効化する。
+            bool peekOriginal;
+            using (new EditorGUI.DisabledScope(comparisonMode || rawPreviewTexture == null)) {
+                peekOriginal = GUILayout.RepeatButton(PeekContent, EditorStyles.miniButton, GUILayout.ExpandWidth(false));
+            }
+            peekOriginal &= !comparisonMode && rawPreviewTexture != null;
+            // RepeatButton は押されている間 true を返し続けるが、Editor は要求が無いと
+            // 再描画しない。押下中は継続的に再描画を要求しないと 1 フレームで戻って見える。
+            if (peekOriginal) {
+                _host.RequestPreviewRepaint();
+            }
+            DrawAppearanceToggle();
+            return peekOriginal;
+        }
+
+        /// <summary>
+        /// ズーム率・なめらか・元の解像度・リセット。ズームは Ctrl+スクロールのみ。拡大したあと初期表示へ戻す手段が
+        /// スクロールを戻し切ることしか無かったので、リセットボタンだけ置く（−／＋／全体の段階ボタンは
+        /// 見た目が煩雑になったため 2026-09-14 に撤去）。
+        /// </summary>
+        private void DrawZoomControls(float maxZoom, bool longZoomLabel) {
+            GUILayout.Label(ZoomContent(longZoomLabel), GUILayout.ExpandWidth(false));
+            bool smooth = GUILayout.Toggle(SmoothMagnify, SmoothContent, EditorStyles.miniButton, GUILayout.ExpandWidth(false));
+            if (smooth != SmoothMagnify) {
+                SmoothMagnify = smooth;
+                _host.RequestRepaint();
+            }
+            bool fullRes = GUILayout.Toggle(DetailFullResolution, DetailFullResolutionContent, EditorStyles.miniButton, GUILayout.ExpandWidth(false));
+            if (fullRes != DetailFullResolution) {
+                // 土台の作り直しは次の Draw の始め(SyncDetailResolution)。このイベントの残りは今の土台のまま描く。
+                DetailFullResolution = fullRes;
+                _host.RequestRepaint();
+            }
+            if (GUILayout.Button(ZoomResetContent, EditorStyles.miniButton, GUILayout.ExpandWidth(false))) {
+                ResetZoom(maxZoom);
+            }
+        }
+
+        private enum HeaderMode { TwoRows, OneRowShortZoom, OneRowLongZoom }
+
+        /// <summary>
+        /// 見出しと操作を 1 行に並べられるか。カラム幅を渡さないホストでは、従来どおり 2 行にする。
+        /// 「アバターの見え方」の操作の有無は Layout で決めた値なので、同じフレームの Layout と Repaint で同じ答えになる。
+        /// </summary>
+        private HeaderMode HeaderLayout() {
+            if (availableColumnWidth <= 1f) {
+                return HeaderMode.TwoRows;
+            }
+            float fixedW = TitleWidth() + ViewModeControlsWidth() + ZoomButtonsWidth();
+            if (FitsColumn(fixedW + ZoomLabelWidth(longLabel: true))) {
+                return HeaderMode.OneRowLongZoom;
+            }
+            if (FitsColumn(fixedW + ZoomLabelWidth(longLabel: false))) {
+                return HeaderMode.OneRowShortZoom;
+            }
+            return HeaderMode.TwoRows;
+        }
+
+        // カラムの見えている幅(外側の縦バーの分を引く)に収まるか。カラム幅を渡さないホストでは常に収まる扱い。
+        private bool FitsColumn(float need) {
+            if (availableColumnWidth <= 1f) {
+                return true;
+            }
+            var vBar = GUI.skin.verticalScrollbar;
+            float avail = availableColumnWidth - vBar.fixedWidth - vBar.margin.left;
+            return need <= avail;
+        }
+
+        private static float Measure(GUIStyle style, GUIContent content) => style.CalcSize(content).x + style.margin.horizontal;
+
+        private static float TitleWidth() => Measure(EditorStyles.boldLabel, TitleContent);
+
+        private float ViewModeControlsWidth() {
+            float w = Measure(EditorStyles.miniButtonLeft, ComparisonContent)
+                      + Measure(EditorStyles.miniButtonRight, DiffContent)
+                      + Measure(EditorStyles.miniButton, PeekContent);
+            if (_appearanceAvailableAtLayout) {
+                w += Measure(EditorStyles.miniButton, AppearanceContent);
+            }
+            return w;
+        }
+
+        private static float ZoomButtonsWidth() =>
+            Measure(EditorStyles.miniButton, SmoothContent)
+            + Measure(EditorStyles.miniButton, DetailFullResolutionContent)
+            + Measure(EditorStyles.miniButton, ZoomResetContent);
+
+        private float ZoomLabelWidth(bool longLabel) => Measure(GUI.skin.label, ZoomContent(longLabel));
+
+        // 狭いときは「(Ctrl+スクロール)」を省いた文言にする。
+        private GUIContent ZoomContent(bool longLabel) =>
+            TempContent.Of(longLabel ? _cachedZoomLabel : _cachedZoomLabelShort, Localization.ZoomHint);
+
+        private static GUIContent ComparisonContent => TempContent.Of(Localization.ComparisonMode, Localization.ComparisonModeTooltip);
+        private static GUIContent DiffContent => TempContent.Of(Localization.DiffMode, Localization.DiffModeTooltip);
+        private static GUIContent PeekContent => TempContent.Of(Localization.PeekOriginal, Localization.PeekOriginalTooltip);
+        private static GUIContent ZoomResetContent => TempContent.Of(Localization.ZoomReset, Localization.ZoomResetTooltip);
 
         // ── 拡大したときの補間(表示だけの設定) ─────────────────────────
         // オフ(既定): 等倍以上に拡大したら 1 画素ずつ四角く見せる(画素単位で確かめる)。
@@ -1160,25 +1262,6 @@ namespace Iroca {
 
         private static GUIContent DetailFullResolutionContent
             => TempContent.Of(Localization.DetailFullResolution, Localization.DetailFullResolutionTooltip);
-
-        // 見出し行(題名・ズーム率・なめらか・元の解像度・リセット)がカラムの見えている幅に収まるか。
-        // カラム幅を渡さないホストでは従来どおり省略しない。
-        private bool TitleRowFits(GUIContent title, GUIContent zoom, GUIContent reset) {
-            if (availableColumnWidth <= 1f) {
-                return true;
-            }
-            var vBar = GUI.skin.verticalScrollbar;
-            float avail = availableColumnWidth - vBar.fixedWidth - vBar.margin.left;
-            var bold = EditorStyles.boldLabel;
-            var label = GUI.skin.label;
-            var button = EditorStyles.miniButton;
-            float need = bold.CalcSize(title).x + bold.margin.horizontal
-                         + label.CalcSize(zoom).x + label.margin.horizontal
-                         + button.CalcSize(reset).x + button.margin.horizontal
-                         + button.CalcSize(SmoothContent).x + button.margin.horizontal
-                         + button.CalcSize(DetailFullResolutionContent).x + button.margin.horizontal;
-            return need <= avail;
-        }
 
         /// <summary>ズームを初期表示（100%）へ戻し、表示位置も先頭へ戻す。</summary>
         private void ResetZoom(float maxZoom) {

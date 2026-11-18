@@ -283,6 +283,18 @@ namespace Iroca {
                 position.width * IrocaUiConsts.Layout.LeftColumnRatio,
                 IrocaUiConsts.Layout.LeftColumnMin,
                 IrocaUiConsts.Layout.LeftColumnMax);
+            // プレビューを本体に描くときは、正方形の画像がカラムの高さいっぱいに収まる幅をプレビューに渡し、残りを
+            // 設定列にする(下限・上限の範囲で)。比率だけで分けると、横に広い窓ではプレビューが幅で頭打ちになって
+            // 下が空き、縦に長い窓では左右が空いた(2026-11-18)。枠より上の UI の高さが測れるまで(最初の描画)は比率で分ける。
+            // プレビューの見出しが 1 行か 2 行か(幅で決まる)で枠より上の高さが変わるが、幅が広いほど 1 行になって
+            // さらに広い幅を求める向きにしか動かないので、行ったり来たりせずに落ち着く。
+            if (!IrocaPreviewWindow.IsOpen && SourceTexture != null) {
+                float wantRight = _previewView.ColumnWidthForSquareFit(horizH);
+                if (wantRight > 0f) {
+                    leftWidth = Mathf.Clamp(position.width - wantRight,
+                        IrocaUiConsts.Layout.LeftColumnMin, IrocaUiConsts.Layout.LeftColumnMax);
+                }
+            }
             // 等倍(100%)プレビューがバー無しで収まる幅(PreviewColumnReserve)を右カラムへ優先確保し、
             // 左カラムは下限(LeftColumnMin)までの範囲で譲る。現行の定数(比率 0.4・下限 320・
             // 上限 450・予約 408)では補正の前後で幅は変わらない(幅 728 未満は下限 320 が勝ち、
@@ -772,26 +784,33 @@ namespace Iroca {
         private void DrawTextureField() {
             EditorGUILayout.Space(4);
             DrawTranslationNotice();
+            // 見出し「① 元テクスチャ」をテクスチャ欄のラベルにして 1 行にする(2026-11-18。以前は見出しの行と
+            // 「テクスチャ」の欄で 2 行使い、設定列とプレビューの高さを 1 行ぶん奪っていた)。
             // 済んだ手順に ✓ を付ける。番号だけでは「どこまで進んだか」が分からず、
             // テクスチャを入れた瞬間に導入ヒントが消えて案内が途切れていた。
-            EditorGUILayout.LabelField(
+            var heading = TempContent.Of(
                 Localization.StepPrefixTexture + Localization.SourceTexture
                 + (StepTextureDone ? Localization.StepDoneMark : ""),
-                EditorStyles.boldLabel);
+                Localization.TextureTooltip);
+            // 1 行高に固定する。Texture2D の ObjectField は既定で 64px のサムネイル枠になり、
+            // 右端の小さな枠のために行の左側が 3 行ぶん空いて、下の設定列とプレビューの
+            // 高さを恒常的に奪っていた。絵はプレビューで見えるのでここでは名前だけで足りる。
+            var row = EditorGUILayout.GetControlRect(true, EditorGUIUtility.singleLineHeight);
+            // ラベルの列は見出しが入りきる幅まで広げる(英語の見出しは既定のラベル幅より長いことがある)。
+            float prevLabelWidth = EditorGUIUtility.labelWidth;
+            EditorGUIUtility.labelWidth = Mathf.Max(prevLabelWidth,
+                Mathf.Ceil(EditorStyles.boldLabel.CalcSize(heading).x) + 4f);
+            var field = EditorGUI.PrefixLabel(row, heading, EditorStyles.boldLabel);
+            EditorGUIUtility.labelWidth = prevLabelWidth;
+
+            bool changedBefore = GUI.changed;
+            var newTex = (Texture2D)EditorGUI.ObjectField(field,
+                _pendingSourceTextureSet ? _pendingSourceTexture : SourceTexture, typeof(Texture2D), false);
 
             // 開始点が分かりにくいので、テクスチャ未設定時だけ一連の流れを案内する。
             if (SourceTexture == null) {
                 EditorGUILayout.HelpBox(Localization.WorkflowHint, MessageType.Info);
             }
-
-            bool changedBefore = GUI.changed;
-            var newTex = (Texture2D)EditorGUILayout.ObjectField(
-                TempContent.Of(Localization.Texture, Localization.TextureTooltip),
-                _pendingSourceTextureSet ? _pendingSourceTexture : SourceTexture, typeof(Texture2D), false,
-                // 1 行高に固定する。Texture2D の ObjectField は既定で 64px のサムネイル枠になり、
-                // 右端の小さな枠のために行の左側が 3 行ぶん空いて、下の設定列とプレビューの
-                // 高さを恒常的に奪っていた。絵はプレビューで見えるのでここでは名前だけで足りる。
-                GUILayout.Height(EditorGUIUtility.singleLineHeight));
             if (newTex != (_pendingSourceTextureSet ? _pendingSourceTexture : SourceTexture)) {
                 RequestSourceTextureSwitch(newTex);
                 // 切り替えは次の Layout。今の編集の変更ではないので、プレビューの作り直しと保存の合図を出さない。
