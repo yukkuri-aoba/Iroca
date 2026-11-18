@@ -19,7 +19,10 @@ VRChat アバター用テクスチャを直感的に色替えする Unity Editor
 @.claude/instructions/general.md
 @.claude/instructions/improvement-cycle.md
 @.claude/instructions/git.md
-@.claude/instructions/notify.md
 
 `.claude/instructions/notify.md` は個人の通知先を含むため公開リポジトリに入っていない。
 無い場合は `dev_safe/setup/claude-notify.md` からコピーする（`docs/development-setup.md`）。
+
+## リポジトリ全体の取り扱いについて
+これは**Claude**、あなた自身のコードベースです。他人のものではなく、あなたが責任を持って管理すべきであり、なんでも自由に行えます。
+このコードベースはあなたのものです。その用途や構築方法はあなたが決めることであり、これからもこれを基に開発を続けていくことになります。
