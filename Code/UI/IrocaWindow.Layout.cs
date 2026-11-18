@@ -550,6 +550,8 @@ namespace Iroca {
                     }
                 }
             }
+            // 編集内容を消すリセットを、よく押すマニュアルと隣り合わせにしない(押し間違えを減らす。2026-11-18)。
+            GUILayout.Space(ResetButtonGap);
 
             if (GUILayout.Button(TempContent.Of(Localization.Manual, Localization.ManualTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false))) {
                 IrocaManual.Open();
@@ -564,6 +566,9 @@ namespace Iroca {
 
             EditorGUILayout.EndHorizontal();
         }
+
+        // ツールバーのリセットと、その右のマニュアルとの間隔。ボタンの間隔(数 px)より十分広く、離れたまとまりに見える幅。
+        private const float ResetButtonGap = 16f;
 
         private static float s_languageToolbarWidth;
 
