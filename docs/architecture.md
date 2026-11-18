@@ -127,7 +127,8 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 | `AutoTuneService`・`AiSuggestBroker`・`ExportService`・`RegistrationService`・`PresetApplier` | 自動調整・AI 提案の待ち行列・書き出し・登録・プリセットの読み込みを、それぞれ 1 本にする。4-3 で `PresetApplier`（プリセット → 編集状態の規則）と `RegistrationService`（使うレシピの選び方と登録の計画。ウィンドウは確認画面に、自動化は警告にする）、`ExportService`（書き出しの画素と PNG をヒープの外に置く）、`AiSuggestBroker`（サービスを購読する唯一の所。求めた順に受け取り先へ返す。右クリックのコントローラも使うので `Code/MaskSuggest` に置いた）、`AutoTuneService`（1 つのゾーンの証拠の待ち・解析・当て方。ウィンドウは確認・通知・Undo、自動化は警告）を作った。自動調整の最後の段「漏れの確かめ」（証拠の外に塗られた塊ごとに AI の提案を取り直し、別の部品の一部だけが塗られた所を外す範囲にする。判定は Core の `ZoneAutoTuner.Leak.cs`）も `AutoTuneService` が回し、外す範囲はウィンドウ・自動化がゾーンの値と同じ記録（ウィンドウは同じ Undo の 1 回分）で、右クリックの「ここは塗らない」と同じ入口（`MaskWorkspace.ApplyRegion`）から書く |
 
 - IMGUI のビューは毎フレーム状態を読む（MVVM にはしない）。`Changed` を購読するのは、非同期に動くもの（プレビューの
-  再計算・自動保存・UI の版・シーンへの反映・マスクの重ね表示）だけ。
+  再計算・自動保存・UI の版・シーンへの反映・マスクの重ね表示）だけ。0.4.0 の後に UI を UI Toolkit へ移す計画は
+  `docs/ui-toolkit-migration.md`（「状態を読んで要素を合わせる」形へ移す。その時にこの項も直す）。
 - 登録は「計画」を返し、ウィンドウは確認画面に、自動化は警告にする（同じ判断を 2 か所に書かない）。
 - Undo が書き戻すのは文書だけで、文書の外の状態は戻らない。テクスチャが戻ったときに合わせるもの（読めなかった印・書き出しの既定の名前・AI 提案の要求・
   履歴に無い版のマスク）は `IrocaWindow.OnUndoRedoPerformed` が受け持つ。登録・自動化が新しく作ったレシピとの結び付きは編集内容ではないので、同じテクスチャの Undo では外さない
