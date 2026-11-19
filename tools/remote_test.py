@@ -183,8 +183,10 @@ def remote_info(t: Transport, manifest: bool = False) -> dict:
     raise Unavailable("相手の agent.py が動かない: " + r.stderr.decode(errors="replace").strip()[-400:])
 
 
-def check_ready(info: dict) -> list[str]:
+def check_ready(info: dict, need_editor: bool = False) -> list[str]:
     missing = []
+    if need_editor and not info.get("unity_editor"):
+        missing.append("Unity 本体か EditMode のホスト（docs/testing-architecture.md の「EditMode もテスト用 PC で」）")
     if not info.get("git"):
         missing.append("git")
     if not info.get("dotnet"):
@@ -437,7 +439,12 @@ def run_local(argv: list[str]) -> int:
     return subprocess.run([exe, *argv], cwd=str(REPO)).returncode
 
 
-def resolve(t: Transport, mode: str, manifest: bool) -> dict | None:
+def needs_editor(argv: list[str]) -> bool:
+    """Unity 本体が要る実行か（EditMode テストの入口 tools/editor_tests.py）。"""
+    return bool(argv) and Path(argv[0]).name == "editor_tests.py"
+
+
+def resolve(t: Transport, mode: str, manifest: bool, need_editor: bool = False) -> dict | None:
     """使えるならリモートの情報を返す。auto で使えなければ None（理由は log に出す）。"""
     if mode == "local":
         return None
@@ -445,7 +452,7 @@ def resolve(t: Transport, mode: str, manifest: bool) -> dict | None:
         if not reachable(t):
             raise Unavailable(f"{t.host} につながらない")
         info = remote_info(t, manifest=manifest)
-        missing = check_ready(info)
+        missing = check_ready(info, need_editor)
         if missing:
             raise Unavailable("相手の準備が足りない: " + "・".join(missing))
         if info.get("busy"):
@@ -490,7 +497,7 @@ def cmd_run(ns) -> int:
         raise SystemExit("`--` の後ろに Python へ渡す引数を書く（例: -- -m pytest scripts/source_checks -q）")
     t = make_transport(ns.host)
     mode = "local" if ns.local else ("remote" if ns.remote else "auto")
-    info = resolve(t, mode, manifest=True)
+    info = resolve(t, mode, manifest=True, need_editor=needs_editor(argv))
     if info is None:
         return run_local(argv)
     sweep_local_caches()

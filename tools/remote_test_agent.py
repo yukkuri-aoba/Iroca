@@ -42,6 +42,9 @@ MAIN = BASE / "Iroca"
 DEV_SAFE = MAIN / "dev_safe"
 INBOX = BASE / "inbox"
 UNITY_DIR = BASE / "UnityManaged"
+# EditMode テスト（tools/editor_tests.py）用。Unity 本体と、この作業ツリーへリンクしたホストの Unity プロジェクト
+UNITY_EDITOR_EXE = Path(r"C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Unity.exe")
+EDITOR_HOST = BASE / "hosts" / "Iroca_U2022_ifx"
 LOCK_PATH = BASE / "lock"
 REQUIREMENTS = Path("dev_safe") / "Tests" / "requirements.txt"
 SNAP_REF = "refs/remote-test/snap"
@@ -150,6 +153,7 @@ def cmd_info(argv: list[str]) -> int:
         "git": _git_exe() is not None,
         "dotnet": _dotnet_version(),
         "unity": (UNITY_DIR / "UnityEngine" / "UnityEngine.CoreModule.dll").is_file(),
+        "unity_editor": UNITY_EDITOR_EXE.is_file() and (EDITOR_HOST / "Assets" / "IrocaEditorTests").exists(),
         "models": bool(models and models.is_dir() and any(models.glob("*.onnx"))),
         "repos": {"main": _rev(MAIN, LAST_REF), "dev_safe": _rev(DEV_SAFE, LAST_REF)},
         "busy": _lock_busy(),

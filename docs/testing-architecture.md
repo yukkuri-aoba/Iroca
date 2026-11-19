@@ -382,8 +382,35 @@ Unity 本体は要らない（.NET と Unity の DLL だけ）。実測（2026-1
 `holdout_eval.py` は見た回数の記録（`Tests/Baselines/holdout_log.jsonl`）が相手側に残るので、回したら必ず持ち帰る。
 compare・sweep・freeze など軽い集計は手元でよい。
 
+**EditMode もテスト用 PC で回せる**（2026-11-19〜）: `tools/editor_tests.py` は `scripts/Run-EditorTests.ps1` を呼ぶ
+Python の入口なので、`remote_test.py` の `--` の後ろに置ける。後ろの引数は Run-EditorTests.ps1 へそのまま渡る。
+
+```powershell
+.\.venv\Scripts\python.exe tools/remote_test.py -- tools/editor_tests.py
+.\.venv\Scripts\python.exe tools/remote_test.py -- tools/editor_tests.py -TestFilter RuntimeParity
+# 結果のフォルダ（results.xml・unity.log・parity.tsv）が要るとき
+.\.venv\Scripts\python.exe tools/remote_test.py --fetch dev_safe/_editor_tests -- tools/editor_tests.py --save dev_safe/_editor_tests
+```
+
+- 相手に Unity 2022.3.22f1 とホストが無ければ（`status` の `unity_editor` が false）、1 行出して手元で回る。
+  手元のホストは `Documents\Avatar_Projects\Iroca_U2022_ifx`（ユーザーが開いていないホスト）。`--host` か
+  `IROCA_EDITOR_HOST` で変えられる。
+- 相手のホストは `<相手のホーム>\iroca-remote\hosts\Iroca_U2022_ifx`。開発機の同じホストから Library を除いて写し、
+  `Link-HostPackage.ps1 -WithEditorTests` で相手の `iroca-remote\Iroca` へリンクした。ホストの Packages・Assets を
+  変えたら写し直す。
+- batchmode で回るもの（既定の実行・`-TestFilter`・`-PerfCases` など）に限る。`-Graphics`（batchmode のまま GPU で
+  描く）は ssh の先でも通った（2026-11-19、描画を見る 23 件）。画面の要る台本（`-UndoReload`・`-SdkBuild`）は
+  ssh の先では窓を出せないので手元で回す。
+- 実測（2026-11-19、G83）: 初回（ホストの取り込み込み）で全 783 件・成功 747・失敗 0・スキップ 36・351 秒。
+  スキップは `-nographics`・AI パッケージの無いホスト・計測用（既定では回らない）で、手元の同じホストと同じ。
+- Unity のライセンスは相手の PC で人が Unity Hub にサインインして取る（Personal。こちらからは取れない）。
+  切れると Unity が起動直後に終わり、結果が出ずに失敗する（unity.log にライセンスの行が出る）。
+- 相手への Unity の入れ方（2026-11-19）: `winget install Unity.UnityHub`、エディタは Hub の `--headless install` が
+  ssh の先で何もしなかったので、`https://download.unity3d.com/download_unity/887be4894c44/Windows64EditorInstaller/UnitySetup64-2022.3.22f1.exe`
+  を落として `/S /D=C:\Program Files\Unity\Hub\Editor\2022.3.22f1` で入れた（ssh の先は管理者の権限で動く）。
+
 **リモートで回さないもの**: 視覚レビュー（`visual_review.py` の snapshot・compare・approve）は承認を手元の
-作業ツリーと索引の中身に結び付けるので手元で回す。Unity 実機の EditMode テストも手元（相手に Unity 本体が無い）。
+作業ツリーと索引の中身に結び付けるので手元で回す。画面の要る Unity の台本（上記）も手元。
 
 準備（1 回だけ）:
 1. 開発機で鍵を作る（`ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_iroca_remote`）。
