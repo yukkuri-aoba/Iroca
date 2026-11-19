@@ -19,6 +19,8 @@
 - dev_safe の無視されたデータ（DATA_DIRS。テクスチャ・PSD・SAM の埋め込みなど git に入らない入力）:
   大きさと更新時刻が違うものだけ tar で。
 - 環境変数: `IROCA_*`・`VACC_*`（手元の絶対パスを指すものと `IROCA_REMOTE_*` は除く）と `--env K=V`。
+- 引数・環境変数の中の手元の `.dll`（試作の --dll など）: 来歴のソースのコミットを送り、相手で作り直したパスに置き換える
+  （下の rewrite_dlls）。
 
 持ち帰るもの: `--fetch <本体からの相対パス>`（複数可）で、実行後のファイル・フォルダを手元の同じ場所へ上書きする。
 
@@ -55,6 +57,9 @@ SYNC_FAILED = 97  # remote_test_agent.py と合わせる（相手で同期に失
 HEARTBEAT_S = 10  # 実行中に相手へ送る生存の合図の間隔。6 回分途絶えると相手は実行を止める
 SNAP_REF = "refs/remote-test/snap"
 SENT_REF = "refs/remote-test/sent"
+# 試作の DLL（--dll・IROCA_HARNESS_DLL）を相手で作り直すためのコミット（remote_test_agent.py と合わせる）
+DLL_REF_PREFIX = "refs/remote-test/dll/"
+DLL_TOKEN = "@@IROCA_DLL:{}@@"
 _ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]|^\\\\")
 _FIXED_ID = {
     "GIT_AUTHOR_NAME": "remote-test", "GIT_AUTHOR_EMAIL": "remote-test@localhost",
@@ -231,15 +236,92 @@ def snapshot(repo: Path, tmpdir: Path) -> str:
     return commit
 
 
-def make_bundle(repo: Path, commit: str, remote_has: str | None, out: Path) -> Path | None:
-    if remote_has == commit:
+def make_bundle(repo: Path, commit: str, remote_has: str | None, out: Path,
+                extra_refs: list[str] | tuple = ()) -> Path | None:
+    if remote_has == commit and not extra_refs:
         return None
     excl = []
     if remote_has and subprocess.run(["git", "-C", str(repo), "cat-file", "-e", remote_has + "^{commit}"],
                                      capture_output=True).returncode == 0:
         excl = ["^" + remote_has]
-    git(repo, "bundle", "create", "-q", str(out), SNAP_REF, *excl)
+    try:
+        git(repo, "bundle", "create", "-q", str(out), SNAP_REF, *extra_refs, *excl)
+    except RuntimeError as e:
+        # 足したコミットも相手にもうある（送るものが無い）
+        if "empty bundle" in str(e):
+            return None
+        raise
     return out
+
+
+# ---- 試作の DLL を相手で作り直す（2026-11-20）----
+# 試作は変種のコミットから作った DLL を --dll <パス>（や name=<パス>・IROCA_HARNESS_DLL）で渡す。手元のパスは相手に無いので、
+# DLL の来歴（同じフォルダの provenance.json。tools/harness_build.py が書く）から元のソースのコミットを決めて一緒に送り、
+# 引数のパスを印 @@IROCA_DLL:<コミット>@@ に置き換える。相手は harness_build.py --source rev:<コミット> で作り直して
+# 印を自分のパスへ戻す。作業ツリーや索引から作った DLL は、来歴の blob がそろっていれば HEAD の木に重ねたコミットにする。
+
+def _local_dll(s: str) -> Path | None:
+    if not s.lower().endswith(".dll"):
+        return None
+    p = Path(s)
+    for c in ([p] if p.is_absolute() else [Path.cwd() / p, REPO / p]):
+        if c.is_file():
+            return c.resolve()
+    return None
+
+
+def _dll_commit(dll: Path) -> str:
+    try:
+        prov = json.loads((dll.parent / "provenance.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise Unavailable(f"{dll} の来歴（provenance.json）が無く、相手で同じ DLL を作れない")
+    source = str(prov.get("source") or "")
+    if source.startswith("rev:"):
+        sha = git(REPO, "rev-parse", "-q", "--verify", source[4:] + "^{commit}", check=False)
+        if sha:
+            return sha
+    sources = prov.get("sources") or {}
+    if not sources:
+        raise Unavailable(f"{dll} の来歴にソースの一覧が無く、相手で作れない")
+    r = subprocess.run(["git", "-C", str(REPO), "cat-file", "--batch-check"],
+                       input="\n".join(sources.values()).encode(), capture_output=True)
+    if r.returncode != 0 or b"missing" in r.stdout:
+        raise Unavailable(f"{dll} のソースの一部が git に無く（作業ツリーから作った DLL）、相手で作れない")
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        from harness_build import EXPORT_DIRS
+    finally:
+        sys.path.pop(0)
+    with tempfile.TemporaryDirectory(prefix="iroca-remote-dll-") as td:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(td) / "index"), **_FIXED_ID}
+        git(REPO, "read-tree", "HEAD", env=env)
+        git(REPO, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", *EXPORT_DIRS, env=env)
+        listing = "".join(f"100644 {blob}\t{rel}\n" for rel, blob in sources.items())
+        r = subprocess.run(["git", "-C", str(REPO), "update-index", "--index-info"],
+                           input=listing.encode("utf-8"), env=env, capture_output=True)
+        if r.returncode != 0:
+            raise Unavailable(f"{dll} のソースを木にできない: {r.stderr.decode(errors='replace').strip()}")
+        tree = git(REPO, "write-tree", env=env)
+        return git(REPO, "commit-tree", tree, "-m", f"remote-test dll {source}", env=env)
+
+
+def rewrite_dlls(argv: list[str], env: dict[str, str]) -> tuple[list[str], dict[str, str], dict[str, str]]:
+    """引数と環境変数の中の手元の DLL のパスを印に置き換える。戻り値の 3 つ目は {コミット: 手元の DLL の sha256}。"""
+    commits: dict[str, str] = {}
+
+    def sub(tok: str) -> str:
+        cuts = [0] + ([tok.index("=") + 1] if "=" in tok else [])
+        for cut in cuts:
+            dll = _local_dll(tok[cut:])
+            if dll is not None:
+                sha = _dll_commit(dll)
+                commits[sha] = hashlib.sha256(dll.read_bytes()).hexdigest()
+                return tok[:cut] + DLL_TOKEN.format(sha)
+        return tok
+
+    new_argv = [sub(a) for a in argv]
+    new_env = {k: sub(v) for k, v in env.items()}
+    return new_argv, new_env, commits
 
 
 def local_data_manifest() -> dict[str, tuple[int, int]]:
@@ -263,7 +345,7 @@ def forwarded_env(extra: list[str]) -> dict[str, str]:
         ku = k.upper()
         if not (ku.startswith("IROCA_") or ku.startswith("VACC_")) or ku.startswith("IROCA_REMOTE"):
             continue
-        if _ABS_PATH_RE.match(v):
+        if _ABS_PATH_RE.match(v) and _local_dll(v) is None:   # DLL は rewrite_dlls が相手で作り直す
             continue
         env[k] = v
     for kv in extra:
@@ -424,10 +506,20 @@ def run_remote(t: Transport, argv: list[str], fetch: list[str], env_extra: list[
 def _prepare(t: Transport, run_id: str, argv: list[str], fetch: list[str], env_extra: list[str],
              info: dict, tmpdir: Path) -> None:
     t0 = time.monotonic()
+    argv, env, dlls = rewrite_dlls(argv, forwarded_env(env_extra))
+    for ref in git(REPO, "for-each-ref", "--format=%(refname)", DLL_REF_PREFIX).splitlines():
+        git(REPO, "update-ref", "-d", ref)
+    dll_refs = []
+    for sha in dlls:
+        git(REPO, "update-ref", DLL_REF_PREFIX + sha, sha)
+        dll_refs.append(DLL_REF_PREFIX + sha)
+    if dlls:
+        log(f"試作の DLL {len(dlls)} 個は、元のソースのコミットを送って相手で作り直します")
     repos = {}
     for key, repo in (("main", REPO), ("dev_safe", DEV_SAFE)):
         commit = snapshot(repo, tmpdir)
-        bundle = make_bundle(repo, commit, info["repos"].get(key), tmpdir / f"{key}.bundle")
+        bundle = make_bundle(repo, commit, info["repos"].get(key), tmpdir / f"{key}.bundle",
+                             dll_refs if key == "main" else ())
         if bundle is not None:
             size = bundle.stat().st_size
             log(f"{key}: {commit[:10]} を送ります（{size / 1e6:.1f} MB）")
@@ -447,8 +539,9 @@ def _prepare(t: Transport, run_id: str, argv: list[str], fetch: list[str], env_e
         "repos": repos,
         "data_tar": "data.tar" if send else None,
         "data_delete": delete,
-        "env": forwarded_env(env_extra),
+        "env": env,
         "argv": argv,
+        "dlls": dlls,
         "fetch": fetch,
         "git_config": {"main": git_config_to_mirror(REPO), "dev_safe": git_config_to_mirror(DEV_SAFE)},
         "heartbeat_s": HEARTBEAT_S,

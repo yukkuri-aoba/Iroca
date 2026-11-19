@@ -49,6 +49,8 @@ LOCK_PATH = BASE / "lock"
 REQUIREMENTS = Path("dev_safe") / "Tests" / "requirements.txt"
 SNAP_REF = "refs/remote-test/snap"
 LAST_REF = "refs/remote-test/last"
+DLL_REF_PREFIX = "refs/remote-test/dll/"   # tools/remote_test.py と合わせる
+DLL_TOKEN_RE = re.compile(r"@@IROCA_DLL:([0-9a-f]{40})@@")
 SYNC_FAILED = 97  # tools/remote_test.py と合わせる
 _NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 
@@ -355,10 +357,22 @@ def _sync_repo(repo: Path, spec: dict, run_dir: Path, git_config: dict[str, str]
     # dev_safe には 260 文字を超えるパスがある（手元の Git for Windows も longpaths で読んでいる）
     for key, value in {"core.longpaths": "true", **git_config}.items():
         git(repo, "config", key, value)
+    # 前回の試作の DLL のコミットは捨てる（要る分は呼び手が毎回送る。送らないのはスナップショットの祖先だけ）
+    refs = git(repo, "for-each-ref", "--format=%(refname)", DLL_REF_PREFIX).stdout.decode().split()
+    for ref in refs:
+        git(repo, "update-ref", "-d", ref)
     bundle = spec.get("bundle")
     if bundle:
         path = run_dir / _safe_name(bundle)
-        git(repo, "fetch", "-q", "--no-tags", str(path), f"+{SNAP_REF}:{LAST_REF}")
+        heads = git(repo, "bundle", "list-heads", str(path)).stdout.decode("utf-8", "replace")
+        specs = []
+        # スナップショットが前回と同じで、試作の DLL のコミットだけを送ってきたときは SNAP_REF が入っていない
+        if re.search(rf"\s{re.escape(SNAP_REF)}$", heads, re.M):
+            specs.append(f"+{SNAP_REF}:{LAST_REF}")
+        if DLL_REF_PREFIX in heads:
+            specs.append(f"+{DLL_REF_PREFIX}*:{DLL_REF_PREFIX}*")
+        if specs:
+            git(repo, "fetch", "-q", "--no-tags", str(path), *specs)
     have = _rev(repo, LAST_REF)
     if have != commit:
         raise SystemExit(f"{repo.name}: 受け取ったコミットが合わない（期待 {commit}・手元 {have}）")
@@ -535,6 +549,36 @@ class _HighQosSweeper:
             time.sleep(self.INTERVAL_S)
 
 
+def _build_dlls(venv_py: Path, env: dict, dlls: dict[str, str]) -> dict[str, str] | None:
+    """試作の DLL を、送られたソースのコミットから作り直す（2026-11-20）。{コミット: 作った DLL のパス}。失敗なら None。
+
+    呼び手は手元の DLL の sha256 も送ってくる。同じソースでもコンパイラーや参照する DLL の版が違えばバイト列は変わりうるので、
+    違っても止めずに知らせる（測るのは同じソースの製品 C#）。"""
+    built: dict[str, str] = {}
+    for sha, want in dlls.items():
+        t0 = time.monotonic()
+        r = subprocess.run([str(venv_py), "tools/harness_build.py", "--source", f"rev:{sha}"],
+                           cwd=str(MAIN), env=env, capture_output=True, stdin=subprocess.DEVNULL)
+        out = r.stdout.decode("utf-8", "replace")
+        doc = None
+        # 出力の頭に dotnet の出力が混ざっても、来歴の JSON（"dll" で始まる）から読む
+        start = out.find('{\n "dll"')
+        start = start if start >= 0 else out.find("{")
+        if r.returncode == 0 and start >= 0:
+            try:
+                doc, _ = json.JSONDecoder().raw_decode(out[start:])
+            except ValueError:
+                doc = None
+        if not doc or not Path(doc.get("dll", "")).is_file():
+            log(f"試作の DLL（{sha[:10]}）を作れない: " + (r.stderr.decode("utf-8", "replace") or out).strip()[-800:])
+            return None
+        same = doc.get("dll_sha256") == want
+        log(f"試作の DLL {sha[:10]} → {doc['dll_sha256'][:16]}（{time.monotonic() - t0:.1f} 秒・"
+            + ("手元とバイト一致" if same else "手元とバイト列が違う。同じソースから作った") + "）")
+        built[sha] = doc["dll"]
+    return built
+
+
 def cmd_run(argv: list[str]) -> int:
     run_id = argv[0]
     run_dir = _run_dir(run_id)
@@ -559,7 +603,6 @@ def cmd_run(argv: list[str]) -> int:
             # まだ何も実行していない。呼び手はこの終了コードを見て手元でやり直せる
             log(f"同期に失敗: {e}")
             return SYNC_FAILED
-        log(f"同期 {time.monotonic() - t0:.1f} 秒。実行: python {' '.join(req['argv'])}")
         env = os.environ.copy()
         env.update(req.get("env", {}))
         env.setdefault("PYTHONUTF8", "1")
@@ -567,8 +610,17 @@ def cmd_run(argv: list[str]) -> int:
         env["IROCA_REMOTE_TEST"] = "1"
         if "UnityManaged" not in req.get("env", {}) and (UNITY_DIR / "UnityEngine").is_dir():
             env["UnityManaged"] = str(UNITY_DIR)
+        argv = list(req["argv"])
+        if req.get("dlls"):
+            built = _build_dlls(venv_py, env, req["dlls"])
+            if built is None:
+                return SYNC_FAILED
+            argv = [DLL_TOKEN_RE.sub(lambda m: built[m.group(1)], a) for a in argv]
+            for k in req.get("env", {}):
+                env[k] = DLL_TOKEN_RE.sub(lambda m: built[m.group(1)], env[k])
+        log(f"同期 {time.monotonic() - t0:.1f} 秒。実行: python {' '.join(argv)}")
         t1 = time.monotonic()
-        child = subprocess.Popen([str(venv_py), *req["argv"]], cwd=str(MAIN), env=env, stdin=subprocess.DEVNULL)
+        child = subprocess.Popen([str(venv_py), *argv], cwd=str(MAIN), env=env, stdin=subprocess.DEVNULL)
         qos = None
         # IROCA_HIGH_QOS=0 で外さない（比べるとき用）
         if os.name == "nt" and env.get("IROCA_HIGH_QOS", "1") != "0":
