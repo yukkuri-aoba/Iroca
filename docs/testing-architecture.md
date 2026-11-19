@@ -398,9 +398,19 @@ Python の入口なので、`remote_test.py` の `--` の後ろに置ける。�
 - 相手のホストは `<相手のホーム>\iroca-remote\hosts\Iroca_U2022_ifx`。開発機の同じホストから Library を除いて写し、
   `Link-HostPackage.ps1 -WithEditorTests` で相手の `iroca-remote\Iroca` へリンクした。ホストの Packages・Assets を
   変えたら写し直す。
-- batchmode で回るもの（既定の実行・`-TestFilter`・`-PerfCases` など）に限る。`-Graphics`（batchmode のまま GPU で
-  描く）は ssh の先でも通った（2026-11-19、描画を見る 23 件）。画面の要る台本（`-UndoReload`・`-SdkBuild`）は
-  ssh の先では窓を出せないので手元で回す。
+- `-Graphics`（batchmode のまま GPU で描く）は ssh の先でも通った（2026-11-19、描画を見る 23 件）。
+- **画面の要る台本（`-UndoReload`・`-SdkBuild`）も相手で回る**（2026-11-20〜）。ssh の先はデスクトップの無い
+  session 0 なので、`editor_tests.py` は同じユーザーがサインインしているデスクトップで、タスク スケジューラー
+  （ログオンの種類 Interactive。パスワードは預けない）から Run-EditorTests.ps1 を動かし、出力のファイルを写して待つ。
+  タスクは `\Iroca\iroca-desktop-<時刻>` で、終われば消す。そのため**テスト用 PC はサインインしたままにしておく**。
+  相手にサインインしたデスクトップが無ければ（`status` の `desktop_sessions` が空）、1 行出して手元で回る。
+  - RDP で入って切断すると、セッションは画面の無いまま残る。`scripts/remote-test/Enable-DesktopSession.ps1` を相手で
+    1 回（管理者で）実行すると、切断したセッションを本体の画面へ移すタスク（`\Iroca\keep-desktop-session`、SYSTEM が
+    `tscon <id> /dest:console`）が入る。再起動の後もサインインした状態に戻すには、相手の PC で人が Sysinternals の
+    Autologon にパスワードを入れる（このリポジトリの道具はパスワードを扱わない）。
+  - 中断（Ctrl+C・制限時間）では、タスクと、そのホストを開いた Unity を止める。ssh が切れて受け手が子を強制終了した
+    ときは止められないので、`-SdkBuild` は台本の制限時間で、`-UndoReload` は Unity が自分で終わるのを待つ。
+  - `-SdkUpload` も同じ経路を通るが、SDK のログインと権利の同意は相手の画面で人がする（下の EditMode の節のとおり、当面は使わない）。
 - 実測（2026-11-19、G83）: 初回（ホストの取り込み込み）で全 783 件・成功 747・失敗 0・スキップ 36・351 秒。
   スキップは `-nographics`・AI パッケージの無いホスト・計測用（既定では回らない）で、手元の同じホストと同じ。
 - Unity のライセンスは相手の PC で人が Unity Hub にサインインして取る（Personal。こちらからは取れない）。
@@ -422,7 +432,7 @@ Python の入口なので、`remote_test.py` の `--` の後ろに置ける。�
 - `--rev` のブランチ名は手元で SHA にしてから渡す。`--allow-external-dll` のときは手元で回る。
 - 実測（2026-11-19、G83）: snapshot 174 ケース 184 秒、compare（ワークフロー 66 ケース込み）132 秒＋持ち帰り。
 
-**リモートで回さないもの**: 視覚レビューの approve・check（手元の索引と作業ツリーを見る）と、画面の要る Unity の台本（上記）。
+**リモートで回さないもの**: 視覚レビューの approve・check（手元の索引と作業ツリーを見る）。
 `color_report.py run` も相手で回る（`--fetch dev_safe/_spike/color/<label>.json`。2026-11-19 に G83 で 1237 秒、凍結した基準と
 比べて合格・違反と飛びの数も同じ）。`--dll` に手元のキャッシュの DLL を渡す使い方は、その DLL が相手に無いので手元で回る。
 

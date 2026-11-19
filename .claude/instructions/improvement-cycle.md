@@ -25,7 +25,7 @@
    - `holdout_eval.py`: 見た回数を `dev_safe/Tests/Baselines/holdout_log.jsonl` に記録するので、回したら
      `--fetch dev_safe/Tests/Baselines/holdout_log.jsonl` で必ず持ち帰る（手元と相手の両方で回すと記録が分かれる）。
    EditMode テストも `python tools/remote_test.py -- tools/editor_tests.py [Run-EditorTests.ps1 の引数]` で相手で回る
-   （2026-11-19〜。画面の要る `-UndoReload`・`-SdkBuild` は手元）。視覚レビューの snapshot・compare は、相手が使えれば自動で相手で回る（2026-11-19〜。approve・check は手元。snapshot と
+   （2026-11-19〜。画面の要る `-UndoReload`・`-SdkBuild` も 2026-11-20 から相手のサインイン中のデスクトップで回る）。視覚レビューの snapshot・compare は、相手が使えれば自動で相手で回る（2026-11-19〜。approve・check は手元。snapshot と
    compare は同じ所で回す）。`color_report.py run` も同じ入口で回し、`--fetch dev_safe/_spike/color/<label>.json` で持ち帰る。仕組みは `docs/testing-architecture.md` の「テスト用の別 PC で回す」。
    採否判断に使う計測（この手順 1 と手順 5）では、環境変数 `IROCA_CSHARP_GATE_FULL=1`（旧名 `VACC_CSHARP_GATE_FULL` も効く）と `IROCA_AUTOTUNE_GATE_FULL=1`（旧名 `VACC_AUTOTUNE_GATE_FULL` も効く）を立てる。立てないと品質ゲートは 1 被写体しか測らず、残りを測らないまま「全パス」と見誤る。
 2. **失敗分析** — 最もスコアを落とす／誤検出・見逃しが目立つケースを特定し、原因を具体的に仮説化する（色空間、閾値、連結成分処理、マスク膨張/収縮など）。

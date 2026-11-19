@@ -117,6 +117,26 @@ def _smart_app_control() -> int | None:
         return None
 
 
+def _desktop_sessions() -> list[int]:
+    """このユーザーがサインインしていてデスクトップ（explorer.exe）が動いているセッション。画面の要る Unity の台本
+    （tools/editor_tests.py の -UndoReload・-SdkBuild）は、ssh の先（session 0）ではなくそこで動かす（2026-11-20）。"""
+    if os.name != "nt":
+        return []
+    # ssh の先では USERDOMAIN が WORKGROUP になり、domain\user で絞ると何も出ない。ユーザー名だけで絞る
+    user = os.environ.get("USERNAME", "")
+    try:
+        r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq explorer.exe", "/FI", f"USERNAME eq {user}",
+                            "/FO", "CSV", "/NH"], capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    out = []
+    for line in r.stdout.decode("mbcs", "replace").splitlines():
+        cols = [c.strip('"') for c in line.split('","')]
+        if len(cols) >= 4 and cols[0].lower().endswith("explorer.exe") and cols[3].isdigit() and int(cols[3]) > 0:
+            out.append(int(cols[3]))
+    return out
+
+
 def _models_dir() -> Path | None:
     root = os.environ.get("LOCALAPPDATA")
     return Path(root) / "Iroca" / "Models" if root else None
@@ -155,6 +175,7 @@ def cmd_info(argv: list[str]) -> int:
         "dotnet": _dotnet_version(),
         "unity": (UNITY_DIR / "UnityEngine" / "UnityEngine.CoreModule.dll").is_file(),
         "unity_editor": UNITY_EDITOR_EXE.is_file() and (EDITOR_HOST / "Assets" / "IrocaEditorTests").exists(),
+        "desktop_sessions": _desktop_sessions(),
         "models": bool(models and models.is_dir() and any(models.glob("*.onnx"))),
         "repos": {"main": _rev(MAIN, LAST_REF), "dev_safe": _rev(DEV_SAFE, LAST_REF)},
         "busy": _lock_busy(),
