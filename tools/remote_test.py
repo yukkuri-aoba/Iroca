@@ -214,11 +214,17 @@ def snapshot(repo: Path, tmpdir: Path) -> str:
     if index.is_file():
         shutil.copyfile(index, tmp_index)
     env = {**os.environ, "GIT_INDEX_FILE": str(tmp_index), **_FIXED_ID}
-    git(repo, "add", "-A", env=env)
-    tree = git(repo, "write-tree", env=env)
     head = git(repo, "rev-parse", "-q", "--verify", "HEAD^{commit}", check=False)
     parent = ["-p", head] if head else []
-    commit = git(repo, "commit-tree", tree, *parent, "-m", "remote-test snapshot", env=env)
+    # 索引の中身（ステージした分）も送り、相手の索引をこれにそろえる（2026-11-19。visual_review.py compare --index を
+    # 相手で回して手元で approve するため）。2 番目の親にして、同じバンドルで届くようにする。
+    index_tree = git(repo, "write-tree", env=env) if index.is_file() else None
+    index_commit = (git(repo, "commit-tree", index_tree, *parent, "-m", "remote-test index", env=env)
+                    if index_tree else None)
+    git(repo, "add", "-A", env=env)
+    tree = git(repo, "write-tree", env=env)
+    parents = parent + (["-p", index_commit] if index_commit and head else [])
+    commit = git(repo, "commit-tree", tree, *parents, "-m", "remote-test snapshot", env=env)
     git(repo, "update-ref", SNAP_REF, commit)
     return commit
 
@@ -338,7 +344,24 @@ def run_remote(t: Transport, argv: list[str], fetch: list[str], env_extra: list[
             # まだ何も実行していないので、auto なら手元でやり直してよい
             raise Unavailable(f"送る途中で失敗: {e}") from e
         # 実行中は HEARTBEAT_S 秒ごとに 1 行送る。こちらが落ちる・止められると途絶え、相手は実行を止める
-        p = t.popen_agent("run", run_id, stdin=subprocess.PIPE)
+        # 出力に出る相手の本体の絶対パスは、手元の本体のパスに読み替えて出す（2026-11-19。visual_review.py compare が
+        # 出す「確認するパネル」の一覧を、持ち帰った手元のファイルとしてそのまま Read できるように）
+        remote_main = info.get("main")
+        rewrite = [(remote_main, str(REPO)), (remote_main.replace("\\", "/"), REPO.as_posix())] if remote_main else []
+        p = t.popen_agent("run", run_id, stdin=subprocess.PIPE, stdout=subprocess.PIPE if rewrite else None)
+
+        def _pump() -> None:
+            out = sys.stdout.buffer
+            for raw in iter(p.stdout.readline, b""):
+                line = raw.decode("utf-8", errors="replace")
+                for a, b in rewrite:
+                    line = line.replace(a, b)
+                out.write(line.encode("utf-8"))
+                out.flush()
+
+        pump = threading.Thread(target=_pump, daemon=True) if rewrite else None
+        if pump:
+            pump.start()
 
         def _beat() -> None:
             while p.poll() is None:
@@ -352,6 +375,8 @@ def run_remote(t: Transport, argv: list[str], fetch: list[str], env_extra: list[
         threading.Thread(target=_beat, daemon=True).start()
         try:
             rc = p.wait()
+            if pump:
+                pump.join(timeout=30)
         except KeyboardInterrupt:
             p.terminate()
             raise

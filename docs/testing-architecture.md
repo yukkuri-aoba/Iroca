@@ -409,8 +409,22 @@ Python の入口なので、`remote_test.py` の `--` の後ろに置ける。�
   ssh の先で何もしなかったので、`https://download.unity3d.com/download_unity/887be4894c44/Windows64EditorInstaller/UnitySetup64-2022.3.22f1.exe`
   を落として `/S /D=C:\Program Files\Unity\Hub\Editor\2022.3.22f1` で入れた（ssh の先は管理者の権限で動く）。
 
-**リモートで回さないもの**: 視覚レビュー（`visual_review.py` の snapshot・compare・approve）は承認を手元の
-作業ツリーと索引の中身に結び付けるので手元で回す。画面の要る Unity の台本（上記）も手元。
+**視覚レビューの snapshot・compare もテスト用 PC で回る**（2026-11-19〜）: `python tools/visual_review.py snapshot` /
+`compare [--index]` は、相手が使えればそちらで回る（使えなければ手元。`--local` で常に手元）。approve・check は手元。
+- 送る中身は作業ツリーに加えて**索引と HEAD も**手元と同じにする（スナップショットのコミットの 2 番目の親が手元の索引で、
+  相手は `read-tree` で索引をそれにそろえる）。測った中身（state。git の blob の id）は手元で数え直しても同じになるので、
+  手元の approve・pre-commit がそのまま通る。`review.json` の入力資産の鍵は、PC で変わらない形（本体からの相対・
+  `$models/<名前>`）にした。
+- 持ち帰るのは、目視するパネル（`visual_review/compare`・`workflow_review/compare`）と approve が読む JSON
+  （`change_summary.json`・`mask_contract.json`・`review.json`）。変更前の画（`snapshot_before`、1GB 超）は相手に置いたまま。
+  **snapshot と compare は同じ所で回す**（相手で snapshot したら、手元の古い snapshot の印 `meta.json` は消す）。
+- 相手の出力に出る相手の本体のパスは、手元の本体のパスに読み替えて出す（一覧のパネルをそのまま Read できる）。
+- `--rev` のブランチ名は手元で SHA にしてから渡す。`--allow-external-dll` のときは手元で回る。
+- 実測（2026-11-19、G83）: snapshot 174 ケース 184 秒、compare（ワークフロー 66 ケース込み）132 秒＋持ち帰り。
+
+**リモートで回さないもの**: 視覚レビューの approve・check（手元の索引と作業ツリーを見る）と、画面の要る Unity の台本（上記）。
+`color_report.py run` も相手で回る（`--fetch dev_safe/_spike/color/<label>.json`。2026-11-19 に G83 で 1237 秒、凍結した基準と
+比べて合格・違反と飛びの数も同じ）。`--dll` に手元のキャッシュの DLL を渡す使い方は、その DLL が相手に無いので手元で回る。
 
 準備（1 回だけ）:
 1. 開発機で鍵を作る（`ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_iroca_remote`）。

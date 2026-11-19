@@ -29,6 +29,34 @@ MODES = ("oneshot", "assisted_include")
 SCHEMA = 2
 
 
+def _models_dir() -> Path:
+    # dev_safe/scripts/freeze_sam_fixtures.py の MODELS_DIR と同じ決め方(あちらは import が重いので写す)
+    return Path(os.environ.get("IROCA_MODELS_DIR", Path(os.environ.get("LOCALAPPDATA", "")) / "Iroca" / "Models"))
+
+
+def asset_key(path) -> str:
+    """review.json の入力資産の鍵。リポジトリの中はルートからの相対、SAM のモデルは `$models/<名前>`。
+
+    テスト用の PC で compare して手元で approve できるように、PC ごとに違う絶対パスを鍵に入れない(2026-11-19)。
+    """
+    p = Path(path)
+    try:
+        return p.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        pass
+    if p.parent.resolve() == _models_dir().resolve():
+        return "$models/" + p.name
+    return str(p)
+
+
+def asset_path(key: str) -> Path:
+    """asset_key の逆。2026-11-19 より前の review.json の絶対パスもそのまま読める。"""
+    if key.startswith("$models/"):
+        return _models_dir() / key[len("$models/"):]
+    p = Path(key)
+    return p if p.is_absolute() else ROOT / p
+
+
 def expected_cases() -> set[str]:
     return {f"{mode}/{sid}/p50" for mode in MODES for sid in SUBJECTS}
 
@@ -67,12 +95,12 @@ def validate_review(check_current: bool = True) -> dict:
             raise ValueError(f"{cid}: 評価条件が不一致")
     # パネルと入力資産は毎回すべて読み直す(承認は中身に結び付く)。読むのはスレッドで並べる(試-4)。
     panels = {cid: REVIEW / "compare" / row["panel"] for cid, row in doc["cases"].items()}
-    digests = sha256_many(list(panels.values()) + [Path(p) for p in doc["assets"]])
+    digests = sha256_many(list(panels.values()) + [asset_path(p) for p in doc["assets"]])
     for cid, row in doc["cases"].items():
         if digests[str(panels[cid])] != row["panel_sha256"]:
             raise ValueError(f"{cid}: パネルが欠落/変更されています")
     for path, digest in doc["assets"].items():
-        if digests[str(Path(path))] != digest:
+        if digests[str(asset_path(path))] != digest:
             raise ValueError(f"入力資産が変更されています: {path}")
     return doc
 
@@ -337,7 +365,7 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
                                           subject.eval_region_path, DECODER, ENCODER,
                                           FIXTURE_DIR / f"{texture_key(subject)}_embedding.bin")
                         if path is not None]
-    assets.update(sha256_many(asset_paths))
+    assets.update({asset_key(p): h for p, h in sha256_many(asset_paths).items()})
     jobs = _jobs() if len(SUBJECTS) > 1 else 1
     found = (_measure_subjects(list(SUBJECTS), snapshot) if jobs <= 1
              else _measure_in_children(jobs, snapshot))
@@ -346,8 +374,8 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
     if not snapshot:
         # 測り始めてから(固定設定の分を含む)測るものが変わっていないか(点検 B-7①。時刻ではなく中身で見る)
         changed = rs.diff(state(measured["source"]), initial_state)
-        now = sha256_many(Path(p) for p in assets)
-        changed += [p for p, h in assets.items() if now[str(Path(p))] != h]
+        now = sha256_many(asset_path(p) for p in assets)
+        changed += [p for p, h in assets.items() if now[str(asset_path(p))] != h]
         if changed:
             raise ValueError(f"計測中にコード/入力が変更されました: {', '.join(changed[:6])}。compare を再実行してください")
         info = fx.harness_info()

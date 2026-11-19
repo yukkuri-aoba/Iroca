@@ -148,6 +148,7 @@ def cmd_info(argv: list[str]) -> int:
     info = {
         "agent": hashlib.sha256(me).hexdigest(),
         "computer": os.environ.get("COMPUTERNAME"),
+        "main": str(MAIN),
         "python": sys.version.split()[0],
         "python_exe": sys.executable,
         "git": _git_exe() is not None,
@@ -348,6 +349,10 @@ def _sync_repo(repo: Path, spec: dict, run_dir: Path, git_config: dict[str, str]
     # 既定の基準 --base-rev HEAD が、スナップショット自身＝作業ツリーと同じ中身を指して比べられなくなっていた）
     if _rev(repo, commit + "^") is not None:
         git(repo, "reset", "-q", "--soft", commit + "^")
+    # 2 番目の親は呼び手の索引（ステージした中身。2026-11-19〜）。索引もそれにそろえる（作業ツリーは触らない）。
+    # これで「HEAD・索引・作業ツリー」の 3 つとも手元と同じになり、compare --index も相手で測れる。
+    if _rev(repo, commit + "^2") is not None:
+        git(repo, "read-tree", commit + "^2")
 
 
 def _apply_data(run_dir: Path, req: dict) -> None:

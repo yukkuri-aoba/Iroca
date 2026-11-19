@@ -918,6 +918,53 @@ def cmd_approve(note: str | None = None) -> None:
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
+# テスト用の PC で snapshot / compare するときに持ち帰るもの(本体からの相対)。approve・check・pre-commit が読む分と、
+# 目視するパネル。変更前の画(snapshot_before。1GB 超)は相手に置いたままにする(次の compare が相手で読む)。
+REMOTE_COMPARE_FETCH = (
+    "dev_safe/Tests/visual_review/compare",
+    "dev_safe/Tests/visual_review/change_summary.json",
+    "dev_safe/Tests/visual_review/mask_contract.json",
+    "dev_safe/Tests/workflow_review/compare",
+    "dev_safe/Tests/workflow_review/review.json",
+)
+_LOCAL_ENV = "IROCA_VISUAL_REVIEW_LOCAL"
+
+
+def _run_on_remote(argv: list[str], command: str) -> int | None:
+    """snapshot / compare をテスト用の PC で回す(2026-11-19)。使えなければ None(手元で回る)。
+
+    相手は作業ツリー・索引・HEAD を手元と同じにしてから回すので(tools/remote_test.py)、測った中身(state)は手元で
+    数え直しても同じになり、approve は手元で書ける。変更前(snapshot)は相手に残るので、snapshot と compare は
+    同じ所で回す。相手で snapshot したら、手元の古い snapshot の印(meta.json)を消して、手元の compare が
+    それと比べないようにする。
+    """
+    if os.environ.get(_LOCAL_ENV) == "1":
+        return None
+    import remote_test as rt
+    t = rt.make_transport(None)
+    info = rt.resolve(t, "auto", manifest=True)
+    if info is None:
+        return None
+    fetch = list(REMOTE_COMPARE_FETCH) if command == "compare" else []
+    rt.sweep_local_caches()
+    try:
+        rc = rt.run_remote(t, ["tools/visual_review.py", *argv], fetch, [f"{_LOCAL_ENV}=1"], info)
+    except rt.Unavailable as e:
+        rt.log(f"{e} → 手元で実行します")
+        return None
+    if rc == 0 and command == "compare":
+        # compare は前の承認を消す(相手の分は持ち帰れないので、手元でも同じように消す)
+        import workflow_review
+        (workflow_review.REVIEW / "approved.json").unlink(missing_ok=True)
+    if rc == 0 and command == "snapshot":
+        import workflow_review
+        SNAPSHOT_META.unlink(missing_ok=True)
+        (workflow_review.REVIEW / "snapshot" / "meta.json").unlink(missing_ok=True)
+        print("[snapshot] 変更前はテスト用の PC に置きました(手元の古い snapshot の印は消しました)。"
+              "compare もテスト用の PC で回してください(既定でそうなります)。")
+    return rc
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=("snapshot", "compare", "approve", "check"))
@@ -931,9 +978,28 @@ def main() -> None:
     ap.add_argument("--allow-external-dll", action="store_true",
                     help="IROCA_HARNESS_DLL の DLL で測る(見るだけ。来歴が無いので承認できない)")
     ap.add_argument("--note", default=None, help="approve: 実際に目視した範囲と根拠")
+    ap.add_argument("--local", action="store_true",
+                    help="snapshot / compare: テスト用の PC が使えても手元で回す(既定は使えればテスト用の PC)")
     args = ap.parse_args()
     if args.engine == "python":
         _run_all_cases()
+    if args.command in ("snapshot", "compare") and not args.local and not args.allow_external_dll:
+        fwd = [args.command]
+        if args.index:
+            fwd.append("--index")
+        if args.worktree:
+            fwd.append("--worktree")
+        if args.rev:
+            # 相手にはブランチ名・タグが無いので、手元で SHA にしてから渡す
+            import subprocess
+            r = subprocess.run(["git", "rev-parse", "--verify", args.rev + "^{commit}"], cwd=_ROOT,
+                               capture_output=True, text=True)
+            if r.returncode != 0:
+                ap.error(f"--rev {args.rev} がコミットを指していません")
+            fwd += ["--rev", r.stdout.strip()]
+        rc = _run_on_remote(fwd, args.command)
+        if rc is not None:
+            sys.exit(rc)
     if args.command == "snapshot":
         if args.index:
             ap.error("snapshot に --index は使えません(--worktree か --rev)")
