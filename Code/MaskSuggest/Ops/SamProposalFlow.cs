@@ -6,7 +6,7 @@ using System.Threading;
 namespace Iroca {
     /// <summary>
     /// AI 提案の推論だけ(モデルを走らせる所)。製品は Sentis(推論のサービスが非同期で回すので、このインターフェースは
-    /// 使わず <see cref="SamProposalFlow"/> の段に従う)、ハーネスは同期の実装を <see cref="SamProposalFlow.RunSynchronously(ISamInference, NativePixels, string, float, float, MaskSuggestGranularity, MaskSuggestUse, CancellationToken, out SamProposalDiag)"/> へ渡す。
+    /// 使わず <see cref="SamProposalFlow"/> の段に従う)、ハーネスは同期の実装を <see cref="SamProposalFlow.RunSynchronously(ISamInference, NativePixels, string, float, float, MaskSuggestGranularity, MaskSuggestUse, CancellationToken, out SamProposalDiag, Action{SamWorkKind, SamPostOutcome})"/> へ渡す。
     /// どれも失敗は例外で知らせる。logits は 4*256*256、scores は 4 の並び(上原点・パディング込みのキャンバス)。
     /// </summary>
     internal interface ISamInference {
@@ -37,7 +37,7 @@ namespace Iroca {
         Done,
     }
 
-    /// <summary>同期の駆動(<see cref="SamProposalFlow.RunSynchronously(ISamInference, NativePixels, string, float, float, MaskSuggestGranularity, MaskSuggestUse, CancellationToken, out SamProposalDiag)"/>)の診断。</summary>
+    /// <summary>同期の駆動(<see cref="SamProposalFlow.RunSynchronously(ISamInference, NativePixels, string, float, float, MaskSuggestGranularity, MaskSuggestUse, CancellationToken, out SamProposalDiag, Action{SamWorkKind, SamPostOutcome})"/>)の診断。</summary>
     internal struct SamProposalDiag {
         /// <summary>第 1 段がズームを計画したか(クリックの塊が小さかった)。</summary>
         public bool zoomPlanned;
@@ -59,7 +59,7 @@ namespace Iroca {
     /// <summary>
     /// AI 提案 1 クリック分の段取り(どの順で何を呼び、どの条件で分岐するか)。「次に要るもの」(<see cref="SamStep"/>)を返すだけで、
     /// 時計・スレッド・推論・取り消しを知らない。推論のサービス(Sentis)は今と同じ所で待ち・背景へ投げ・メインスレッドへ戻り、
-    /// 段の分かれ目だけをここに聞く。ハーネスは <see cref="RunSynchronously(ISamInference, NativePixels, string, float, float, MaskSuggestGranularity, MaskSuggestUse, CancellationToken, out SamProposalDiag)"/> で同じ段取りを同期で回す。
+    /// 段の分かれ目だけをここに聞く。ハーネスは <see cref="RunSynchronously(ISamInference, NativePixels, string, float, float, MaskSuggestGranularity, MaskSuggestUse, CancellationToken, out SamProposalDiag, Action{SamWorkKind, SamPostOutcome})"/> で同じ段取りを同期で回す。
     ///   全体のデコード → 第 1 段(<see cref="SamProposalSteps.Stage1"/>)
     ///     → ズームしない: 終わり
     ///     → ズームする: 切り出しのエンコード → 切り出しのデコード → ズームの後処理(<see cref="SamProposalSteps.ZoomPost"/>) → 終わり
@@ -272,13 +272,13 @@ namespace Iroca {
         /// </summary>
         public static MaskSuggestProposal RunSynchronously(ISamInference ai, NativePixels source, string sourceKey,
             float u, float v, MaskSuggestGranularity granularity, MaskSuggestUse use, CancellationToken ct,
-            out SamProposalDiag diag)
-            => RunSynchronously(ai, source, source.Width, source.Height, sourceKey, u, v, granularity, use, ct, out diag);
+            out SamProposalDiag diag, Action<SamWorkKind, SamPostOutcome> onWork = null)
+            => RunSynchronously(ai, source, source.Width, source.Height, sourceKey, u, v, granularity, use, ct, out diag, onWork);
 
         /// <summary>寸法を別に渡す版(元の画素が無い = null のときの段取りを確かめる用)。</summary>
         public static MaskSuggestProposal RunSynchronously(ISamInference ai, NativePixels source, int w, int h,
             string sourceKey, float u, float v, MaskSuggestGranularity granularity, MaskSuggestUse use,
-            CancellationToken ct, out SamProposalDiag diag) {
+            CancellationToken ct, out SamProposalDiag diag, Action<SamWorkKind, SamPostOutcome> onWork = null) {
             diag = default;
             using var flow = new SamProposalFlow(source, w, h, u, v, granularity, use);
             NativeBuffer cropEmbedding = null;
@@ -295,7 +295,10 @@ namespace Iroca {
                             }
                         case SamStep.Work: {
                                 using var work = flow.TakeWork();
-                                step = flow.Complete(work.Run(ct));
+                                var outcome = work.Run(ct);
+                                // 段ごとの中間を見る観察者(切り分け用。範囲は読むだけで、持ち続けない)。
+                                onWork?.Invoke(work.Kind, outcome);
+                                step = flow.Complete(outcome);
                                 if (step == SamStep.EncodeCrop) {
                                     diag.zoomPlanned = true;
                                     diag.cropX0 = flow.CropX0;
@@ -367,14 +370,23 @@ namespace Iroca {
         }
     }
 
+    /// <summary>背景の計算の段(<see cref="SamWork.Kind"/>)。</summary>
+    internal enum SamWorkKind {
+        /// <summary>第 1 段(<see cref="SamProposalSteps.Stage1"/>)。</summary>
+        Stage1,
+        /// <summary>ズームの後処理(<see cref="SamProposalSteps.ZoomPost"/>)。</summary>
+        Zoom,
+        /// <summary>第 1 段へ戻す精密化(<see cref="SamProposalSteps.RefineStage1"/>)。</summary>
+        Refine,
+    }
+
     /// <summary>
     /// <see cref="SamProposalFlow"/> が渡す背景の計算 1 つ(第 1 段・ズームの後処理・第 1 段へ戻す精密化)。読む物(元の画素・
     /// 切り出しの画素・第 1 段の範囲)の参照を持ち、<see cref="Dispose"/> で返す(背景のスレッドで呼んでよい)。
     /// </summary>
     internal sealed class SamWork : IDisposable {
-        enum Kind { Stage1, Zoom, Refine }
 
-        readonly Kind _kind;
+        readonly SamWorkKind _kind;
         readonly float[] _logits, _scores;
         readonly int _w, _h;
         readonly float _u, _v;
@@ -385,7 +397,7 @@ namespace Iroca {
         NativePixels _px;
         NativeBools _mask;
 
-        SamWork(Kind kind, float[] logits, float[] scores, int w, int h, float u, float v,
+        SamWork(SamWorkKind kind, float[] logits, float[] scores, int w, int h, float u, float v,
                 MaskSuggestGranularity granularity, MaskSuggestUse use, SamPostOutcome plan, NativePixels px, NativeBools mask) {
             _kind = kind;
             _logits = logits;
@@ -403,14 +415,17 @@ namespace Iroca {
 
         internal static SamWork ForStage1(float[] logits, float[] scores, int w, int h, NativePixels px,
                                           float u, float v, MaskSuggestGranularity granularity, MaskSuggestUse use)
-            => new SamWork(Kind.Stage1, logits, scores, w, h, u, v, granularity, use, null, px, null);
+            => new SamWork(SamWorkKind.Stage1, logits, scores, w, h, u, v, granularity, use, null, px, null);
 
         internal static SamWork ForZoom(SamPostOutcome plan, MaskSuggestGranularity granularity, float[] logits,
                                         float[] scores, int w, int h, NativePixels cropPx)
-            => new SamWork(Kind.Zoom, logits, scores, w, h, 0, 0, granularity, default, plan, cropPx, null);
+            => new SamWork(SamWorkKind.Zoom, logits, scores, w, h, 0, 0, granularity, default, plan, cropPx, null);
 
         internal static SamWork ForRefine(SamPostOutcome plan, NativePixels px, NativeBools mask)
-            => new SamWork(Kind.Refine, null, null, 0, 0, 0, 0, default, default, plan, px, mask);
+            => new SamWork(SamWorkKind.Refine, null, null, 0, 0, 0, 0, default, default, plan, px, mask);
+
+        /// <summary>どの段の計算か。</summary>
+        public SamWorkKind Kind => _kind;
 
         /// <summary>
         /// 計算する(背景のスレッドで呼んでよい)。結果は <see cref="SamProposalFlow.Complete"/> へ渡す。
@@ -419,9 +434,9 @@ namespace Iroca {
         /// </summary>
         public SamPostOutcome Run(CancellationToken ct, Action coarseDone = null) {
             switch (_kind) {
-                case Kind.Stage1:
+                case SamWorkKind.Stage1:
                     return SamProposalSteps.Stage1(_logits, _scores, _w, _h, _px, _u, _v, _granularity, _use, ct, coarseDone);
-                case Kind.Zoom:
+                case SamWorkKind.Zoom:
                     return SamProposalSteps.ZoomPost(_plan, _granularity, _logits, _scores, _w, _h, _px, ct);
                 default:
                     SamProposalSteps.RefineStage1(_mask, _px, _plan.dropForeign, _plan.clickX, _plan.clickY, ct);

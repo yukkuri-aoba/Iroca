@@ -431,6 +431,12 @@ namespace Iroca {
                 return RunBitMaskSelfTest();
             }
 
+            // --sam-propose: AI 提案 1 クリック分を、製品と同じ段取り(SamProposalFlow)と後処理で作る。推論は onnxruntime の CPU
+            // (OrtSamInference)。引数と出力は SamPropose.cs の説明。
+            if (args.Length >= 1 && args[0] == "--sam-propose") {
+                return SamProposeMode.Run(args);
+            }
+
             // --samops-*: AI マスク提案の純計算層(SamImageOps/SamCoordMapper/SamMaskPostprocess/
             // MaskRle)を実 C# で駆動し、pytest の NumPy リファレンスと突き合わせる決定的検証モード。
             if (args.Length >= 1 && args[0].StartsWith("--samops-", StringComparison.Ordinal)) {

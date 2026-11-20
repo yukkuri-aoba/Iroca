@@ -157,6 +157,7 @@
 | `Code/MaskSuggest/Ops/SamMaskRefine.Snap.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.Transfer.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.cs` | 2 |
+| `Code/MaskSuggest/Ops/SamModelFiles.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamProposal.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamProposalFlow.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamProposalSteps.cs` | 0 |

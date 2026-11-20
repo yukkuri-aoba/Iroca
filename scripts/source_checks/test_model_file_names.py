@@ -2,7 +2,8 @@
 
 モデルのファイル名は 2 か所にある:
 
-  Code/MaskSuggest/MaskSuggestBridge.cs          EncoderFileName / DecoderFileName（パスを組む唯一の正）
+  Code/MaskSuggest/Ops/SamModelFiles.cs          EncoderFileName / DecoderFileName（パスを組む唯一の正。製品の MaskSuggestBridge と
+                                                 ハーネスの推論の口はここを読む）
   Code/MaskSuggest/MaskSuggestModelDownload.cs   Files（ファイル名・sha256・バイト数のダウンロード表）
 
 二重定義を定数参照に寄せられないのは、開発用の取得スクリプト scripts/Fetch-Models.ps1 が
@@ -11,7 +12,7 @@
 C# ソースに当て、次を機械検査する:
 
   1. Files からモデルがちょうど 2 件取れ、ModelRepo と ModelBranch も取れる
-  2. そのファイル名の集合が MaskSuggestBridge の EncoderFileName / DecoderFileName と一致する
+  2. そのファイル名の集合が SamModelFiles の EncoderFileName / DecoderFileName と一致する
 
 C# ソースと ps1 を直接読むだけなのでハーネス不要・常時実行。
 """
@@ -22,7 +23,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FETCH_PS1 = REPO_ROOT / "scripts" / "Fetch-Models.ps1"
-BRIDGE_CS = REPO_ROOT / "Code" / "MaskSuggest" / "MaskSuggestBridge.cs"
+BRIDGE_CS = REPO_ROOT / "Code" / "MaskSuggest" / "Ops" / "SamModelFiles.cs"
 
 _LITERAL_NOTE = (
     "Fetch-Models.ps1 は MaskSuggestModelDownload.cs の Files を (\"x.onnx\", \"sha256\", sizeL) の"
@@ -72,7 +73,7 @@ def _download_file_names() -> list[str]:
 
 def _bridge_name(const: str) -> str:
     m = re.search(rf"const\s+string\s+{const}\s*=\s*\"([^\"]+)\"", BRIDGE_CS.read_text(encoding="utf-8-sig"))
-    assert m, f"MaskSuggestBridge.{const} のリテラルが見つかりません"
+    assert m, f"SamModelFiles.{const} のリテラルが見つかりません"
     return m.group(1)
 
 
@@ -94,6 +95,6 @@ def test_model_file_names_match_bridge_constants():
     names = set(_download_file_names())
     expected = {_bridge_name("EncoderFileName"), _bridge_name("DecoderFileName")}
     assert names == expected, (
-        "ダウンロード表のファイル名と MaskSuggestBridge の EncoderFileName / DecoderFileName が一致しません。\n"
+        "ダウンロード表のファイル名と SamModelFiles の EncoderFileName / DecoderFileName が一致しません。\n"
         f"  ダウンロード表: {sorted(names)}\n  Bridge: {sorted(expected)}\n"
         "  片方だけ改名すると、ダウンロードしたモデルを製品が見つけられない。\n  " + _LITERAL_NOTE)

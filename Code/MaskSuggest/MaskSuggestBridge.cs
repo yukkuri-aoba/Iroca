@@ -121,9 +121,9 @@ namespace Iroca {
 
         public static bool Available => Service != null;
 
-        /// <summary>配布モデル(MobileSAM)の onnx ファイル名。パスを組む唯一の正。</summary>
-        internal const string EncoderFileName = "mobile_sam_encoder.onnx";
-        internal const string DecoderFileName = "mobile_sam_decoder.onnx";
+        /// <summary>配布モデル(MobileSAM)の onnx ファイル名(正は <see cref="SamModelFiles"/>。ハーネスも同じものを読む)。</summary>
+        internal const string EncoderFileName = SamModelFiles.EncoderFileName;
+        internal const string DecoderFileName = SamModelFiles.DecoderFileName;
 
         /// <summary>
         /// モデル配置ディレクトリ。モデル(ONNX と .sentis 変換キャッシュ)はプロジェクトに
