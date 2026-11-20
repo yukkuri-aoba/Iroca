@@ -31,7 +31,7 @@ namespace Iroca.SentisIntegration {
         // クロップ埋め込み(ズームイン再推論用)。1 件 4.2MB × 4 = 約 17MB。
         // 近接クリックは SamZoomOps の矩形グリッドスナップで同一キーに揃う。
         const int CropEmbeddingCacheCapacity = 4;
-        const int EmbeddingLength = 1 * 256 * 64 * 64;
+        const int EmbeddingLength = SamProposalFlow.EmbeddingFloatCount;
 
         Model _encoderModel, _decoderModel;
         Worker _encoder, _decoder;
@@ -53,6 +53,9 @@ namespace Iroca.SentisIntegration {
 
         // テスト専用: GPU のときに、次の n 回を失敗させる(CPU への切り替えを、GPU が壊れていない環境で確かめる)。
         internal static int FailNextGpuWorkerCreationsForTests, FailNextGpuEncodesForTests, FailNextGpuDecodesForTests;
+        // テスト専用: ズームの第 2 段で、次の n 回の切り出しのエンコード(埋め込みを受け取った所)・切り出しのデコードを失敗させる
+        // (バックエンドに依らない。第 1 段へ戻す経路を確かめる)。
+        internal static int FailNextZoomEncodesForTests, FailNextZoomDecodesForTests;
 
         void ThrowIfInducedGpuFailure(ref int remaining, string what) {
             if (_backend == BackendType.GPUCompute && remaining > 0) {
@@ -233,16 +236,18 @@ namespace Iroca.SentisIntegration {
         }
 
         // 後処理ジョブの結果は SamPostOutcome(Ops。第 1 段では提案ペイロード+ズーム計画、ズーム後処理では提案ペイロードのみ)。
-        // 後処理の中身(第 1 段・ズーム・第 1 段への退避)は SamProposalSteps にあり、ここのジョブはそれを呼ぶだけ。
+        // 後処理の中身(第 1 段・ズーム・第 1 段への退避)は SamProposalSteps、1 クリックの分かれ目(第 1 段の後にズームするか・
+        // 切り出しの失敗で第 1 段へ戻すか・戻すときに精密化するか)は SamProposalFlow にある。ここは推論・待ち・背景への投げ・
+        // 取り消し・状態(_phase・_discardInFlight)を持ち、ジョブは段を呼ぶだけ。
 
-        // ズームの第 2 段を回している間の第 1 段の結果(粗マスクと切り出し)。第 2 段の結果を配信するか、第 1 段へ
-        // 退避して配信するか、取り消したときに返す。
-        SamPostOutcome _plan;
+        // 処理中のクリックの段取り(元の画素の参照と、ズームの第 2 段の間の第 1 段の結果(粗マスクと切り出し)を持つ)。
+        // 結果を配信するか、取り消したときに返す。
+        SamProposalFlow _flow;
 
-        void ReleasePlan() {
-            var p = _plan;
-            _plan = null;
-            p?.Release();
+        void ReleaseFlow() {
+            var f = _flow;
+            _flow = null;
+            f?.Dispose();
         }
 
         // 確定した提案を差し替える(受け取られなかった前の提案は返す)。
@@ -797,6 +802,11 @@ namespace Iroca.SentisIntegration {
             _clickQueueWaitMs = queueWaitMs;
             _clickDecodeMs = _clickPostMs = _clickRefineMs = _clickZoomDecodeMs = _clickZoomPostMs = 0;
             _clickZoomRan = false;
+            // このクリックの段取り(SamProposalFlow)。前の段取りが残っていれば返す(GPU から CPU へ切り替えてこのクリックを
+            // やり直すときは作り直す。エラーで止まったクリックの段取りは、ここか取り消しで返す)。
+            ReleaseFlow();
+            var flow = _flow = new SamProposalFlow(_sourcePixels, _texW, _texH, u, v, granularity, use);
+            flow.Start();   // → 全体のデコード
             long tDec = MaskSuggestPerf.Now;
             StartDecoder(u, v, cropRect: null,
                 (logits, scores) => {
@@ -805,7 +815,7 @@ namespace Iroca.SentisIntegration {
                             return;
                         }
                         _clickDecodeMs = MaskSuggestPerf.MsSince(tDec);
-                        StartStage1Post(u, v, granularity, use, logits, scores);
+                        StartStage1Post(flow, logits, scores);
                     } catch (Exception e) {
                         FailFromEditorCallback(e, Localization.AiErrProposalFormat);
                     }
@@ -826,10 +836,9 @@ namespace Iroca.SentisIntegration {
         }
 
         // 第 1 段(全体)の後処理: 粗マスク → ズームの判定 → (ズームしなければ)精密化。
-        void StartStage1Post(float u, float v, MaskSuggestGranularity granularity, MaskSuggestUse use,
-                             float[] logits, float[] scores) {
-            int w = _texW, h = _texH;
-            var px = _sourcePixels?.AddRef();   // 読む間の参照(後始末で返す)
+        void StartStage1Post(SamProposalFlow flow, float[] logits, float[] scores) {
+            flow.OnDecoded(logits, scores);     // → 第 1 段の計算
+            var work = flow.TakeWork();         // 元の画素の参照を持つ(後始末で返す)
             _postJob ??= new PreviewJob<SamPostOutcome>();
             _postJob.Schedule(
                 ct => {
@@ -838,11 +847,10 @@ namespace Iroca.SentisIntegration {
                     long t0 = MaskSuggestPerf.Now;
                     long tr = 0;
                     double postMs = 0;
-                    var o = SamProposalSteps.Stage1(logits, scores, w, h, px, u, v, granularity, use, ct,
-                        coarseDone: () => {
-                            postMs = MaskSuggestPerf.MsSince(t0);
-                            tr = MaskSuggestPerf.Now;
-                        });
+                    var o = work.Run(ct, coarseDone: () => {
+                        postMs = MaskSuggestPerf.MsSince(t0);
+                        tr = MaskSuggestPerf.Now;
+                    });
                     o.postMs = postMs;
                     if (!o.hasCrop) {
                         o.refineMs = MaskSuggestPerf.MsSince(tr);
@@ -856,17 +864,15 @@ namespace Iroca.SentisIntegration {
                     }
                     _clickPostMs = o.postMs;
                     _clickRefineMs = o.refineMs;
-                    if (o.hasCrop) {
-                        // 第 2 段の間は持っておく(配信・退避・取り消しで返す)。
-                        ReleasePlan();
-                        _plan = o;
-                        StartZoomStage(o, u, v, granularity);
+                    // ズームを計画したら、第 2 段の間はフローが第 1 段の結果を持つ(配信・退避・取り消しで返す)。
+                    if (flow.Complete(o) == SamStep.EncodeCrop) {
+                        StartZoomStage(flow);
                     } else {
-                        DeliverProposal(o);
+                        DeliverFlowResult(flow);
                     }
                 },
                 e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, e.Message)),
-                cleanup: () => px?.Release(),
+                cleanup: work.Dispose,
                 discard: o => o.Release());
         }
 
@@ -897,6 +903,10 @@ namespace Iroca.SentisIntegration {
                     throw new InvalidOperationException(Localization.AiErrEmptyResult);
                 }
                 ThrowIfInducedGpuFailure(ref FailNextGpuDecodesForTests, "decode");
+                if (cropRect.HasValue && FailNextZoomDecodesForTests > 0) {
+                    FailNextZoomDecodesForTests--;
+                    throw new InvalidOperationException("induced zoom decode failure (test)");
+                }
                 // 埋め込みのテンソルは同じ埋め込みの間は使い回す(EmbeddingTensorSlot。写した後は元を手放してよい)。
                 var emb = (cropRect.HasValue ? _cropEmbTensor : _fullEmbTensor).For(embedding);
                 DisposeDecoderPrompt();
@@ -989,37 +999,40 @@ namespace Iroca.SentisIntegration {
         // (計測: dev_safe/ml/zoom_infer_spike2.py。バンダナ三角 IoU 0.04-0.10 → 0.94-0.97)。
         // 失敗時は第 1 段の提案へグレースフルに退避し、エラー状態にはしない。
 
-        void StartZoomStage(SamPostOutcome plan, float u, float v, MaskSuggestGranularity granularity) {
+        void StartZoomStage(SamProposalFlow flow) {
             _clickZoomRan = true;
-            string key = SamProposalSteps.CropEmbeddingKey(_sourceKey, plan.cropX0, plan.cropY0, plan.cropSide);
+            string key = flow.CropEmbeddingKey(_sourceKey);
             if (_cropEmbeddingCache.TryGet(key, out var cached)) {
                 MaskSuggestPerf.Log("エンコード(ズーム): クロップ埋め込みキャッシュ命中");
-                RunZoomDecode(cached, plan, u, v, granularity);
+                RunZoomDecode(cached, flow);
                 return;
             }
             // 進みは受け取らない: 進みの棒が出るのは全体のエンコードの間だけで、ここ(クリックの処理中)は出ない。
             // 知らせると、見た目が何も変わらないのに、開いている窓を描き直すだけになる。
             // 失敗したら第 1 段の提案を返す(エラーにしない)。
-            StartEncodeJob(plan.cropPixels, MaskSuggestPhase.Decoding,
+            StartEncodeJob(flow.CropPixels, MaskSuggestPhase.Decoding,
                 onProgress: null,
-                onEmbedding: (emb, pumpMs, tRead) => CompleteZoomEncode(emb, key, plan, u, v, granularity, pumpMs, tRead),
-                onPrepError: e => FallbackToStage1(plan, e),
-                onEncodeError: e => FallbackToStage1(plan, e));
+                onEmbedding: (emb, pumpMs, tRead) => CompleteZoomEncode(emb, key, flow, pumpMs, tRead),
+                onPrepError: e => FallbackToStage1(flow, e),
+                onEncodeError: e => FallbackToStage1(flow, e));
         }
 
         // emb の参照はここが引き取る(キャッシュへ入れたら、手元の分は返す)。
-        void CompleteZoomEncode(NativeBuffer emb, string key, SamPostOutcome plan,
-                                float u, float v, MaskSuggestGranularity granularity,
+        void CompleteZoomEncode(NativeBuffer emb, string key, SamProposalFlow flow,
                                 double pumpMs, long readStartedAt) {
             try {
                 if (MaskSuggestPerf.Enabled) {
                     MaskSuggestPerf.Log(
-                        $"エンコード(ズーム crop {plan.cropSide}px): 前処理 {_encodePrepMs:F0}ms" +
+                        $"エンコード(ズーム crop {flow.CropSide}px): 前処理 {_encodePrepMs:F0}ms" +
                         $" / pump {pumpMs:F0}ms ({_pump.Steps} steps / {_pump.Ticks} ticks)" +
                         $" / 読出 {MaskSuggestPerf.MsSince(readStartedAt):F0}ms(非同期)" +
                         $" / 合計 {MaskSuggestPerf.MsSince(_encodeStartedAt):F0}ms ({_backend})");
                 }
                 DisposeEncInput();
+                if (FailNextZoomEncodesForTests > 0) {
+                    FailNextZoomEncodesForTests--;
+                    throw new InvalidOperationException("induced zoom encode failure (test)");
+                }
                 if (SamNativeOps.FloatCount(emb) != EmbeddingLength) {
                     throw new InvalidOperationException(
                         string.Format(Localization.AiErrCropEmbeddingSizeFormat, SamNativeOps.FloatCount(emb)));
@@ -1027,46 +1040,46 @@ namespace Iroca.SentisIntegration {
             } catch (Exception e) {
                 emb?.Release();
                 DisposeEncInput();
-                FallbackToStage1(plan, e);
+                FallbackToStage1(flow, e);
                 return;
             }
             try {
                 _cropEmbeddingCache.Put(key, emb);
-                RunZoomDecode(emb, plan, u, v, granularity);
+                RunZoomDecode(emb, flow);
             } finally { emb.Release(); }
         }
 
-        void RunZoomDecode(NativeBuffer cropEmbedding, SamPostOutcome plan,
-                           float u, float v, MaskSuggestGranularity granularity) {
+        void RunZoomDecode(NativeBuffer cropEmbedding, SamProposalFlow flow) {
             if (_phase != MaskSuggestPhase.Decoding) {
                 return;
             }
+            flow.OnCropEmbedding();   // → 切り出しのデコード
             long tDec = MaskSuggestPerf.Now;
             // 切り出しの埋め込みはテンソルへ写すまでだけ使う(写すのは投げる前。呼び出し側はこの後で返してよい)。
-            StartDecoder(u, v, (plan.cropX0, plan.cropY0, plan.cropSide, cropEmbedding),
+            StartDecoder(flow.U, flow.V, (flow.CropX0, flow.CropY0, flow.CropSide, cropEmbedding),
                 (logits, scores) => {
                     try {
                         if (_phase != MaskSuggestPhase.Decoding) {
                             return;
                         }
                         _clickZoomDecodeMs = MaskSuggestPerf.MsSince(tDec);
-                        StartZoomPost(plan, granularity, logits, scores);
+                        StartZoomPost(flow, logits, scores);
                     } catch (Exception e) {
                         FailFromEditorCallback(e, Localization.AiErrProposalFormat);
                     }
                 },
-                e => FallbackToStage1(plan, e));
+                e => FallbackToStage1(flow, e));
         }
 
         // ズームの第 2 段の後処理: 切り出しの提案 → 全体へ貼り戻す。
-        void StartZoomPost(SamPostOutcome plan, MaskSuggestGranularity granularity, float[] logits, float[] scores) {
-            int w = _texW, h = _texH;
-            var cropPx = plan.cropPixels.AddRef();   // 読む間の参照(後始末で返す)
+        void StartZoomPost(SamProposalFlow flow, float[] logits, float[] scores) {
+            flow.OnDecoded(logits, scores);     // → ズームの後処理の計算
+            var work = flow.TakeWork();         // 切り出しの画素の参照を持つ(後始末で返す)
             _postJob.Schedule(
                 ct => {
                     // 中身は SamProposalSteps.ZoomPost。ここは時間を測るだけ。
                     long t0 = MaskSuggestPerf.Now;
-                    var o = SamProposalSteps.ZoomPost(plan, granularity, logits, scores, w, h, cropPx, ct);
+                    var o = work.Run(ct);
                     o.postMs = MaskSuggestPerf.MsSince(t0);
                     return o;
                 },
@@ -1076,58 +1089,60 @@ namespace Iroca.SentisIntegration {
                         return;
                     }
                     _clickZoomPostMs = o.postMs;
-                    // 第 1 段の結果はもう使わない。
-                    ReleasePlan();
-                    DeliverProposal(o);
+                    // 第 1 段の結果はもう使わない(フローが返す)。
+                    flow.Complete(o);
+                    DeliverFlowResult(flow);
                 },
                 e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, e.Message)),
-                cleanup: () => cropPx.Release(),
+                cleanup: work.Dispose,
                 discard: o => o.Release());
         }
 
-        void FallbackToStage1(SamPostOutcome plan, Exception e) {
+        void FallbackToStage1(SamProposalFlow flow, Exception e) {
             if (_phase != MaskSuggestPhase.Decoding) {
                 return;
             }
             if (e != null) {
                 Debug.LogWarning($"[Iroca] ズームイン再推論に失敗したため全体推論の提案を表示します: {e.Message}");
             }
-            // ズーム計画の第 1 段マスクは粗マスクのまま(発火時は精密化を省く)。そのまま
-            // 配信すると品質後退なので、破棄予定でなければここで精密化してから配信する
-            // (稀な経路。所要時間は従来の第 1 段精密化と同等)。
-            if (!plan.hasCrop || _discardInFlight || _sourcePixels == null) {
+            // ズーム計画の第 1 段マスクは粗マスクのまま(発火時は精密化を省く)。そのまま配信すると品質後退なので、
+            // 精密化してから配信する(稀な経路。所要時間は従来の第 1 段精密化と同等)。精密化するかはフローが決める
+            // (計画に切り出しが無い・元の画素が無いなら粗いまま)。Undo 割り込みで捨てる予定のクリック(_discardInFlight)は
+            // 精密化しても捨てるので、粗いまま配信へ回す(配信が捨てる)。
+            if (flow.OnCropFailed(skipRefine: _discardInFlight) == SamStep.Done) {
                 // 第 1 段の結果は配信が引き取る。
-                if (ReferenceEquals(_plan, plan)) {
-                    _plan = null;
-                }
-                DeliverProposal(plan);
+                DeliverFlowResult(flow);
                 return;
             }
-            var px = _sourcePixels.AddRef();   // 読む間の参照(後始末で返す)
-            var mask = plan.mask.AddRef();     // 第 1 段の結果は _plan が持つ。精密化する間の参照
+            var work = flow.TakeWork();   // 元の画素と第 1 段の範囲の参照を持つ(後始末で返す)
             _postJob.Schedule(
                 ct => {
                     // 中身は SamProposalSteps.RefineStage1(ズームしなかった第 1 段と同じ精密化)。ここは時間を測るだけ。
                     long t0 = MaskSuggestPerf.Now;
-                    SamProposalSteps.RefineStage1(mask, px, plan.dropForeign, plan.clickX, plan.clickY, ct);
+                    var plan = work.Run(ct);
                     plan.refineMs = MaskSuggestPerf.MsSince(t0);
                     return plan;
                 },
                 o => {
                     if (_phase != MaskSuggestPhase.Decoding) {
-                        return;   // 第 1 段の結果は _plan のまま(取り消しで返す)
+                        return;   // 第 1 段の結果はフローが持ったまま(取り消しで返す)
                     }
                     _clickRefineMs = o.refineMs;
-                    if (ReferenceEquals(_plan, o)) {
-                        _plan = null;
-                    }
-                    DeliverProposal(o);
+                    flow.Complete(o);
+                    DeliverFlowResult(flow);
                 },
                 err => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, err.Message)),
-                cleanup: () => {
-                    px.Release();
-                    mask.Release();
-                });
+                cleanup: work.Dispose);
+        }
+
+        // 段取りが終わったクリックの結果を配信する(段取りは返す。結果の範囲は配信が引き取る)。
+        void DeliverFlowResult(SamProposalFlow flow) {
+            if (ReferenceEquals(_flow, flow)) {
+                _flow = null;
+            }
+            var o = flow.TakeResult();
+            flow.Dispose();
+            DeliverProposal(o);
         }
 
         // 今の埋め込みを差し替える(前のものの参照を返す。渡したものの参照は引き取る)。
@@ -1183,7 +1198,7 @@ namespace Iroca.SentisIntegration {
             _prepJob?.Cancel();
             _postJob?.Cancel();
             DisposeEncInput();
-            ReleasePlan();
+            ReleaseFlow();
             SetProposal(null);
             _clickQueue.Clear();
             _clickInFlight = false;

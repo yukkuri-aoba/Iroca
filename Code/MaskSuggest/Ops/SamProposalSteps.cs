@@ -11,6 +11,8 @@ namespace Iroca {
     internal sealed class SamPostOutcome {
         // 提案の範囲(ヒープの外。この結果が参照を 1 つ持ち、配信で提案へ渡す)。
         public NativeBools mask;
+        // 採用チャンネル(1..3。診断用。SamMaskPostprocess.Result.channel)。
+        public int channel;
         public float score;
         public float areaFrac;
         public bool floodWarning;
@@ -92,6 +94,7 @@ namespace Iroca {
                 : SelectAndUpscale(logits, scores, w, h, null, granularity, ct);
             var o = new SamPostOutcome {
                 mask = s1.mask,
+                channel = s1.channel,
                 score = s1.score,
                 areaFrac = s1.areaFrac,
                 floodWarning = s1.floodWarning,
@@ -168,13 +171,14 @@ namespace Iroca {
             } finally { res.mask.Release(); }
             return new SamPostOutcome {
                 mask = full,
+                channel = res.channel,
                 score = res.score,
                 areaFrac = trueCount / (float)(w * h),
                 floodWarning = res.floodWarning,
             };
         }
 
-        // ── 画素(NativePixels)で呼ぶ部品。SamNativeOps(Infra)の同名の口もここを呼ぶ。 ──
+        // ── 画素(NativePixels)で呼ぶ部品。 ──
 
         /// <summary>精密化 4 段(<see cref="SamMaskPostprocess.RefineInPlace(bool*, Color32*, int, int, CancellationToken)"/>)。画素か範囲が無ければ何もしない(配列版の RefineInPlace と同じ約束)。</summary>
         public static void RefineInPlace(NativeBools mask, NativePixels px, CancellationToken token = default) {

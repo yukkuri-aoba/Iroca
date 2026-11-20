@@ -158,6 +158,7 @@
 | `Code/MaskSuggest/Ops/SamMaskRefine.Transfer.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.cs` | 2 |
 | `Code/MaskSuggest/Ops/SamProposal.cs` | 0 |
+| `Code/MaskSuggest/Ops/SamProposalFlow.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamProposalSteps.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamZoomOps.cs` | 0 |
 
@@ -667,6 +668,12 @@
 | `ForeignNearColor` | `0.08f` | 実測 | — | 提案の成分ごとに「クリック色に近い画素の割合」を数える OkLab の距離。割合はクリックした成分との比で比べるので、陰影の付いた同じ素材を近いと数えられる幅であればよい。開発側 33 被写体 × 6 クリックの右クリックの提案(自動)で 0.04〜0.15 のどれでも結果が同じ台地の中ほど(2026-11-14)。当てるのは自動・大きいの提案だけで、細かい(細部を狙う)には当てない |
 | `ForeignNearFracRatio` | `0.5f` | 実測 | — | 外す成分の、クリック色の割合の上限(クリックした成分の割合との比)。同じ物差しで 0.3〜0.7 のどれでも結果が同じ台地の中ほど(2026-11-14) |
 | `ForeignRefRadius` | `2` | 設計 | — | クリック色を取る窓の半径(5×5 の中央値)。縁取り・ノイズの 1 画素に当たっても地色を取る |
+
+## `Code/MaskSuggest/Ops/SamProposalFlow.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `EmbeddingFloatCount` | `1 * 256 * 64 * 64` | 定義 | — | MobileSAM のエンコーダの出力 [1,256,64,64] の要素数（モデルの出力仕様）。切り出しの埋め込みの寸法の検査に使う |
 
 ## `Code/MaskSuggest/Ops/SamZoomOps.cs`
 
