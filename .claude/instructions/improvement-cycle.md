@@ -28,7 +28,7 @@
    （2026-11-19〜。画面の要る `-UndoReload`・`-SdkBuild` も 2026-11-20 から相手のサインイン中のデスクトップで回る）。
    試作の DLL を `--dll <パス>`・`IROCA_HARNESS_DLL` で渡す実行も同じ入口でよい（相手が来歴のコミットから作り直す）。視覚レビューの snapshot・compare は、相手が使えれば自動で相手で回る（2026-11-19〜。approve・check は手元。snapshot と
    compare は同じ所で回す）。`color_report.py run` も同じ入口で回し、`--fetch dev_safe/_spike/color/<label>.json` で持ち帰る。仕組みは `docs/testing-architecture.md` の「テスト用の別 PC で回す」。
-   採否判断に使う計測（この手順 1 と手順 5）では、環境変数 `IROCA_CSHARP_GATE_FULL=1`（旧名 `VACC_CSHARP_GATE_FULL` も効く）と `IROCA_AUTOTUNE_GATE_FULL=1`（旧名 `VACC_AUTOTUNE_GATE_FULL` も効く）を立てる。立てないと品質ゲートは 1 被写体しか測らず、残りを測らないまま「全パス」と見誤る。
+   採否判断に使う計測（この手順 1 と手順 5）では、環境変数 `IROCA_GATE_FULL=1` を立てる（2026-11-20〜。品質ゲートの全被写体・ワンショットと AI 提案の全クリック・通しの全被写体・細い描き込みの全件がまとめて広がる）。立てないと品質ゲートは 1 被写体・ワンショットは p50 しか測らず、残りを測らないまま「全パス」と見誤る。それまでは系統ごとに環境変数が 6 つに分かれ、文書に書いた 2 つ（`IROCA_CSHARP_GATE_FULL`・`IROCA_AUTOTUNE_GATE_FULL`）では残りが広がらなかった。系統ごとの名前は、その系統だけ広げたいときのために残してある（`dev_safe/Tests/regression/gate_scope.py`）。
 2. **失敗分析** — 最もスコアを落とす／誤検出・見逃しが目立つケースを特定し、原因を具体的に仮説化する（色空間、閾値、連結成分処理、マスク膨張/収縮など）。
 3. **変更前スナップショット** — 旧出力を保存する:
    ```

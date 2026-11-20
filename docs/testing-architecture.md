@@ -282,12 +282,13 @@ dotnet 側（`scripts/build-check`）も asmdef と同じ境目で分けてあ�
 # 大規模ケース（8K/16K、数 GB のディスク書き込みあり）を除外する場合
 .\.venv\Scripts\python.exe -m pytest dev_safe/Tests/regression/ -q -m "not slow"
 
-# 実 C# 品質ゲートを bandana 以外の被写体（hair/costume/sneakers）まで広げる（旧名 VACC_CSHARP_GATE_FULL も効く）
-$env:IROCA_CSHARP_GATE_FULL = "1"
+# 採否判断のときは全件を測る（2026-11-20〜。品質ゲートの全被写体・ワンショットと AI 提案の全クリック・通しの全被写体・
+# 細い描き込みの全件がまとめて広がる。dev_safe/Tests/regression/gate_scope.py）
+$env:IROCA_GATE_FULL = "1"
 
-# 自動調整の品質ゲート(compute_all_metrics)を全被写体へ広げる（採否判断時に必須。旧名 VACC_AUTOTUNE_GATE_FULL も効く。
-# 立てないときに測っていない被写体は、-ra の skip 理由に出る）
-$env:IROCA_AUTOTUNE_GATE_FULL = "1"
+# 系統ごとに広げる名前も残してある（IROCA_<系統>_FULL。旧名 VACC_<系統>_FULL も効く）。系統は CSHARP_GATE・AUTOTUNE_GATE・
+# AUTOTUNE_EVIDENCE・SAM_E2E・JOURNEY・THIN_DETAIL。2026-11-20 までは文書に前の 2 つしか書いておらず、残りは既定の絞りのままだった
+$env:IROCA_CSHARP_GATE_FULL = "1"
 
 # golden（C# 出力ハッシュの固定）・ソース構造検査・ユニットテスト — dev_safe を必要としない自己完結テスト
 .\.venv\Scripts\python.exe -m pytest scripts/golden scripts/source_checks scripts/unit-run -q
@@ -347,7 +348,7 @@ LAN にテスト用の PC があるときは、テストをそちらで回して
   ハーネスの実行キャッシュは相手の dev_safe の中に溜まり、相手の `cache_gc` が掃除する。
 - `core.autocrlf`・`core.hooksPath` などは手元の値を相手のリポジトリへ写す（`test_hooks_configured` が見る）。
 - 実測（2026-11-11、相手は i5-1340P・16GB・Wi-Fi 越し）: 初回の setup 19 分（データ 13.7GB を約 21MB/s）。
-  以後の準備は数秒。回帰 FULL（`IROCA_CSHARP_GATE_FULL=1`・`IROCA_AUTOTUNE_GATE_FULL=1`）はキャッシュ空で
+  以後の準備は数秒。回帰 FULL（当時は `IROCA_CSHARP_GATE_FULL=1`・`IROCA_AUTOTUNE_GATE_FULL=1` の 2 つ）はキャッシュ空で
   15 分 30 秒、温まった後は golden・source_checks・unit-run 込みの 1645 件で 4 分 18 秒（空きメモリで 3 並列に下がる）。
   同日にプロファイル（`tools/pytest_profile.py`）で見つけた無駄を省き、ワーカーの見積もりを 1.0GB にした後（dev_safe 1be270a）:
   温まった状態 3 分 20 秒（4 並列）、C# を変えた直後の状態（実行キャッシュだけ空）14 分 19 秒（2 並列）→ 7 分 15 秒（4 並列）。
@@ -733,9 +734,8 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
   直すと色の多いテクスチャでだけ出力が変わる。`scripts/golden/test_palette_parity.py` が golden の全ケースと
   帯成長の合成 2 ケースを、通常の実行とハーネスの `IROCA_NO_PALETTE=1`（表を作らない）で回してビット単位で比べる。
   色ごとの経路を足したら、そこを踏むケースがあるか（片側だけ変えて落ちるか）を確かめること。
-- **改善サイクルの採否判断では `IROCA_CSHARP_GATE_FULL=1`（旧名 `VACC_CSHARP_GATE_FULL` も効く）と
-  `IROCA_AUTOTUNE_GATE_FULL=1`（旧名 `VACC_AUTOTUNE_GATE_FULL` も効く）を必ず立てる**（品質ゲートの既定は bandana のみで、残り被写体の実 C# 品質を測らずに
-  「全パス」と誤認するため）。
+- **改善サイクルの採否判断では `IROCA_GATE_FULL=1` を必ず立てる**（品質ゲートの既定は 1 被写体・ワンショットの既定は p50 だけで、
+  残りを測らずに「全パス」と誤認するため。2026-11-20 に 1 つにまとめた。上の「標準の実行コマンド」）。
 - **製品の挙動を測るゲートは、ゾーンを `fixtures._zone_to_harness` で全項目書く**（2026-11-10〜）。zones JSON の既定
   （`ZonesJsonDefaults`）には製品の新しいゾーンと意図的に違う値がある（`highlightRecovery` は JSON が false・UI が true、
   変更先の色は JSON が黒・UI が白）。項目を省いた dict は製品と違う設定を測る（C# の品質ゲートはこれでハイライト系の段を

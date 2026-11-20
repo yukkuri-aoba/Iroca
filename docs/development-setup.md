@@ -104,7 +104,7 @@ skip したのは `test_autotune_evidence`（ワンショット）・`test_assis
 
 正常時に残る skip は次の 2 件だけ（どちらも仕様どおりの未計測）:
 
-- `test_csharp_quality_gate` … 既定は bandana のみ。全被写体は `IROCA_CSHARP_GATE_FULL=1`
+- `test_csharp_quality_gate` … 既定は bandana のみ。全被写体は `IROCA_GATE_FULL=1`（この系統だけなら `IROCA_CSHARP_GATE_FULL=1`）
 - `test_repro_cases` … 調査中で expected 未凍結のケース 1 件
 
 ## 5. Unity 側（UI 実機確認・撮影・Sentis）
