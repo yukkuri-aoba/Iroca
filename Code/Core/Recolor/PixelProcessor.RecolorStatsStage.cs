@@ -66,7 +66,7 @@ namespace Iroca {
                 float zOsat = zOutputSat < 0.999f ? zOutputSat : 1f;
                 bool zOkGray = zSC <= 1e-4f;
                 // サンプル自動補正: アンカー (zSL, zSC) をスポイト画素からマッチ領域の代表色
-                // (地色。明部より暗い所に地色の山があればその山、無ければ明部)へ置換する。スポイトを陰影のどの明るさで取ってもパーツの地色が
+                // (サンプルと同じ素材のうち、平らで広い面ほど重く数えた明るい側 8 割の位置の色)へ置換する。スポイトを陰影のどの明るさで取ってもパーツの地色が
                 // target 色に一致する。マッチング(strength)・wash・デコンタミはスポイト色の
                 // まま＝再着色範囲は不変。フォールバック時(false)は従来挙動。
                 float zEffShadowDesat = zone.shadowDesaturation;
@@ -75,7 +75,7 @@ namespace Iroca {
                 float zClickL = zSL;    // クリックした画素の明度(下の「塗り先に合わせる所」)
                 float zSC0Click = zSC;  // クリックした画素の彩度(下の zChromaSampleW と「塗り先に合わせる所」)
                 float zDeepC = 0f;      // 素材の濃い側の彩度(下の zChromaSampleW)
-                // 基準色の推定(1 段目・推定し直し)と彩度の分位は同じコア画素を数えるので、色の表があれば 1 回だけ数える
+                // 基準色の推定と彩度の分位は同じコア画素を数えるので、色の表があれば 1 回だけ数える
                 // (AnchorCoreCounts。出力は変わらない。個数の配列はこの段の終わりで返す)。
                 using var anchorCounts = zone.autoRecolorAnchor && !zOkGray
                     ? AnchorCoreCounts.Count(originalPixels, strength, w, ppMinX, ppMinY, ppMaxX, ppMaxY,
@@ -84,7 +84,7 @@ namespace Iroca {
                 if (zone.autoRecolorAnchor && !zOkGray &&
                     TryComputeRecolorAnchor(originalPixels, strength, w,
                         ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC,
-                        zSL, zSa, zSb, sampS > ColorZone.ChromaGateActivateSat,
+                        zSL, zSa, zSb,
                         includedPx, run.Buf.Claimed, cancellationToken, palette, anchorCounts)) {
                     float zSC0 = zSC;
                     zAnchored = true;

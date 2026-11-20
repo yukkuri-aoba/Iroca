@@ -56,6 +56,36 @@ namespace Iroca {
             return total;
         }
 
+        /// <summary><see cref="AccumulateParallelRowsLong"/> の、集計対象が行レンジ [yFrom,yTo) のデリゲート。</summary>
+        internal delegate void RowChunkLong(int yFrom, int yTo, long[] localHist);
+
+        /// <summary>
+        /// <see cref="AccumulateParallelRows"/> の long 版(重みつきの集計用。基準色の推定)。ビンは数百本なので管理配列で足りる。
+        /// 整数の加算だけなので、結果は集計の順にも並列の分け方にも依らない。
+        /// </summary>
+        internal static void AccumulateParallelRowsLong(int yFrom, int yTo, long[] hist,
+            RowChunkLong chunk, CancellationToken ct = default) {
+            if (yTo <= yFrom) {
+                return;
+            }
+            var po = CoreParallelism.Options(ct);
+            object gate = new object();
+            int bins = hist.Length;
+            Parallel.ForEach(Partitioner.Create(yFrom, yTo), po,
+                () => new long[bins],
+                (range, _, local) => {
+                    chunk(range.Item1, range.Item2, local);
+                    return local;
+                },
+                local => {
+                    lock (gate) {
+                        for (int b = 0; b < local.Length; b++) {
+                            hist[b] += local[b];
+                        }
+                    }
+                });
+        }
+
         /// <summary><see cref="AccumulateParallelRowsNative"/> の、集計対象が行レンジ [yFrom,yTo) のデリゲート。</summary>
         internal delegate int RowChunkNative(int yFrom, int yTo, int* localHist);
 
@@ -175,46 +205,6 @@ namespace Iroca {
                 }
             }
             return -1;
-        }
-
-        /// <summary>
-        /// ビン from 以上で、前後 halfWidth ビンを足した窓の合計がいちばん大きいビン(ならした最頻値)。同じ合計なら若いビン。
-        /// 8 ビットの画素を細かいビンに入れると、隣り合うビンの間で数が割れて山がぎざぎざになるので、窓でならしてから取る。
-        /// </summary>
-        internal static int SmoothedModeBin(int[] hist, int halfWidth, int from = 0) {
-            int best = from, bestSum = -1;
-            for (int b = from; b < hist.Length; b++) {
-                int sum = WindowSum(hist, b, halfWidth);
-                if (sum > bestSum) { bestSum = sum; best = b; }
-            }
-            return best;
-        }
-
-        /// <summary>
-        /// ビン lo〜hi(ヒストグラムの外は切り詰める)でいちばん数の多いビン。同じ数なら若いビン。
-        /// </summary>
-        internal static int MaxBin(int[] hist, int lo, int hi) {
-            lo = Math.Max(0, lo);
-            hi = Math.Min(hist.Length - 1, hi);
-            int best = lo;
-            for (int b = lo + 1; b <= hi; b++) {
-                if (hist[b] > hist[best]) {
-                    best = b;
-                }
-            }
-            return best;
-        }
-
-        /// <summary>
-        /// center の前後 halfWidth ビンの合計。ヒストグラムの外にはみ出した分は 0 として数える。
-        /// </summary>
-        internal static int WindowSum(int[] hist, int center, int halfWidth) {
-            int sum = 0;
-            int lo = Math.Max(0, center - halfWidth), hi = Math.Min(hist.Length - 1, center + halfWidth);
-            for (int k = lo; k <= hi; k++) {
-                sum += hist[k];
-            }
-            return sum;
         }
     }
 }
