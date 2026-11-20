@@ -105,7 +105,7 @@ namespace Iroca.SentisIntegration {
         // ジョブで、次のデコードは後処理が済んでから始まる(取り消したジョブの結果は使わない)。
         float[] _logits, _scores;
         PreviewJob<NativeBuffer> _prepJob;
-        PreviewJob<PostOutcome> _postJob;
+        PreviewJob<SamPostOutcome> _postJob;
         Tensor<float> _encInput;                    // pump 中だけ保持
         MaskSuggestProposal _proposal;
         // 推論中に来たクリックは FIFO で貯めて順に処理する。1 クリック = 1 Undo ストローク
@@ -232,43 +232,12 @@ namespace Iroca.SentisIntegration {
             _cropEmbTensor.Dispose();
         }
 
-        /// <summary>後処理ジョブの結果。第 1 段では提案ペイロード+ズーム計画、
-        /// ズーム後処理では提案ペイロードのみ(hasCrop=false)。</summary>
-        sealed class PostOutcome {
-            // 提案の範囲(ヒープの外。この結果が参照を 1 つ持ち、配信で提案へ渡す)。
-            public NativeBools mask;
-            public float score;
-            public float areaFrac;
-            public bool floodWarning;
-            // ズーム計画(hasCrop=true のときのみ有効。下原点矩形)。
-            // hasCrop=true の mask は粗マスクのまま(精密化はズーム不発時のみ行う)。
-            // ズーム失敗で第 1 段へ退避するときは FallbackToStage1 が配信前に精密化する。
-            public bool hasCrop;
-            public int cropX0, cropY0, cropSide;
-            // 切り出した画素(ヒープの外。この結果が参照を 1 つ持つ。読むジョブは自分の参照を足す)。
-            public NativePixels cropPixels;
-            public double postMs;
-            public double refineMs; // 精密化 4 段(走ったときのみ非 0)
-            // 部分をマスクに当てる用途(MaskSuggestUse.Region)なら、精密化の後に色の違う離れた塊を外す。
-            // クリックは全体の画素座標(下原点)。ズームの第 2 段・第 1 段への退避もこれを見る。
-            public bool dropForeign;
-            // 部分をマスクに当てる用途で粒度が自動なら、候補を色で選ぶ(SamMaskPostprocess.SelectAndUpscaleByColor)。
-            // ズームの第 2 段もこれを見る。
-            public bool byColor;
-            public int clickX, clickY;
-
-            /// <summary>持っている画素(範囲・切り出し)を返す。配信で範囲を渡した後は切り出しだけ。</summary>
-            public void Release() {
-                mask?.Release();
-                mask = null;
-                cropPixels?.Release();
-                cropPixels = null;
-            }
-        }
+        // 後処理ジョブの結果は SamPostOutcome(Ops。第 1 段では提案ペイロード+ズーム計画、ズーム後処理では提案ペイロードのみ)。
+        // 後処理の中身(第 1 段・ズーム・第 1 段への退避)は SamProposalSteps にあり、ここのジョブはそれを呼ぶだけ。
 
         // ズームの第 2 段を回している間の第 1 段の結果(粗マスクと切り出し)。第 2 段の結果を配信するか、第 1 段へ
         // 退避して配信するか、取り消したときに返す。
-        PostOutcome _plan;
+        SamPostOutcome _plan;
 
         void ReleasePlan() {
             var p = _plan;
@@ -861,63 +830,24 @@ namespace Iroca.SentisIntegration {
                              float[] logits, float[] scores) {
             int w = _texW, h = _texH;
             var px = _sourcePixels?.AddRef();   // 読む間の参照(後始末で返す)
-            _postJob ??= new PreviewJob<PostOutcome>();
+            _postJob ??= new PreviewJob<SamPostOutcome>();
             _postJob.Schedule(
                 ct => {
+                    // 中身は SamProposalSteps.Stage1(粗マスク → ズームの判定 →(ズームしなければ)精密化)。
+                    // ここは時間を測るだけ(粗マスクとズームの判定まで / 精密化)。
                     long t0 = MaskSuggestPerf.Now;
-                    // まず精密化なしの粗マスクだけ作り、ズームイン再推論の要否を判定する。
-                    // ズーム発火時は第 1 段マスクが最終出力に使われない(RunZoomDecode が
-                    // 空配列へ PasteCrop した結果で置き換える)ため、発火時に精密化すると
-                    // その分(4K 実測 0.8-1.4s)が丸ごと捨てられる。不発時のみ従来と同一
-                    // 順序・同一入力で精密化する(= SelectAndUpscale(px) と厳密同値)。
-                    // 右クリックの自動は、隣の部品を巻き込んだ大きい候補を避けて色で選ぶ(画素は色を比べるのに読むだけで、
-                    // 精密化はここでもしない)。自動調整の証拠と、利用者が大きさを選んだ細かい・大きいは既定の選び方。
-                    bool byColor = use == MaskSuggestUse.Region && granularity == MaskSuggestGranularity.Auto;
-                    var s1 = byColor
-                        ? SamNativeOps.SelectAndUpscaleByColor(logits, scores, w, h, px, ct)
-                        : SamNativeOps.SelectAndUpscale(logits, scores, w, h, null, granularity, ct);
-                    var o = new PostOutcome {
-                        mask = s1.mask,
-                        score = s1.score,
-                        areaFrac = s1.areaFrac,
-                        floodWarning = s1.floodWarning,
-                        byColor = byColor,
-                    };
-                    try {
-                        // ズームイン再推論の判定: クリック成分が小さい(=256²ロジットで形状表現
-                        // できない)場合のみ、クリック周辺クロップの再推論計画を積む。粗マスクの
-                        // bbox は精密化後と数 px しか違わず、クロップ矩形は 2 冪スナップで吸収される
-                        // (実 SAM fixture で crop 決定の一致を確認済み)。
-                        int cx = Mathf.Clamp((int)(u * w), 0, w - 1);
-                        int cy = Mathf.Clamp((int)(v * h), 0, h - 1); // v は下原点 → 下原点行と一致
-                        // 細かいは細部を狙って選ぶ粒度なので外さない(SamMaskRefine.DropForeignComponents の説明)。
-                        o.dropForeign = use == MaskSuggestUse.Region && granularity != MaskSuggestGranularity.Fine;
-                        o.clickX = cx;
-                        o.clickY = cy;
-                        int bb = SamNativeOps.ClickComponentBBoxLong(o.mask, cx, cy);
-                        bool hasCrop = SamZoomOps.TryDeriveCropRect(bb, cx, cy, w, h,
-                                                                    out int x0, out int y0, out int side);
-                        if (hasCrop) {
-                            o.hasCrop = true;
-                            o.cropX0 = x0;
-                            o.cropY0 = y0;
-                            o.cropSide = side;
-                            o.cropPixels = SamNativeOps.ExtractCrop(px, x0, y0, side);
-                        }
-                        o.postMs = MaskSuggestPerf.MsSince(t0);
-                        if (!hasCrop) {
-                            long tr = MaskSuggestPerf.Now;
-                            SamNativeOps.RefineInPlace(o.mask, px, ct);
-                            if (o.dropForeign) {
-                                SamNativeOps.DropForeignComponents(o.mask, px, cx, cy, ct);
-                            }
-                            o.refineMs = MaskSuggestPerf.MsSince(tr);
-                        }
-                        return o;
-                    } catch {
-                        o.Release();
-                        throw;
+                    long tr = 0;
+                    double postMs = 0;
+                    var o = SamProposalSteps.Stage1(logits, scores, w, h, px, u, v, granularity, use, ct,
+                        coarseDone: () => {
+                            postMs = MaskSuggestPerf.MsSince(t0);
+                            tr = MaskSuggestPerf.Now;
+                        });
+                    o.postMs = postMs;
+                    if (!o.hasCrop) {
+                        o.refineMs = MaskSuggestPerf.MsSince(tr);
                     }
+                    return o;
                 },
                 o => {
                     if (_phase != MaskSuggestPhase.Decoding) {
@@ -1020,7 +950,7 @@ namespace Iroca.SentisIntegration {
         }
 
         /// <summary>提案を確定する(Undo 割り込み済みなら捨てて次の待ちクリックへ)。</summary>
-        void DeliverProposal(PostOutcome o) {
+        void DeliverProposal(SamPostOutcome o) {
             _clickInFlight = false;
             if (MaskSuggestPerf.Enabled) {
                 MaskSuggestPerf.Log(
@@ -1059,9 +989,9 @@ namespace Iroca.SentisIntegration {
         // (計測: dev_safe/ml/zoom_infer_spike2.py。バンダナ三角 IoU 0.04-0.10 → 0.94-0.97)。
         // 失敗時は第 1 段の提案へグレースフルに退避し、エラー状態にはしない。
 
-        void StartZoomStage(PostOutcome plan, float u, float v, MaskSuggestGranularity granularity) {
+        void StartZoomStage(SamPostOutcome plan, float u, float v, MaskSuggestGranularity granularity) {
             _clickZoomRan = true;
-            string key = $"{_sourceKey}|{plan.cropX0},{plan.cropY0},{plan.cropSide}";
+            string key = SamProposalSteps.CropEmbeddingKey(_sourceKey, plan.cropX0, plan.cropY0, plan.cropSide);
             if (_cropEmbeddingCache.TryGet(key, out var cached)) {
                 MaskSuggestPerf.Log("エンコード(ズーム): クロップ埋め込みキャッシュ命中");
                 RunZoomDecode(cached, plan, u, v, granularity);
@@ -1078,7 +1008,7 @@ namespace Iroca.SentisIntegration {
         }
 
         // emb の参照はここが引き取る(キャッシュへ入れたら、手元の分は返す)。
-        void CompleteZoomEncode(NativeBuffer emb, string key, PostOutcome plan,
+        void CompleteZoomEncode(NativeBuffer emb, string key, SamPostOutcome plan,
                                 float u, float v, MaskSuggestGranularity granularity,
                                 double pumpMs, long readStartedAt) {
             try {
@@ -1106,7 +1036,7 @@ namespace Iroca.SentisIntegration {
             } finally { emb.Release(); }
         }
 
-        void RunZoomDecode(NativeBuffer cropEmbedding, PostOutcome plan,
+        void RunZoomDecode(NativeBuffer cropEmbedding, SamPostOutcome plan,
                            float u, float v, MaskSuggestGranularity granularity) {
             if (_phase != MaskSuggestPhase.Decoding) {
                 return;
@@ -1129,36 +1059,16 @@ namespace Iroca.SentisIntegration {
         }
 
         // ズームの第 2 段の後処理: 切り出しの提案 → 全体へ貼り戻す。
-        void StartZoomPost(PostOutcome plan, MaskSuggestGranularity granularity, float[] logits, float[] scores) {
+        void StartZoomPost(SamPostOutcome plan, MaskSuggestGranularity granularity, float[] logits, float[] scores) {
             int w = _texW, h = _texH;
-            int x0 = plan.cropX0, y0 = plan.cropY0, side = plan.cropSide;
             var cropPx = plan.cropPixels.AddRef();   // 読む間の参照(後始末で返す)
             _postJob.Schedule(
                 ct => {
+                    // 中身は SamProposalSteps.ZoomPost。ここは時間を測るだけ。
                     long t0 = MaskSuggestPerf.Now;
-                    // 色で選ぶときは、選んだ後に精密化する(SelectAndUpscale に画素を渡したときと同じ順)。
-                    var res = plan.byColor
-                        ? SamNativeOps.SelectAndUpscaleByColor(logits, scores, side, side, cropPx, ct)
-                        : SamNativeOps.SelectAndUpscale(logits, scores, side, side, cropPx, granularity, ct);
-                    NativeBools full;
-                    int trueCount;
-                    try {
-                        if (plan.byColor) {
-                            SamNativeOps.RefineInPlace(res.mask, cropPx, ct);
-                        }
-                        // 切り出しの中で外しても、貼り戻した全体で外したのと同じ(提案は切り出しの外に無い)。
-                        if (plan.dropForeign) {
-                            SamNativeOps.DropForeignComponents(res.mask, cropPx, plan.clickX - x0, plan.clickY - y0, ct);
-                        }
-                        full = SamNativeOps.PasteCrop(res.mask, w, h, x0, y0, out trueCount);
-                    } finally { res.mask.Release(); }
-                    return new PostOutcome {
-                        mask = full,
-                        score = res.score,
-                        areaFrac = trueCount / (float)(w * h),
-                        floodWarning = res.floodWarning,
-                        postMs = MaskSuggestPerf.MsSince(t0),
-                    };
+                    var o = SamProposalSteps.ZoomPost(plan, granularity, logits, scores, w, h, cropPx, ct);
+                    o.postMs = MaskSuggestPerf.MsSince(t0);
+                    return o;
                 },
                 o => {
                     if (_phase != MaskSuggestPhase.Decoding) {
@@ -1175,7 +1085,7 @@ namespace Iroca.SentisIntegration {
                 discard: o => o.Release());
         }
 
-        void FallbackToStage1(PostOutcome plan, Exception e) {
+        void FallbackToStage1(SamPostOutcome plan, Exception e) {
             if (_phase != MaskSuggestPhase.Decoding) {
                 return;
             }
@@ -1197,11 +1107,9 @@ namespace Iroca.SentisIntegration {
             var mask = plan.mask.AddRef();     // 第 1 段の結果は _plan が持つ。精密化する間の参照
             _postJob.Schedule(
                 ct => {
+                    // 中身は SamProposalSteps.RefineStage1(ズームしなかった第 1 段と同じ精密化)。ここは時間を測るだけ。
                     long t0 = MaskSuggestPerf.Now;
-                    SamNativeOps.RefineInPlace(mask, px, ct);
-                    if (plan.dropForeign) {
-                        SamNativeOps.DropForeignComponents(mask, px, plan.clickX, plan.clickY, ct);
-                    }
+                    SamProposalSteps.RefineStage1(mask, px, plan.dropForeign, plan.clickX, plan.clickY, ct);
                     plan.refineMs = MaskSuggestPerf.MsSince(t0);
                     return plan;
                 },

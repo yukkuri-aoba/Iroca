@@ -60,54 +60,46 @@ namespace Iroca {
         /// <summary>float の並びの要素数(null は 0)。</summary>
         public static int FloatCount(NativeBuffer buffer) => buffer == null ? 0 : (int)(buffer.Bytes / sizeof(float));
 
-        // 画素が無ければ何もしない(配列版の RefineInPlace と同じ約束)。
-        public static void RefineInPlace(NativeBools mask, NativePixels px, CancellationToken token = default) {
-            if (px == null || mask == null) {
-                return;
-            }
-            SamMaskPostprocess.RefineInPlace(mask.Ptr, px.Ptr, px.Width, px.Height, token);
-        }
+        // 以下の後処理の口は、中身を Core の SamProposalSteps(Ops。ハーネスも同じ段を呼ぶ)へ移した。口は残し、そちらを呼ぶ。
+
+        /// <summary>精密化 4 段(<see cref="SamProposalSteps.RefineInPlace"/>)。画素が無ければ何もしない(配列版の RefineInPlace と同じ約束)。</summary>
+        public static void RefineInPlace(NativeBools mask, NativePixels px, CancellationToken token = default)
+            => SamProposalSteps.RefineInPlace(mask, px, token);
 
         /// <summary>
-        /// クリックした塊と色の違う離れた塊を外す(<see cref="SamMaskRefine.DropForeignComponents(bool*, Color32*, int, int, int, int, CancellationToken, float, float)"/>)。
+        /// クリックした塊と色の違う離れた塊を外す(<see cref="SamProposalSteps.DropForeignComponents"/>)。
         /// クリックは px の画素座標(下原点)。画素が無ければ何もしない。外した画素数を返す。
         /// </summary>
         public static int DropForeignComponents(NativeBools mask, NativePixels px, int clickX, int clickY,
-            CancellationToken token = default) {
-            if (px == null || mask == null) {
-                return 0;
-            }
-            return SamMaskRefine.DropForeignComponents(mask.Ptr, px.Ptr, px.Width, px.Height, clickX, clickY, token);
-        }
+            CancellationToken token = default)
+            => SamProposalSteps.DropForeignComponents(mask, px, clickX, clickY, token);
 
-        /// <summary>切り出し(参照 1。受け取った側が手放す)。</summary>
+        /// <summary>切り出し(参照 1。受け取った側が手放す。<see cref="SamProposalSteps.ExtractCrop"/>)。</summary>
         public static NativePixels ExtractCrop(NativePixels px, int x0, int y0, int side)
-            => SamZoomOps.ExtractCrop(px.Ptr, px.Width, px.Height, x0, y0, side);
+            => SamProposalSteps.ExtractCrop(px, x0, y0, side);
 
         /// <summary>
-        /// デコーダの出力から提案マスクを作る(<see cref="SamMaskPostprocess.SelectAndUpscale(float[], float[], int, int, float, Color32*, MaskSuggestGranularity, CancellationToken)"/>)。
+        /// デコーダの出力から提案マスクを作る(<see cref="SamProposalSteps.SelectAndUpscale"/>)。
         /// px を渡すと精密化もする(texW*texH 画素)。結果のマスクは受け取った側が手放す。
         /// </summary>
         public static SamMaskPostprocess.Result SelectAndUpscale(float[] logits, float[] scores, int texW, int texH,
             NativePixels px, MaskSuggestGranularity granularity, CancellationToken token = default)
-            => SamMaskPostprocess.SelectAndUpscale(logits, scores, texW, texH, SamMaskPostprocess.DefaultFloodRejectFrac,
-                px == null ? null : px.Ptr, granularity, token);
+            => SamProposalSteps.SelectAndUpscale(logits, scores, texW, texH, px, granularity, token);
 
         /// <summary>
-        /// 右クリックの提案(用途 Region・粒度 自動)の候補選びと拡大(<see cref="SamMaskPostprocess.SelectAndUpscaleByColor(float[], float[], int, int, float, Color32*, CancellationToken, float, float)"/>。
+        /// 右クリックの提案(用途 Region・粒度 自動)の候補選びと拡大(<see cref="SamProposalSteps.SelectAndUpscaleByColor"/>。
         /// 精密化はしない)。px は候補の色を比べるのに読む(texW*texH 画素。null なら既定の自動と同じ)。結果のマスクは受け取った側が手放す。
         /// </summary>
         public static SamMaskPostprocess.Result SelectAndUpscaleByColor(float[] logits, float[] scores, int texW, int texH,
             NativePixels px, CancellationToken token = default)
-            => SamMaskPostprocess.SelectAndUpscaleByColor(logits, scores, texW, texH,
-                SamMaskPostprocess.DefaultFloodRejectFrac, px == null ? null : px.Ptr, token);
+            => SamProposalSteps.SelectAndUpscaleByColor(logits, scores, texW, texH, px, token);
 
-        /// <summary>クリック画素を含む連結成分の外接矩形の長辺(<see cref="SamZoomOps.ClickComponentBBoxLong(bool*, int, int, int, int)"/>)。</summary>
+        /// <summary>クリック画素を含む連結成分の外接矩形の長辺(<see cref="SamProposalSteps.ClickComponentBBoxLong"/>)。</summary>
         public static int ClickComponentBBoxLong(NativeBools mask, int clickX, int clickY)
-            => SamZoomOps.ClickComponentBBoxLong(mask.Ptr, mask.Width, mask.Height, clickX, clickY);
+            => SamProposalSteps.ClickComponentBBoxLong(mask, clickX, clickY);
 
-        /// <summary>切り出しのマスク(side 四方)を w*h へ貼り戻す(参照 1。受け取った側が手放す)。</summary>
+        /// <summary>切り出しのマスク(side 四方)を w*h へ貼り戻す(参照 1。受け取った側が手放す。<see cref="SamProposalSteps.PasteCrop"/>)。</summary>
         public static NativeBools PasteCrop(NativeBools crop, int w, int h, int x0, int y0, out int trueCount)
-            => SamZoomOps.PasteCrop(crop.Ptr, crop.Width, w, h, x0, y0, out trueCount);
+            => SamProposalSteps.PasteCrop(crop, w, h, x0, y0, out trueCount);
     }
 }

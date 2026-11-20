@@ -145,6 +145,7 @@
 | `Code/Core/ZoneAutoTuner.Verify.cs` | 0 |
 | `Code/Core/ZoneAutoTuner.cs` | 40 |
 | `Code/MaskSuggest/Ops/MaskSuggestGranularity.cs` | 0 |
+| `Code/MaskSuggest/Ops/MaskSuggestUse.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamCoordMapper.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamImageOps.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskPostprocess.ByColor.cs` | 0 |
@@ -156,6 +157,8 @@
 | `Code/MaskSuggest/Ops/SamMaskRefine.Snap.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.Transfer.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.cs` | 2 |
+| `Code/MaskSuggest/Ops/SamProposal.cs` | 0 |
+| `Code/MaskSuggest/Ops/SamProposalSteps.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamZoomOps.cs` | 0 |
 
 ## `Code/Core/Color/OkLab.cs`
