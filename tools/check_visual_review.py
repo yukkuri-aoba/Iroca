@@ -88,7 +88,7 @@ def main() -> None:
     print(f"[pre-commit] 視覚レビュー承認確認済み(比較 {doc['run_id'][:8]}・測り元 {doc['state_source']}・"
           f"{doc['generated_at'][:16]}。ステージした {len(scope)} ファイルは HEAD か測った中身と同じ)")
     print("  ※ このフックは今のコードの品質を測りません。品質は改善サイクルで測る: pytest dev_safe/Tests/regression/ -q"
-          "(IROCA_CSHARP_GATE_FULL=1・IROCA_AUTOTUNE_GATE_FULL=1)")
+          "(IROCA_GATE_FULL=1)")
     sys.exit(0)
 
 
