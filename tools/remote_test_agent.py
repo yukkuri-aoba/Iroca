@@ -9,14 +9,18 @@
       Iroca/dev_safe/     dev_safe の写し（同上）
       UnityManaged/       ハーネスのビルドに要る Unity の DLL（UnityManaged に渡す）
       inbox/<run_id>/     1 回の実行で受け取ったバンドル・データ・依頼と、持ち帰る結果
-      lock                同時に 2 つの実行が作業ツリーを書き換えないための排他
+      lock                同時に 2 つの実行が作業ツリーを書き換えないための排他（スロット 0 の分）
+      Iroca_s<N>/ lock_s<N>   スロット N（1〜）の作業ツリーと排他。スロットごとに独立して 1 実行ずつ（2026-11-20〜）
+      power.lock  power_users/   電源プランを上げ下げする数え（スロットをまたぐので）
 
 コマンド:
-    info [--manifest]       状態を JSON で出す（--manifest でデータの一覧も）
+    info [--manifest]       状態を JSON で出す（--manifest でデータの一覧も。slots に全スロットの空き）
+    slot-init <dirs...>     スロット N（--slot N、1〜）の作業ツリーをスロット 0 の写しとして作る（データも写す）
     recv <run_id> <name>    標準入力を inbox/<run_id>/<name> へ書く
     run <run_id>            inbox/<run_id>/request.json に従って同期して実行する（排他つき）
     cat <run_id> <name>     inbox/<run_id>/<name> を標準出力へ書く
     cleanup <run_id>        inbox/<run_id> を消す
+  どのコマンドにも `--slot N` を付けられる（既定 0）。スロットは作業ツリーと排他が別なので、実行が同居できる。
     extract-to <unity|models>   標準入力の tar を決まった置き場へ展開する（準備用）
     power [get | set <saver|balanced|performance>]   電源プランを見る・切り替える（確認用）
 
@@ -38,6 +42,8 @@ import time
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
+MAX_SLOTS = 4                     # 相手が持てるスロットの上限。呼び手が IROCA_REMOTE_SLOTS（既定 2）で使う数を決める
+SLOT = 0
 MAIN = BASE / "Iroca"
 DEV_SAFE = MAIN / "dev_safe"
 INBOX = BASE / "inbox"
@@ -46,6 +52,8 @@ UNITY_DIR = BASE / "UnityManaged"
 UNITY_EDITOR_EXE = Path(r"C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Unity.exe")
 EDITOR_HOST = BASE / "hosts" / "Iroca_U2022_ifx"
 LOCK_PATH = BASE / "lock"
+POWER_LOCK = BASE / "power.lock"
+POWER_USERS = BASE / "power_users"
 REQUIREMENTS = Path("dev_safe") / "Tests" / "requirements.txt"
 SNAP_REF = "refs/remote-test/snap"
 LAST_REF = "refs/remote-test/last"
@@ -53,6 +61,23 @@ DLL_REF_PREFIX = "refs/remote-test/dll/"   # tools/remote_test.py と合わせ�
 DLL_TOKEN_RE = re.compile(r"@@IROCA_DLL:([0-9a-f]{40})@@")
 SYNC_FAILED = 97  # tools/remote_test.py と合わせる
 _NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
+
+
+def slot_paths(n: int) -> tuple[Path, Path]:
+    """スロット n の（本体の作業ツリー, 排他のファイル）。0 は従来の置き場のまま。"""
+    if n == 0:
+        return BASE / "Iroca", BASE / "lock"
+    return BASE / f"Iroca_s{n}", BASE / f"lock_s{n}"
+
+
+def set_slot(n: int) -> None:
+    """このプロセスの作業先をスロット n にする（1 コマンド 1 プロセスなので、グローバルを差し替えるだけでよい）。"""
+    global SLOT, MAIN, DEV_SAFE, LOCK_PATH
+    if not 0 <= n < MAX_SLOTS:
+        raise SystemExit(f"スロット番号が範囲外: {n}（0〜{MAX_SLOTS - 1}）")
+    SLOT = n
+    MAIN, LOCK_PATH = slot_paths(n)
+    DEV_SAFE = MAIN / "dev_safe"
 
 
 def log(msg: str) -> None:
@@ -146,15 +171,19 @@ def _models_dir() -> Path | None:
 
 def data_manifest(dirs: list[str]) -> dict[str, list[int]]:
     """dev_safe の中で git が無視している（= git では届かない）データファイルの一覧。"""
-    if not (DEV_SAFE / ".git").exists() or not dirs:
+    return data_manifest_of(DEV_SAFE, dirs)
+
+
+def data_manifest_of(dev_safe: Path, dirs: list[str]) -> dict[str, list[int]]:
+    if not (dev_safe / ".git").exists() or not dirs:
         return {}
-    r = git(DEV_SAFE, "-c", "core.quotepath=false", "ls-files", "-oi", "--exclude-standard", "-z", "--", *dirs)
+    r = git(dev_safe, "-c", "core.quotepath=false", "ls-files", "-oi", "--exclude-standard", "-z", "--", *dirs)
     out: dict[str, list[int]] = {}
     for rel in r.stdout.decode("utf-8", "replace").split("\0"):
         if not rel:
             continue
         try:
-            st = (DEV_SAFE / rel).stat()
+            st = (dev_safe / rel).stat()
         except OSError:
             continue
         out[rel] = [st.st_size, int(st.st_mtime)]
@@ -176,11 +205,17 @@ def cmd_info(argv: list[str]) -> int:
         "git": _git_exe() is not None,
         "dotnet": _dotnet_version(),
         "unity": (UNITY_DIR / "UnityEngine" / "UnityEngine.CoreModule.dll").is_file(),
-        "unity_editor": UNITY_EDITOR_EXE.is_file() and (EDITOR_HOST / "Assets" / "IrocaEditorTests").exists(),
+        # EditMode のホストはスロット 0 の作業ツリーへリンクしてあるので、スロット 0 でだけ回せる
+        "unity_editor": SLOT == 0 and UNITY_EDITOR_EXE.is_file()
+        and (EDITOR_HOST / "Assets" / "IrocaEditorTests").exists(),
         "desktop_sessions": _desktop_sessions(),
         "models": bool(models and models.is_dir() and any(models.glob("*.onnx"))),
         "repos": {"main": _rev(MAIN, LAST_REF), "dev_safe": _rev(DEV_SAFE, LAST_REF)},
         "busy": _lock_busy(),
+        "slot": SLOT,
+        "slot_ready": (MAIN / ".git").exists(),
+        "slots": [{"slot": i, "ready": (slot_paths(i)[0] / ".git").exists(), "busy": _lock_busy(slot_paths(i)[1])}
+                  for i in range(MAX_SLOTS)],
         "smart_app_control": _smart_app_control(),
         "cpu_count": os.cpu_count(),
         "disk_free_gb": round(shutil.disk_usage(BASE).free / 1e9, 1),
@@ -312,12 +347,59 @@ def cmd_power(argv: list[str]) -> int:
     return 0
 
 
-# ---- 排他 ----
+def _power_lock():
+    """電源プランの上げ下げを 1 つずつにする短い排他（スロットをまたぐ）。取った fd を返す。"""
+    import msvcrt
+    fd = os.open(POWER_LOCK, os.O_RDWR | os.O_CREAT)
+    while True:
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            return fd
+        except OSError:
+            time.sleep(0.2)
 
-def _lock_busy() -> bool:
+
+def _power_unlock(fd: int) -> None:
     import msvcrt
     try:
-        fd = os.open(LOCK_PATH, os.O_RDWR | os.O_CREAT)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+    os.close(fd)
+
+
+def power_acquire() -> bool:
+    """この実行のために電源プランを「高パフォーマンス」にする。スロットが同居するので、使っている実行の数を印のファイルで数える。"""
+    fd = _power_lock()
+    try:
+        POWER_USERS.mkdir(parents=True, exist_ok=True)
+        (POWER_USERS / f"slot{SLOT}").write_text(str(os.getpid()))
+        return set_power_plan("performance")
+    finally:
+        _power_unlock(fd)
+
+
+def power_release() -> bool:
+    """この実行の印を外す。ほかの実行がまだ動いていれば（印があり、その排他が取られていれば）省電力へは戻さない。"""
+    fd = _power_lock()
+    try:
+        (POWER_USERS / f"slot{SLOT}").unlink(missing_ok=True)
+        for i in range(MAX_SLOTS):
+            mark = POWER_USERS / f"slot{i}"
+            if mark.exists() and _lock_busy(slot_paths(i)[1]):
+                return True
+            mark.unlink(missing_ok=True)   # 排他が空いているのに残った印（強制終了の名残）
+        return set_power_plan("saver")
+    finally:
+        _power_unlock(fd)
+
+
+# ---- 排他 ----
+
+def _lock_busy(path: Path | None = None) -> bool:
+    import msvcrt
+    try:
+        fd = os.open(path or LOCK_PATH, os.O_RDWR | os.O_CREAT)
     except OSError:
         return False
     try:
@@ -388,6 +470,76 @@ def _sync_repo(repo: Path, spec: dict, run_dir: Path, git_config: dict[str, str]
     # これで「HEAD・索引・作業ツリー」の 3 つとも手元と同じになり、compare --index も相手で測れる。
     if _rev(repo, commit + "^2") is not None:
         git(repo, "read-tree", commit + "^2")
+
+
+def _link_shared_cache() -> None:
+    """スロット 1〜の dev_safe/_harness_cache を、スロット 0 のものへのジャンクションにする（実行キャッシュは中身の
+    ハッシュで引くので、同じ入力の結果を共有できる。別々に持つと同居の 2 本目が毎回コールドで始まる）。"""
+    if SLOT == 0:
+        return
+    src = slot_paths(0)[0] / "dev_safe" / "_harness_cache"
+    dst = DEV_SAFE / "_harness_cache"
+    if dst.exists() or dst.is_symlink() or os.path.lexists(dst):
+        return
+    src.mkdir(parents=True, exist_ok=True)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run(["cmd", "/c", "mklink", "/J", str(dst), str(src)], capture_output=True)
+    if r.returncode != 0:
+        log("実行キャッシュのジャンクションを作れない（このスロットだけ別のキャッシュで回る）: "
+            + r.stderr.decode("mbcs", "replace").strip())
+
+
+def cmd_slot_init(argv: list[str]) -> int:
+    """slot-init <データのフォルダ...>（--slot N、1〜）: スロット 0 の写しとしてスロット N の作業ツリーを作る。
+
+    リポジトリはスロット 0 から `git clone --local --no-checkout`（オブジェクトはハードリンクで速い）。
+    refs/remote-test/* も写すので、呼び手の差分のバンドルはスロット 0 と同じ基準で送れる。作業ツリーの中身は次の run の
+    checkout で入る。git に入らないデータ（dev_safe の無視されたファイル）は、スロット 0 から写す（Wi-Fi 越しに 14GB を
+    送り直さないため。ハードリンクにしないのは、tar の展開が元のファイルへ書き込んでしまうから）。"""
+    if SLOT == 0:
+        raise SystemExit("slot-init はスロット 1 以上に使う（--slot N）")
+    dirs = argv
+    src_main = slot_paths(0)[0]
+    if not (src_main / ".git").exists():
+        raise SystemExit("スロット 0 がまだ無い（先に setup）")
+    fd = _acquire_lock()
+    try:
+        for src_repo, dst_repo in ((src_main, MAIN), (src_main / "dev_safe", DEV_SAFE)):
+            if (dst_repo / ".git").exists():
+                continue
+            dst_repo.parent.mkdir(parents=True, exist_ok=True)
+            git(dst_repo.parent, "clone", "-q", "--local", "--no-checkout", str(src_repo), str(dst_repo))
+            git(dst_repo, "fetch", "-q", "--no-tags", str(src_repo), "+refs/remote-test/*:refs/remote-test/*")
+            # 無視の規則（.gitignore）が効くよう、前回の中身を checkout しておく。しないと、呼び手が数える「git に無いデータの
+            # 一覧」が空に見え、14GB を送り直す
+            if _rev(dst_repo, LAST_REF):
+                git(dst_repo, "checkout", "-q", "-f", "--detach", LAST_REF)
+            log(f"スロット {SLOT}: {dst_repo.name} を作った")
+        _link_shared_cache()
+        t0 = time.monotonic()
+        copied = 0
+        if dirs and (src_main / "dev_safe" / ".git").exists():
+            old_dev = DEV_SAFE
+            for rel in data_manifest_of(src_main / "dev_safe", dirs):
+                src, dst = src_main / "dev_safe" / rel, old_dev / rel
+                try:
+                    st = src.stat()
+                    if dst.exists() and dst.stat().st_size == st.st_size and int(dst.stat().st_mtime) == int(st.st_mtime):
+                        continue
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+                    copied += 1
+                except OSError as e:
+                    log(f"写せない: {rel}: {e}")
+        log(f"スロット {SLOT}: データ {copied} 個を写した（{time.monotonic() - t0:.0f} 秒）")
+    finally:
+        import msvcrt
+        try:
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+        os.close(fd)
+    return 0
 
 
 def _apply_data(run_dir: Path, req: dict) -> None:
@@ -583,10 +735,13 @@ def cmd_run(argv: list[str]) -> int:
     run_id = argv[0]
     run_dir = _run_dir(run_id)
     req = json.loads((run_dir / "request.json").read_text(encoding="utf-8"))
+    if SLOT > 0 and not (MAIN / ".git").exists():
+        log(f"スロット {SLOT} がまだ作られていない（slot-init が先）")
+        return SYNC_FAILED
     fd = _acquire_lock()
     # 排他の中にいる間(=実行は 1 本だけ)は高パフォーマンス。終わりは finally で省電力へ戻す。
     # 呼び手が切れたときの見張りも child を止めて finally に来るので、戻し忘れない。
-    powered = set_power_plan("performance")
+    powered = power_acquire()
     if not powered:
         log("電源プランを切り替えられない（今のまま回ります）")
     try:
@@ -598,6 +753,7 @@ def cmd_run(argv: list[str]) -> int:
             for b in ("main.bundle", "dev_safe.bundle"):
                 (run_dir / b).unlink(missing_ok=True)
             _apply_data(run_dir, req)
+            _link_shared_cache()
             venv_py = _ensure_venv()
         except (SystemExit, OSError, subprocess.CalledProcessError, tarfile.TarError) as e:
             # まだ何も実行していない。呼び手はこの終了コードを見て手元でやり直せる
@@ -664,7 +820,7 @@ def cmd_run(argv: list[str]) -> int:
             _pack_fetch(run_dir, req["fetch"])
         return rc
     finally:
-        if powered and not set_power_plan("saver"):
+        if not power_release() and powered:
             log("電源プランを省電力へ戻せませんでした（手で戻してください）")
         import msvcrt
         try:
@@ -682,6 +838,7 @@ COMMANDS = {
     "cleanup": cmd_cleanup,
     "extract-to": cmd_extract_to,
     "power": cmd_power,
+    "slot-init": cmd_slot_init,
 }
 
 
@@ -690,6 +847,17 @@ def main() -> int:
         print(__doc__, file=sys.stderr)
         return 2
     BASE.mkdir(parents=True, exist_ok=True)
+    # どのコマンドにも付けられる `--slot N`（既定 0）を先に取り除いて、作業先を決める
+    args = sys.argv[2:]
+    if "--slot" in args:
+        i = args.index("--slot")
+        try:
+            n = int(args[i + 1])
+        except (IndexError, ValueError):
+            raise SystemExit("--slot の後ろに数字が要る")
+        del args[i:i + 2]
+        set_slot(n)
+    sys.argv[2:] = args
     # 呼び手はバイトをそのまま流すので、こちらの文字は UTF-8 にそろえる（相手の既定は cp932）
     # （データのファイル名には cp932 に無い文字もある）
     sys.stdout.reconfigure(encoding="utf-8")

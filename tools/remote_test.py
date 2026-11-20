@@ -164,8 +164,8 @@ def reachable(t: Transport, timeout: float = 1.5) -> bool:
         return False
 
 
-def remote_info(t: Transport, manifest: bool = False) -> dict:
-    args = ["info"] + (["--manifest", *DATA_DIRS] if manifest else [])
+def remote_info(t: Transport, manifest: bool = False, slot: int = 0) -> dict:
+    args = ["info"] + (["--manifest", *DATA_DIRS] if manifest else []) + (["--slot", str(slot)] if slot else [])
     want = hashlib.sha256(AGENT_SRC.read_bytes()).hexdigest()
     for attempt in (0, 1):
         try:
@@ -432,7 +432,8 @@ def run_remote(t: Transport, argv: list[str], fetch: list[str], env_extra: list[
         # 出す「確認するパネル」の一覧を、持ち帰った手元のファイルとしてそのまま Read できるように）
         remote_main = info.get("main")
         rewrite = [(remote_main, str(REPO)), (remote_main.replace("\\", "/"), REPO.as_posix())] if remote_main else []
-        p = t.popen_agent("run", run_id, stdin=subprocess.PIPE, stdout=subprocess.PIPE if rewrite else None)
+        slot_args = ["--slot", str(info["slot"])] if info.get("slot") else []
+        p = t.popen_agent("run", run_id, *slot_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE if rewrite else None)
 
         def _pump() -> None:
             out = sys.stdout.buffer
@@ -569,9 +570,54 @@ def needs_desktop(argv: list[str]) -> bool:
     return needs_editor(argv) and any(a.lower() in ("-undoreload", "-sdkbuild", "-sdkupload") for a in argv[1:])
 
 
+# ---- スロット（同居。2026-11-20〜）----
+# 相手の作業ツリーは 1 つだと実行が 1 本ずつになる。相手にスロット（作業ツリーと排他の組）を持たせ、別のスロットなら
+# 同時に回せる。スロット 0 は従来の置き場。1〜 は 0 の写しで、実行キャッシュ（_harness_cache）だけ 0 と共有する。
+# 作業ツリーの中に前の実行の結果を残して次の実行が読む道具（visual_review の snapshot→compare・holdout_eval の記録・
+# EditMode のホスト）はスロット 0 に固定する。そうでない実行（pytest・abcheck・結果を --fetch で持ち帰る計測）は、
+# スロット 0 が使用中のときだけ空いている次のスロットへ回る。
+DEFAULT_SLOTS = 2
+_STATELESS_SCRIPTS = ("abcheck.py", "generalization_report.py", "highlight_recall.py", "color_report.py", "click_bridge.py")
+_STATELESS_PREFIXES = ("probe_", "measure_", "sweep_")
+
+
+def slot_count() -> int:
+    try:
+        return max(1, int(os.environ.get("IROCA_REMOTE_SLOTS", DEFAULT_SLOTS)))
+    except ValueError:
+        return DEFAULT_SLOTS
+
+
+def is_stateless(argv: list[str]) -> bool:
+    """作業ツリーの中の前の実行の結果に頼らない実行か（空いている別スロットへ回してよい実行）。"""
+    if not argv:
+        return False
+    if argv[0] == "-m":
+        return len(argv) > 1 and argv[1] == "pytest"
+    name = Path(argv[0]).name
+    return name in _STATELESS_SCRIPTS or name.startswith(_STATELESS_PREFIXES)
+
+
+def choose_slot(info: dict, argv: list[str] | None, requested: int | None, need_editor: bool) -> int:
+    """使うスロットを決める。指定があればそれ。無指定は、0 が空いていれば 0、使用中で別スロットに回してよい実行なら空いている次のスロット。"""
+    if requested is not None:
+        return requested
+    if need_editor or argv is None or not is_stateless(argv):
+        return 0
+    slots = info.get("slots") or []
+    if not slots or not slots[0].get("busy"):
+        return 0
+    for s in slots[1:slot_count()]:
+        if not s.get("busy"):
+            return int(s["slot"])
+    return 0
+
+
 def resolve(t: Transport, mode: str, manifest: bool, need_editor: bool = False,
-            need_desktop: bool = False) -> dict | None:
-    """使えるならリモートの情報を返す。auto で使えなければ None（理由は log に出す）。"""
+            need_desktop: bool = False, argv: list[str] | None = None, slot: int | None = None) -> dict | None:
+    """使えるならリモートの情報を返す。auto で使えなければ None（理由は log に出す）。
+
+    返す info の "slot" が使うスロット。argv を渡さない呼び手（visual_review など）は常にスロット 0。"""
     if mode == "local":
         return None
     try:
@@ -581,8 +627,21 @@ def resolve(t: Transport, mode: str, manifest: bool, need_editor: bool = False,
         missing = check_ready(info, need_editor, need_desktop)
         if missing:
             raise Unavailable("相手の準備が足りない: " + "・".join(missing))
-        if info.get("busy"):
-            log("相手は別の実行中です。終わるのを待ってから回ります")
+        chosen = choose_slot(info, argv, slot, need_editor)
+        if chosen > 0:
+            if chosen >= len(info.get("slots") or []):
+                raise Unavailable(f"相手にスロット {chosen} は無い")
+            if not info["slots"][chosen].get("ready"):
+                log(f"スロット {chosen} を作ります（スロット 0 の写し。データを相手の中で写すので数分かかる）")
+                r = t.run_agent("slot-init", "--slot", str(chosen), *DATA_DIRS, capture=False)
+                if r.returncode != 0:
+                    raise Unavailable(f"スロット {chosen} を作れなかった")
+            info = remote_info(t, manifest=manifest, slot=chosen)
+            info["slots"] = info.get("slots") or []
+            log(f"スロット 0 が使用中なので、空いているスロット {chosen} で回ります")
+        info["slot"] = chosen
+        if info.get("busy"):   # 選んだスロットの排他（info は --slot のスロット分を返す）
+            log(f"相手のスロット {chosen} は別の実行中です。終わるのを待ってから回ります")
         return info
     except Unavailable as e:
         if mode == "remote":
@@ -623,7 +682,8 @@ def cmd_run(ns) -> int:
         raise SystemExit("`--` の後ろに Python へ渡す引数を書く（例: -- -m pytest scripts/source_checks -q）")
     t = make_transport(ns.host)
     mode = "local" if ns.local else ("remote" if ns.remote else "auto")
-    info = resolve(t, mode, manifest=True, need_editor=needs_editor(argv), need_desktop=needs_desktop(argv))
+    info = resolve(t, mode, manifest=True, need_editor=needs_editor(argv), need_desktop=needs_desktop(argv),
+                   argv=argv, slot=ns.slot)
     if info is None:
         return run_local(argv)
     sweep_local_caches()
@@ -690,6 +750,8 @@ def main() -> int:
     g.add_argument("--local", action="store_true", help="常に手元で回す")
     rp.add_argument("--fetch", action="append", default=[], metavar="PATH",
                     help="実行後に持ち帰る、本体からの相対パス（複数可）")
+    rp.add_argument("--slot", type=int, default=None, metavar="N",
+                    help="相手のスロットを指定する（既定: 0 が使用中で、前の実行の結果に頼らない実行なら空いている次のスロット）")
     rp.add_argument("--env", action="append", default=[], metavar="K=V", help="相手に渡す環境変数を足す")
     rp.add_argument("argv", nargs=argparse.REMAINDER)
     args = sys.argv[1:]

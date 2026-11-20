@@ -342,9 +342,20 @@ LAN にテスト用の PC があるときは、テストをそちらで回して
 - git に入らない入力（dev_safe の `texture_sample`・`Tests/Baselines` の無視されたファイル）は、大きさと更新時刻が
   違うものだけ tar で送る。初回は約 14GB。
 - `IROCA_*`・`VACC_*` の環境変数は相手へ渡す（手元の絶対パスを値に持つものは渡さない）。足すなら `--env K=V`。
-- 相手の作業ツリーは 1 つで、実行は相手側の排他で 1 つずつ。別のセッションが回していれば終わるまで待つ。
+- 相手には**スロット**（作業ツリーと排他の組。2026-11-20〜）があり、別のスロットなら実行が同居する。既定は 2 つ
+  （`IROCA_REMOTE_SLOTS` で変える。1 にすると従来どおり 1 本ずつ）。スロット 0 は従来の置き場 `Iroca\`、1〜 は
+  `Iroca_s<N>\` で、初めて使うときに 0 の写しとして相手の中で作る（リポジトリは `git clone --local`、git に入らない
+  データは相手の中で写す。Wi-Fi 越しの送り直しは無い）。実行キャッシュ `dev_safe\_harness_cache` だけは 0 へのジャンクションで共有する。
+  - 選び方: 既定はスロット 0。0 が使用中で、**作業ツリーの中の前の実行の結果に頼らない実行**（pytest・abcheck・
+    `generalization_report`・`highlight_recall`・`color_report`・`click_bridge`・`probe_*`・`measure_*`・`sweep_*`）のときだけ、
+    空いている次のスロットへ回る。両方使用中なら 0 で待つ。`--slot N` で指定もできる。
+  - スロット 0 に固定する実行: `visual_review`（snapshot の変更前が相手の木に残り、compare が同じ所で読む）・`holdout_eval`
+    （見た回数の記録が木に残る）・EditMode（Unity のホストが 0 の木へリンクしてある）・その他の知らない台本。
+  - 同居すると CPU・メモリを取り合う（pytest は空きメモリでワーカーを減らす）。電源プランは使っている実行の数を印で数え、
+    最後の実行が終わったときだけ省電力へ戻す。
+  - 同じスロットでは従来どおり 1 本ずつ待つ。
 - 実行後のファイルが要るときは `--fetch <本体からの相対パス>`（複数可）で手元の同じ場所へ持ち帰る。
-- 相手の置き場は `<相手のホーム>\iroca-remote\`（`Iroca\`・`Iroca\dev_safe\`・`UnityManaged\`・`inbox\`）。
+- 相手の置き場は `<相手のホーム>\iroca-remote\`（`Iroca\`・`Iroca\dev_safe\`・`Iroca_s<N>\`・`UnityManaged\`・`inbox\`）。
   ハーネスの実行キャッシュは相手の dev_safe の中に溜まり、相手の `cache_gc` が掃除する。
 - `core.autocrlf`・`core.hooksPath` などは手元の値を相手のリポジトリへ写す（`test_hooks_configured` が見る）。
 - 実測（2026-11-11、相手は i5-1340P・16GB・Wi-Fi 越し）: 初回の setup 19 分（データ 13.7GB を約 21MB/s）。
