@@ -131,7 +131,7 @@ namespace Iroca {
         public List<SessionStep> steps { get; set; } = new List<SessionStep>();
     }
 
-    internal static class Harness {
+    internal static partial class Harness {
         private static (int w, int h, byte[] payload) ReadRaw(string path, int bpp) {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read);
             using var br = new BinaryReader(fs);
@@ -437,6 +437,12 @@ namespace Iroca {
                 return SamProposeMode.Run(args);
             }
 
+            // --oneshot: 窓のワンショット(スポイト → 自動調整(証拠の提案・漏れの確かめ) → 外す範囲をゾーンの除外へ → 塗る)を、
+            // 製品と同じ段取り(AutoTuneFlow・SamProposalFlow)で回す。推論は onnxruntime。引数と出力は Harness.Oneshot.cs の説明。
+            if (args.Length >= 1 && args[0] == "--oneshot") {
+                return RunOneshot(args);
+            }
+
             // --samops-*: AI マスク提案の純計算層(SamImageOps/SamCoordMapper/SamMaskPostprocess/
             // MaskRle)を実 C# で駆動し、pytest の NumPy リファレンスと突き合わせる決定的検証モード。
             if (args.Length >= 1 && args[0].StartsWith("--samops-", StringComparison.Ordinal)) {
@@ -596,6 +602,8 @@ namespace Iroca {
             // (AutoTuneService)と同じ「共通(mask.raw) ∪ そのゾーンの除外(zones JSON の excludeMask)」。
             // 2026-11-10 まで共通だけを渡していて、ゾーン別の除外が自動調整に効いていなかった。
             if (autotune) {
+                // 解析が読む原本(ヒープの外。全ゾーンで同じ)。
+                NativePixels autotuneSource = null;
                 for (int zi = 0; zi < zoneList.Count; zi++) {
                     var z = zoneList[zi];
                     bool[] excluded = common;
@@ -622,14 +630,10 @@ namespace Iroca {
                     if (!string.IsNullOrEmpty(evPath)) {
                         (evW, evH, evidence) = ReadMaskRaw(evPath);
                     }
-                    var tune = evidence != null
-                        ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, w, h, z,
-                            evidence, evW, evH,
-                            excluded: useMask ? excluded : null,
-                            maskW: useMask ? mw : 0, maskH: useMask ? mh : 0)
-                        : useMask
-                            ? ZoneAutoTuner.Analyze(pixels, w, h, z, excluded, mw, mh)
-                            : ZoneAutoTuner.Analyze(pixels, w, h, z, excluded: null, maskW: 0, maskH: 0);
+                    // 製品の自動調整と同じ段取り(AutoTuneFlow)で解析する。証拠は渡されたもの(無ければ証拠なし)で、
+                    // 漏れの確かめはしない(この口は前から確かめない。確かめまで通すのは --oneshot)。
+                    var tune = AutoTuneGiven(autotuneSource ??= NativePixels.CopyOf(pixels, w, h), z, evidence, evW, evH,
+                        useMask ? excluded : null, useMask ? mw : 0, useMask ? mh : 0, st, masks);
                     // 導出結果 → ゾーンの写像は製品 UI と同じ TuneResult.ApplyTo
                     // （正規化サンプル・内部マルチサンプルを含む。ここに項目を並べ直さない）。
                     // 自動調整は全体設定(st)を変えない。2026-11-10 まではここで境界の回収(antiAliasCleanup)を
@@ -665,6 +669,7 @@ namespace Iroca {
                         autoSampleColors = z.extraSamples.ConvertAll(c => new[] { c.r, c.g, c.b }),
                     }));
                 }
+                autotuneSource?.Release();
             }
 
             // --selcache: 選択キャッシュのヒット経路が「フル再計算」と byte 一致するか自己検証する。

@@ -65,6 +65,7 @@
     <!-- AI 提案の推論(sam-propose のモード)。製品は Sentis で走らせるモデルを、ハーネスは onnxruntime(CPU)で走らせる。 -->
     <Compile Include="OrtSamInference.cs" />
     <Compile Include="SamPropose.cs" />
+    <Compile Include="Harness.Oneshot.cs" />
   </ItemGroup>
 
   <!-- onnxruntime(MIT。ハーネスだけが使い、製品・配布物には入らない)。版は dev_safe の Python の onnxruntime と同じにそろえる
