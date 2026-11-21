@@ -102,6 +102,7 @@
 
 | ファイル | 数 |
 |---|---|
+| `Code/Core/AutoTuneFlow.cs` | 0 |
 | `Code/Core/Color/OkLab.cs` | 43 |
 | `Code/Core/Color/PixelProcessor.Hsv.cs` | 0 |
 | `Code/Core/Color/PixelProcessor.Palette.cs` | 0 |
@@ -162,6 +163,12 @@
 | `Code/MaskSuggest/Ops/SamProposalFlow.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamProposalSteps.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamZoomOps.cs` | 0 |
+
+## `Code/Core/AutoTuneFlow.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `WordsPerChunk` | `1 << 12` | 計算 | — | 外す範囲から「含める」の画素を外すとき(DropIncluded)、並列に回す区間の語(64 画素)の数。画素ごとに独立なので、どう分けても中身は同じ(自動調整の宿主から移した) |
 
 ## `Code/Core/Color/OkLab.cs`
 

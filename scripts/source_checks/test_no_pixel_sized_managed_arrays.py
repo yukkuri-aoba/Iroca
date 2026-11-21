@@ -85,9 +85,9 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "プリセットの一覧のファイルの数(このテクスチャで作ったかの印)",
     ("Code/UI/PresetsView.cs", "new int[files.Length]"):
         "プリセットの一覧のファイルの数(並べ替えの順番)",
-    ("Code/Application/AutoTuneService.cs", "new bool[blobs.Length]"):
+    ("Code/Core/AutoTuneFlow.cs", "new bool[blobs.Length]"):
         "漏れの確かめの塊の数(多くても ZoneAutoTuner.LeakMaxBlobs = 6)。塊ごとの「背景まで広がった」の印",
-    ("Code/Application/AutoTuneService.cs", "new bool[props.Length]"):
+    ("Code/Core/AutoTuneFlow.cs", "new bool[props.Length]"):
         "漏れの確かめの塊の数(多くても 6)。塊ごとの「細かい提案が要る」の印",
     ("Code/Infra/ZoneShareGrid.cs", "new int[gridW * gridH]"):
         "影の色を合わせるための粗い格子の点(ZoneShareGrid.TargetCells = 65536 以下。原本の大きさに依らない)",
