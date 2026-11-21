@@ -92,6 +92,9 @@ skip したのは `test_autotune_evidence`（ワンショット）・`test_assis
 （追加操作後）・`test_oneshot_vs_preset`（プリセット比較）、つまり**主経路の品質ゲート全部**。
 `freeze_sam_fixtures.py` 実行後は同じ 2 ファイルが `57 passed, 12 xfailed`（skip 0）になる。
 **「緑に見えるのにゲートが走っていない」状態を避けるため、(5) は必須**。
+2026-11-21 から、ワンショット・追加操作後（窓で行き着く状態の入口 `dev_safe/scripts/oneshot.py`）はハーネスがその場で
+埋め込みを作るので、埋め込みが無くても skip しない（上の数字はそれより前の測り方のもの）。凍結した埋め込みを読む
+テスト（細い描き込みの提案など）と `holdout_eval.py` のために、(5) は今も要る。
 
 なお再生成しても追跡済みの凍結ロジット（`*_logits.bin` / `*_scores.bin`）はバイト一致する。
 `index.json` だけ生成時刻と行順が変わる（コミットしない）。
@@ -102,10 +105,14 @@ skip したのは `test_autotune_evidence`（ワンショット）・`test_assis
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-正常時に残る skip は次の 2 件だけ（どちらも仕様どおりの未計測）:
+正常時に残る skip は、仕様どおりの未計測だけ（例は次のとおり。`-ra` で理由を見て、モデル・埋め込み・ハーネスが無いという
+環境不備の skip が無いことを確かめる）:
 
-- `test_csharp_quality_gate` … 既定は bandana のみ。全被写体は `IROCA_GATE_FULL=1`（この系統だけなら `IROCA_CSHARP_GATE_FULL=1`）
-- `test_repro_cases` … 調査中で expected 未凍結のケース 1 件
+- `test_csharp_quality_gate` … 単発と共通経路の突き合わせは既定で 1 被写体のみ。全被写体は `IROCA_GATE_FULL=1`（この系統だけなら `IROCA_CSHARP_GATE_FULL=1`）
+- `test_repro_cases` … 調査中で expected 未凍結のケース
+
+終わりに出る `[iroca] 回帰テストの役目ごとの結果` で、役目（契約・お手本・物差し・変化の検知・基盤・到達目標）ごとの件数を見られる
+（`docs/testing-architecture.md` の「テストの役目と台帳」）。
 
 ## 5. Unity 側（UI 実機確認・撮影・Sentis）
 

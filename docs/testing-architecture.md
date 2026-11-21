@@ -2,69 +2,192 @@
 
 CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の正」として参照する文書。
 **clone から全テスト緑までの手順は `docs/development-setup.md` が正**（本ファイルは構成の説明）。
+いつ何を回してどう採否を決めるかは `improvement-cycle.md` が正で、ここは仕組みを書く。
 2026-08-03 に環境ごと再構築した際、旧版（ローカルのみ・git 非追跡）が失われていたため書き直した。
 **再発防止のため本ファイルは git 追跡する**（テスト構成の説明であり秘匿情報は含まない）。
+2026-11-21 に、テストの作り直し（役目の台帳・窓で行き着く状態の入口・基準の一本化）に合わせて構成の説明を書き直した。
+経緯と決めたことは dev_safe の `docs/test-validity-audit-2026-11-20/`（README・`c6-plan.md`・`bridge.md`）にある。
 
 ## 大原則
 
 - **製品 C#（`Code/Core/Pipeline/PixelProcessor.cs` ほか）が唯一の正。** テスト・計測・視覚レビューは
   必ず実 C# の出力を測る。アルゴリズムの Python 再実装は作らない（過去、Python プロキシが
   製品から IoU 0.26 乖離し、改善サイクルがプロキシを測っていた事故がある）。
+- **段取りも製品のコードで動かす。** クリック → 自動調整 → 漏れの確かめ → 右クリックといった順番と分岐（段取り）は、
+  ハーネスが製品の `AutoTuneFlow`・`SamProposalFlow`・`ZoneEdits`・`MaskWorkspace` を呼んで再生する。Python は段取りを
+  持たない。AI の推論だけを onnxruntime に差し替える（下の「ハーネスの口と推論」）。2026-11-21 までは Python が段取りを
+  書き写していて、製品に足した段を写し忘れる事故が段取りの層で残っていた。
+- **品質は、利用者が窓で行き着く状態で測る**（下の「入口: 窓で行き着く状態」）。
 - **GT（正解データ）は PSD のレイヤー情報が正。** `dev_safe/scripts/` の `build_*_gt.py` /
-  `analyze_*_psd.py` で PSD から生成する。
+  `analyze_*_psd.py` で PSD から生成する。見た目の判断（基準色の明るさなど）の正解は、ユーザーが絵で選んだ答え
+  （お手本。`dev_safe/Tests/exemplars/`）。
 
 ## 構成要素
 
-### 評価条件の境界（2026-09-05）
+### テストの役目と台帳（2026-11-20〜）
 
-同じ C# でも入力した補助情報と操作が違えば別の品質を測る。**「マスクなし」という
-だけではワンショットを意味しない。** 機械定義は `tools/workflow_contract.py`。
-条件を合算して「製品品質」と報告しない。
-主な条件は `pytest -m oneshot` / `pytest -m assisted_include` /
-`pytest -m oracle_masked` で個別実行できる（共通のインフラ検査は全体実行で行う）。
+回帰テスト（`dev_safe/Tests/regression/test_*.py`）は、関数ごとに**役目**と**入口**を台帳
+`dev_safe/Tests/regression/roles.json` に書く。落ちたときの意味を 1 つに決めるため。それまでは 1 本のテストに
+仕様の契約・その時点の床・前の出力との突き合わせが混ざっていて、製品を変えるたびに「落ちたのは悪化か、凍結の都合か」を
+仕分けていた（新しい選択方式を試したとき、落ちた 285 件のうち意味のある失敗は約 2 割だった）。
 
-| 条件ID | 入力・操作 | 結果の意味 |
+| 役目 | 正しさの出どころ | 落ちたら | 基準の付け替え |
+|---|---|---|---|
+| 契約（`contract`） | 仕様から言える不変条件（塗らない所は 1 画素も変わらない・α を保つ・同じ入力は同じ出力 など） | 不具合。直すまでコミットしない | しない（仕様を変えるときだけ） |
+| お手本（`exemplar`） | ユーザーが絵で選んだ答えの幅 | 答えに反する。幅を動かさず製品を直す | ユーザーが選び直したときだけ |
+| 物差し（`measure`） | 正解（PSD の GT・指定色・元の陰影）に照らした数字。凍結した基準からの退行床か、導入時の実測から決めた片側の上限・下限で見る | 正解に照らした数字の悪化（仕様違反とは限らない）。退行の幅と出力の絵で判断する | 採用したら基準を進める |
+| 変化の検知（`change`） | 前の出力 | 「変わった」だけ。良し悪しは目で見る | 視覚レビューの承認 |
+| 基盤（`infra`） | 測定器そのもの（ハーネス・キャッシュ・フック・基準ファイル・台帳） | 測定器の不具合。製品とは別に直す | — |
+| 到達目標（`target`） | xfail（strict=False）の目標 | 落ちても通る。XPASS したら目標を進めるか、契約へ移す | — |
+
+- 入口の語彙（台帳の `entries` が正）: `window_click`（状態 (a)）・`window_autotune`（(b)）・`window_edit`（(c)(d)）・
+  `synthetic`（合成画像にテストが明示した設定）・`ops`（選択・再着色を通らない純計算）・`legacy_autotune`（証拠なしの
+  自動調整。窓ではスポイト位置の無いゾーンでだけ通る予備の経路）・`fixed`（固定設定。今これを入口にするテストは無い）・
+  `none`（基盤）。
+- `dev_safe/Tests/conftest.py` が収集のときに台帳を読み、マーカー `role_<役目>`・`entry_<入口>` を付ける
+  （`-m role_contract` などで選べる）。**台帳に無いテストは収集エラーになる**（xdist のワーカーでは setup のエラー）。
+  実行の終わりに `[iroca] 回帰テストの役目ごとの結果` として役目ごとの件数を出し、落ちたものがあれば台帳の「落ちた意味」を添える。
+- 消したテストは台帳の `retired` に、守っていたこと・最後の結果・行き先を残す（`test_roles_registry.py` が、消した関数が
+  残っていないことと記録の形を見る）。
+- 前の出力との完全一致（画素数・出力ハッシュ・実測に合わせた上限）は、変化の検知として pytest の合否から外し、
+  視覚レビューに一本化した（2026-11-21）。役目ごとの件数は変わりやすいので、台帳と実行の終わりの集計を正とする。
+- テストを足すときの決まりは `improvement-cycle.md` の「テストを足す・変えるとき」。
+
+### 入口: 窓で行き着く状態（2026-11-21〜）
+
+品質を測る状態は、利用者が窓で行き着くものだけにする。
+
+| 状態 | 中身 | Python の入口（`dev_safe/scripts/oneshot.py`） | ハーネスの口 |
+|---|---|---|---|
+| (a) クリックした直後 | 新しいゾーンの既定（許容範囲 0.2、ほかは `ColorZone` の既定）に、クリック位置（sampleUV）とクリックした 1 画素の色。自動調整なし | `run(…, state="click")` | 通常の実行 |
+| (b) 自動調整の後 | (a) → AI の証拠つき自動調整 → 漏れの確かめ（外す範囲を「ここは塗らない」へ書く）→ 塗る | `run(…)`（既定は `state="autotune"`） | `--oneshot` |
+| (c) その後の手直し | (b) の後に許容範囲を動かす・塗り先を変える・項目を書く・シードを置く | `script(rgba, [*click_steps(xy, 塗り先), …])` | `--script` |
+| (d) 右クリックの後 | (b) の後に右クリックの範囲の操作（ここも塗る・ここは塗らない・この部分だけ塗る・ここのマスクを消す） | 同上（「ここも塗る」は `measure_evidence_autotune.run_assisted`） | `--script` |
+
+- **Python 側の入口は `oneshot.py` の 1 つ。** 画像とクリックと塗り先を受け取ってハーネスを呼ぶだけで、段取りは持たない。
+  新しいゾーンの既定値は手で写さず、製品のソース（`ColorZone.cs`・`EditingSession.cs`・`ZonesJsonDefaults.cs`）から読み、
+  zones JSON に全項目を書く（JSON の既定と窓の既定は違う項目があるため）。被写体のケースを (a)(b) で塗る口は
+  `dev_safe/Tests/regression/window_cases.py`。結果のキャッシュの鍵には DLL・onnxruntime・ONNX・テクスチャ・
+  **クリックの位置**・塗り先・ゾーンの全文・このファイルが入る（置き場は `_harness_cache/results/oneshot`、
+  無効化は `IROCA_RESULT_CACHE=0`）。
+- **画像は製品と同じ下原点で渡す。** numpy の配列（上原点）を上下反転してハーネスへ渡し、出力を戻す。クリック (x, y) は
+  sampleUV ((x+0.5)/w, 1 − (y+0.5)/h) になる。2026-11-21 までの Python の写しは自動調整・塗りを上下が鏡写しの世界で回していて、
+  向きを直すと開発側 198 件のうち 73 件の出力が変わった（dev_safe の `bridge.md`）。
+- **クリックは面の内側から選ぶ**（`dev_safe/measure_click_position.py` の `pick_clicks`。正解の範囲の中で、明るさ V が分位に
+  近い画素のうち、部品の縁からいちばん遠い画素）。前の選び方（V が分位にいちばん近い画素のうち走査順で最初）は、
+  半数以上が部品の縁の 1 画素目（隣の部品との混色）に乗っていた。前の位置は `pick_clicks_edge` と、名前つきの床の台帳
+  `dev_safe/Tests/regression/pinned_clicks.json`（`edge-pXX`）に残る。クリックは p05〜p99 の 6 か所で、開発に使うのは
+  p25・p50・p95、使わないのは p05・p75・p99（`tools/workflow_contract.py` の `CLICKS`）。
+- **固定設定（`fixtures.make_zone`。許容 0.20・明度の保持 0.85・境界のぼかし 0.30・台帳のサンプル色・sampleUV なし）は
+  品質の関門に使わない。** 利用者が手でスライダーを合わせない限り窓では行き着かない状態で、2026-11-20 にユーザーが
+  「普通に使っていて直っているのならテストが悪いだけ」と判断した。今は合成の契約テストと abcheck の固定のシナリオで使う。
+- 証拠なしの従来の自動調整は、窓ではスポイト位置の無いゾーン（色を数値で入れた・プリセット・自動化）でだけ通る予備の経路で、
+  `test_fallback_autotune`（基準 1 つ）と `test_autotune_accuracy` の契約が見る。
+- 条件の機械定義は `tools/workflow_contract.py` の `WORKFLOWS`（`click`・`oneshot`・`assisted_include`・`oracle_masked`・
+  `fixed`・`fixed_excluded`・`fallback`）。条件を合算して「製品品質」と報告しない。主な条件は `pytest -m oneshot` /
+  `-m assisted_include` / `-m oracle_masked` で個別に回せる。`oracle_masked` は PSD の部位レイヤーから合成した除外を与えた
+  従来の自動調整で、理想の部位情報を与えた上限性能（実ユーザーや AI のマスクの精度ではない）。
+- GT は採点とクリック位置の選び方に使い、処理の入力に GT のマスクを渡さない（除外の契約を見る変種のように、
+  明示した検査を除く）。
+- **回帰なし・満足基準の達成・未計測（skip）は別の結果。** ワンショットの満足基準は precision_design ≥ 0.98・
+  recall ≥ 0.95・残存島 ≤ 0.5% で、到達目標（xfail）として出す。
+
+### ハーネスの口と推論（2026-11-20〜21）
+
+ハーネス（`scripts/headless-run/`）は `Code/Core` 全部と `Code/MaskSuggest/Ops` を同じアセンブリに取り込む
+（`HarnessSources.props`）。窓の段取りを再生する口は次のとおり。
+
+| 口 | 中身 | 呼ぶ製品の部品 |
 |---|---|---|
-| `click` | GT内p50クリックの直後（新しいゾーンの既定のまま。自動調整なし） | 窓の最初のプレビュー（状態 (a)）。視覚レビューのワークフロー側だけ |
-| `oneshot` | GT内p50クリック → SAM証拠付き自動調整。手動マスクなし | 初回出力（状態 (b)）。証拠は強制包含ではない |
-| `assisted_include` | 同じクリックの自動調整 + SAM提案を含める。flood/ドメイン過少(証拠不採用)の提案は不採用 | 明記した追加操作ポリシー後の品質 |
-| `oracle_masked` | PSDレイヤーから合成した部位領域を除外マスクにし、従来自動調整 | 理想部位情報を与えた上限性能。実ユーザー/AIのマスク精度ではない |
-| `fixed` / `fixed_excluded` | fixtureの固定設定、必要ならGTから合成した部分除外 | 再着色・除外契約。自動調整や初回体験ではない。2026-11-21 に視覚レビューから外した（窓で行き着かない状態） |
-| `fallback` | 証拠なしの従来自動調整 | フォールバック経路の回帰 |
+| `--sam-propose <in.raw> --u <u> --v <v> --gran auto\|fine\|coarse --use evidence\|region --out <mask.raw>`（`SamPropose.cs`） | AI 提案 1 クリック分。標準出力は `SAMPROPOSE {…}`（ズームの有無・切り出し・背景まで広がった印・選んだチャネル・スコア・推論の来歴）。`--emit-dir` で段ごとの中間を書く | `SamProposalFlow.RunSynchronously`（後処理は Ops の `SamProposalSteps` ほか） |
+| `--oneshot <in.raw> <mask.raw> <zones.json> <out.raw> --zone i`（`Harness.Oneshot.cs`） | 状態 (b)。ゾーン i を自動調整し、外す範囲を「ここは塗らない」として書き、全ゾーンを塗る。標準出力は `ONESHOT {…}`（調整後のゾーンの全項目・method・provenance・leak・evidence・failure・evidenceDiag）。`--emit-dir` で証拠・漏れの塊ごとの提案・調整後の zones JSON を書く。スポイト位置が無いゾーンは製品どおり証拠なしで回る | `AutoTuneFlow`（証拠と漏れの提案は `SamProposalFlow`）→ `TuneResult.ApplyTo` → `AutoTuneFlow.DropIncluded` → `MaskWorkspace.ApplyRegion(DontPaintHere)` → `PixelProcessor` |
+| `--script <scenario.json> <in.raw> <out-dir>`（`Harness.Oneshot.cs`） | 窓の操作の列を再生する。手ごとに標準出力の `SCRIPT {…}` の 1 行と、出力・zones JSON・マスク（台本の `emit` が all なら手ごと、last なら最後の手だけ） | 下の表 |
+| `--sam-mirror`（`--oneshot`・`--script` に付ける。**切り分け専用**） | 推論の側だけ画像と UV を上下反転して渡し、返った範囲を戻す。2026-11-21 までの Python の写し（鏡写しの世界）を再現し、向きの差とほかの差を分けるのに使った。製品には無い | — |
 
-**ホールドアウト**（2026-09-24 に枠、2026-10-10 から運用）: `HOLDOUT_SUBJECTS` は上の条件のどれにも使わない被写体で、
-`SUBJECTS` と交わらない（`scripts/source_checks/test_workflow_contract.py` が検査）。採否判断のときだけ
-`dev_safe/scripts/holdout_eval.py` がワンショット p50 の集計値を出し、`Tests/Baselines/holdout_log.jsonl` に
-見た回数ごと記録する。次に GT を足すときからここへ入れる（ユーザー決定）。一覧は `SUBJECTS` と同じく
-`dev_safe/Tests/subjects.json`（`holdout_subjects`）にあり、2026-10-10 に回帰の被写体と別の作者のアバター 5 体から
-12 被写体を入れた。GT は `dev_safe/scripts/build_holdout_gt.py` が作る。部位レイヤーの無い PSD は、PSD の島
-（作者の島マスク / UV 線の塗りつぶし）と同じ塗りの島から作る素材単位、部位レイヤーのある PSD は
-部位レイヤー ∩ 島。テスト側の定義は `fixtures.HOLDOUT_REGISTRY` で、`SUBJECT_REGISTRY` には入れない。
-見るたびにホールドアウトへ合わせてしまうので、被写体ごとの延べの回数が 20 回に届いたら holdout_eval.py が
-入れ替えの時期を知らせる（2026-10-23。次に GT を足すとき、届いた被写体を `SUBJECTS` へ移し、新しい被写体を
-ホールドアウトにする）。集計には ΔE 球（下記）に負けた被写体の数も出す。
-2026-10-23 に最初の入れ替えをした（ユーザー了承）: 延べ 16〜17 回見た 5 体（14 被写体）を `SUBJECTS` へ移し、
-回帰の被写体は 33 件（9 体）になった。移した被写体の定義は `fixtures.py` で、どちらの一覧に属すかは `subjects.json` が決める。
+`--script` の手（UV は下原点）:
 
-**汎化の物差し**（2026-10-23〜、`dev_safe/scripts/generalization_report.py`）: ホールドアウトを見る前に、
-手元の被写体で過学習しない変更かを確かめる。回帰の被写体は件数より描いた人（アバター）の数が少ない（入れ替え前は
-19 件で 4 組、後は 33 件で 9 組）ので、`subjects.json` の `subject_groups` でアバターごとにまとめる。`run` はワンショットを
-開発に使ったクリック（p25/p50/p95）と使っていないクリック（p05/p75/p99）の 被写体 × 6 件（33 被写体で 198 件）で回し
-（DLL は `_harness_cache/builds/` へ写して使う。2026-11-12 から pytest と同じくハーネスを常駐させ、並列数は
-1 本 1.5GB の見積もりで 4 本まで。キャッシュ無しの 198 件が開発機で 462 秒 → 101 秒、結果は毎回起動と完全に一致）、
-`compare` はアバター別の平均・変更のきっかけのアバター（`--motivated-by`）を除いた平均・ケースごとの退行床・
-素朴な基準線（クリック画素の色から CIELAB ΔE76 ≤ 16 の球、design IoU で採点）に 0.05 以上負けた数を並べて
-採否の目安を出す。`sweep` は定数の掃引から台地とアバター単位の交差検証（LOAO）を出す。採否の決まりは
-`.claude/instructions/improvement-cycle.md` の「過学習を防ぐ採否の物差し」。
-2026-11-16 から、`compare` と `holdout_eval.py` は差の確からしさも出す（`dev_safe/scripts/cluster_stats.py`）。
-アバター平均の Δ に、アバターを復元抽出するブートストラップの 95% 区間と、符号反転の並べ替え検定の p を付ける。
-同じアバターの被写体・クリックは独立でないので、ケースを独立とみなすと区間が狭く出すぎるため、アバターを単位にする。
+| 手 | 窓の操作 | 呼ぶ部品 |
+|---|---|---|
+| `eyedropper`（`"new": false` なら今のゾーンの色を取り直す） | スポイト | `ZoneEdits.SampleColorAt`・`NewZone`・`SetNewSample`・`ApplySample` |
+| `target` | 塗り先 | `ZoneEdits.SetTarget` |
+| `autotune` | 自動調整（`--oneshot` と同じ） | `AutoTuneFlow` ほか（上の表） |
+| `region`（`action` は `PaintHere`・`DontPaintHere`・`OnlyThisPart`・`ClearHere`、`common` で全ゾーン共通） | 右クリックの範囲の操作（用途 Region の AI 提案） | `SamProposalFlow`・`ProposalMaskTransfer`・`MaskWorkspace.ApplyRegion` |
+| `tolerance` | 許容範囲のスライダー | `ColorZone.SetToleranceManually` |
+| `zone` | 操作するゾーンを選ぶ | — |
+| `seed`（`"clear": true` で外す） | 連続領域のシード（「指定」+ クリック・Shift+クリック） | `ZoneEdits.SetFloodFillSeed`・`ClearFloodFillSeed` |
+| `set` | ゾーンの項目・処理の設定を窓の欄と同じ経路で書く（窓に欄の無い項目・範囲の外はエラー） | `ZoneEdits`・`ColorZone` |
 
-GTは採点とテスト用クリック位置の選定に使う。`oneshot` / `assisted_include` の処理入力に
-GTマスクを渡さない。証拠・含める・除外・採点GTは役割を別に記録する。
-プリセット比較も「作者の調整済み出力への近さ」であり、GT精度の代わりにはしない。
-**回帰なし・満足基準達成・未計測(skip)は別の結果。** ワンショットの満足基準は
-precision_design ≥ 0.98 / recall ≥ 0.95 / 残存島 ≤ 0.5%。既知の未達はxfailで可視化する。
+- **推論**: 製品は MobileSAM の ONNX を Sentis で走らせ、ハーネスは同じ ONNX を onnxruntime（CPU）で走らせる
+  （`OrtSamInference.cs`。Ops の差し替え口 `ISamInference` の実装で、前処理・座標・後処理・段取りは製品の C#）。
+  onnxruntime はハーネスだけが使い、製品・配布物には入らない。版は `Harness.csproj` の `OnnxRuntimeVersion`（1.29.0）で、
+  dev_safe の Python の onnxruntime と同じ版にそろえる（変えるときは両方を同時に）。
+- **全体の埋め込み**: 既定ではハーネスがその場でエンコードし、`--sam-cache` の控え（`oneshot.py` では
+  `_harness_cache/oneshot_samemb/t<スレッド数>`）に置く。控えの鍵はエンコーダの入力の中身・エンコーダの ONNX・
+  onnxruntime の版・スレッド数。`--sam-embedding` で凍結した埋め込みを渡すこともできる（推論の実行系の切り分け用）。
+- **スレッド数**（`--sam-threads`）: デコーダの出力の最後のビットが onnxruntime のスレッド数で変わる（最大差 7.6e-5）ので、
+  `oneshot.py` は PC のコア数に依らないよう 4 に固定する（`SAM_THREADS`）。0 は onnxruntime の既定。
+- 切り替えの前に確かめたこと（2026-11-21、開発側 198 件。`bridge.md`）: `--oneshot --sam-mirror` は前の Python の写しと
+  採点が 198 件とも一致した（写しの誤りは見つからなかった）。スレッド数を 4 に固定しても出力は変わらなかった。
+  ハーネスのエンコードと凍結した埋め込みは 33 被写体でビット一致した。
+- 前からある `--autotune`（証拠を先に渡す。漏れの確かめはしない）も、中身は `AutoTuneFlow`。合成の契約テストと予備の経路が使う。
+
+### 基準（凍結した物差しの値）
+
+基準は「正しい値」ではなく「採用した時点の値」。付け替えるときは、独立した正解（PSD の GT・お手本・指定色）に照らして
+良くなったかをコミットに書く（9 月以降の付け替え 27 件のうち、正解に照らして前へ進めたと言えたのは 5 件だった）。
+
+| 基準（`dev_safe/Tests/Baselines/`） | 中身 | 読むもの | 作り直し |
+|---|---|---|---|
+| `generalization_reference.json`（1 つの基準） | 節 cases（33 被写体 × 面の内側の 6 クリック = 198 件。位置・縁からの深さ・部品の中での色の割合も）、pinned（名前つきの床の位置）、assisted（状態 (d) の 33 件）、flip（上下反転の 33 件） | 汎化レポートの compare・`test_autotune_evidence`（標準の床・名前つきの床）・`test_assisted_include`・視覚レビューの退行の判定 | `generalization_report.py run --label <名前>` → `freeze <JSON>`（節がそろわなければ凍結しない） |
+| `color_reference.json` | 色の物差し（塗り上がりの地色と指定した色の差） | `color_report.py compare` | `color_report.py run` → `freeze` |
+| `quality_gate_reference.json` | 品質の物差し（`compute_all_metrics` の値。全件 171 ケース） | `test_recolor_quality_gate` | `quality_report.py --freeze` |
+| `phantom_edges_reference.json` | 元に無い線の組 | `test_phantom_edges*` | `phantom_edges_report.py run` → `freeze` |
+| `fallback_autotune_baseline.json` | 予備の経路（位置の無いゾーン）の選択 | `test_fallback_autotune` | `measure_fallback_autotune.py --baseline` |
+| `refactor-pre/*.json` | 合成・シード・部位マスク・プロキシ表示・AI 提案の E2E・細い描き込みの基準 | それぞれのテスト | それぞれの `measure_*.py --baseline`（細い描き込みは `--freeze`）。コマンドはテストの冒頭 |
+| `gt_tolerance_overrides.json` | GT 許容の理由つきの上書き（下の「GT の 3 値と二本立ての採点」） | 採点 | 手で書く |
+| `holdout_log.jsonl` | ホールドアウトを見た記録 | `holdout_eval.py` | 追記だけ |
+
+- 1 つの基準は、2026-11-21 にそれまでの `refactor-pre/evidence_autotune_baseline.json`・`assisted_include_baseline.json`
+  （`measure_evidence_autotune.py --baseline` / `--assisted-baseline` が書いていた）と汎化レポートの基準をまとめたもの。
+  それまでは片方だけ進めると食い違った。今は freeze 1 回で、汎化の比較・pytest の床・視覚レビューの退行の判定が同時に進む。
+  比べる余裕は pytest と視覚レビューで同じ `tools/workflow_contract.py` の `SELECTION_SLACK`。
+- 品質の物差し（形・コントラスト・ノイズ・境界・範囲の外の変化）は、2026-11-21 に被写体に依らない絶対のしきい値の合否から外し、
+  凍結した基準からの退行（片側。余裕は `quality_report.REL_SLACK` の 0.02 で、仮の値）を見る物差しに下げた。新しい入口で絶対のしきい値に 88 件が違反したが、
+  パネルを目で読むと大半は問題が無く、指標が目と合っていなかったため。**物差しは確かめてから関門に使う**
+  （お手本と同じ向きの答えを出すか・過去にユーザーが見つけた悪化を捕まえるか・ユーザーが良いと言った変更を止めないか）。
+- 基準のファイルの有無、1 つの基準の節の揃いと指標値が有限なこと、品質の物差しの基準の全件は `test_baselines_present` が見る
+  （欠ければ fail。ONNX などの環境不備による skip とは区別する）。一覧の控えは dev_safe の `Tests/README.md`・
+  `Tests/Baselines/README.md`。
+
+### 汎化の物差しとホールドアウト
+
+**汎化の物差し**（2026-10-23〜、`dev_safe/scripts/generalization_report.py`）: ホールドアウトを見る前に、手元の被写体で
+過学習しない変更かを確かめる。回帰の被写体は件数より描いた人（アバター）の数が少ない（33 被写体で 9 組）ので、
+`subjects.json` の `subject_groups` でアバターごとにまとめる。`run` は状態 (b) を 被写体 × 6 クリック（198 件。cases）で回し、
+加えて名前つきの床の位置（pinned）・右クリックの後（assisted）・上下反転（flip）を測る（DLL は `_harness_cache/builds/` へ
+写して使い、ハーネスは常駐させる）。`compare` はアバター別の平均・きっかけのアバター（`--motivated-by`）を除いた平均・
+ケースごとの退行床・素朴な基準線（クリック画素の色から CIELAB ΔE76 ≤ 16 の球、design IoU で採点）に 0.05 以上負けた数・
+位置の幅（被写体ごとの 6 クリックの design IoU の最大 − 最小）のアバター平均・反転で変わった件数を並べて採否の目安を出す。
+`sweep` は定数の掃引から台地とアバター単位の交差検証（LOAO）を出す。`--sieve` は 1 件で不合格が決まる違反で途中で止める。
+`compare` と `holdout_eval.py` は差の確からしさも出す（2026-11-16〜、`dev_safe/scripts/cluster_stats.py`）。アバター平均の Δ に、
+アバターを復元抽出するブートストラップの 95% 区間と、符号反転の並べ替え検定の p を付ける。同じアバターの被写体・クリックは
+独立でないので、アバターを単位にする。採否の決まりは `improvement-cycle.md` の「採否の物差し」。
+
+**色の物差し**（2026-11-18〜、`dev_safe/scripts/color_report.py`）: 塗り上がりの地色が指定した色にどれだけ合うか。
+部分は oneshot（開発側の p50 を 10 色）・gtless（GT の無い素材。ホールドアウトと同じ画像は外す）・sweep（許容範囲を
+0.05〜0.40 で動かす）と、合否に入れない参考の preset（作者が手で合わせたプリセットとの差。2026-11-21 まで pytest の
+`test_oneshot_vs_preset` だったもの）。
+
+**ホールドアウト**（2026-09-24 に枠、2026-10-10 から運用）: `HOLDOUT_SUBJECTS`（一覧は `dev_safe/Tests/subjects.json` の
+`holdout_subjects`）は調整に使わない被写体で、`SUBJECTS` と交わらない（`scripts/source_checks/test_workflow_contract.py` が検査）。
+採否判断のときだけ `dev_safe/scripts/holdout_eval.py` が状態 (b) の p50 の集計値を出し、`Tests/Baselines/holdout_log.jsonl` に
+見た回数ごと記録する。集計には ΔE の球に負けた被写体の数も出す。次に GT を足すときからここへ入れる（ユーザー決定）。
+GT は `dev_safe/scripts/build_holdout_gt.py` が作る。部位レイヤーの無い PSD は、PSD の島（作者の島マスク / UV 線の塗りつぶし）と
+同じ塗りの島から作る素材単位、部位レイヤーのある PSD は部位レイヤー ∩ 島。テスト側の定義は `fixtures.HOLDOUT_REGISTRY` で、
+`SUBJECT_REGISTRY` には入れない。被写体ごとの延べの回数が 20 回に届いたら holdout_eval.py が入れ替えの時期を知らせる
+（次に GT を足すとき、届いた被写体を `SUBJECTS` へ移し、新しい被写体をホールドアウトにする）。2026-10-23 に最初の入れ替えをし、
+回帰の被写体は 33 件（9 体）になった。**ホールドアウトと同じ画像は開発側の物差し・お手本に入れない**（2026-11-21 ユーザー判断。
+重なっていたお手本 2 例と色の物差しの素材 18 枚を外した）。
 
 ### GT の 3 値と二本立ての採点（2026-09-05）
 
@@ -94,55 +217,24 @@ precision で過検出に数えられ、設計どおりの挙動と本当の欠�
   濃灰=許容）にする。視覚レビューのパネルの GT 採点タイルは灰=許容を赤と分けて描く。
   規則や定数を変えたら `RULE_VERSION` を上げ、1 つの基準を `generalization_report.py run → freeze` で再凍結する。
 
-### 主経路と追加操作後の必須ゲート
-
-- 基準は 1 つ: `dev_safe/Tests/Baselines/generalization_reference.json`（`generalization_report.py run → freeze`。
-  節 cases = 面の内側の 6 か所 × 33 被写体、pinned = 名前つきの床の位置、assisted = 状態 (d) の 33 件、flip）。
-  2026-11-21（C6 の仕上げ）に、それまでの `refactor-pre/evidence_autotune_baseline.json`・`assisted_include_baseline.json`
-  （`measure_evidence_autotune.py --baseline` / `--assisted-baseline` が書いていた）から一本化した。
-- `test_autotune_evidence`: ワンショット。既定 p50 の 33 件、FULL で p25・p95 も（節 cases の行）。
-- `test_assisted_include`: 状態 (d)（自動調整の後に同じ所を右クリック「ここも塗る」。含めるかは製品の右クリックが決める）の
-  p50 33 件。節 assisted に対する IoU/precision/recall/残存島の退行と、当てなかったときに出力が (b) とビット一致することを見る。
-- `test_baselines_present`: 基準のファイルの有無と、1 つの基準の節の揃い・有限な指標値（`generalization_report.load_reference`）、
-  品質の物差しの基準の全件を検査。欠落は fail（個別実行時もエラー）。ONNX 等の環境不備による skip とは区別する。
-- 視覚レビューの退行の判定（状態 (b) の塗り先の 1 色目・(d)）も同じ基準の同じ節を、同じ `SELECTION_SLACK` で読む
-  （`tools/workflow_review.py` の `review_baselines`）。
-
-`visual_review.py snapshot / compare / approve` のパネルは、窓で行き着く状態だけを塗る（2026-11-21、C6 の 5 章。
-それまでの固定設定 174 枚は外した。入口はどれも `dev_safe/scripts/oneshot.py`）:
-- `dev_safe/Tests/visual_review/compare/`: 状態 (b)（p50 のクリック → AI の証拠つき自動調整 → 漏れの確かめ → 塗る）を
-  `SUBJECTS` × fixtures の塗り先 5 色（`autotune__<被写体>__<色>`）、同じ状態に GT の左半分を除外として与えた変種
-  （`…+masked`。マスク契約）、再現データ `dev_safe/Tests/repro_cases`（`repro__<名前>__replay` / `__autotune-z<i>`。
-  組み立ては `test_repro_cases.py` と同じ）。塗り先の 1 色目は 1 つの基準の cases の p50 と突き合わせ、退行は承認不可。
-- `dev_safe/Tests/workflow_review/compare/`: 状態 (a) クリック直後（`click/<被写体>/p50`）と、(d) (b) の後に同じ所を右クリック
-  「ここも塗る」（`assisted_include/<被写体>/p50`。`measure_evidence_autotune.run_assisted`。1 つの基準の assisted と突き合わせる）。
-どのパネルも元画像（クリックの印）・変更前・変更後、状態 (b) と追加操作後は AI証拠・GT採点・等倍クロップを分けて表示し、
-下の行に塗った状態（クリックの位置・自動調整の有無・導いた許容範囲・塗り先・除外）を書く。状態 (b) の計算は被写体ごとに
-子のプロセスへ配って結果キャッシュに置き（並列数はワークフローと同じ決め方）、描くときはキャッシュから被写体ごとに読む。
-試験用に `IROCA_REVIEW_PERTURB=<case_id>,…` を立てると、そのケースの塗り先をずらして変化の検知を確かめられる（承認はできない）。
-**両方のディレクトリのうち変更前から変化したパネルを1枚ずつ目視してから**
-`python tools/visual_review.py approve --note "実際の確認範囲と既知の未達"` を実行する
-（変更前とビット一致のパネルは読まなくてよく、変更前の無いパネルは変化ありとして扱う。下記「視覚レビュー」）。
-
-ワークフローだけを測り直す口は無い（2026-11-10 に外した）。2 つの承認は同じ `compare` の 1 回（`run_id`）と同じ
-中身を指すので、測定器や基準だけを直したときも `visual_review.py compare` を回す（DLL が同じなら結果キャッシュに当たる）。
-pre-commitは**両方の承認**を要求する。部分実行・回帰・古いコード/測定器/ベースライン/
-入力資産・欠落/変更画像は承認不可。再compareすると旧承認は無効になる。
-このゲートもnet8ハーネスの評価であり、Unity Editorの操作E2Eを代替しない。
-
-実行キャッシュは共通除外配列だけでなく、ゾーン別 `includeMask` / `excludeMask` /
-`evidenceMask` のrawヘッダと内容もキーへ含める。同じファイル名・mtime・サイズで
-マスクを更新しても再計測し、欠落時に古い出力で代用しない。
+### リポジトリの作り
 
 ```
 Iroca 本体リポジトリ（公開）
 ├─ Code/                        製品 C#（唯一の正）
+│   ├─ Core/                    選択・再着色・自動調整（ZoneAutoTuner）。窓とハーネスが共有する段取り:
+│   │                           自動調整の段の機械 AutoTuneFlow.cs・ゾーンの操作の規則 ZoneEdits.cs・
+│   │                           編集中のマスクと範囲の操作 Masks/（MaskWorkspace・MaskRegionEdit・MaskPatch）
+│   └─ MaskSuggest/Ops/         AI 提案の純計算と 1 クリック分の段取り SamProposalFlow（推論の差し替え口 ISamInference）
 ├─ scripts/headless-run/        実 C# を Unity なしで実行するハーネス
 │   ├─ Harness.csproj           Code/Core 全部 + MaskSuggest/Ops を同一アセンブリに
 │   │                           取り込み（internal アクセス可）、実 UnityEngine.CoreModule.dll を
 │   │                           参照して net8.0 でビルド。取り込む一覧は HarnessSources.props
-│   │                           （dev_safe の局所プローブも同じものを Import する）
-│   └─ Harness.cs               raw 形式 I/O（[int32 w][int32 h][payload]）+ 各種検証モード
+│   │                           （dev_safe の局所プローブも同じものを Import する）。onnxruntime を参照する
+│   ├─ Harness.cs               raw 形式 I/O（[int32 w][int32 h][payload]）+ 各種検証モード
+│   ├─ Harness.Oneshot.cs       --oneshot・--script（窓の段取りの再生）と --autotune の段取り
+│   ├─ SamPropose.cs            --sam-propose（AI 提案 1 クリック分）
+│   └─ OrtSamInference.cs       推論の onnxruntime 版（ハーネスだけ）
 ├─ scripts/build-check/         dotnet 単体での型チェック用 csproj 5 本
 │   │                           （IrocaEditor / IrocaEditor.Debug / IrocaNdmfCheck / IrocaVrcsdkCheck / IrocaSentisCheck）
 │   │                           ※ UnityEngine.dll + UnityEditor.dll が必要（下記「前提」参照）
@@ -156,16 +248,29 @@ Iroca 本体リポジトリ（公開）
 │                               配布物(Code/)の外。scripts/Run-EditorTests.ps1 で batchmode 実行
 ├─ scripts/hooks/pre-commit     出荷ゲート（下記）
 └─ tools/visual_review.py       視覚レビュー（snapshot / compare / approve）
-    tools/check_visual_review.py  pre-commit から呼ばれる承認鮮度・較正チェック
+    tools/workflow_review.py      クリック直後・右クリックの後のパネルと承認の検査
+    tools/workflow_contract.py    条件の定義・被写体の一覧・クリック・退行の余裕（SELECTION_SLACK）
+    tools/review_state.py         承認が結び付く「測った中身」の範囲
+    tools/check_visual_review.py  pre-commit から呼ばれる承認の検査
     tools/harness_build.py        ハーネスのビルドの口（ロック・来歴・古い DLL の作り直し・index やコミットからのビルド）
+    tools/remote_test.py          テスト用 PC で回す入口
 
 dev_safe/（別リポジトリ・プライベート: yukkuri-aoba/Iroca_dev_safe。本体からは gitignore）
-├─ Tests/regression/            pytest 本体（IoU 回帰・品質ゲート・synth・autotune・parity 等）
-│   └─ fixtures.py              ハーネスのビルド・実行・ゾーン組み立ての一元化
-├─ Tests/Baselines/             ベースライン JSON（再生成は明示的に行う）
-├─ Tests/visual_review/         視覚レビューの成果物（approved.json / compare PNG）
+├─ Tests/regression/            pytest 本体（契約・物差し・基盤）
+│   ├─ roles.json               役目と入口の台帳
+│   ├─ fixtures.py              ハーネスのビルド・実行・被写体の入力の一元化（固定設定の make_zone は合成と abcheck 用）
+│   ├─ window_cases.py          被写体のケースを状態 (a)(b) で塗る口
+│   └─ pinned_clicks.json       名前つきの床のクリック位置
+├─ Tests/exemplars/             お手本集（台帳 exemplars.json・判定 checks.py・台本 scenario.py）
+├─ Tests/Baselines/             基準（上の「基準」）
+├─ Tests/visual_review/         視覚レビューの成果物（approved.json・change_summary.json・パネル PNG）
+├─ Tests/workflow_review/       クリック直後・右クリックの後のパネルと review.json
+├─ Tests/repro_cases/           実機から書き出した再現データ
+├─ scripts/oneshot.py           窓の状態の入口（ハーネスの --oneshot・--script を呼ぶ）
+├─ scripts/generalization_report.py・color_report.py  採否の物差し
+├─ measure_click_position.py    クリック位置の選び方（面の内側）
 ├─ texture_sample/              PSD・テクスチャ素材（GT の源泉）
-└─ scripts/                     GT 生成スクリプト（build_*_gt.py / analyze_*_psd.py）
+└─ scripts/                     GT 生成スクリプト（build_*_gt.py / analyze_*_psd.py）ほか測定の道具
 ```
 
 ## 実行の前提
@@ -295,12 +400,15 @@ dotnet 側（`scripts/build-check`）も asmdef と同じ境目で分けてあ�
 .\.venv\Scripts\python.exe -m pytest dev_safe/Tests/regression/ -q -m "not slow"
 
 # 採否判断のときは全件を測る（2026-11-20〜。品質ゲートの全被写体・ワンショットと AI 提案の全クリック・通しの全被写体・
-# 細い描き込みの全件がまとめて広がる。dev_safe/Tests/regression/gate_scope.py）
+# 細い描き込みの全件がまとめて広がる。dev_safe/Tests/regression/gate_scope.py）。テスト用 PC へは IROCA_* の環境変数がそのまま渡る
 $env:IROCA_GATE_FULL = "1"
 
-# 系統ごとに広げる名前も残してある（IROCA_<系統>_FULL。旧名 VACC_<系統>_FULL も効く）。系統は CSHARP_GATE・AUTOTUNE_GATE・
-# AUTOTUNE_EVIDENCE・SAM_E2E・JOURNEY・THIN_DETAIL。2026-11-20 までは文書に前の 2 つしか書いておらず、残りは既定の絞りのままだった
-$env:IROCA_CSHARP_GATE_FULL = "1"
+# 系統ごとに広げる名前も残してある（IROCA_<系統>_FULL。旧名 VACC_<系統>_FULL も効く）。系統は CSHARP_GATE・QUALITY_GATE・
+# AUTOTUNE_EVIDENCE・SAM_E2E・JOURNEY・THIN_DETAIL。2026-11-20 までは文書に 2 つしか書いておらず、残りは既定の絞りのままだった
+$env:IROCA_QUALITY_GATE_FULL = "1"
+
+# 役目ごとに選んで回す（台帳 roles.json のマーカー。上の「テストの役目と台帳」）
+.\.venv\Scripts\python.exe -m pytest dev_safe/Tests/regression/ -q -m role_contract
 
 # golden（C# 出力ハッシュの固定）・ソース構造検査・ユニットテスト — dev_safe を必要としない自己完結テスト
 .\.venv\Scripts\python.exe -m pytest scripts/golden scripts/source_checks scripts/unit-run -q
@@ -454,7 +562,8 @@ Python の入口なので、`remote_test.py` の `--` の後ろに置ける。�
   **snapshot と compare は同じ所で回す**（相手で snapshot したら、手元の古い snapshot の印 `meta.json` は消す）。
 - 相手の出力に出る相手の本体のパスは、手元の本体のパスに読み替えて出す（一覧のパネルをそのまま Read できる）。
 - `--rev` のブランチ名は手元で SHA にしてから渡す。`--allow-external-dll` のときは手元で回る。
-- 実測（2026-11-19、G83）: snapshot 174 ケース 184 秒、compare（ワークフロー 66 ケース込み）132 秒＋持ち帰り。
+- 実測（2026-11-19、G83。当時の固定設定のパネル）: snapshot 174 ケース 184 秒、compare（ワークフロー 66 ケース込み）132 秒＋持ち帰り。
+  2026-11-21 の窓で行き着く状態のパネル（239 枚）では snapshot 177 秒・compare 323 秒（右クリックの後の 3 枚が変わった回）。
 
 **リモートで回さないもの**: 視覚レビューの approve・check（手元の索引と作業ツリーを見る）。
 `color_report.py run` も相手で回る（`--fetch dev_safe/_spike/color/<label>.json`。2026-11-19 に G83 で 1237 秒、凍結した基準と
@@ -649,16 +758,12 @@ dev_safe の `fixtures.ensure_harness` と `scripts/golden/golden_lib.build_harn
   mtime を進める。
 
 **`measure_evidence_autotune.run_case` の結果キャッシュ**（2026-09-14、`_harness_cache/rows/`、
-`IROCA_ROW_CACHE=0` で無効化）: 追加操作後 14 件・証拠つき自動調整 14+7 件・プリセット比較・
-ワークフロー審査が同じ被写体 × クリックを別ワーカーで繰り返し計算しており、ハーネス出力が
-キャッシュ済みでも 1 件約 6 秒（SAM 提案の dotnet 5 回起動、採点の HSV/収縮、読み込み）かかっていた。
-row と証拠セグメントを、**関与する Python ソース全部**（measure_evidence_autotune / sam_proposal /
-measure_sam_e2e / freeze_sam_fixtures / measure_residual / measure_click_position / gt_tolerance /
-colorspace / fixtures / headless_io / workflow_contract）と DLL・ONNX・凍結埋め込み・テクスチャ・GT・
-評価領域・fixtures.json・GT 許容上書き（JSON + マスク PNG）の内容ダイジェスト、click / include /
-conventional をキーにして保存する。しきい値や規則を書き換えれば自動で無効化される（DLL ダイジェストと
-同じ考え）。`return_outputs=True` の出力配列は保存せず、ヒット時も同じ zones で
-`fx.run_harness_autotune` を呼び直す（ハーネスの実行キャッシュが返す）。ヒット 0.3〜0.5 秒。
+`IROCA_ROW_CACHE=0` で無効化）: 同じ被写体 × クリックを、標準の床・汎化レポート・視覚レビューが別ワーカーで繰り返し
+採点する。出力は `oneshot.py` の結果キャッシュが返すが、採点（島・GT 許容）が 4K で数秒かかるので、行（採点の値）を
+**関与する Python ソース**（measure_evidence_autotune・oneshot・measure_residual・measure_click_position・gt_tolerance・
+fixtures ほか）と DLL・ONNX・テクスチャ・GT・評価領域・GT 許容上書き（JSON + マスク PNG）の内容ダイジェスト、クリックを
+キーにして保存する。しきい値や規則を書き換えれば自動で無効化される（DLL ダイジェストと同じ考え）。`return_outputs=True` の
+出力配列は保存せず、ヒット時も同じ引数で `oneshot.run` を呼び直す（その結果キャッシュが返す）。
 `measure_residual.island_mask` は erode 済 GT 内部の画素だけを集めて HSV を計算する（全画面版と
 bit 一致、1.2 秒 → 0.3 秒）。
 
@@ -757,39 +862,25 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
   直すと色の多いテクスチャでだけ出力が変わる。`scripts/golden/test_palette_parity.py` が golden の全ケースと
   帯成長の合成 2 ケースを、通常の実行とハーネスの `IROCA_NO_PALETTE=1`（表を作らない）で回してビット単位で比べる。
   色ごとの経路を足したら、そこを踏むケースがあるか（片側だけ変えて落ちるか）を確かめること。
-- **改善サイクルの採否判断では `IROCA_GATE_FULL=1` を必ず立てる**（品質ゲートの既定は 1 被写体・ワンショットの既定は p50 だけで、
+- **改善サイクルの採否判断では `IROCA_GATE_FULL=1` を必ず立てる**（品質ゲートの既定は 4 被写体 × 5 色 + 三角の 21 件・ワンショットの既定は p50 だけで、
   残りを測らずに「全パス」と誤認するため。2026-11-20 に 1 つにまとめた。上の「標準の実行コマンド」）。
 - **製品の挙動を測るゲートは、ゾーンを `fixtures._zone_to_harness` で全項目書く**（2026-11-10〜）。zones JSON の既定
   （`ZonesJsonDefaults`）には製品の新しいゾーンと意図的に違う値がある（`highlightRecovery` は JSON が false・UI が true、
   変更先の色は JSON が黒・UI が白）。項目を省いた dict は製品と違う設定を測る（C# の品質ゲートはこれでハイライト系の段を
   通さずに測っていた）。JSON の既定のままで測る理由のあるテストは、dev_safe の `zones_json_default_reliance.json` に
   理由つきで載せる。`test_zones_schema_parity` が、載っていない部分的なゾーンの dict を落とし、減ったら一覧も減らさせる。
-- **自動調整（スポイト→自動調整＝ユーザーの主経路）の選択ゲートは既定 ON**（2026-08-21〜）:
-  `test_autotune_accuracy` は 4 被写体の選択床を常時、アトラス被写体の自動調整テスト（6 被写体）と
-  `test_synth_gen2` の 3 クリック位置も既定で回る。ハーネス実行は fixtures の
-  `run_harness_autotune`（実行キャッシュ + AUTOTUNE パラメータの aux キャッシュ）に一本化して
-  あり、DLL 不変なら 2 回目以降の追加コストはほぼゼロ。初回も避けたい場合のみ
-  アトラス側と gen2（`VACC_GEN2_FULL=0`）の環境変数で絞れる（名前は dev_safe のテスト冒頭）。
-- **no-mask のアトラス系の低い precision（パンツ 0.21 等）は劣化検知の番兵であって
-  品質目標ではない**。この条件は「実操作で起きない」わけではない — 通常クリックは
-  シードを設定しない（シードは Shift+クリックのみ）ため、アトラスへの「スポイト→自動調整」
-  の**初回プレビューはこの状態を見せる**。ただしユーザーは次の 1 手（シード/マスク/AI 提案）
-  で回復するのが実際の流れで、正のゲートは:
-  - `test_atlas_journey`（初回過検出→シード 1 手の遷移を Harness `--session` で通し検証。
-    apply 写像の byte 一致・seedUV 変更のキャッシュ無効化・1 手後 precision ≥0.98 を契約。
-    既定はパンツのみ、`VACC_JOURNEY_FULL=1` で boots/goggles も。`VACC_JOURNEY=0` で opt-out）
-  - `test_autotune_masked`（partsim 部位マップ: pants/boots IoU 0.997〜0.998）
-  - `test_autotune_seeded`（Shift+クリック相当: 全被写体 precision ≥0.98 のハード契約）
-  いずれも既定 ON（`VACC_AUTOTUNE_MASKED=0` / `VACC_AUTOTUNE_SEEDED=0` で opt-out）。
-  過検出の議論はこれらの数字で行う（2026-08-21 の 3 条件比較計測）。
-  初回体験そのものの品質目標はアトラス自動調整テストの xfail target
-  （precision の目標値）が持ち、改善が到達すると XPASS で浮かぶ
-  → ベースラインをラチェットし目標を進める。
+- **シード・部位マスク・合成の自動調整**（2026-08-21〜。2026-11-21 に入口を窓の状態へ替えた。入口は台帳の entry）:
+  アトラスの被写体へ「スポイト → 自動調整」した初回のプレビューは、同じ色の別の部品まで塗った状態を見せることがある
+  （通常のクリックはシードを置かない）。利用者は次の 1 手（シード・マスク・AI 提案）で直すのが実際の流れで、それを見るのが
+  `test_atlas_journey`（初回 → シード 1 手の遷移）・`test_autotune_seeded`（Shift+クリック相当。precision ≥ 0.98）・
+  `test_autotune_masked`（理想の部位マスクを与えた上限性能 `oracle_masked`）。合成のテクスチャでクリック位置を振るのは
+  `test_synth_gen2`。opt-out・範囲を変える環境変数（`VACC_JOURNEY` など）はそれぞれのテストの冒頭に書いてある。
 - **プロキシ段（操作中の表示）とフル確定段の表示一致ゲートは既定 ON**（2026-08-23〜）:
   ユーザーが操作中に見るのは長辺 ProxyMaxSize(512) の縮小処理表示で、確定表示とは設計上
   一致しない。`test_proxy_parity` が Harness `--stage proxy` / `--stage full-display`
   （PreviewPipeline の段階的リファイン両段を同じ丸め `PixelProcessor.ComputeFitSize` で
-  再現し、表示解像度で出力）の乖離（選択 IoU・色差）を degradation-only で凍結する。
+  再現し、表示解像度で出力）の乖離（選択 IoU・色差）を degradation-only で凍結する。ゾーンは 2026-11-21 から
+  状態 (b) の調整後のゾーン（シードのケースは (b) の後に `--script` の seed の手で置いたもの）で、下原点で塗る。
   opt-out は `VACC_PROXY_PARITY=0`、再凍結は `python dev_safe/measure_proxy_parity.py
   --baseline`（乖離を意図して受け入れる変更のときのみ。理由をコミットに残す）。
 - **縁の混色の契約**（2026-10-03〜）: 選択の境目の画素（素材と隣の混色）は、混色帯モード（境界クリーンアップ
@@ -807,49 +898,30 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
 - **AI 提案の E2E 品質ゲート**（2026-08-23〜）: `test_sam_e2e` が凍結ロジット + ONNX 推論
   (onnxruntime) + 実 C# 純計算層で「クリック→提案マスク」の IoU / precision を
   degradation-only で凍結する（`measure_sam_e2e.one_case` = 製品と同順・ズームイン再推論込み）。
-  既定は granularity auto × クリック p50 の 20 被写体、採否判断時は `VACC_SAM_E2E_FULL=1`
-  で p25/p95 も回す。ONNX モデル / 凍結ロジット不在は skip。再凍結は
+  既定は granularity auto × クリック p50、採否判断時は `IROCA_GATE_FULL=1`（系統名 SAM_E2E）で
+  p25/p95 も回す。ONNX モデル / 凍結ロジット不在は skip。再凍結は
   `python dev_safe/scripts/measure_sam_e2e.py --grans auto`。
-- **証拠つき自動調整（セグメント教師）の契約ゲート**（2026-08-25〜）:
-  `ZoneAutoTuner.AnalyzeWithEvidence` は AI 提案のセグメントを「その場の正解データ」にして、
-  従来導出の当て推量だった 3 点（地色の正規化母集団・未被覆トーンの補完・ハイライト補助の
-  発火）だけを補う経路。ハーネスは zones JSON の `evidenceMask`（raw、ハーネス専用）で駆動する。
-  `test_autotune_evidence` が `measure_evidence_autotune.run_case`（従来 `--autotune` と
-  同一クリックの SAM 提案を証拠にした `--autotune` の A/B）を driver に、採用時の勝ち筋
-  （gold の残存島 0 / tops 明部クリック / skirt precision / eye 反射 / 汚染セグメントでも
-  ドメインから導く / 白の色付き陰の彩度天井 / tolerance の上限 / 別パーツの彩度上限・色相幅）と
-  「従来を下回らない」を契約にする。成分単位のゲート（別パーツの彩度上限・色相幅）そのものは
-  合成テクスチャの `test_part_sat_ceiling` / `test_part_hue_band` が固定設定で検査する。
-  「スポイト位置を含む連結成分はゲートで落とさない」は `test_envelope_gate_anchor`（zones JSON の
-  `sampleUV`。ワンショットの driver はクリック位置を必ず `sampleUV` として渡す）。既定は 9 ケース、
-  `VACC_AUTOTUNE_EVIDENCE_FULL=1` で 19 被写体 × 3 位置の非退行。凍結埋め込み不在は skip。
-  全 A/B 表は `python dev_safe/scripts/measure_evidence_autotune.py --clicks p25 p50 p95`。
-  - **証拠は製品と同じ全経路で作る**（2026-09-02〜）: `sam_proposal.proposal_for_click_full`
-    が製品 `RequestEvidence → RequestProposal(Auto)` と同順（クリック成分が小さいときの
-    ズームイン再推論込み）で提案を作る。それまでの `proposal_for_click` は第 1 段のみで、
-    ズームが発火するクリックでは製品と別の証拠で導出を検査していた。floodWarning の提案は
-    製品どおり証拠にせず従来導出（B = A）へ落とす写像も再現している。
-- **ワンショット（スポイト→自動調整）の現在地**（2026-09-02〜。**製品の主経路**）:
-  2026-08-30 の AI 必須化以降、ユーザーの初回体験はほぼ常に証拠つき導出だが、従来 Analyze を
-  測る既定ゲート（autotune_accuracy / アトラス被写体 / 布の被写体 / synth_gen2 / click_position /
-  seeded / masked / atlas_journey とその xfail 目標）は今やフォールバック経路の番兵であり、
-  主経路の絶対品質はスイートに数字として無かった。
-  - `test_autotune_evidence::test_oneshot_floor`: 1 つの基準 `generalization_reference.json` の cases
-    （`generalization_report.py freeze`。2026-11-21 までは `evidence_autotune_baseline.json`）を床に
-    degradation-only。既定は p50 の 33 件、FULL で p25・p95 も。
-  - `test_oneshot_satisfaction_target`（xfail strict=False）: 「満足」
-    （prec≥0.98 ∧ rec≥0.95 ∧ 残存島≤0.5%）に未達のケースが到達すると XPASS で浮かぶ →
-    `generalization_report.py freeze` でラチェット（satisfied=true になり目標から外れる）。
-  - プリセットとの差（2026-11-21 まで `test_oneshot_vs_preset`。今は色の物差し `color_report.py` の参考の項目 preset で、
-    pytest の床と `oneshot_vs_preset_baseline.json` は消した）: **仕上がりそのものの理想への近さ**。理想 =
-    `dev_safe/preset_samples/` のプリセット（作者が手で追い込んだパラメータ）を実 C# に通した
-    出力、ワンショット = GT 内 p50 クリック → 証拠つき自動調整 → 同じ変更先色。変化領域の
-    OkLab 色差（p95 / 平均）と変化画素集合の IoU を参考の数字として出す（合否に入れない。
-    目標の線 dE p95 ≤ 0.05 ∧ IoU ≥ 0.95 に届いた被写体を数える）。PSD 由来の再着色 GT（gt_*.png）はベタ塗りに
-    近く（元との明度相関 0.2）理想には使わない。4 被写体（bandana / costume / hair / sneakers）。
+- **ワンショット（状態 (b)）のテスト**（`test_autotune_evidence`。2026-08-25〜、2026-11-21 に入口を `--oneshot` へ替えた）:
+  `ZoneAutoTuner.AnalyzeWithEvidence` は AI 提案のセグメントを「その場の正解データ」にして、従来導出の当て推量だった
+  3 点（地色の正規化母集団・未被覆トーンの補完・ハイライト補助の発火）を補う経路。
+  - `test_oneshot_floor`: 1 つの基準の cases（面の内側のクリック）を床に、退行だけを見る（物差し）。既定は p50 の 33 件、
+    `IROCA_GATE_FULL=1` で p25・p95 も。
+  - 名前つきの床（金の残存島・明部のクリック・暗いスカートの適合率・目の反射・汚染セグメント・白の色付き陰・
+    許容の上限・別部品の彩度上限と色相幅 など）: 採用したときの勝ち筋を、名前つきの位置（`pinned_clicks.json` の `edge-pXX`）で
+    出力だけから確かめる。2026-11-21 に内部の診断の文字列・導出値・従来とのビット一致を見る assert を外した。
+  - 到達目標（xfail strict=False）: `test_oneshot_satisfaction_target`（「満足」= prec ≥ 0.98 ∧ rec ≥ 0.95 ∧ 残存島 ≤ 0.5%。
+    到達すると XPASS で浮かぶので `generalization_report.py freeze` で進める）、`test_click_position_spread_target`
+    （同じ面の 6 か所の幅）、`test_flip_invariance_target`（上下反転で結果が変わらない）。
+  - 「証拠つきが従来の自動調整を下回らない」（`test_evidence_never_worse_than_baseline`）は 2026-11-21 に消した
+    （比べる相手の従来は窓では通らない経路で、正解ではない。行き先は台帳の `retired`）。
+  - 成分単位のゲート（別部品の彩度上限・色相幅）そのものは合成テクスチャの `test_part_sat_ceiling` / `test_part_hue_band`、
+    「スポイト位置を含む連結成分はゲートで落とさない」は `test_envelope_gate_anchor`（zones JSON の `sampleUV`）が見る。
+  - プリセットとの差（2026-11-21 まで `test_oneshot_vs_preset`）は、色の物差し `color_report.py` の参考の項目 preset へ移した
+    （合否に入れない。作者が手で合わせたプリセットを実 C# に通した出力と、p50 のワンショットの出力の、変化した範囲の
+    OkLab 色差と変化した画素の集合の IoU）。PSD 由来の再着色 GT（gt_*.png）はベタ塗りに近く（元との明度相関 0.2）理想には使わない。
   - 導出結果 → ゾーンの適用写像は `ZoneAutoTuner.TuneResult.ApplyTo` が単一の正
-    （UI とハーネスの二重実装を解消）。製品の側でそれを呼ぶのは自動調整の流れ `AutoTuneService`（ウィンドウと
-    自動化の 2 本を 0.4.0 の 4-3 で 1 本にした）だけ。`scripts/source_checks/test_autotune_apply_single_source` が
+    （UI とハーネスの二重実装を解消）。製品の側でそれを呼ぶのは自動調整の流れ（`AutoTuneService` と、それが回す Core の
+    `AutoTuneFlow`）だけ。`scripts/source_checks/test_autotune_apply_single_source` が
     C# ソースから「流れとハーネスが ApplyTo だけを使う（ウィンドウと自動化は直接代入しない）」「TuneResult の全フィールドを
     写す」を検査する。
   - 同じ考えで、再着色の全体設定（edgeFeather〜decontaminationRadius）は `RecolorSettings` が単一の正
@@ -973,10 +1045,36 @@ python tools/visual_review.py check --index         # （任意）今ステー�
 （ワークフローだけを回す口 `workflow_review.py compare / approve` は 2026-11-10 に外した。DLL が同じならキャッシュに
 当たるので、両方を回し直しても速い）。
 
+**パネルは窓で行き着く状態だけを塗る**（2026-11-21〜。入口はどれも `dev_safe/scripts/oneshot.py`）。それまでの固定設定の
+パネル 174 枚（許容 0.20・明度の保持 0.85・境界のぼかし 0.30・台帳のサンプル色）は、窓で行き着かない状態なので 2026-11-21 に置き換えた。
+今は 239 枚:
+
+| 置き場 | 状態 | 名前 | 枚数 |
+|---|---|---|---|
+| `dev_safe/Tests/visual_review/compare/` | (b) 自動調整の後（p50 のクリック → AI の証拠つき自動調整 → 漏れの確かめ → 塗る）× 塗り先 5 色（fixtures の色） | `autotune__<被写体>__<色>` | 165 |
+| 同上 | (b) に除外マスク（GT の左半分）を与えた変種。守った画素が 1 つも変わらないかを機械で数える（マスク契約） | `…+masked`（被写体は `subjects.json` の `masked_review_cases`） | 4 |
+| 同上 | 実機から書き出した再現データ `dev_safe/Tests/repro_cases`（組み立ては `test_repro_cases.py` と同じ） | `repro__<名前>__…` | 4 |
+| `dev_safe/Tests/workflow_review/compare/` | (a) クリックした直後（自動調整なし）。塗り先 1 色 | `click/<被写体>/p50` | 33 |
+| 同上 | (d) (b) の後に同じ所を右クリック「ここも塗る」（`measure_evidence_autotune.run_assisted`。含めるかは製品の右クリックの手が決める） | `assisted_include/<被写体>/p50` | 33 |
+
+- どのパネルも元画像（クリックの印）・変更前・変更後を並べ、状態 (b) と右クリックの後は AI の証拠・GT の採点・等倍の切り出しを
+  分けて表示する。**パネルの下の行に、塗った状態（クリックの位置・自動調整の有無・導いた許容範囲・塗り先・除外）を書く。**
+- 状態 (b) の塗り先の 1 色目と (d) は、1 つの基準 `generalization_reference.json` の cases の p50・assisted と、pytest の床と
+  同じ節・同じ余裕（`SELECTION_SLACK`）で突き合わせる（`tools/workflow_review.py` の `review_baselines`）。退行があると承認できない。
+- **変化の有無は機械の比較で決め、目は中身の良し悪しを見る。** 縮小したパネルは同じ絵を「違う」と読み違えることがある
+  （2026-11-21 にパネルを全部読んだとき、まとめ役と読む役の両方で起きた）。
+- 状態 (b) の計算は被写体ごとに子のプロセスへ配って結果キャッシュに置き、描くときはキャッシュから被写体ごとに読む。
+  試験用に `IROCA_REVIEW_PERTURB=<case_id>,…` を立てると、そのケースの塗り先をずらして変化の検知を確かめられる（承認はできない）。
+- 実行キャッシュの鍵には、共通の除外の配列だけでなく、ゾーン別の `includeMask` / `excludeMask` / `evidenceMask` の raw の
+  ヘッダと中身も入る。同じファイル名・mtime・サイズでマスクを更新しても測り直し、欠けたときに古い出力で代用しない。
+- このゲートも net8 のハーネスの評価で、Unity Editor の操作の E2E を代わりにはしない。
+
 **承認は時刻ではなく「測った中身」に結び付く**（2026-11-10、点検 B-1・B-4・B-7①・D-4。`tools/review_state.py`）。
 - 測るものを決めるファイル（`state`）は 3 つ: コード（ハーネスがコンパイルする製品ソースと `scripts/headless-run` の追跡
   ファイル）、本体の測定器（`tools/visual_review.py` / `workflow_review.py` / `workflow_contract.py` / `harness_build.py` /
-  `harness_scope.py` / `review_state.py`）、dev_safe の測定スクリプト・fixtures・2 つのベースライン・`subjects.json`・GT 許容の上書き。
+  `harness_scope.py` / `review_state.py`）、dev_safe の測定器と基準（`review_state.py` の `DEV_SAFE_FILES`: `oneshot.py`・
+  `measure_evidence_autotune.py`・`measure_click_position.py`・fixtures・1 つの基準とそれを読む `generalization_report.py`・
+  `pinned_clicks.json`・`subjects.json`・GT 許容の規則と上書き ほか）。
   中身は git の blob の id（`git hash-object` で autocrlf の変換をかけて数える。作業ツリーは CRLF、index は LF なので、
   バイト列のハッシュでは index と比べられない）。
 - `compare` は測り始めに、ビルドした DLL の来歴（どのソースから作ったか）と今の中身が一致することを確かめ、
@@ -985,7 +1083,7 @@ python tools/visual_review.py check --index         # （任意）今ステー�
 - `compare --index` は、ステージした中身のコード（`git checkout-index` で書き出す。測定器と dev_safe は作業ツリーのまま）を
   ビルドして測る。共有の作業ツリーに他のセッションの未コミットの Core の変更があるとき、それを入れずに自分の変更だけを
   測れる。中身が作業ツリーと同じなら作業ツリーでビルドするので速い。違えば書き出したソースのビルドで、改行の違いで DLL が
-  変わり、固定設定もワークフローもコールドになる（固定設定 約 8 分＋ワークフロー 約 7 分の見込み）。
+  変わり、全部のパネルがコールドになる。
 - `snapshot` は既定で **HEAD のコード**をビルドして撮る（点検 B-4。`--worktree` で作業ツリーから、`--rev <rev>` でそのコミットから）。
   「変更前」がいつも HEAD になり、他人の未コミットも入らない。`snapshot_before/meta.json`（と `workflow_review/snapshot/meta.json`）に
   何から撮ったか（`state`・HEAD・作業ツリーのコードが撮ったコードと違うか）を残す。測定器（Python）は作業ツリーのまま動くので、
@@ -996,7 +1094,10 @@ python tools/visual_review.py check --index         # （任意）今ステー�
 
 - 承認は `dev_safe/Tests/visual_review/approved.json` に記録される。`--note` には
   **実際に見た範囲と、それで十分と判断した根拠**を書く（必須。無いか空だと ValueError で止まり、承認されない）。
-- `compare` は変更前（snapshot）との差を数え、`dev_safe/Tests/visual_review/change_summary.json` に書く。
+  部分の実行・回帰・古いコード／測定器／基準／入力資産・欠けたパネルや変わった画像があると承認できない。compare をやり直すと
+  前の承認は無効になる。
+- `compare` は変更前（snapshot）との差を数え、`dev_safe/Tests/visual_review/change_summary.json` に書く（`visual_review/compare` の
+  パネルの分。`workflow_review` の分は下の `review.json`）。
   ケースごとに `changed`（変更前と RGBA のどれかが違う画素数。2026-11-10 までは RGB だけで、α だけの変化は
   「ビット一致」になっていた）・`alpha_changed`（そのうち α が違う画素）・`toward_original`（元テクスチャとの差が縮んだ画素＝
   誤爆の除去）・`away_from_original`（差が広がった画素＝新しい・強まった着色）・`max_delta`（変更前との最大差）。
@@ -1084,7 +1185,22 @@ python tools/visual_review.py check --index         # （任意）今ステー�
   その差は `scripts/editor-tests/RuntimeParityTests` が測る: golden の入力（`scripts/golden/cases/`）を
   Unity 実機の製品経路（`IrocaAutomation.RecolorWithZones`）に通してハーネスの出力と比べる。
   2026-09-24 時点で 25 件すべてバイト一致。`Code/Core` を大きく変えたら `Run-EditorTests.ps1` で再確認する。
-- baseline 完全一致方式のテスト（bandana/costume/sneakers の IoU 系）は「現状出力の凍結」で
-  あり、正当な改善でも fail する。改善採用時はベースライン再生成の理由をコミットに残すこと。
+- **本物の推論（Sentis）とハーネスの推論（onnxruntime）の数値の差**は、2026-07 に 1 回突き合わせただけ（提案の IoU 0.998）。
+  ハーネスの数字は「onnxruntime の世界の数字」で、テスト用 PC には Sentis 入りのホスト（ML ホスト）が無い。
+  突き合わせの計画は dev_safe の `docs/test-validity-audit-2026-11-20/stage3-design.md` の 8.3（まだ作っていない）。
+  EditMode の自動調整のテストは偽の AI（`FakeMaskSuggestService`）で段の遷移を見るので、Sentis の後処理と数値は通らない。
+- **合成の契約テストが使う `fixtures.run_harness`（と `run_harness_many`・`run_harness_autotune`）は、上原点の配列をそのまま
+  渡す**（製品から見て上下が鏡写し。座標を持つ入力も呼び手の配列の向きのまま）。合成の画像の性質を見る契約には効かないが、
+  窓の流れの品質はこの経路で測らない（`oneshot.py` は下原点で渡す）。
+- **品質の物差しの指標（形・コントラスト・ノイズ・範囲の外の変化）は、新しい入口では目と合っていない**。指標が「GT の範囲だけが
+  塗られる」を前提にしていて、同じ色の別の部品も塗る今の入口では大きく出る。そのため絶対のしきい値の合否から外し、凍結した基準からの
+  退行を見る物差しに下げてある（余裕の 0.02 は仮の値で、指標ごとの根拠はまだ無い。超えて悪い側へ動いたら絵を見て、問題が無ければ基準を進める）。
+  パネルを目で読んだ判定（`dev_safe/Tests/visual_review/c6_reading/`）との下調べでは、ノイズとコントラストの指標は目の印と同じ向きに動いたが、
+  印の付いた被写体が少なく、しきい値を決め直せるほどの根拠はまだ無い。
+- **位置への敏感さ（同じ面のどこを押してもほぼ同じ）と、上下反転で結果が変わらないことは、今の製品では満たさない**ので、
+  契約ではなく到達目標（`test_click_position_spread_target`・`test_flip_invariance_target`。落ちても通る）と、汎化レポートの
+  物差し（位置の幅・反転で変わった件数）にしてある。満たした被写体から契約へ移す。
+- 前の出力との完全一致は視覚レビューに一本化したので、pytest は「前と同じか」をほとんど見ない。凍結した基準を読むテストは
+  物差しで、正当な改善でも基準の外へ動けば落ちる（良くなる方向は通る片側の床が多い）。基準を進めるときは理由をコミットに残す。
 - `Tests/visual_review/` の approve は compare パネルの存在と鮮度しか機械検証できない。
   「Read で 1 枚ずつ目視」は運用規律として守る。
