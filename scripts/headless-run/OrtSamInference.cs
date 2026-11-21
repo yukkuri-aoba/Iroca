@@ -17,8 +17,8 @@ namespace Iroca {
     /// と dev_safe の Python の写しに合わせた。セッションの設定も Python に合わせる(メモリのアリーナを切る。出力は同じで、
     /// 推論の後に作業領域を持ち続けない)。
     ///
-    /// 埋め込みのファイルの控え(cacheDir があるとき): 鍵 = エンコーダの入力の中身・エンコーダの ONNX・onnxruntime の版の
-    /// ダイジェスト。中身は float32 の並びだけ(大きさが違うファイルは読まずに作り直す)。書くときは一時ファイルから置き換える
+    /// 埋め込みのファイルの控え(cacheDir があるとき): 鍵 = エンコーダの入力の中身・エンコーダの ONNX・onnxruntime の版・
+    /// スレッド数(--sam-threads。0 は onnxruntime の既定)のダイジェスト。中身は float32 の並びだけ(大きさが違うファイルは読まずに作り直す)。書くときは一時ファイルから置き換える
     /// (並列に書いても壊れない)。同じプロセスの中では、最後に使った全体の埋め込みを 2 つまで覚えておく(常駐の依頼で同じ
     /// テクスチャを続けて測るとき、エンコードも読み込みもしない)。
     /// </summary>
@@ -237,7 +237,10 @@ namespace Iroca {
             fixed (float* p = input) {
                 inputDigest = sha.ComputeHash(new UnmanagedMemoryStream((byte*)p, (long)input.Length * sizeof(float)));
             }
-            string s = "samemb-v1|" + Convert.ToHexString(inputDigest) + "|" + _m.EncoderDigest + "|" + OrtVersion;
+            // スレッド数も鍵に入れる(エンコーダの出力はスレッド数で変わらないことを実測したが、onnxruntime はスレッド数で
+            // 演算の分け方を変えうるので、違う設定の実行が同じ控えを読まないようにする)。
+            string s = "samemb-v1|" + Convert.ToHexString(inputDigest) + "|" + _m.EncoderDigest + "|" + OrtVersion
+                + "|threads=" + _m.IntraOpThreads.ToString(System.Globalization.CultureInfo.InvariantCulture);
             return Convert.ToHexString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
         }
 

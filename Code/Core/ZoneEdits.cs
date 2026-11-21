@@ -4,8 +4,9 @@ using UnityEngine;
 
 namespace Iroca {
     /// <summary>
-    /// 利用者のゾーンの操作(スポイト・塗り先)のうち、画素とゾーンの値だけで済む規則。窓(EditingSession・プレビューの入力)・自動化・
-    /// ハーネスの --script が同じものを使う(写しを作らない)。Undo・編集の知らせ・名前の文言は呼ぶ側が持つ。
+    /// 利用者のゾーンの操作(スポイト・色の欄・塗り先・シード・詳細設定の押せる条件)のうち、画素とゾーンの値だけで済む規則。
+    /// 窓(EditingSession・プレビューの入力・ゾーンのカード)・自動化・ハーネスの --script が同じものを使う(写しを作らない)。
+    /// Undo・編集の知らせ・名前の文言は呼ぶ側が持つ。
     /// </summary>
     internal static class ZoneEdits {
         /// <summary>
@@ -78,5 +79,67 @@ namespace Iroca {
             zone.targetColor = target;
             zone.targetColorSet = true;
         }
+
+        /// <summary>
+        /// 塗り先の色の欄に色を書く(窓のカラーフィールド)。欄が返した色をそのまま書き、前の色から変わったときだけ選んだ印を立てる
+        /// (<see cref="SetTarget"/>)。変わったら true。Undo の記録は呼ぶ側(欄が書く前に記録する)。
+        /// </summary>
+        public static bool SetTargetFromField(ColorZone zone, Color color) {
+            Color prev = zone.targetColor;
+            zone.targetColor = color;
+            if (color == prev) {
+                return false;
+            }
+            SetTarget(zone, color);
+            return true;
+        }
+
+        /// <summary>
+        /// サンプル色の欄に色を書く(窓のカラーフィールド。スポイトではない)。欄が返した色をそのまま書き、前の色から変わったときだけ:
+        /// 指定済みの印を立て(意図的な白を未指定の白と区別する)、スポイト位置を外し(欄の色はクリックした画素の色ではないので、
+        /// 自動調整が AI 提案の証拠を取る位置にならない。次のスポイトで付き直す)、前の島から導いた値を既定へ戻す
+        /// (<see cref="ClearIslandDerived"/>)。変わったら true。Undo の記録と編集の知らせは呼ぶ側(欄が書く前に記録するので、
+        /// 色と位置が対で戻る)。
+        /// </summary>
+        public static bool SetSampleFromField(ColorZone zone, Color color) {
+            Color prev = zone.sampleColor;
+            zone.sampleColor = color;
+            if (color == prev) {
+                return false;
+            }
+            zone.sampleColorSet = true;
+            zone.ClearSampleUV();
+            ClearIslandDerived(zone);
+            return true;
+        }
+
+        /// <summary>連続領域の起点(シード)の「未設定」(負の値)。</summary>
+        public static readonly Vector2 NoFloodFillSeed = new Vector2(-1f, -1f);
+
+        /// <summary>
+        /// シードを置ける・外せるゾーンか(窓のシードの入力と、詳細設定の「指定」「クリア」が出る条件: スポイトの選択で連続領域モード)。
+        /// </summary>
+        public static bool AcceptsFloodFillSeed(ColorZone zone)
+            => zone != null && zone.mode == SelectionMode.ColorPick && zone.useFloodFill;
+
+        /// <summary>シードが置かれているか(窓の「クリア」が押せるか)。</summary>
+        public static bool HasFloodFillSeed(ColorZone zone) => zone.seedUV.x >= 0f;
+
+        /// <summary>シードを uv(下原点)に置くと値が変わるか(同じ位置なら窓は記録も知らせもしない)。</summary>
+        public static bool FloodFillSeedChanges(ColorZone zone, Vector2 uv) => zone.seedUV != uv;
+
+        /// <summary>シードを置く。Undo の記録と編集の知らせは呼ぶ側(<see cref="FloodFillSeedChanges"/> を見てから記録して呼ぶ)。</summary>
+        public static void SetFloodFillSeed(ColorZone zone, Vector2 uv) => zone.seedUV = uv;
+
+        /// <summary>シードを外す(自動アンカリングへ戻す)。Undo の記録と編集の知らせは呼ぶ側。</summary>
+        public static void ClearFloodFillSeed(ColorZone zone) => zone.seedUV = NoFloodFillSeed;
+
+        /// <summary>
+        /// 穴埋めの余白(<see cref="ColorZone.holeFillMargin"/>)が効くか。穴埋めは、縁を混色の割合で塗るゾーン
+        /// (境界クリーンアップ ON・エッジぼかし 0・色のあるサンプル。<see cref="PixelProcessor.IsMixtureBandZone"/>)では走らない。
+        /// 窓は効かないときスライダーを押せなくする。
+        /// </summary>
+        public static bool HoleFillMarginApplies(ColorZone zone, bool useDecontamination, float edgeFeather)
+            => zone != null && !PixelProcessor.IsMixtureBandZone(zone, useDecontamination, edgeFeather);
     }
 }

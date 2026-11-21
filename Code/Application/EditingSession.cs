@@ -327,11 +327,11 @@ namespace Iroca {
 
         /// <summary>連続領域の起点を置く。変わったときだけ記録して true。</summary>
         internal bool SetFloodFillSeed(ColorZone zone, Vector2 uv) {
-            if (zone.seedUV == uv) {
+            if (!ZoneEdits.FloodFillSeedChanges(zone, uv)) {
                 return false;
             }
             Undo.RecordObject(Document, "Set Flood Fill Seed");
-            zone.seedUV = uv;
+            ZoneEdits.SetFloodFillSeed(zone, uv);   // 規則は Core の ZoneEdits(--script の seed も同じ)
             NotifyChanged(EditChange.Content);
             return true;
         }
@@ -339,7 +339,7 @@ namespace Iroca {
         /// <summary>連続領域の起点を外す。</summary>
         internal void ClearFloodFillSeed(ColorZone zone) {
             Undo.RecordObject(Document, "Clear Flood Fill Seed");
-            zone.seedUV = new Vector2(-1f, -1f);
+            ZoneEdits.ClearFloodFillSeed(zone);
             NotifyChanged(EditChange.Content);
         }
 

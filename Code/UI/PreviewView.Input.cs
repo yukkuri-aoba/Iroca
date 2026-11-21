@@ -305,22 +305,21 @@ namespace Iroca {
                 // 武装したゾーンへ確実に入れる（enabled は問わない。ユーザーがそのゾーンを
                 // 名指ししているので、無効でも値は記録しておき、有効化した時点で効く）。
                 var z = _host.FindZoneById(_host.SeedPickZoneId);
-                if (z != null && z.mode == SelectionMode.ColorPick && z.useFloodFill) {
+                if (ZoneEdits.AcceptsFloodFillSeed(z)) {
                     targetZone = z;
                 }
             } else if (zones != null) {
                 int activeZoneIndex = _host._maskView.activeMaskTarget;
                 if (activeZoneIndex >= 0 && activeZoneIndex < zones.Count) {
                     var activeZone = zones[activeZoneIndex];
-                    if (activeZone.enabled && activeZone.mode == SelectionMode.ColorPick && activeZone.useFloodFill) {
+                    if (activeZone.enabled && ZoneEdits.AcceptsFloodFillSeed(activeZone)) {
                         targetZone = activeZone;
                     }
                 }
                 if (targetZone == null) {
                     for (int i = 0; i < zones.Count; i++) {
                         var zone = zones[i];
-                        if (zone == null || !zone.enabled
-                            || zone.mode != SelectionMode.ColorPick || !zone.useFloodFill) {
+                        if (zone == null || !zone.enabled || !ZoneEdits.AcceptsFloodFillSeed(zone)) {
                             continue;
                         }
                         targetZone = zone;

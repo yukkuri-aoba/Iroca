@@ -220,8 +220,14 @@ namespace Iroca {
                 var flow = new AutoTuneFlow(z.Clone(), Source, excluded, Masks.Width, Masks.Height,
                     Settings.ToRecolorSettings(), Masks.ToSnapshot());
                 string failure = null;
+                string evidenceDiag = null;
                 try {
                     var step = AutoTuneFlow.RunSynchronously(flow, Sam, CancellationToken.None);
+                    if (step == AutoTuneStep.Done) {
+                        // 導出の診断(製品の TuneResult.evidenceDiag そのまま。証拠を使えず従来の導出へ戻ったら "fallback …"、
+                        // 証拠なしの解析なら空)。provenance の文字列にも入っているが、切り出さずに読めるよう単独で出す。
+                        evidenceDiag = flow.Result.evidenceDiag;
+                    }
                     if (Sam.Asked.Count > asked0) {
                         var d = Sam.Asked[asked0].diag;
                         evidence["zoomed"] = d.zoomed;
@@ -262,6 +268,7 @@ namespace Iroca {
                     ["leak"] = leak,
                     ["evidence"] = evidence,
                     ["failure"] = failure,
+                    ["evidenceDiag"] = evidenceDiag,
                 };
             }
 
@@ -306,15 +313,24 @@ namespace Iroca {
                 try {
                     var region = ToMaskSize(p.mask, out bool owned);
                     try {
-                        bool any = region.CountTrue() > 0;
+                        int regionCount = region.CountTrue();
+                        bool any = regionCount > 0;
                         doc["empty"] = !any;
+                        // マスクの寸法にした範囲の画素数(当てる範囲。寸法が原本と同じなら proposalCount と同じ)。
+                        doc["regionCount"] = regionCount;
                         if (!any) {
-                            return doc;   // 空の提案で「この部分だけ」を当てると全体が除外になるので、当てない
+                            // 空の提案で「この部分だけ」を当てると全体が除外になるので、当てない(窓も同じ)
+                            doc["applied"] = false;
+                            doc["skip"] = "empty";
+                            return doc;
                         }
                         bool ok = Masks.ApplyRegion(region.Ptr, zoneId, op, null, out var result);
                         doc["applied"] = ok;
                         doc["changed"] = result.changed;
                         doc["commonOverlap"] = result.commonOverlap;
+                        // 当てなかった・何も変わらなかった理由(窓の知らせ MaskPaintView.DescribeRegionEdit と同じ分け方)。
+                        // 背景まで広がった提案(flood)も窓は当てる(知らせるだけ)ので、理由にはしない。
+                        doc["skip"] = !ok ? "rejected" : result.changed == 0 ? "no-change" : null;
                     } finally {
                         if (owned) {
                             region.Release();
@@ -457,7 +473,9 @@ namespace Iroca {
         // 持ち、自動調整・塗りへは窓と同じスナップショットで渡す。マスクの寸法が原本と違えば、提案は被覆を保って写す(--mask-pixels で
         // マスクの寸法の画素を渡すと AA 包含もやり直す。窓の SourceTexture)。自動調整が失敗したら(証拠が来ないなど)ゾーンは変えずに塗る。
         // 出力: out.raw と、標準出力の 1 行 ONESHOT {json}(調整後のゾーンの全項目を zones JSON の名前で・method・provenance・
-        // leak{checked, blobs, excludedParts, excludedPixels, skip, applied, changed}・evidence{zoomed, crop, flood, used}・failure)。
+        // leak{checked, blobs, excludedParts, excludedPixels, skip, applied, changed}・evidence{zoomed, crop, flood, used}・failure・
+        // evidenceDiag(製品の TuneResult.evidenceDiag そのまま。証拠なしの解析なら空、終わらなければ null))。
+        // ゾーンにスポイト位置(sampleUV)が無ければ、製品どおり証拠なしの自動調整になる(AI に頼まない)。
         // --emit-dir: 証拠(evidence.raw)・漏れの塊ごとの提案(leak_<k>_<auto|fine>.raw)・調整後の状態(zones.json・mask.raw・
         // zone<i>_exclude.raw ほか。そのまま --zones に渡せる)・提案の診断(asks.json)。
         private static int RunOneshot(string[] args) {
@@ -555,8 +573,20 @@ namespace Iroca {
         //                                                  右クリックの範囲の操作(用途 Region の AI 提案)。common=true は全ゾーン共通(塗らない・消す)
         //   {"op":"tolerance","value":t}                   許容範囲のスライダー(ColorZone.SetToleranceManually)
         //   {"op":"zone","index":i}                        操作するゾーンを選ぶ
+        //   {"op":"seed","uv":[u,v]}                       今のゾーンに連続領域のシードを置く(窓の「指定」+クリック・Shift+クリック。ZoneEdits)
+        //   {"op":"seed","clear":true}                     シードを外す(窓の「クリア」)。どちらも連続領域モードのゾーンだけ(でなければエラー)
+        //   {"op":"set","zone":{項目:値…},"settings":{項目:値…}}
+        //                                                  今のゾーンの項目・処理の設定を窓の欄と同じ経路で書く(項目名は zones JSON・
+        //                                                  settings JSON。sample は色の欄 = スポイト位置が外れる、tolerance は手の許容範囲、
+        //                                                  target は塗り先の欄)。書く順は JSON の順。窓に欄の無い項目・知らない項目・
+        //                                                  範囲の外・窓で押せない状態はエラー
+        // 自動調整は、ゾーンにスポイト位置(sampleUV)が無ければ製品どおり証拠なし(AI に頼まない。理由 no-sample-position)で回る。
+        // 位置の無いゾーンは、zones に sampleUV を書かずに渡すか、set の sample(色の欄)で作る。
         // 出力: 手ごとに標準出力の 1 行 SCRIPT {"step":k,"op":…,…}、emit が all なら手ごとに out-dir/step<k>_out.raw と
         // step<k>_zones.json(・step<k>_mask.raw ほか。そのまま --zones に渡せる)、last なら最後の手だけ。
+        // 行の項目: autotune は ONESHOT と同じ(evidenceDiag も)。region は zoomed・crop・flood・proposalCount・empty・regionCount
+        // (マスクの寸法にした範囲の画素数)・applied・changed・commonOverlap・skip(当てなかった・変わらなかった理由:
+        // empty・rejected・no-change。当てて変わったら null)。seed は changed・seedUV・zone。set は keys・zone。
         private static int RunScript(string[] args) {
             var inv = CultureInfo.InvariantCulture;
             var pos = new List<string>();
@@ -670,6 +700,69 @@ namespace Iroca {
                         RequireZone(z, op);
                         z.SetToleranceManually(e.GetProperty("value").GetSingle());
                         break;
+                    case "seed": {
+                            RequireZone(z, op);
+                            // 窓のシードの入力(詳細設定の「指定」で武装したクリック・Shift+クリック)と「クリア」は、連続領域モードの
+                            // ゾーンにしか出ない。今のゾーンが受けなければ止める(窓の Shift+クリックは、そのとき別のゾーンへ回すが、
+                            // 台本は宛先を名指しするので回さない)。
+                            if (!ZoneEdits.AcceptsFloodFillSeed(z)) {
+                                throw new ArgumentException($"step {k}: seed: ゾーン {current} は連続領域モードでない(窓ではシードを置けない)");
+                            }
+                            bool clear = e.TryGetProperty("clear", out var clearEl) && clearEl.GetBoolean();
+                            bool changed;
+                            if (clear) {
+                                // 「クリア」はシードがあるときだけ押せる(押せなければ何も変わらない)。
+                                changed = ZoneEdits.HasFloodFillSeed(z);
+                                if (changed) {
+                                    ZoneEdits.ClearFloodFillSeed(z);
+                                }
+                            } else {
+                                var uv = ReadUv(e.GetProperty("uv"));
+                                changed = ZoneEdits.FloodFillSeedChanges(z, uv);   // 同じ位置なら窓は記録も知らせもしない
+                                if (changed) {
+                                    ZoneEdits.SetFloodFillSeed(z, uv);
+                                }
+                            }
+                            line["changed"] = changed;
+                            line["seedUV"] = ZoneEdits.HasFloodFillSeed(z) ? new[] { z.seedUV.x, z.seedUV.y } : null;
+                            line["zone"] = current;
+                            break;
+                        }
+                    case "set": {
+                            var keys = new List<string>();
+                            bool any = false;
+                            foreach (var prop in e.EnumerateObject()) {
+                                switch (prop.Name) {
+                                    case "op":
+                                        break;
+                                    case "zone":
+                                        RequireZone(z, op);
+                                        foreach (var f in prop.Value.EnumerateObject()) {
+                                            SetZoneField(z, f.Name, f.Value, s.Settings, k);
+                                            keys.Add("zone." + f.Name);
+                                        }
+                                        any = true;
+                                        break;
+                                    case "settings":
+                                        foreach (var f in prop.Value.EnumerateObject()) {
+                                            SetSettingsField(s.Settings, f.Name, f.Value, k);
+                                            keys.Add("settings." + f.Name);
+                                        }
+                                        any = true;
+                                        break;
+                                    default:
+                                        throw new ArgumentException($"step {k}: set: 知らない項目 {prop.Name}(zone か settings)");
+                                }
+                            }
+                            if (!any) {
+                                throw new ArgumentException($"step {k}: set: zone も settings もない");
+                            }
+                            line["keys"] = keys;
+                            if (keys.Exists(key => key.StartsWith("zone.", StringComparison.Ordinal))) {
+                                line["zone"] = current;
+                            }
+                            break;
+                        }
                     case "zone":
                         current = e.GetProperty("index").GetInt32();
                         if (current < 0 || current >= zoneList.Count) {
@@ -702,6 +795,126 @@ namespace Iroca {
         }
 
         private static Vector2 ReadUv(JsonElement e) => new Vector2(e[0].GetSingle(), e[1].GetSingle());
+
+        // ─── set の手 ───
+        // 窓のゾーンのカード(IrocaWindow.ZoneList)と処理の設定(IrocaWindow.Layout の DrawProcessingSettings)が値を書くのと同じ経路で書く。
+        // 項目名は zones JSON・settings JSON と同じ。窓に欄の無い項目・知らない項目・欄の範囲の外の値・窓で押せない状態の欄はエラーで止める
+        // (黙って無視したり丸めたりしない)。Undo の記録・編集の知らせは窓だけのもの。
+
+        // スライダーの値(窓の欄の範囲。範囲の外はエラー)。
+        private static float SliderValue(string key, JsonElement v, float min, float max, int step) {
+            float x = v.GetSingle();
+            if (!(x >= min && x <= max)) {
+                throw new ArgumentException($"step {step}: set: {key}={x.ToString(CultureInfo.InvariantCulture)} は窓の欄の範囲 [{min.ToString(CultureInfo.InvariantCulture)}, {max.ToString(CultureInfo.InvariantCulture)}] の外");
+            }
+            return x;
+        }
+
+        private static int IntSliderValue(string key, JsonElement v, int min, int max, int step) {
+            int x = v.GetInt32();
+            if (x < min || x > max) {
+                throw new ArgumentException($"step {step}: set: {key}={x} は窓の欄の範囲 [{min}, {max}] の外");
+            }
+            return x;
+        }
+
+        private static Color ReadRgb(string key, JsonElement v, int step) {
+            if (v.ValueKind != JsonValueKind.Array || v.GetArrayLength() != 3) {
+                throw new ArgumentException($"step {step}: set: {key} は [r,g,b](0..1)");
+            }
+            return new Color(v[0].GetSingle(), v[1].GetSingle(), v[2].GetSingle(), 1f);
+        }
+
+        private static void RequireEditable(bool editable, string key, string why, int step) {
+            if (!editable) {
+                throw new ArgumentException($"step {step}: set: {key} は今の状態では窓で押せない({why})");
+            }
+        }
+
+        // ゾーンの項目を 1 つ書く(窓のゾーンのカード・詳細設定の欄と同じ)。
+        private static void SetZoneField(ColorZone z, string key, JsonElement v, SettingsCfg st, int step) {
+            switch (key) {
+                case "name": z.name = v.GetString(); break;
+                // 色の欄(スポイトではない): 変われば指定済みの印・スポイト位置を外す・島の値を戻す(窓と同じ ZoneEdits)。
+                case "sample": ZoneEdits.SetSampleFromField(z, ReadRgb(key, v, step)); break;
+                case "target": ZoneEdits.SetTargetFromField(z, ReadRgb(key, v, step)); break;
+                // 許容範囲を手で変えたら、自動調整が入れた照合の上限距離を外す(窓のスライダーと同じ)。
+                case "tolerance": z.SetToleranceManually(SliderValue(key, v, 0f, 1f, step)); break;
+                case "valueBlend": z.valueBlend = SliderValue(key, v, 0f, 1f, step); break;
+                case "outputSaturation": z.outputSaturation = SliderValue(key, v, 0f, 1f, step); break;
+                case "useFloodFill": z.useFloodFill = v.GetBoolean(); break;
+                case "edgeSoftness": z.edgeSoftness = SliderValue(key, v, 0f, 1f, step); break;
+                case "saturationStrictness": z.saturationStrictness = SliderValue(key, v, 0f, 1f, step); break;
+                case "saturationGuard": z.saturationGuard = SliderValue(key, v, 0f, 1f, step); break;
+                case "holeFillMargin":
+                    // 縁を混色の割合で塗るゾーンでは穴埋めが走らないので、窓は押せなくする(規則は Core の ZoneEdits)。
+                    RequireEditable(ZoneEdits.HoleFillMarginApplies(z, st.useDecontamination, st.edgeFeather), key,
+                        "縁を混色の割合で塗るゾーン", step);
+                    z.holeFillMargin = SliderValue(key, v, 0f, 1f, step);
+                    break;
+                case "highlightRecovery": z.highlightRecovery = v.GetBoolean(); break;
+                case "highlightBandExpand":
+                    RequireEditable(z.highlightRecovery, key, "highlightRecovery が OFF", step);   // 窓の DisabledScope と同じ条件
+                    z.highlightBandExpand = v.GetBoolean();
+                    break;
+                // 白寄せ合成とその自動補正は、窓では開発者向けの設定を出したとき(か既定から変わっているとき)だけ見える。
+                case "applyHighlightWash": z.applyHighlightWash = v.GetBoolean(); break;
+                case "autoHighlightSample":
+                    RequireEditable(z.applyHighlightWash, key, "applyHighlightWash が OFF", step);   // 窓の DisabledScope と同じ条件
+                    z.autoHighlightSample = v.GetBoolean();
+                    break;
+                case "shadowDesaturation": z.shadowDesaturation = SliderValue(key, v, 0f, 1f, step); break;
+                case "shadowForgivenessSatMin": z.shadowForgivenessSatMin = SliderValue(key, v, 0f, 1f, step); break;
+                case "shadowValueFloor": z.shadowValueFloor = SliderValue(key, v, 0f, 1f, step); break;
+                case "partSatCeiling": z.partSatCeiling = SliderValue(key, v, 0f, 1f, step); break;
+                case "partHueBand": z.partHueBand = SliderValue(key, v, 0f, 0.5f, step); break;
+                case "chromaThreshold": z.chromaThreshold = SliderValue(key, v, 0f, 1f, step); break;
+                case "chromaCeiling": z.chromaCeiling = SliderValue(key, v, 0f, 1f, step); break;
+                case "autoRecolorAnchor": z.autoRecolorAnchor = v.GetBoolean(); break;
+                case "seedUV":
+                    throw new ArgumentException($"step {step}: set: seedUV は手 seed で置く・外す");
+                case "samples":
+                case "matchCutoff":
+                case "layerIndex":
+                case "sampleUV":
+                case "includeMask":
+                case "excludeMask":
+                case "evidenceMask":
+                    throw new ArgumentException($"step {step}: set: {key} は窓に欄が無い(自動調整・スポイト・マスクの操作が書く)");
+                default:
+                    throw new ArgumentException($"step {step}: set: 知らないゾーンの項目 {key}");
+            }
+        }
+
+        // 処理の設定を 1 つ書く(窓の「処理」の欄と同じ。範囲は Core の RecolorValueRanges)。
+        private static void SetSettingsField(SettingsCfg st, string key, JsonElement v, int step) {
+            switch (key) {
+                case "edgeFeather":
+                    st.edgeFeather = SliderValue(key, v, RecolorValueRanges.EdgeFeatherMin, RecolorValueRanges.EdgeFeatherMax, step);
+                    break;
+                case "antiAliasCleanup":
+                    st.antiAliasCleanup = IntSliderValue(key, v, RecolorValueRanges.AntiAliasCleanupMin, RecolorValueRanges.AntiAliasCleanupMax, step);
+                    break;
+                case "useDecontamination": st.useDecontamination = v.GetBoolean(); break;
+                case "holeFillPasses":
+                    st.holeFillPasses = IntSliderValue(key, v, RecolorValueRanges.HoleFillPassesMin, RecolorValueRanges.HoleFillPassesMax, step);
+                    break;
+                case "holeFillMinNeighbors":
+                    st.holeFillMinNeighbors = IntSliderValue(key, v, RecolorValueRanges.HoleFillMinNeighborsMin,
+                        RecolorValueRanges.HoleFillMinNeighborsMax, step);
+                    break;
+                case "relaxedSatMin": st.relaxedSatMin = SliderValue(key, v, 0f, 0.2f, step); break;
+                case "decontaminationRadius":
+                    RequireEditable(st.useDecontamination, key, "useDecontamination が OFF", step);   // 窓の DisabledScope と同じ条件
+                    st.decontaminationRadius = IntSliderValue(key, v, RecolorValueRanges.DecontaminationRadiusMin,
+                        RecolorValueRanges.DecontaminationRadiusMax, step);
+                    break;
+                case "relaxedSatRamp":
+                    throw new ArgumentException($"step {step}: set: relaxedSatRamp は窓に欄が無い(処理が読まない値)");
+                default:
+                    throw new ArgumentException($"step {step}: set: 知らない設定の項目 {key}");
+            }
+        }
 
         private static MaskSuggestGranularity ParseGranularity(string g) => g switch {
             "auto" => MaskSuggestGranularity.Auto,

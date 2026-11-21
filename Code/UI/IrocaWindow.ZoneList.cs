@@ -860,24 +860,16 @@ namespace Iroca {
             }
 
             EditorGUILayout.BeginHorizontal();
-            Color prevSampleColor = zone.sampleColor;
             // MinWidth(0): 見出し行の名前欄と同じ理由（ラベル付きフィールドの最小幅＋スポイト
             // ボタン幅が狭いカラムの内容幅を超える）。カラーフィールド側を縮めて行を収める。
-            zone.sampleColor = UndoHelper.ColorField(UndoTarget,
+            Color fieldSampleColor = UndoHelper.ColorField(UndoTarget,
                 TempContent.Of(Localization.SampleColor, Localization.SampleColorTooltip),
                 zone.sampleColor,
                 GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
-            if (zone.sampleColor != prevSampleColor) {
-                // スポイト/カラーフィールドで色を取った＝サンプル指定済み。意図的な白選択を
-                // 「未指定の白」と区別し、白い服・白髪などでも自動調整を許可できるようにする。
-                zone.sampleColorSet = true;
-                // カラーフィールドで変えた色はクリック画素の色ではないので、スポイト位置
-                // （自動調整が AI 提案の証拠を取る位置）を無効化する。次のスポイトで付き直す。
-                // UndoHelper.ColorField が代入前に記録済みなので、Undo で色と位置が対で戻る。
-                zone.ClearSampleUV();
-                // サンプルカラーが変わったら、前のパーツの島から導いた値(自動トーン抽出の内部サンプルと
-                // 包絡ゲート・彩度天井・穴埋めの余白)は古いパーツのものになるため既定へ戻す（次の自動調整で作り直す）。
-                EditingSession.ClearIslandDerived(zone);
+            // 色が変わったら、サンプル指定済みの印を立て、スポイト位置(欄の色はクリック画素の色ではない)と前の島から
+            // 導いた値を外す(規則は Core の ZoneEdits.SetSampleFromField。--script の set も同じ)。
+            // UndoHelper.ColorField が代入前に記録済みなので、Undo で色と位置が対で戻る。
+            if (ZoneEdits.SetSampleFromField(zone, fieldSampleColor)) {
                 Editing.NotifyChanged(EditChange.Content);
             }
 
@@ -908,15 +900,12 @@ namespace Iroca {
             // 入力に取り（両者の明度差から模様保持 valueBlend を決める）、変更先が未決のまま
             // 押すと既定色を前提とした結果になる。「元の色 → 変更先の色 → 自動調整」の順に
             // 並べることで、入力が全てボタンの上・書き換わる項目が全て下に揃う。
-            Color prevTargetColor = zone.targetColor;
-            zone.targetColor = UndoHelper.ColorField(UndoTarget,
-                TempContent.Of(Localization.TargetColor, Localization.TargetColorTooltip),
-                zone.targetColor);
             // 変更先を選んだ＝手順案内を「自動調整」へ進める（白を選んだ場合も既定の白と区別する）。
             // UndoHelper.ColorField が代入前に記録済みなので、Undo で色とフラグが対で戻る。
-            if (zone.targetColor != prevTargetColor) {
-                ZoneEdits.SetTarget(zone, zone.targetColor);   // 選んだ印を立てる(規則は Core。--script も同じ)
-            }
+            // 変わったら選んだ印を立てる(規則は Core の ZoneEdits.SetTargetFromField。--script の set も同じ)。
+            ZoneEdits.SetTargetFromField(zone, UndoHelper.ColorField(UndoTarget,
+                TempContent.Of(Localization.TargetColor, Localization.TargetColorTooltip),
+                zone.targetColor));
             EditorGUIUtility.labelWidth = prevColorRowsLabelWidth;
         }
 
@@ -982,7 +971,7 @@ namespace Iroca {
                         }
                     }
 
-                    using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f)) {
+                    using (new EditorGUI.DisabledScope(!ZoneEdits.HasFloodFillSeed(zone))) {
                         if (GUILayout.Button(
                             TempContent.Of(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
                             GUILayout.MinWidth(0))) {
@@ -1051,8 +1040,8 @@ namespace Iroca {
         /// (境界クリーンアップ ON・エッジぼかし 0・色のあるサンプル。<see cref="PixelProcessor.IsMixtureBandZone"/>)では走らない。
         /// </summary>
         internal static bool HoleFillMarginApplies(ColorZone zone, IrocaSessionState session)
-            => zone != null && session != null
-               && !PixelProcessor.IsMixtureBandZone(zone, session.useDecontamination, session.edgeFeather);
+            => session != null
+               && ZoneEdits.HoleFillMarginApplies(zone, session.useDecontamination, session.edgeFeather);   // 規則は Core(--script の set も同じ)
 
         /// <summary>穴埋めの余白のスライダーのツールチップ(効かないときは、その理由)。</summary>
         internal static string HoleFillMarginTooltip(bool applies)
