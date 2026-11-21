@@ -34,6 +34,9 @@ MAIN_TOOLS = (
 # dev_safe の測定器と基準(リポジトリのルートからの相対パス)。変われば測る中身・採点・回帰の判定が変わる。
 DEV_SAFE_FILES = (
     "dev_safe/scripts/measure_evidence_autotune.py", "dev_safe/scripts/sam_proposal.py",
+    # ワンショットの入口(ハーネスの --oneshot・--script を呼ぶ。ゾーンの既定・向き・キャッシュの鍵を決める)。
+    # measure_evidence_autotune の run_case はこれを通る(2026-11-21〜)
+    "dev_safe/scripts/oneshot.py",
     "dev_safe/scripts/freeze_sam_fixtures.py", "dev_safe/measure_residual.py",
     "dev_safe/scripts/measure_sam_e2e.py", "dev_safe/scripts/measure_operating_curve.py",
     "dev_safe/measure_click_position.py", "dev_safe/Tests/regression/fixtures.py",
