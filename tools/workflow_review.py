@@ -1,10 +1,18 @@
-"""ワンショット / AI提案を含める適用後の独立した出荷レビュー。
+"""クリック直後 / AI提案を含める適用後の独立した出荷レビュー。
 
-測る・承認するのは tools/visual_review.py の snapshot / compare / approve(固定設定と一緒に回す。ここだけを回す口は
-2026-11-10 に外した。2 つの承認は同じ比較の実行(run_id)と同じ中身(state)に結び付く)。ここは
+状態は窓で行き着くもの(2026-11-21、C6 の 5 章。入口は dev_safe/scripts/oneshot.py):
+  - click: 状態 (a) 窓でクリックした直後(新しいゾーンの既定のまま。自動調整なし。新しいゾーンの最初のプレビュー)
+  - assisted_include: 状態 (d) 状態 (b) の後に同じ所を右クリック「ここも塗る」(measure_evidence_autotune.run_assisted。
+    ハーネスの --script で窓の手の列を再生し、含めるかは製品の右クリックが決める。test_assisted_include と同じ入口)
+  どちらも p50 のクリック(面の内側)・塗り先 1 色。状態 (b) そのもの(自動調整の後)は visual_review.py のパネルが
+  塗り先 5 色で受け持つ(2026-11-21 まではここに「ワンショット」として 1 色で置いていた)。
+測る・承認するのは tools/visual_review.py の snapshot / compare / approve(自動調整の後のパネルと一緒に回す。ここだけを
+回す口は 2026-11-10 に外した。2 つの承認は同じ比較の実行(run_id)と同じ中身(state)に結び付く)。ここは
 python tools/workflow_review.py check [--index]
 で、承認が有効か(と、今の作業ツリー・index をコミットしたらフックを通るか)を確かめる。
-compare は全ケース(SUBJECTS × 2 条件)必須で、欠落や回帰は承認不可。
+compare は全ケース(SUBJECTS × 2 条件)必須で、欠落や回帰は承認不可(基準があるのは追加操作後だけ。クリック直後は
+変化の検知と目視と α)。基準は 1 つの基準 dev_safe/Tests/Baselines/generalization_reference.json(下の「承認を止める
+回帰の基準」)で、pytest の床(test_oneshot_floor・test_assisted_include_floor)と同じ節・同じ余裕で比べる。
 満足基準の未達は回帰と分けて記録する(既知の限界を成功と呼ばない)。
 """
 from __future__ import annotations
@@ -18,13 +26,13 @@ import subprocess
 import sys
 
 import review_state as rs
-from workflow_contract import (SUBJECTS, WORKFLOWS, SELECTION_METRICS, load_baseline,
+from workflow_contract import (SUBJECTS, WORKFLOWS, SELECTION_METRICS,
                                selection_violations, sha256, sha256_many)
 
 ROOT = Path(__file__).resolve().parents[1]
 REVIEW = ROOT / "dev_safe/Tests/workflow_review"
 FIXED_APPROVED = ROOT / "dev_safe/Tests/visual_review/approved.json"
-MODES = ("oneshot", "assisted_include")
+MODES = ("click", "assisted_include")
 # 2: state を git の blob の id にし、測り元(state_source)・比較の実行(run_id)・変更前の来歴(snapshot)を持つ(2026-11-10)
 SCHEMA = 2
 
@@ -113,7 +121,8 @@ def validate_approval(check_current: bool = True) -> dict:
         raise ValueError("ワークフロー比較後の目視承認がありません")
     fixed = json.loads(FIXED_APPROVED.read_text(encoding="utf-8"))
     if fixed.get("run_id") != doc.get("run_id") or fixed.get("state") != doc.get("state"):
-        raise ValueError("固定設定の承認が、ワークフローと同じ比較(visual_review.py compare の 1 回)を指していません")
+        raise ValueError("自動調整の後のパネルの承認が、ワークフローと同じ比較(visual_review.py compare の 1 回)を"
+                         "指していません")
     return doc
 
 
@@ -155,7 +164,8 @@ def _git_head() -> str:
 
 def _backend():
     for p in (ROOT / "dev_safe", ROOT / "dev_safe/Tests", ROOT / "dev_safe/scripts"):
-        sys.path.insert(0, str(p))
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
     import measure_evidence_autotune as mea
     import measure_click_position as mcp
     from regression import fixtures as fx
@@ -163,16 +173,59 @@ def _backend():
     return mea, mcp, fx, gtt
 
 
+# ─────────────────────────── 承認を止める回帰の基準 ───────────────────────────
+# 基準を読む所はここだけ。1 つの基準 dev_safe/Tests/Baselines/generalization_reference.json
+# (generalization_report.py freeze が書き、load_reference が節の揃いを確かめる。2026-11-21 の C6 の仕上げで、refactor-pre の
+# evidence_autotune_baseline.json・assisted_include_baseline.json の二重持ちから切り替えた)。pytest の床と同じ節を読む:
+#   "autotune"         … 節 cases(面の内側の 6 か所)。パネルが突き合わせるのは p50(test_oneshot_floor と同じ行)
+#   "assisted_include" … 節 assisted(状態 (d)。test_assisted_include_floor と同じ行)
+# 比べ方は pytest と同じ selection_violations と SELECTION_SLACK(workflow_contract)だけ。前は追加操作後に「提案を
+# 含めたか」の食い違いも退行に数えていたが、それは Python が写した拒否の規則の結果で、今は製品の右クリックが決める
+# (pytest も見ていない)ので数えない。
+REFERENCE_SECTIONS = {"autotune": "cases", "assisted_include": "assisted"}
+
+
+def _reference_path() -> Path:
+    _backend()
+    import generalization_report as gr
+    return gr.REFERENCE
+
+
+def review_baselines() -> dict[str, dict]:
+    """状態 → {"<被写体>/<クリック>": 基準の行}。"autotune" = 状態 (b)(塗り先の 1 色目)、"assisted_include" = 状態 (d)。
+
+    節が揃っていない・指標が有限な数でない基準はエラー(generalization_report.load_reference。skip にしない)。
+    """
+    _backend()
+    import generalization_report as gr
+    doc = gr.load_reference()
+    return {kind: doc[sec] for kind, sec in REFERENCE_SECTIONS.items()}
+
+
+def baseline_label(kind: str) -> str:
+    """パネルに書く基準の名前(ファイルと節)。"""
+    return f"{_reference_path().name} の {REFERENCE_SECTIONS[kind]}"
+
+
+def baseline_regressions(kind: str, key: str, metrics: dict, baselines: dict | None = None) -> list[str] | None:
+    """基準から退行した指標の並び(空なら退行なし)。基準にその状態・ケースが無ければ None(比べない)。"""
+    baselines = review_baselines() if baselines is None else baselines
+    base = (baselines.get(kind) or {}).get(key)
+    if base is None:
+        return None
+    return selection_violations(metrics, base)
+
+
 def _measure_subjects(sids, snapshot: bool) -> dict:
-    """被写体の並び sids について、ワンショットと追加操作後を測ってパネルを書き、ケースの行を返す(snapshot なら出力を
+    """被写体の並び sids について、クリック直後と追加操作後を測ってパネルを書き、ケースの行を返す(snapshot なら出力を
     保存するだけで空)。generate が直列で、または子のプロセス(_shard)が自分の分だけ呼ぶ。DLL は呼ぶ側が
     fixtures に固定してある。"""
     import numpy as np
     from PIL import Image
     import visual_review as vr
     mea, mcp, fx, gtt = _backend()
-    baselines = {"oneshot": load_baseline(mea.BASELINE_PATH),
-                 "assisted_include": load_baseline(mea.ASSISTED_BASELINE_PATH)}
+    import oneshot
+    baselines = review_baselines()
     dll, registry = fx.ensure_harness(), mcp._subject_registry()
     folder = REVIEW / ("snapshot" if snapshot else "compare")
     folder.mkdir(parents=True, exist_ok=True)
@@ -180,27 +233,54 @@ def _measure_subjects(sids, snapshot: bool) -> dict:
     cases = {}
     for sid in sids:
         subject = registry[sid]
-        r = mea.run_case(dll, subject, "p50", include=True, conventional=False, return_outputs=True)
+        # 状態 (b)(AI の証拠の範囲と許容の行。visual_review のパネルが同じ呼び出しで使う = キャッシュに当たる)と、
+        # 状態 (d)(その後に同じ所を右クリック「ここも塗る」。test_assisted_include と同じ run_assisted)
+        r = mea.run_case(dll, subject, "p50", conventional=False, return_outputs=True)
+        ra = mea.run_assisted(subject, "p50", return_outputs=True)
         rgba, gt = fx.load_subject_inputs(subject)
         region = fx.load_eval_region(subject)
         inside = gt & (rgba[..., 3] >= 128)
         if region is not None:
             inside &= region
-        tolerated, tol_info = gtt.tolerance_for_subject(subject, rgba, inside, region, overrides)
+        target = mcp._first_target(subject)
+        xy = (int(r["xy"][0]), int(r["xy"][1]))
+        # 状態 (a): 同じクリックの直後(新しいゾーンの既定のまま塗る。自動調整なし)
+        rc = oneshot.run(rgba, xy, target, state="click")
         orig_thumb = None   # 元の縮小は 2 つのモードで同じ(性能の候補 T5。1 枚約 0.13 秒)
-        for mode, output, metric_key, workflow_key in (
-            ("oneshot", r["_out_b"], "evidence", "workflow"),
-            ("assisted_include", r["_out_b2"], "evidence_include", "assisted_workflow"),
-        ):
+        tolerated = None
+        for mode in MODES:
+            if mode == "click":
+                output = rc["out"]
+            else:
+                output = ra["_out"]
             cid = f"{mode}/{sid}/p50"
             name = f"{mode}__{sid}__p50.png"
             if snapshot:
                 Image.fromarray(output).save(folder / name)
                 continue
-            metrics = r[metric_key]
-            regressions = selection_violations(metrics, baselines[mode][f"{sid}/p50"])
-            if mode == "assisted_include" and r["include_applied"] != baselines[mode][f"{sid}/p50"]["include_applied"]:
-                regressions.append("include_applied")
+            if tolerated is None:
+                tolerated, _tol_info = gtt.tolerance_for_subject(subject, rgba, inside, region, overrides)
+            if mode == "click":
+                metrics = mea._score(rgba, output, inside, region, target, tolerated)
+                workflow = dict(WORKFLOWS["click"], id="click", click="p50", gt_role="scoring_and_click_fixture",
+                                manual_mask=False, xy=list(xy))
+                regressions = []       # クリック直後には基準が無い(変化の検知と目視と α)
+                cond = {"state": "click", "subject": sid, "click": "p50", "xy": list(xy),
+                        "sample_u8": rc["sample_u8"], "target_u8": vr._u8(target),
+                        "tolerance": (rc["zone"] or {}).get("tolerance"), "exclude_px": 0}
+            else:
+                metrics = ra["assisted"]
+                workflow = dict(WORKFLOWS["assisted_include"], id="assisted_include", click="p50",
+                                gt_role="scoring_and_click_fixture", manual_mask=False, xy=list(xy),
+                                include_applied=bool(ra["applied"]), skip=ra["skip"])
+                regressions = baseline_regressions("assisted_include", f"{sid}/p50", metrics, baselines) or []
+                cond = {"state": "assisted_include", "subject": sid, "click": "p50", "xy": list(xy),
+                        "sample_u8": [int(c) for c in rgba[xy[1], xy[0], :3]], "target_u8": vr._u8(target),
+                        "tolerance": r["evidence"].get("tolerance"), "method": r["evidence"].get("method"),
+                        "evidence_used": bool(r["evidence"].get("evidence_used")),
+                        "evidence_flood": bool(r.get("seg_flood")), "evidence_zoomed": bool(r.get("seg_zoomed")),
+                        "leak_excluded_parts": (r["evidence"].get("leak") or {}).get("excludedParts"),
+                        "include_applied": bool(ra["applied"]), "include_skip": ra["skip"], "exclude_px": 0}
             if vr.alpha_violations(rgba, output):     # 再着色は色だけを変える(点検 B-7⑤)
                 regressions.append("alpha")
             previous = REVIEW / "snapshot" / name
@@ -219,51 +299,66 @@ def _measure_subjects(sids, snapshot: bool) -> dict:
             else:
                 before_tile = tile(np.full_like(output, 64), "変更前なし(新規条件)")
             label = WORKFLOWS[mode]["label"]
-            top = vr._hstack_with_sep([tile(rgba, f"元 / {sid} p50 {r['xy']}", orig_thumb),
+            top = vr._hstack_with_sep([tile(rgba, f"元 / {sid} p50 @({xy[0]},{xy[1]})",
+                                            vr.mark_click(orig_thumb, xy, rgba.shape)),
                                        before_tile, tile(output, label, out_thumb)])
             # AIマスクの役割とGT採点を別々の画像にする。GTを処理入力へ渡さない。
-            evidence = rgba.copy()
-            evidence[r["_seg"], :3] = (0, 200, 255)
-            changed = fx.recolored_mask(rgba, output)
-            if region is not None:
-                changed &= region
-            overlay = rgba.copy()
-            overlay[changed & inside, :3] = (0, 200, 80)
-            overlay[changed & ~inside & ~tolerated, :3] = (255, 40, 40)
-            overlay[changed & ~inside & tolerated, :3] = (150, 150, 150)   # 許容(同色の別部位): 設計上の巻き込み
-            overlay[~changed & inside, :3] = (40, 100, 255)
-            focus = diff_px if before is not None else (changed | inside)
-            cy, cx = vr._densest_change_window(focus, vr.CROP_SIZE)
-            crop = vr._add_label(vr._crop(output, cy, cx, vr.CROP_SIZE),
-                                 f"等倍出力 @({cx},{cy})", (40, 65, 95))
+            overlay, _qm = vr.gt_overlay(rgba, output, {"inside": inside, "region": region, "tolerated": tolerated})
+            changed_any = diff_px is not None and bool(diff_px.any())
+            if changed_any:
+                cy, cx = vr._densest_change_window(diff_px, vr.CROP_SIZE)
+                crop_label = f"等倍出力 @({cx},{cy}) 変化の密な所"
+            else:
+                cy, cx = vr.crop_around(xy, rgba.shape)
+                crop_label = f"等倍出力 @({cx},{cy}) クリックの周り"
+            crop = vr._add_label(vr._crop(output, cy, cx, vr.CROP_SIZE), crop_label, (40, 65, 95))
             # 元に無い線が増えた所(変更前があり、出力が変わったときだけ数える)
             phantom = ph_row = None
-            if before is not None and focus.any():
+            if changed_any:
                 ph = vr.phantom_change(rgba, before, output)
                 phantom = {k: v for k, v in ph.items() if not k.startswith("_")}
                 ph_row = vr.phantom_crop_row(rgba, before, output, ph)
                 del ph
-            bottom = vr._hstack_with_sep([tile(evidence, f"AI証拠 / include={mode == 'assisted_include' and r['include_applied']}"),
-                                         tile(overlay, f"GT採点: 緑=一致 赤=過検出 灰=許容(同色) 青=見逃し  "
-                                                       f"適合 {metrics['precision']:.3f}→設計 {metrics['precision_design']:.3f}"), crop])
+            gt_tile = tile(overlay, f"GT採点 適合 {metrics['precision']:.3f}→設計 {metrics['precision_design']:.3f} "
+                                    f"再現 {metrics['recall']:.3f}")
+            if mode == "click":
+                bottom = vr._hstack_with_sep([gt_tile, crop])
+            else:
+                evidence = rgba.copy()
+                evidence[r["_seg"], :3] = (0, 200, 255)
+                bottom = vr._hstack_with_sep([tile(evidence, f"AI証拠(自動調整) / 右クリックで含めた={ra['applied']}"),
+                                              gt_tile, crop])
+                del evidence
+            lines = vr.condition_lines(cond)
+            lines.append(f"GT 採点 設計 IoU {metrics['iou_design']:.3f} 再現 {metrics['recall']:.3f} "
+                         f"島 {metrics['island'] * 100:.2f}%  基準との突き合わせ: "
+                         + ("なし(クリック直後には基準が無い)" if mode == "click" else
+                            (f"退行 {', '.join(regressions)}" if regressions else "退行なし")
+                            + f"({baseline_label(mode)})"))
+            lines.append("GT採点の色: 緑=一致 赤=過検出 灰=許容(同色の別部位) 青=見逃し")
+            if changed_any:
+                lines.append(f"変更前から変わった画素 {int(diff_px.sum()):,}"
+                             + (f"  元に無い線の組 {phantom['before']:,} → {phantom['after']:,}" if phantom else ""))
             panel = vr._vstack_with_sep([top, bottom] + ([ph_row] if ph_row is not None else []))
+            panel = vr._vstack_with_sep([panel, vr.caption_strip(panel.shape[1], lines, cond.get("target_u8"))])
             Image.fromarray(panel).save(folder / name)
-            cases[cid] = {"workflow": r[workflow_key], "metrics": {k: metrics[k] for k in SELECTION_METRICS},
+            cases[cid] = {"workflow": workflow, "metrics": {k: metrics[k] for k in SELECTION_METRICS},
                           "satisfied": mea.satisfied(metrics), "satisfied_strict": mea.satisfied_strict(metrics),
-                          "tolerance_gt": r["tolerance_gt"], "regressions": regressions,
+                          "tolerance_gt": r["tolerance_gt"], "regressions": regressions, "condition": cond,
                           "panel": name, "panel_sha256": sha256(folder / name),
                           "changed_from_snapshot": int(diff_px.sum()) if before is not None else None,
                           "phantom": phantom}
             print(f"[workflow] {cid}: regression={regressions} satisfied={mea.satisfied(metrics)} "
                   f"(strict {mea.satisfied_strict(metrics)}; 適合 {metrics['precision']:.3f}→設計 "
                   f"{metrics['precision_design']:.3f}, 許容 {metrics['tolerated_frac']*100:.0f}%)", flush=True)
+            del overlay, panel
         fx._mem_cache.clear()
-        del r, rgba, output
+        del r, ra, rc, rgba, output
     return cases
 
 
-# 被写体の行の並び(直列で測ったときと同じ: 被写体の順に、ワンショット → 追加操作後)。
-_MODES = ("oneshot", "assisted_include")
+# 被写体の行の並び(直列で測ったときと同じ: 被写体の順に、クリック直後 → 追加操作後)。
+_MODES = MODES
 
 
 def _jobs() -> int:
@@ -371,6 +466,11 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
              else _measure_in_children(jobs, snapshot))
     cases = {f"{mode}/{sid}/p50": found[f"{mode}/{sid}/p50"]
              for sid in SUBJECTS for mode in _MODES if f"{mode}/{sid}/p50" in found}
+    # 一覧から外れた条件の古い画(2026-11-21 より前の oneshot__* など)を消す(compare では目視の一覧と取り違えないように)
+    keep = {f"{mode}__{sid}__p50.png" for sid in SUBJECTS for mode in _MODES}
+    for old in folder.glob("*.png"):
+        if old.name not in keep:
+            old.unlink()
     if not snapshot:
         # 測り始めてから(固定設定の分を含む)測るものが変わっていないか(点検 B-7①。時刻ではなく中身で見る)
         changed = rs.diff(state(measured["source"]), initial_state)
@@ -390,7 +490,7 @@ def generate(snapshot: bool = False, measured: dict | None = None) -> None:
         (REVIEW / "review.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
         validate_review()
         # 変更前とビット一致のパネルは目視しなくてよい。変更前が無い(None)パネルは目視に回す。
-        # 元に無い線が増えた順(次に変化の大きい順)。増えたパネルは 3 段目(赤紫の印)を見る。
+        # 元に無い線が増えた順(次に変化の大きい順)。増えたパネルは「元に無い線が増えた所」の段(赤紫の印)を見る。
         changed_rows = [c for c in cases.values() if c["changed_from_snapshot"] != 0]
         changed_rows.sort(key=lambda c: (-((c["phantom"] or {}).get("after", 0) - (c["phantom"] or {}).get("before", 0)),
                                          -(c["changed_from_snapshot"] or 0)))

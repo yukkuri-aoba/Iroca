@@ -25,10 +25,11 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
 
 | 条件ID | 入力・操作 | 結果の意味 |
 |---|---|---|
-| `oneshot` | GT内p50クリック → SAM証拠付き自動調整。手動マスクなし | 初回出力。証拠は強制包含ではない |
+| `click` | GT内p50クリックの直後（新しいゾーンの既定のまま。自動調整なし） | 窓の最初のプレビュー（状態 (a)）。視覚レビューのワークフロー側だけ |
+| `oneshot` | GT内p50クリック → SAM証拠付き自動調整。手動マスクなし | 初回出力（状態 (b)）。証拠は強制包含ではない |
 | `assisted_include` | 同じクリックの自動調整 + SAM提案を含める。flood/ドメイン過少(証拠不採用)の提案は不採用 | 明記した追加操作ポリシー後の品質 |
 | `oracle_masked` | PSDレイヤーから合成した部位領域を除外マスクにし、従来自動調整 | 理想部位情報を与えた上限性能。実ユーザー/AIのマスク精度ではない |
-| `fixed` / `fixed_excluded` | fixtureの固定設定、必要ならGTから合成した部分除外 | 再着色・除外契約。自動調整や初回体験ではない |
+| `fixed` / `fixed_excluded` | fixtureの固定設定、必要ならGTから合成した部分除外 | 再着色・除外契約。自動調整や初回体験ではない。2026-11-21 に視覚レビューから外した（窓で行き着かない状態） |
 | `fallback` | 証拠なしの従来自動調整 | フォールバック経路の回帰 |
 
 **ホールドアウト**（2026-09-24 に枠、2026-10-10 から運用）: `HOLDOUT_SUBJECTS` は上の条件のどれにも使わない被写体で、
@@ -90,30 +91,41 @@ precision で過検出に数えられ、設計どおりの挙動と本当の欠�
   適用件数は審査ページと `workflow_review/review.json` に常時出す。上書きマスクの PNG は
   `Tests/Baselines/**/*.png` が gitignore なので `texture_sample/ground_truth/` 配下に置く。
 - 審査: `python dev_safe/scripts/build_tolerance_gt.py` が被写体ごとの許容を画（緑=GT、
-  濃灰=許容）にする。38 パネルと oneshot_review の GT 採点タイルは灰=許容を赤と分けて描く。
-  規則や定数を変えたら `RULE_VERSION` を上げ、`measure_evidence_autotune.py` の `--baseline` /
-  `--assisted-baseline` で再凍結する。
+  濃灰=許容）にする。視覚レビューのパネルの GT 採点タイルは灰=許容を赤と分けて描く。
+  規則や定数を変えたら `RULE_VERSION` を上げ、1 つの基準を `generalization_report.py run → freeze` で再凍結する。
 
 ### 主経路と追加操作後の必須ゲート
 
-- `test_autotune_evidence`: ワンショット。既定p50 19件、FULLで57件。
-- `test_assisted_include`: 追加操作後p50 19件。独立した `assisted_include_baseline.json` に
-  対するIoU/precision/recall/残存島の退行と、提案採用がno-opに変わる事故を検出する。
-- `test_baselines_present`: 上記2種とプリセット比較の必須ファイル・全ケース・有限な指標値を
-  検査。欠落はfail（個別実行時もエラー）。ONNX等の環境不備によるskipとは区別する。
-- 追加操作後の基準は `python dev_safe/scripts/measure_evidence_autotune.py --assisted-baseline`
-  で全19件を別ファイルに凍結する。ワンショットの基準は書き換えない。
+- 基準は 1 つ: `dev_safe/Tests/Baselines/generalization_reference.json`（`generalization_report.py run → freeze`。
+  節 cases = 面の内側の 6 か所 × 33 被写体、pinned = 名前つきの床の位置、assisted = 状態 (d) の 33 件、flip）。
+  2026-11-21（C6 の仕上げ）に、それまでの `refactor-pre/evidence_autotune_baseline.json`・`assisted_include_baseline.json`
+  （`measure_evidence_autotune.py --baseline` / `--assisted-baseline` が書いていた）から一本化した。
+- `test_autotune_evidence`: ワンショット。既定 p50 の 33 件、FULL で p25・p95 も（節 cases の行）。
+- `test_assisted_include`: 状態 (d)（自動調整の後に同じ所を右クリック「ここも塗る」。含めるかは製品の右クリックが決める）の
+  p50 33 件。節 assisted に対する IoU/precision/recall/残存島の退行と、当てなかったときに出力が (b) とビット一致することを見る。
+- `test_baselines_present`: 基準のファイルの有無と、1 つの基準の節の揃い・有限な指標値（`generalization_report.load_reference`）、
+  品質の物差しの基準の全件を検査。欠落は fail（個別実行時もエラー）。ONNX 等の環境不備による skip とは区別する。
+- 視覚レビューの退行の判定（状態 (b) の塗り先の 1 色目・(d)）も同じ基準の同じ節を、同じ `SELECTION_SLACK` で読む
+  （`tools/workflow_review.py` の `review_baselines`）。
 
-`visual_review.py snapshot / compare / approve` は固定設定に加え、
-`tools/workflow_review.py` のワンショット19件・追加操作後19件も必須にする。
-追加パネルは `dev_safe/Tests/workflow_review/compare/` に条件ID別に保存する。
-元画像・変更前・変更後、AI証拠、GT採点、等倍クロップを分けて表示する。
+`visual_review.py snapshot / compare / approve` のパネルは、窓で行き着く状態だけを塗る（2026-11-21、C6 の 5 章。
+それまでの固定設定 174 枚は外した。入口はどれも `dev_safe/scripts/oneshot.py`）:
+- `dev_safe/Tests/visual_review/compare/`: 状態 (b)（p50 のクリック → AI の証拠つき自動調整 → 漏れの確かめ → 塗る）を
+  `SUBJECTS` × fixtures の塗り先 5 色（`autotune__<被写体>__<色>`）、同じ状態に GT の左半分を除外として与えた変種
+  （`…+masked`。マスク契約）、再現データ `dev_safe/Tests/repro_cases`（`repro__<名前>__replay` / `__autotune-z<i>`。
+  組み立ては `test_repro_cases.py` と同じ）。塗り先の 1 色目は 1 つの基準の cases の p50 と突き合わせ、退行は承認不可。
+- `dev_safe/Tests/workflow_review/compare/`: 状態 (a) クリック直後（`click/<被写体>/p50`）と、(d) (b) の後に同じ所を右クリック
+  「ここも塗る」（`assisted_include/<被写体>/p50`。`measure_evidence_autotune.run_assisted`。1 つの基準の assisted と突き合わせる）。
+どのパネルも元画像（クリックの印）・変更前・変更後、状態 (b) と追加操作後は AI証拠・GT採点・等倍クロップを分けて表示し、
+下の行に塗った状態（クリックの位置・自動調整の有無・導いた許容範囲・塗り先・除外）を書く。状態 (b) の計算は被写体ごとに
+子のプロセスへ配って結果キャッシュに置き（並列数はワークフローと同じ決め方）、描くときはキャッシュから被写体ごとに読む。
+試験用に `IROCA_REVIEW_PERTURB=<case_id>,…` を立てると、そのケースの塗り先をずらして変化の検知を確かめられる（承認はできない）。
 **両方のディレクトリのうち変更前から変化したパネルを1枚ずつ目視してから**
 `python tools/visual_review.py approve --note "実際の確認範囲と既知の未達"` を実行する
 （変更前とビット一致のパネルは読まなくてよく、変更前の無いパネルは変化ありとして扱う。下記「視覚レビュー」）。
 
 ワークフローだけを測り直す口は無い（2026-11-10 に外した）。2 つの承認は同じ `compare` の 1 回（`run_id`）と同じ
-中身を指すので、測定器や基準だけを直したときも `visual_review.py compare` を回す（DLL が同じなら固定設定はキャッシュに当たる）。
+中身を指すので、測定器や基準だけを直したときも `visual_review.py compare` を回す（DLL が同じなら結果キャッシュに当たる）。
 pre-commitは**両方の承認**を要求する。部分実行・回帰・古いコード/測定器/ベースライン/
 入力資産・欠落/変更画像は承認不可。再compareすると旧承認は無効になる。
 このゲートもnet8ハーネスの評価であり、Unity Editorの操作E2Eを代替しない。
@@ -593,12 +605,12 @@ C# を変えるたびに全件を作り直す。そこで実行キャッシュ�
 （logits・post・クロップ。提案は結果キャッシュ、クロップの埋め込みは `cropemb/` に残る）を、`measure_evidence_autotune.run_case`
 は自分で書いた証拠・含めるマスクの raw を、ハーネスへ渡し終えたら消す（開発機で `_sam_freeze_work` 133GB・`_spike/evidence` 64GB
 が、作った後にほぼ一度も読まれずに残っていた）。
-`tools/visual_review.py compare --engine csharp` の固定設定のケースも同じ `run_harness_many`
+`tools/visual_review.py compare --engine csharp` の再現データの replay（2026-11-21 までは固定設定のケース）も同じ `run_harness_many`
 （キャッシュ + `--batch`）を通るが、**選択を使い回さずに**（`share_selection=False`、鍵に `noshare`）測る（2026-11-10、点検 D-3）。
 書き出しは選択キャッシュを使わないので、出荷ゲートはその経路を測る。回帰が使い回して測った同じケースの出力がキャッシュにあれば
 （`fixtures.cached_outputs`）突き合わせ、1 画素でも違えば「選択キャッシュの鍵の漏れ」として出し、approve を止める
-（`change_summary.json` の `selection_share_check`）。そのため DLL を変えた後の最初の compare は、回帰の直後でも固定設定の分が
-コールドになる（+4〜8 分の見込み）。同じ DLL で compare をやり直すときはキャッシュに当たる。
+（`change_summary.json` の `selection_share_check`）。状態 (b) のパネルは `oneshot.py` の結果キャッシュ（鍵にクリックの位置と
+塗り先が入る）を回帰と共有する。同じ DLL で compare をやり直すときはキャッシュに当たる。
 
 **DLL のバイト列は「ソース + コンパイラ」だけで決まる**（2026-09-14、`Harness.csproj` の
 `EnableSourceLink=false`）。それまでは SourceLink が `obj/Harness.sourcelink.json` に git の HEAD
@@ -822,18 +834,18 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
   測る既定ゲート（autotune_accuracy / アトラス被写体 / 布の被写体 / synth_gen2 / click_position /
   seeded / masked / atlas_journey とその xfail 目標）は今やフォールバック経路の番兵であり、
   主経路の絶対品質はスイートに数字として無かった。
-  - `test_autotune_evidence::test_oneshot_floor`: `measure_evidence_autotune.py --baseline` が
-    凍結した `evidence_autotune_baseline.json`（19 被写体 × p25/p50/p95、B のみ）を床に
-    degradation-only。既定は p50 の 19 件、FULL で 57 件。
+  - `test_autotune_evidence::test_oneshot_floor`: 1 つの基準 `generalization_reference.json` の cases
+    （`generalization_report.py freeze`。2026-11-21 までは `evidence_autotune_baseline.json`）を床に
+    degradation-only。既定は p50 の 33 件、FULL で p25・p95 も。
   - `test_oneshot_satisfaction_target`（xfail strict=False）: 「満足」
     （prec≥0.98 ∧ rec≥0.95 ∧ 残存島≤0.5%）に未達のケースが到達すると XPASS で浮かぶ →
-    `--baseline` でラチェット（satisfied=true になり目標から外れる）。
-  - `test_oneshot_vs_preset`: **仕上がりそのものの理想への近さ**。理想 =
+    `generalization_report.py freeze` でラチェット（satisfied=true になり目標から外れる）。
+  - プリセットとの差（2026-11-21 まで `test_oneshot_vs_preset`。今は色の物差し `color_report.py` の参考の項目 preset で、
+    pytest の床と `oneshot_vs_preset_baseline.json` は消した）: **仕上がりそのものの理想への近さ**。理想 =
     `dev_safe/preset_samples/` のプリセット（作者が手で追い込んだパラメータ）を実 C# に通した
     出力、ワンショット = GT 内 p50 クリック → 証拠つき自動調整 → 同じ変更先色。変化領域の
-    OkLab 色差（p95 / 平均）と変化画素集合の IoU を `measure_oneshot_vs_preset.py --baseline`
-    の凍結値を床に守り、併せて自動調整出力に構造品質ゲート（compute_all_metrics）を課す。
-    目標（dE p95 ≤ 0.05 ∧ IoU ≥ 0.95）は xfail。PSD 由来の再着色 GT（gt_*.png）はベタ塗りに
+    OkLab 色差（p95 / 平均）と変化画素集合の IoU を参考の数字として出す（合否に入れない。
+    目標の線 dE p95 ≤ 0.05 ∧ IoU ≥ 0.95 に届いた被写体を数える）。PSD 由来の再着色 GT（gt_*.png）はベタ塗りに
     近く（元との明度相関 0.2）理想には使わない。4 被写体（bandana / costume / hair / sneakers）。
   - 導出結果 → ゾーンの適用写像は `ZoneAutoTuner.TuneResult.ApplyTo` が単一の正
     （UI とハーネスの二重実装を解消）。製品の側でそれを呼ぶのは自動調整の流れ `AutoTuneService`（ウィンドウと
@@ -847,12 +859,9 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
     `scripts/source_checks/test_recolor_settings.py` が検査する。同じテストが、全体設定のそれぞれが選択キャッシュの
     鍵（`BuildSelectionKey`）に入っているか「選択に効かない」と分類されているかも見る（ゾーン側は
     `scripts/golden/test_selection_key_audit.py`）。
-  - **画で見る**（2026-09-03〜）: 上の 3 本は数字しか残さない。`dev_safe/scripts/build_oneshot_review.py`
-    が同じ driver（`run_case` / `run_subject`）の出力を「クリック位置+証拠セグメント / 出力 /
-    GT 判定オーバーレイ（+注目範囲クロップ）」の画と `review_data.json` に書き出し、
-    `build_oneshot_review_html.py --junit <junit.xml>` が被写体 × 3 クリック位置のケース（2026-09-05 の生成時点で 42 件）+
-    プリセット比較 4 件 + テスト結果表を 1 枚の HTML（`dev_safe/Tests/oneshot_review/oneshot_review.html`）に組む。
-    未達ケースの「はみ出しか取りこぼしか、証拠はどこだったか」はここで目視する。
+  - **画で見る**: 視覚レビューのパネル（状態 (b) の 2 段目に AI 証拠・GT 採点・等倍）で目視する。2026-09-03〜11-21 は
+    `build_oneshot_review.py`・`build_oneshot_review_html.py` が別の HTML を組んでいたが、消した基準と固定のクリックを
+    前提にしていたので消した。
 - **プレビュー座標変換（スポイト/シード/ペイント/AI クリックの v 反転）**（2026-08-23〜）:
   変換は `Code/Core/PreviewCoords.cs` が単一の正（UI でインライン再実装しない）。
   `test_preview_coords` が Harness `--previewcoords` で実 C# を駆動し、独立リファレンスと
@@ -959,7 +968,7 @@ python tools/visual_review.py approve --note "確認した範囲と根拠"   # �
 python tools/visual_review.py check --index         # （任意）今ステージした中身をコミットしたらフックを通るか
 ```
 
-`--engine csharp` は書いても書かなくてもよい（csharp だけ）。固定設定とワンショット/追加操作後は、いつも同じ
+`--engine csharp` は書いても書かなくてもよい（csharp だけ）。自動調整の後のパネルとクリック直後/追加操作後は、いつも同じ
 `compare` の 1 回で測り、2 つの承認は同じ比較の実行（`run_id`）と同じ中身（`state`）を指す
 （ワークフローだけを回す口 `workflow_review.py compare / approve` は 2026-11-10 に外した。DLL が同じならキャッシュに
 当たるので、両方を回し直しても速い）。
@@ -988,7 +997,7 @@ python tools/visual_review.py check --index         # （任意）今ステー�
 - 承認は `dev_safe/Tests/visual_review/approved.json` に記録される。`--note` には
   **実際に見た範囲と、それで十分と判断した根拠**を書く（必須。無いか空だと ValueError で止まり、承認されない）。
 - `compare` は変更前（snapshot）との差を数え、`dev_safe/Tests/visual_review/change_summary.json` に書く。
-  固定設定のケースごとに `changed`（変更前と RGBA のどれかが違う画素数。2026-11-10 までは RGB だけで、α だけの変化は
+  ケースごとに `changed`（変更前と RGBA のどれかが違う画素数。2026-11-10 までは RGB だけで、α だけの変化は
   「ビット一致」になっていた）・`alpha_changed`（そのうち α が違う画素）・`toward_original`（元テクスチャとの差が縮んだ画素＝
   誤爆の除去）・`away_from_original`（差が広がった画素＝新しい・強まった着色）・`max_delta`（変更前との最大差）。
   あわせて全ケースで「出力の α ＝ 入力の α」を数え（`alpha_contract`。golden の `test_alpha_is_preserved` が合成入力で
@@ -998,27 +1007,31 @@ python tools/visual_review.py check --index         # （任意）今ステー�
   `dev_safe/Tests/workflow_review/review.json` の各ケースの `changed_from_snapshot`（変更前と違う画素数。
   snapshot が無ければ null）が同じ役をする。目視するのは変化のあるケースと変更前の無いケースだけで
   （ビット一致のケースは読まなくてよい）、compare はそのパネルだけを一覧に出す。
-- 固定設定は選択を使い回さずに測り（書き出しと同じ経路）、回帰が使い回して測った出力がキャッシュにあれば突き合わせる。
+- 再現データの replay は選択を使い回さずに測り（書き出しと同じ経路）、回帰が使い回して測った出力がキャッシュにあれば突き合わせる。
   食い違い（選択キャッシュの鍵の漏れ）があると approve できない（2026-11-10、点検 D-3。上の「実行時間の作り」）。
+  2026-11-21 から状態 (b) は 1 ケース 1 プロセス（`--oneshot`）で、使い回しの経路が無いので突き合わせない。
+- `change_summary.json` には、全ケースの塗った状態（`conditions`。approve が一覧の欠けを見る）、基準との突き合わせ
+  （`baseline_check`）、試験用に変えたケース（`perturbed`）も載る。欠け・退行・試験用の変更があると approve できない。
 - pre-commit フック（`scripts/hooks/pre-commit` → `tools/check_visual_review.py`）は、範囲のファイルがステージされている
   ときに次を見る（2026-11-10 から。それまでは固定設定を承認時刻とファイルの mtime で見ていて、hunk を分けて stage すると
   測っていない「HEAD＋一部の hunk」が通り、承認もコミットのたびに使い切られなかった）:
-  1. 固定設定とワークフローの両方の承認があり、同じ比較を指し、回帰・欠けたケース・変わったパネルや入力資産が無いこと。
+  1. 自動調整の後のパネルとワークフローの両方の承認があり、同じ比較を指し、回帰・欠けたケース・変わったパネルや入力資産が無いこと。
   2. **ステージしたファイルごとに**、コミットされる中身（index の blob。`git commit -- <パス>` の一時 index も
      `GIT_INDEX_FILE` で読む）が「HEAD と同じ」か「承認した比較で測った中身と同じ」こと（判断 17 の (b) ファイル単位）。
      測った作業ツリーから複数のコミットに分けてよいが、1 つのファイルの hunk を分けたものは落ちる。測っていないファイルを
      足したものも落ちる。共有の作業ツリーで他人の未コミットを入れずに測ったなら `compare --index`。
   3. dev_safe の測定器と基準が、承認した比較のときと同じ中身なこと（作業ツリーで見る）。
-  本体のフックは今のコードの品質を測らない（出力にもそう書く）。品質ゲートのしきい値の較正（`quality_report.py --validate`。
-  保存済みの CSV で good/bad の分離を見るだけ）は、2026-11-10 から dev_safe のフックが、しきい値・ラベル・CSV を
-  変えたコミットでだけ回す。
+  本体のフックは今のコードの品質を測らない（出力にもそう書く）。
 - **dev_safe にも pre-commit フックがある**（2026-11-10、点検 D-4。`dev_safe/hooks/pre-commit` → 本体の
   `tools/check_visual_review.py --dev-safe`）。測定器と基準（`tools/review_state.py` の `DEV_SAFE_FILES`: fixtures.py・
-  測定スクリプト・2 つのベースライン・`subjects.json`・GT 許容の上書き）をステージしたコミットに、本体と同じ承認を求める
+  パネルと退行の判定を決める測定スクリプト・1 つの基準 `generalization_reference.json` とそれを読む `generalization_report.py`・
+  名前つきの床の台帳 `pinned_clicks.json`・`subjects.json`・GT 許容の上書き・再現データの組み立て `test_repro_cases.py`。
+  入れる・入れない理由はファイルの注）を
+  ステージしたコミットに、本体と同じ承認を求める
   （ステージした中身がファイルごとに dev_safe の HEAD か承認で測った中身と同じで、本体の測るコードと測定器が承認のときのまま）。
-  **ベースラインを凍結するコミットにも承認が要る**。品質ゲートのしきい値・ラベル・CSV（`quality_thresholds.py`・
-  `quality_labels.json`・`Baselines/quality_report.csv`・`quality_report.py`）をステージしたら `quality_report.py --validate`
-  を回す。承認の成果物（`approved.json`・`review.json` など）だけのコミットは何も求めない。dev_safe だけを clone した所では何もしない。
+  **ベースラインを凍結するコミットにも承認が要る**。（2026-11-21 まで、品質ゲートのしきい値・ラベル・CSV をステージしたら
+  `quality_report.py --validate` を回していた。品質ゲートを凍結した基準 `Baselines/quality_gate_reference.json` からの退行の
+  物差しにし、固定設定の頃のラベルと CSV を消したので外した。）承認の成果物（`approved.json`・`review.json` など）だけのコミットは何も求めない。dev_safe だけを clone した所では何もしない。
   `git stash` の往復やチェックアウトは中身が同じなら承認を切らない。`python tools/visual_review.py check [--index]` で、
   承認が有効か・今の中身をコミットしたら通るかを確かめられる（`workflow_review.py check` も同じ）。
 - **ゲートの対象は「headless ハーネスがコンパイルする製品ソース」と、測り方を決めるもの**（`tools/review_state.py` の

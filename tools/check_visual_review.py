@@ -15,9 +15,9 @@ dev_safe: dev_safe/hooks/pre-commit(有効化: dev_safe で git config core.hook
   1. 視覚レビューの state に入る測定器・基準(review_state.DEV_SAFE_FILES)がステージされていれば、承認が有効で、
      ステージした中身がファイルごとに「dev_safe の HEAD と同じ」か「承認で測った中身と同じ」で、本体の測るコードと
      測定器が承認のときのまま(承認の測り元: 作業ツリーか index)であること。ベースラインの凍結にも承認が要る。
-  2. 品質ゲートのしきい値・ラベル・CSV(QUALITY_FILES)をステージしたら、quality_report.py --validate で good/bad の分離を
-     確かめる(以前は本体のフックが毎回回していたが、今のコードと関係が無く「品質ゲート OK」と読み違えられた)。
-     SKIP_QUALITY_GATE=1 でスキップ可。
+  (2026-11-21 まで、品質ゲートのしきい値・ラベル・CSV をステージしたら quality_report.py --validate で good/bad の分離を
+   確かめていた。品質ゲートを絶対のしきい値の合否から「凍結した基準からの退行」の物差しに下げ、固定設定の頃の
+   ラベルと CSV を消したので外した。基準の揃いは test_baselines_present が見る。)
 
 終了コード:
     0 — チェック通過（コミット許可）
@@ -26,7 +26,6 @@ dev_safe: dev_safe/hooks/pre-commit(有効化: dev_safe で git config core.hook
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -35,12 +34,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # 本体のルート(dev_safe のフックから呼ばれても、本体のルートを指す)
 ROOT = Path(__file__).resolve().parents[1]
 DEV_SAFE = ROOT / "dev_safe"
-# dev_safe の中の、品質ゲートのしきい値の較正(quality_report.py --validate)に効くファイル
-QUALITY_FILES = (
-    "Tests/regression/quality_thresholds.py", "Tests/regression/quality_labels.json",
-    "Tests/regression/quality_report.py", "Tests/Baselines/quality_report.csv",
-)
-
 HOWTO = (
     "  1. python tools/visual_review.py snapshot            # 変更前(既定で HEAD のコードから。HEAD が変更前なら後でもよい)\n"
     "  2. python tools/visual_review.py compare [--index]   # 今の中身を測る(--index ならステージした中身のコード)\n"
@@ -99,8 +92,6 @@ def main_dev_safe() -> None:
         sys.exit(0)
     import review_state as rs
     staged = rs.staged(DEV_SAFE)
-    if any(f in QUALITY_FILES for f in staged):
-        run_quality_gate_validate()
     scope = [f for f in staged if rs.in_dev_safe_scope(f)]
     if not scope:
         sys.exit(0)
@@ -121,35 +112,6 @@ def main_dev_safe() -> None:
     print(f"[pre-commit] 視覚レビュー承認確認済み(比較 {doc['run_id'][:8]}。ステージした {len(scope)} ファイルは "
           "dev_safe の HEAD か測った中身と同じ)")
     sys.exit(0)
-
-
-def run_quality_gate_validate() -> None:
-    """出力品質ゲートのしきい値較正が健全か(--validate)を高速検証する(dev_safe のフックが、しきい値・ラベル・CSV を
-    ステージしたときだけ呼ぶ)。
-
-    保存済みの CSV を読むだけで、今のコードの出力は測らない。SKIP_QUALITY_GATE=1 でスキップ。
-    quality_report.py が無い環境では何もしない(通過)。
-    """
-    if os.environ.get("SKIP_QUALITY_GATE") == "1":
-        print("[pre-commit] SKIP_QUALITY_GATE=1 のため品質ゲート検証をスキップします")
-        return
-    qr = DEV_SAFE / "Tests" / "regression" / "quality_report.py"
-    if not qr.exists():
-        print("[pre-commit] (品質ゲート未配置のためスキップ)")
-        return
-    res = subprocess.run(
-        [sys.executable, str(qr), "--validate"],
-        capture_output=True, encoding="utf-8", errors="replace",
-    )
-    if res.returncode != 0:
-        _fail(
-            "出力品質ゲートのしきい値較正が good/bad を分離できていません(--validate 失敗)。\n"
-            "しきい値を緩めて破綻を通していないか quality_thresholds.py を見直してください。\n"
-            "（このチェックは SKIP_QUALITY_GATE=1 で一時的に回避できます）\n\n"
-            + (res.stdout or "") + (res.stderr or "")
-        )
-    print("[pre-commit] 品質ゲートのしきい値の較正 OK（保存済みの CSV で good/bad を分離。"
-          "今のコードの出力は測っていない）")
 
 
 def _fail(message: str) -> None:

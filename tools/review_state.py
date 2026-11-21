@@ -31,25 +31,44 @@ MAIN_TOOLS = (
     "tools/visual_review.py", "tools/workflow_review.py", "tools/workflow_contract.py",
     "tools/harness_build.py", "tools/harness_scope.py", "tools/review_state.py",
 )
-# dev_safe の測定器と基準(リポジトリのルートからの相対パス)。変われば測る中身・採点・回帰の判定が変わる。
+# dev_safe の測定器と基準(リポジトリのルートからの相対パス)。変われば、パネルの中身・採点・退行の判定が変わるものだけを入れる
+# (テストだけが使う物・import されるだけの物は入れない。入れると、測り方に効かない変更にも視覚レビューの承認が要る)。
+# 2026-11-21(C6 の仕上げ)に今の作りに合わせて見直した。入れない物の理由は下の注に。
 DEV_SAFE_FILES = (
-    "dev_safe/scripts/measure_evidence_autotune.py", "dev_safe/scripts/sam_proposal.py",
-    # ワンショットの入口(ハーネスの --oneshot・--script を呼ぶ。ゾーンの既定・向き・キャッシュの鍵を決める)。
-    # measure_evidence_autotune の run_case はこれを通る(2026-11-21〜)
+    # 状態 (b) の採点の行(run_case)・状態 (d) の右クリック(run_assisted)・GT 採点(_score)・満足の線
+    "dev_safe/scripts/measure_evidence_autotune.py",
+    # ワンショットの入口(ハーネスの --oneshot・--script を呼ぶ。ゾーンの既定・向き・キャッシュの鍵を決める)
     "dev_safe/scripts/oneshot.py",
-    "dev_safe/scripts/freeze_sam_fixtures.py", "dev_safe/measure_residual.py",
-    "dev_safe/scripts/measure_sam_e2e.py", "dev_safe/scripts/measure_operating_curve.py",
-    "dev_safe/measure_click_position.py", "dev_safe/Tests/regression/fixtures.py",
+    # AI 提案の ONNX の置き場と、凍結した埋め込みの名前(texture_key)。oneshot が読む
+    "dev_safe/scripts/freeze_sam_fixtures.py",
+    # 残存島(island)の採点。基準と突き合わせる指標の 1 つ
+    "dev_safe/measure_residual.py",
+    # クリックの位置(面の内側の p50)・塗り先の 1 色目・被写体の登録
+    "dev_safe/measure_click_position.py",
+    # 名前つきの床の位置の台帳。基準を読むとき(load_reference)に pinned の節の揃いをこれで確かめる
+    "dev_safe/Tests/regression/pinned_clicks.json",
+    # 被写体の入力(テクスチャ・GT・評価領域・塗り先の 5 色)とハーネスの呼び出し・結果キャッシュ
+    "dev_safe/Tests/regression/fixtures.py",
     "dev_safe/Tests/regression/headless_io.py",
     # 出力にだけある線の物差し(パネルの 3 段目と cases の phantom)
     "dev_safe/Tests/regression/phantom_edges.py",
     # GT 許容(同色の別部位)の規則と理由つき上書き。変われば design 採点が変わる
     "dev_safe/Tests/regression/gt_tolerance.py", "dev_safe/Tests/regression/colorspace.py",
     "dev_safe/Tests/Baselines/gt_tolerance_overrides.json",
+    # 再現データ(repro_cases)のパネルの組み立て(テクスチャ・ゾーン・マスク・向き)。visual_review が読む(2026-11-21〜)
+    "dev_safe/Tests/regression/test_repro_cases.py",
+    # 被写体の一覧(パネルの一覧と除外つきの変種)
     "dev_safe/Tests/subjects.json",
-    "dev_safe/Tests/Baselines/refactor-pre/evidence_autotune_baseline.json",
-    "dev_safe/Tests/Baselines/refactor-pre/assisted_include_baseline.json",
+    # 退行の判定の基準: 1 つの基準(pytest の床と同じ。cases の p50 と assisted)と、それを読む・作る口(load_reference・freeze)
+    "dev_safe/scripts/generalization_report.py",
+    "dev_safe/Tests/Baselines/generalization_reference.json",
 )
+# 入れない物(2026-11-21 に外した・入れなかった):
+#   - refactor-pre/evidence_autotune_baseline.json・assisted_include_baseline.json: 消した(1 つの基準へまとめた)
+#   - scripts/sam_proposal.py・scripts/measure_sam_e2e.py・scripts/measure_operating_curve.py: パネルの経路から呼ばれなくなった
+#     (提案はハーネスの --oneshot・--script が製品の段取りで作る。measure_evidence_autotune・freeze_sam_fixtures が import するだけ)
+#   - Tests/regression/window_cases.py: pytest と測定スクリプトだけが使う(パネルは oneshot.py を直に呼ぶ)
+#   - Tests/Baselines/quality_gate_reference.json・Tests/regression/quality_report.py: 品質ゲート(pytest の物差し)だけが読む
 
 
 # ─────────────────────────── 範囲 ───────────────────────────

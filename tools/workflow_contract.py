@@ -21,16 +21,20 @@ SUBJECTS: tuple[str, ...] = tuple(_SUBJECT_DOC.get("subjects", ()))
 # 見た回数を dev_safe/Tests/Baselines/holdout_log.jsonl に残す（見るほど効かなくなるため）。
 HOLDOUT_SUBJECTS: tuple[str, ...] = tuple(_SUBJECT_DOC.get("holdout_subjects", ()))
 CLICKS = ("p25", "p50", "p95")
-PRESET_SUBJECTS: tuple[str, ...] = tuple(_SUBJECT_DOC.get("preset_subjects", ()))
-# 除外マスク付きの視覚レビューケース(subject_id -> 使うケース数)。選び方は visual_review.py。
+# 除外マスク付きの視覚レビューケース(subject_id -> 使うケース数。自動調整の後の状態に除外を与える)。選び方は visual_review.py。
 MASKED_REVIEW_CASES: dict[str, int] = dict(_SUBJECT_DOC.get("masked_review_cases", {}))
 WORKFLOWS = {
+    # 窓でクリックした直後(新しいゾーンの最初のプレビュー。自動調整なし。dev_safe/scripts/oneshot.py の状態 click)
+    "click": {"label": "クリック直後(自動調整なし)", "mask_role": "none", "mask_source": "none",
+              "settings_source": "window_new_zone", "additional_action": "none"},
     "oneshot": {"label": "ワンショット", "mask_role": "evidence_only",
                 "mask_source": "sam", "settings_source": "autotune",
                 "additional_action": "none"},
+    # 状態 (d): 自動調整の後に同じ所を右クリック「ここも塗る」。含めるかは製品の右クリックの手が決める
+    # (dev_safe/scripts/measure_evidence_autotune.run_assisted。2026-11-21 まで Python が拒否の規則を写していた)
     "assisted_include": {"label": "AI提案を含める適用後", "mask_role": "evidence_and_include",
                          "mask_source": "sam", "settings_source": "autotune",
-                         "additional_action": "accept_include_unless_rejected"},
+                         "additional_action": "right_click_paint_here"},
     "oracle_masked": {"label": "理想部位マスクによる上限性能", "mask_role": "exclude",
                       "mask_source": "psd_part_simulation", "settings_source": "legacy_autotune"},
     "fixed": {"label": "固定設定", "mask_role": "none", "mask_source": "none",
@@ -46,16 +50,15 @@ WORKFLOWS = {
 #            尤度比 ≥ 1)を過検出の分母から外した値(iou_design / precision_design)。
 # 満足判定と退行床は design 側。見逃し側(recall)に許容はない(ハイライト復帰は製品機能)。
 # tolerated_frac = 変更画素のうち許容へ落ちた割合。床は置かず、緩みの監視用に凍結する。
+# 基準(dev_safe/Tests/Baselines/generalization_reference.json。generalization_report.load_reference)と比べるときの余裕。
+# pytest の床(test_oneshot_floor・test_assisted_include_floor)と視覚レビューの退行の判定(workflow_review)が同じ値を使う。
 SELECTION_SLACK = {"iou_design": 0.02, "precision_design": 0.02, "recall": 0.03, "island": 0.005}
 STRICT_METRICS = ("iou", "precision")
 SELECTION_METRICS = ("iou", "precision", "recall", "island",
                      "iou_design", "precision_design", "tolerated_frac")
-BASELINES = {
-    "evidence_autotune_baseline.json": ({f"{s}/{c}" for s in SUBJECTS for c in CLICKS},
-                                         SELECTION_METRICS),
-    "assisted_include_baseline.json": ({f"{s}/p50" for s in SUBJECTS}, SELECTION_METRICS),
-    "oneshot_vs_preset_baseline.json": (set(PRESET_SUBJECTS), ("dE_p95", "dE_mean", "sel_iou")),
-}
+# 基準のファイルの表(BASELINES・load_baseline・validate_baseline)は 2026-11-21 の C6 の仕上げで外した。読んでいた
+# refactor-pre の 3 つ(evidence_autotune・assisted_include・oneshot_vs_preset)は、1 つの基準と色の物差しへ移って消えた。
+# 1 つの基準の節の揃いと有限さは generalization_report.load_reference が確かめる。
 
 
 def validate_subject_split() -> None:
@@ -65,29 +68,6 @@ def validate_subject_split() -> None:
         raise ValueError(f"ホールドアウトが SUBJECTS と重なっています: {sorted(overlap)}")
     if len(set(HOLDOUT_SUBJECTS)) != len(HOLDOUT_SUBJECTS):
         raise ValueError("HOLDOUT_SUBJECTS に重複があります")
-
-
-def load_baseline(path: Path) -> dict:
-    """必須ファイル・ケース・有限な指標値の欠落は skip でなくエラー。"""
-    doc = json.loads(path.read_text(encoding="utf-8"))
-    return validate_baseline(doc, path.name)
-
-
-def validate_baseline(doc: dict, name: str) -> dict:
-    expected, metrics = BASELINES[name]
-    cases = doc.get("cases", {})
-    missing = expected - cases.keys()
-    if missing:
-        raise ValueError(f"{name}: 必須ケース不足: {sorted(missing)}")
-    for key in expected:
-        for metric in metrics:
-            value = cases[key].get(metric)
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                raise ValueError(f"{name}: {key}/{metric} が有限な数値ではありません")
-        flag = "satisfied" if name == "evidence_autotune_baseline.json" else "include_applied" if name == "assisted_include_baseline.json" else None
-        if flag and not isinstance(cases[key].get(flag), bool):
-            raise ValueError(f"{name}: {key}/{flag} がboolではありません")
-    return cases
 
 
 def selection_violations(actual: dict, baseline: dict) -> list[str]:
