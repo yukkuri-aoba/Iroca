@@ -582,15 +582,14 @@ namespace Iroca {
         /// 無い項目は読み飛ばし、同じゾーン id は後の項目が勝つ)。層はまず全部外す。寸法が無効なら false(層なし・寸法は
         /// そのまま)。同じ寸法で中身が保存形式の文字列と同じ層は、展開し直さずにそのまま使う(Undo/Redo の書き戻しで
         /// 変わるのはふつう 1 枚だけ)。
+        /// <para>
+        /// 読み飛ばした項目の数を <paramref name="dropped"/> に返す(壊れた文字列・寸法の合わない項目・ゾーン id の無い項目。文字列が
+        /// 空の項目は層が無いだけなので数えない)。読み飛ばした項目は、ゾーンの id つきの警告の文を <paramref name="warn"/> へ渡す
+        /// (Core はログを持たないので、出すのは呼び手。エディタの側は MaskWorkspaceLog の DecodeFrom がコンソールへ出す)。
+        /// 黙って捨てると、次の保存で保存先からも消えるので、読んだ側が数を見て元のファイルを退避する。
+        /// </para>
         /// </summary>
-        public bool DecodeFrom(MaskState ms) => DecodeFrom(ms, out _);
-
-        /// <summary>
-        /// <see cref="DecodeFrom(MaskState)"/> と同じで、読み飛ばした項目の数を <paramref name="dropped"/> に返す(壊れた文字列・
-        /// 寸法の合わない項目・ゾーン id の無い項目。文字列が空の項目は層が無いだけなので数えない)。読み飛ばした項目はゾーンの id つきで
-        /// 警告に出す。黙って捨てると、次の保存で保存先からも消えるので、読んだ側が数を見て元のファイルを退避する。
-        /// </summary>
-        public bool DecodeFrom(MaskState ms, out int dropped) {
+        public bool DecodeFrom(MaskState ms, System.Action<string> warn, out int dropped) {
             dropped = 0;
             var oldCommon = _common;
             var oldExcludes = new Dictionary<string, NativeBitMask>(_excludes);
@@ -610,14 +609,14 @@ namespace Iroca {
                     _common = MaskStateCodec.DecodeLayer(ms.commonMaskBase64, Width, Height, sameSize ? oldCommon : null);
                     if (_common == null) {
                         dropped++;
-                        WarnDropped(null, include: false);
+                        WarnDropped(warn, null, include: false);
                     }
                 }
                 // どの項目を読み飛ばすかの規則は Core に 1 つだけ(非破壊ビルドの MaskStateCodec.ToSnapshot と同じ)。
                 dropped += MaskStateCodec.ReadLayers(ms.zones, _excludes, Width, Height, sameSize ? oldExcludes : null,
-                    id => WarnDropped(id, include: false));
+                    id => WarnDropped(warn, id, include: false));
                 dropped += MaskStateCodec.ReadLayers(ms.zoneIncludes, _includes, Width, Height, sameSize ? oldIncludes : null,
-                    id => WarnDropped(id, include: true));
+                    id => WarnDropped(warn, id, include: true));
                 ReadPatches(ms.patches);
                 TrimPatches();   // 削る前の版(0.4.0 の開発中)や手で書いた保存の記録を、層に合わせる
                 CapPatches();    // 手で書いた保存は、上限を超えて並べられる
@@ -680,12 +679,12 @@ namespace Iroca {
         }
 
         // zoneId = null は全ゾーン共通の除外、空はゾーンの id が無い項目。
-        private void WarnDropped(string zoneId, bool include) {
+        private void WarnDropped(System.Action<string> warn, string zoneId, bool include) {
             string layer = zoneId == null ? "the all-zones exclusion mask" : include ? "an include mask" : "an exclude mask";
             string zone = string.IsNullOrEmpty(zoneId) ? "" : $" of zone {zoneId}";
             string reason = zoneId != null && zoneId.Length == 0 ? "it has no zone id"
                 : $"its data is broken or its size does not match {Width}x{Height}";
-            UnityEngine.Debug.LogWarning($"[Iroca] Skipped {layer}{zone}: {reason}.");
+            warn?.Invoke($"[Iroca] Skipped {layer}{zone}: {reason}.");
         }
 
         // ─────────────── 処理へ渡す ───────────────

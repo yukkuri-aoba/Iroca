@@ -65,7 +65,7 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "彩度 × 明度の 2 次元ヒストグラムの bin の数",
     ("Code/Automation/IrocaAutomation.Analysis.cs", "new float[indices.Length]"):
         "iroca_inspect の標本の数(CoverageSamples 前後か、聞かれた場所の 1 か所)",
-    ("Code/Application/MaskRegionEdit.cs", "new float[strengths.Length]"):
+    ("Code/Core/Masks/MaskRegionEdit.cs", "new float[strengths.Length]"):
         "ゾーンの数(strengths はゾーンごとの配列の配列)",
     ("Code/UI/PreviewView.Overlays.cs", "new Vector3[segs.Length]"):
         "重ね表示の線分の数",

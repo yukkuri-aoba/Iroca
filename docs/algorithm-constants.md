@@ -145,8 +145,10 @@
 | `Code/Core/ZoneAutoTuner.Tolerance.cs` | 4 |
 | `Code/Core/ZoneAutoTuner.Verify.cs` | 0 |
 | `Code/Core/ZoneAutoTuner.cs` | 40 |
+| `Code/Core/ZoneEdits.cs` | 0 |
 | `Code/MaskSuggest/Ops/MaskSuggestGranularity.cs` | 0 |
 | `Code/MaskSuggest/Ops/MaskSuggestUse.cs` | 0 |
+| `Code/MaskSuggest/Ops/ProposalMaskTransfer.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamCoordMapper.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamImageOps.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskPostprocess.ByColor.cs` | 0 |

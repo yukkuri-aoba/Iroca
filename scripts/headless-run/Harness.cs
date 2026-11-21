@@ -443,6 +443,12 @@ namespace Iroca {
                 return RunOneshot(args);
             }
 
+            // --script: 窓の操作の列(スポイト・塗り先・自動調整・右クリックの範囲の操作・許容範囲)を、窓と同じ部品で再生する。
+            // 引数と出力は Harness.Oneshot.cs の説明。
+            if (args.Length >= 1 && args[0] == "--script") {
+                return RunScript(args);
+            }
+
             // --samops-*: AI マスク提案の純計算層(SamImageOps/SamCoordMapper/SamMaskPostprocess/
             // MaskRle)を実 C# で駆動し、pytest の NumPy リファレンスと突き合わせる決定的検証モード。
             if (args.Length >= 1 && args[0].StartsWith("--samops-", StringComparison.Ordinal)) {
@@ -1025,8 +1031,14 @@ namespace Iroca {
         private static (List<ColorZone> zones, SettingsCfg settings,
                         List<(string zoneId, string path, bool include)> zoneMasks,
                         List<string> evidencePaths) LoadZones(
-            string path, Dictionary<string, string> persistentIds = null, bool bySlot = false) {
-            var cfg = JsonSerializer.Deserialize<ZonesConfig>(File.ReadAllText(path), CaseInsensitiveJson);
+            string path, Dictionary<string, string> persistentIds = null, bool bySlot = false)
+            => LoadZones(JsonSerializer.Deserialize<ZonesConfig>(File.ReadAllText(path), CaseInsensitiveJson), persistentIds, bySlot);
+
+        // 読んだ zones JSON から(--script は台本の中の zones を渡す)。
+        private static (List<ColorZone> zones, SettingsCfg settings,
+                        List<(string zoneId, string path, bool include)> zoneMasks,
+                        List<string> evidencePaths) LoadZones(
+            ZonesConfig cfg, Dictionary<string, string> persistentIds = null, bool bySlot = false) {
             var list = new List<ColorZone>();
             var zoneMasks = new List<(string zoneId, string path, bool include)>();
             // 証拠マスク(--autotune 専用入力)はゾーンと同じ並びで返す(未指定は null)。

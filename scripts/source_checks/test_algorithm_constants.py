@@ -60,6 +60,12 @@ SCOPE_EXCLUDE = {
     "Code/Core/MaskStateCodec.cs": "保存形式",
     "Code/Core/MaskRle.cs": "保存形式",
     "Code/Core/MaskSnapshot.cs": "マスクの詰め方（中身は変えない）",
+    # マスクの編集(利用者の操作の規則。Application から移しただけで、台帳の対象外のまま。2026-11-21)
+    "Code/Core/Masks/MaskWorkspace.cs": "マスクの編集",
+    "Code/Core/Masks/MaskPatch.cs": "マスクの編集(塗った範囲の記録)",
+    "Code/Core/Masks/MaskRegionEdit.cs": "マスクの編集",
+    "Code/Core/Masks/MaskRegionEdit.ClearAt.cs": "マスクの編集",
+    "Code/Core/Masks/MaskRegionEdit.Brush.cs": "マスクの編集",
     "Code/Core/RecolorSettings.cs": "設定の既定値",
     "Code/Core/RecolorValueRanges.cs": "設定の範囲（UI のスライダーと同じ。範囲の中の値は丸めで変わらない）",
     "Code/Core/ZonesJsonDefaults.cs": "設定の既定値",

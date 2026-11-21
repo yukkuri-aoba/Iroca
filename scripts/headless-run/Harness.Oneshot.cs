@@ -1,6 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-// --oneshot(窓のワンショット)と、--autotune が通る自動調整の段取り(AutoTuneFlow)の口。
+// --oneshot(窓のワンショット)・--script(窓の操作の列)と、--autotune が通る自動調整の段取り(AutoTuneFlow)の口。
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -44,29 +44,9 @@ namespace Iroca {
             return flow.Result;
         }
 
-        // 自動調整に渡す除外: 共通(mask.raw) ∪ そのゾーンの除外。全部 0・全部 1 なら渡さない(--autotune と同じ。製品の解析も
-        // 「マスクなし」とみなす)。
-        private static bool[] AutoTuneExclusion(bool[] common, MaskSnapshot masks, ColorZone z) {
-            bool[] excluded = common;
-            if (masks.zones != null && masks.zones.TryGetValue(z.id, out var zoneExclude) && zoneExclude != null) {
-                excluded = (bool[])common.Clone();
-                for (int k = 0; k < excluded.Length; k++) {
-                    if (zoneExclude.Get(k)) {
-                        excluded[k] = true;
-                    }
-                }
-            }
-            int exCount = 0;
-            for (int k = 0; k < excluded.Length; k++) {
-                if (excluded[k]) {
-                    exCount++;
-                }
-            }
-            return exCount > 0 && exCount < excluded.Length ? excluded : null;
-        }
-
         /// <summary>
-        /// 自動調整の提案の源: 製品と同じ段取り(SamProposalFlow)と推論(onnxruntime)で 1 件ずつ作る。
+        /// AI 提案の源: 製品と同じ段取り(SamProposalFlow)と推論(onnxruntime)で 1 件ずつ作る。自動調整の提案の源(用途 Evidence)にも、
+        /// 右クリックの提案(用途 Region)にも使う。
         /// mirror(切り分け専用): 推論の側だけ画像と UV を上下反転して渡し、返った範囲を反転し直す。dev_safe の Python の写しが
         /// 自動調整・塗りを numpy の配列のまま(上下が鏡写しの世界で)回し、SAM だけを正しい向きで回していたのを再現する。
         /// そのとき UV は Python と同じく小数 9 桁に丸めてから渡す(Python は double で計算して 9 桁の文字列で渡していた)。
@@ -79,6 +59,8 @@ namespace Iroca {
             private readonly float[] _givenFull;
             public readonly List<(AutoTuneAsk ask, SamProposalDiag diag, int count)> Asked = new List<(AutoTuneAsk, SamProposalDiag, int)>();
             public string FullEmbeddingOrigin;
+            // 自動調整の提案が届いたとき(--emit-dir が書く。範囲は読むだけ)。
+            public Action<AutoTuneAsk, NativeBools> OnAutoTuneProposal;
 
             public SamProposalSource(OrtSamInference.Models models, NativePixels source, bool mirror, string cache, float[] givenFull) {
                 _models = models;
@@ -88,25 +70,32 @@ namespace Iroca {
                 _sam = mirror ? FlipRows(source) : source.AddRef();
             }
 
-            public AutoTuneProposal Propose(AutoTuneAsk ask, CancellationToken ct) {
-                float u = ask.U, v = ask.V;
+            /// <summary>1 件(範囲の参照ごと渡す。受け取った側が Release)。u, v は下原点(mirror なら鏡写しの世界の UV)。</summary>
+            public MaskSuggestProposal Propose(float u, float v, MaskSuggestGranularity g, MaskSuggestUse use,
+                                               CancellationToken ct, out SamProposalDiag diag) {
                 if (_mirror) {
                     u = Round9(u);
                     v = Round9(1.0 - v);
                 }
                 var ai = new OrtSamInference(_models, _sam, _cache, _givenFull);
-                // 用途はどれも自動調整の証拠と同じ使い方(製品の AutoTuneService と同じ)。
-                var p = SamProposalFlow.RunSynchronously(ai, _sam, "oneshot", u, v,
-                    ask.Fine ? MaskSuggestGranularity.Fine : MaskSuggestGranularity.Auto, MaskSuggestUse.Evidence, ct, out var diag);
+                var p = SamProposalFlow.RunSynchronously(ai, _sam, "harness", u, v, g, use, ct, out diag);
                 FullEmbeddingOrigin ??= ai.FullEmbeddingOrigin;
+                if (_mirror) {
+                    var flipped = FlipMask(p.mask);
+                    p.mask.Release();
+                    p.mask = flipped;
+                }
+                return p;
+            }
+
+            public AutoTuneProposal Propose(AutoTuneAsk ask, CancellationToken ct) {
+                // 用途はどれも自動調整の証拠と同じ使い方(製品の AutoTuneService と同じ)。
+                var p = Propose(ask.U, ask.V, ask.Fine ? MaskSuggestGranularity.Fine : MaskSuggestGranularity.Auto,
+                    MaskSuggestUse.Evidence, ct, out var diag);
                 var mask = p.mask;
                 p.mask = null;   // 範囲の参照は受け取った側へ渡す
-                if (_mirror) {
-                    var flipped = FlipMask(mask);
-                    mask.Release();
-                    mask = flipped;
-                }
                 Asked.Add((ask, diag, mask.CountTrue()));
+                OnAutoTuneProposal?.Invoke(ask, mask);
                 return new AutoTuneProposal(mask, p.width, p.height, p.floodWarning);
             }
 
@@ -134,200 +123,262 @@ namespace Iroca {
             }
         }
 
-        // ─── --oneshot ───
-        // --oneshot <in.raw(下原点 RGBA)> <mask.raw(1=共通の除外)> <zones.json> <out.raw> --zone i
-        //   [--sam-models dir] [--sam-cache dir] [--sam-threads n] [--sam-embedding full.f32] [--emit-dir dir] [--sam-mirror]
-        // ゾーン i(スポイトの色 sample・スポイト位置 sampleUV・塗り先 target。ほかの項目は zones JSON に書いた値。窓の新しいゾーンの
-        // 既定は呼ぶ側が書く)を、窓のワンショットと同じ段取りで自動調整する: AutoTuneFlow(証拠の提案 → 解析 → 漏れの確かめ。
-        // 提案は SamProposalFlow + onnxruntime)→ TuneResult.ApplyTo → 外す範囲から「含める」を外して(DropIncluded)ゾーンの除外へ
-        // 足す(右クリックの「ここは塗らない」と同じ) → 全ゾーンを塗る。漏れの確かめの選択は、渡したマスク(mask.raw と zones JSON の
-        // ゾーン別マスク)と zones JSON の全体設定で回す(窓の今のマスク・設定と同じ扱い)。証拠の提案が背景まで広がったら証拠なしで
-        // 解析し、sampleUV は残したまま塗る(製品の動き)。自動調整が失敗したら(証拠が来ないなど)ゾーンは変えずに塗る。
-        // 出力: out.raw と、標準出力の 1 行 ONESHOT {json}(調整後のゾーンの全項目を zones JSON の名前で・method・provenance・
-        // leak{checked, blobs, excludedParts, excludedPixels, skip, applied}・evidence{zoomed, crop, flood, used}・failure)。
-        // --emit-dir: 証拠(evidence.raw)・漏れの塊ごとの提案(leak_<k>_<auto|fine>.raw)・外す範囲(exclusion.raw。含めるを
-        // 外した後)・調整後の zones JSON(zones.json。そのまま --zones に渡せる。外す範囲は zone<i>_exclude.raw)・提案の診断(asks.json)。
-        private static int RunOneshot(string[] args) {
-            var inv = CultureInfo.InvariantCulture;
-            var pos = new List<string>();
-            int zi = 0;
-            string models = OrtSamInference.DefaultModelsDirectory, cache = null, emit = null, embeddingPath = null;
-            int threads = 0;
-            bool mirror = false;
-            for (int i = 1; i < args.Length; i++) {
+        // 推論の設定(--sam-*。--oneshot と --script で共通)。
+        private sealed class SamOptions {
+            public string Models = OrtSamInference.DefaultModelsDirectory, Cache, EmbeddingPath, MaskPixelsPath;
+            public int Threads;
+            public bool Mirror;
+
+            // 推論の引数なら読んで true(i は値の分だけ進める)。
+            public bool TryParse(string[] args, ref int i) {
+                var inv = CultureInfo.InvariantCulture;
                 string a = args[i];
-                string Next() {
-                    if (i + 1 >= args.Length) {
-                        throw new ArgumentException($"{a} の値がありません");
-                    }
-                    return args[++i];
+                if (a == "--sam-mirror") {
+                    Mirror = true;
+                    return true;
                 }
+                if (a != "--sam-models" && a != "--sam-cache" && a != "--sam-threads" && a != "--sam-embedding" && a != "--mask-pixels") {
+                    return false;
+                }
+                if (i + 1 >= args.Length) {
+                    throw new ArgumentException($"{a} の値がありません");
+                }
+                string value = args[++i];
                 switch (a) {
-                    case "--zone": zi = int.Parse(Next(), inv); break;
-                    case "--sam-models": models = Next(); break;
-                    case "--sam-cache": cache = Next(); break;
-                    case "--sam-threads": threads = int.Parse(Next(), inv); break;
-                    case "--sam-embedding": embeddingPath = Next(); break;
-                    case "--emit-dir": emit = Next(); break;
-                    case "--sam-mirror": mirror = true; break;
-                    default:
-                        if (a.StartsWith("--", StringComparison.Ordinal)) {
-                            Console.Error.WriteLine($"--oneshot: 知らない引数 {a}");
-                            return 2;
-                        }
-                        pos.Add(a);
-                        break;
+                    case "--sam-models": Models = value; break;
+                    case "--sam-cache": Cache = value; break;
+                    case "--sam-threads": Threads = int.Parse(value, inv); break;
+                    case "--sam-embedding": EmbeddingPath = value; break;
+                    default: MaskPixelsPath = value; break;
                 }
+                return true;
             }
-            if (pos.Count != 4) {
-                Console.Error.WriteLine("usage: --oneshot <in.raw> <mask.raw> <zones.json> <out.raw> --zone i [--sam-*] [--emit-dir dir] [--sam-mirror]");
-                return 2;
-            }
-            if (emit != null) {
-                Directory.CreateDirectory(emit);
-            }
-            OrtSamInference.Models m;
-            try {
-                m = OrtSamInference.Models.Load(models, threads);
-            } catch (FileNotFoundException e) {
-                Console.Error.WriteLine(e.Message);
-                return 3;
-            }
-            float[] givenFull = null;
-            if (embeddingPath != null) {
-                byte[] bytes = File.ReadAllBytes(embeddingPath);
+
+            public float[] ReadEmbedding() {
+                if (EmbeddingPath == null) {
+                    return null;
+                }
+                byte[] bytes = File.ReadAllBytes(EmbeddingPath);
                 if (bytes.Length != SamProposalFlow.EmbeddingFloatCount * sizeof(float)) {
-                    Console.Error.WriteLine($"--sam-embedding の大きさが違う: {bytes.Length}");
-                    return 2;
+                    throw new InvalidDataException($"--sam-embedding の大きさが違う: {bytes.Length}");
                 }
-                givenFull = new float[SamProposalFlow.EmbeddingFloatCount];
-                Buffer.BlockCopy(bytes, 0, givenFull, 0, bytes.Length);
+                var full = new float[SamProposalFlow.EmbeddingFloatCount];
+                Buffer.BlockCopy(bytes, 0, full, 0, bytes.Length);
+                return full;
             }
-
-            var (w, h, pixels) = ReadRgbaRaw(pos[0]);
-            var (mw, mh, common) = ReadMaskRaw(pos[1]);
-            var masks = new MaskSnapshot { common = NativeBitMask.FromBools(common, mw, mh), width = mw, height = mh, zones = null };
-            var (zoneList, st, zoneMasks, _) = LoadZones(pos[2]);
-            AttachZoneMasks(masks, zoneMasks);
-            if (zi < 0 || zi >= zoneList.Count) {
-                Console.Error.WriteLine($"--zone {zi} がありません(ゾーン {zoneList.Count} 個)");
-                return 2;
-            }
-            var z = zoneList[zi];
-            bool[] excluded = AutoTuneExclusion(common, masks, z);
-            var src = NativePixels.CopyOf(pixels, w, h);
-            var sam = new SamProposalSource(m, src, mirror, cache, givenFull);
-            var flow = new AutoTuneFlow(z.Clone(), src, excluded != null ? NativeBools.CopyOf(excluded, mw, mh) : null,
-                excluded != null ? mw : 0, excluded != null ? mh : 0, st.ToRecolorSettings(), masks.AddRef());
-            var leak = new Dictionary<string, object>();
-            var evidence = new Dictionary<string, object>();
-            string failure = null;
-            try {
-                var source = emit == null ? (IProposalSource)sam : new RecordingSource(sam, emit, w, h);
-                var step = AutoTuneFlow.RunSynchronously(flow, source, CancellationToken.None);
-                if (sam.Asked.Count > 0) {
-                    var d = sam.Asked[0].diag;
-                    evidence["zoomed"] = d.zoomed;
-                    evidence["crop"] = d.zoomPlanned ? new[] { d.cropX0, d.cropY0, d.cropSide } : null;
-                    evidence["flood"] = d.floodWarning;
-                    evidence["count"] = sam.Asked[0].count;
-                }
-                evidence["had"] = flow.HadEvidence;
-                evidence["used"] = step == AutoTuneStep.Done && flow.HadEvidence && flow.UsedEvidence;
-                leak["checked"] = flow.LeakChecked;
-                leak["blobs"] = flow.LeakBlobCount;
-                leak["excludedParts"] = flow.LeakExcludedParts;
-                leak["excludedPixels"] = flow.LeakExcludedPixels;
-                leak["skip"] = flow.LeakSkipReason;
-                leak["applied"] = false;
-                if (step == AutoTuneStep.Done) {
-                    flow.Result.ApplyTo(z);
-                    var excl = flow.TakeLeakExclusion();
-                    if (excl != null) {
-                        try {
-                            if (excl.Width != mw || excl.Height != mh) {
-                                // 寸法の違うマスクへの写し(ProposalMaskRegion.ToMaskSize)は Unity 側にある(C7 で Core へ)。
-                                leak["applied"] = "mask-size-mismatch";
-                            } else {
-                                NativeBitMask include = null;
-                                masks.zoneIncludes?.TryGetValue(z.id, out include);
-                                if (AutoTuneFlow.DropIncluded(excl, include)) {
-                                    ApplyDontPaintHere(masks, z.id, excl, include);
-                                    leak["applied"] = true;
-                                    if (emit != null) {
-                                        WriteMaskRaw(Path.Combine(emit, "exclusion.raw"), w, h, excl.ToArray());
-                                    }
-                                }
-                            }
-                        } finally {
-                            excl.Release();
-                        }
-                    }
-                } else {
-                    failure = flow.Failure + (flow.Error != null ? ": " + flow.Error.Message : "");
-                }
-            } finally {
-                flow.Dispose();
-                sam.Release();
-                src.Release();
-            }
-
-            ProcessZones(pixels, w, h, masks, zoneList, st);
-            WriteRawRgba(pos[3], w, h, pixels);
-
-            var zoneDoc = ZoneDocument(z);
-            if (emit != null) {
-                WriteTunedZones(pos[2], zi, z, masks, emit, w, h);
-                File.WriteAllText(Path.Combine(emit, "asks.json"), JsonSerializer.Serialize(sam.Asked.ConvertAll(a => new Dictionary<string, object> {
-                    ["kind"] = a.ask.Kind.ToString(),
-                    ["blob"] = a.ask.Blob,
-                    ["u"] = a.ask.U,
-                    ["v"] = a.ask.V,
-                    ["zoomed"] = a.diag.zoomed,
-                    ["crop"] = a.diag.zoomPlanned ? new[] { a.diag.cropX0, a.diag.cropY0, a.diag.cropSide } : null,
-                    ["flood"] = a.diag.floodWarning,
-                    ["count"] = a.count,
-                })));
-            }
-            var doc = new Dictionary<string, object> {
-                ["zone"] = zoneDoc,
-                ["method"] = flow.Method,
-                ["provenance"] = flow.Provenance,
-                ["conventionalReason"] = flow.ConventionalReason,
-                ["leak"] = leak,
-                ["evidence"] = evidence,
-                ["failure"] = failure,
-                ["fullEmbedding"] = sam.FullEmbeddingOrigin,
-                ["mirror"] = mirror,
-            };
-            Console.WriteLine("ONESHOT " + JsonSerializer.Serialize(doc));
-            return 0;
         }
 
-        // 外す範囲をゾーンの除外へ足す(右クリックの「ここは塗らない」= MaskRegionOp.DontPaintHere と同じ: 範囲を除外へ足し、
-        // 同じ範囲の「含める」を消す)。範囲は DropIncluded の後なので、含めるとは重ならない。
-        private static unsafe void ApplyDontPaintHere(MaskSnapshot masks, string zoneId, NativeBools region, NativeBitMask include) {
-            masks.zones ??= new Dictionary<string, NativeBitMask>();
-            if (!masks.zones.TryGetValue(zoneId, out var ex) || ex == null) {
-                ex = NativeBitMask.Allocate(masks.width, masks.height);
-            } else {
-                ex = ex.Writable();
-            }
-            masks.zones[zoneId] = ex;
-            bool* r = region.Ptr;
-            for (int i = 0; i < region.Length; i++) {
-                if (r[i]) {
-                    ex.Set(i, true);
+        /// <summary>
+        /// 窓の編集の状態(原本・ゾーン・全体設定・編集中のマスク)と、窓と同じ部品で回す操作(スポイト・塗り先・自動調整・右クリックの
+        /// 範囲の操作・許容範囲・塗る)。--oneshot と --script が使う。
+        /// </summary>
+        private sealed unsafe class EditSession : IDisposable {
+            public readonly int W, H;
+            public readonly Color32[] Original;
+            public readonly NativePixels Source;
+            public readonly List<ColorZone> Zones;
+            public readonly SettingsCfg Settings;
+            public readonly MaskWorkspace Masks = new MaskWorkspace();
+            // マスクの寸法の画素(寸法が原本と違うとき、提案を写した後に AA 包含をやり直すのに読む。製品の窓の SourceTexture)。
+            public NativePixels MaskPixels;
+            public SamProposalSource Sam;
+
+            public EditSession(Color32[] pixels, int w, int h, List<ColorZone> zones, SettingsCfg settings,
+                               bool[] common, int mw, int mh, List<(string zoneId, string path, bool include)> zoneMasks) {
+                W = w;
+                H = h;
+                Original = pixels;
+                Source = NativePixels.CopyOf(pixels, w, h);
+                Zones = zones;
+                Settings = settings;
+                Masks.Reset(mw, mh);
+                // 共通の除外は、立っている画素があるときだけ置く(窓は塗るまで共通の層を持たない)。
+                if (common != null && Array.IndexOf(common, true) >= 0) {
+                    Masks.SetCommon(NativeBitMask.FromBools(common, mw, mh));
                 }
-            }
-            if (include != null) {
-                var inc = include.Writable();
-                masks.zoneIncludes[zoneId] = inc;
-                for (int i = 0; i < region.Length; i++) {
-                    if (r[i]) {
-                        inc.Set(i, false);
+                if (zoneMasks != null) {
+                    foreach (var (zoneId, path, include) in zoneMasks) {
+                        var (iw, ih, ibytes) = ReadRaw(path, 1);
+                        if (iw != mw || ih != mh) {
+                            throw new InvalidOperationException($"ゾーン別マスク寸法 {iw}x{ih} が mask.raw 寸法 {mw}x{mh} と不一致: {path}");
+                        }
+                        Masks.SetLayer(include, zoneId, NativeBitMask.FromBools(ToBoolMask(ibytes, iw * ih), iw, ih));
                     }
                 }
+            }
+
+            /// <summary>
+            /// 自動調整(窓の「自動調整」と同じ: AutoTuneService と同じ入力 — 除外は共通 ∪ そのゾーン、全体設定、今のマスクの
+            /// スナップショット — で AutoTuneFlow を回し、結果をゾーンへ当て、外す範囲を窓の LeakRegionFor と同じ手順で
+            /// 「ここは塗らない」として書く)。返すのは診断(ONESHOT・SCRIPT の行)。
+            /// </summary>
+            public Dictionary<string, object> AutoTune(ColorZone z) {
+                var leak = new Dictionary<string, object>();
+                var evidence = new Dictionary<string, object>();
+                int asked0 = Sam.Asked.Count;
+                var excluded = Masks.CombinedExclusion(z.id);
+                var flow = new AutoTuneFlow(z.Clone(), Source, excluded, Masks.Width, Masks.Height,
+                    Settings.ToRecolorSettings(), Masks.ToSnapshot());
+                string failure = null;
+                try {
+                    var step = AutoTuneFlow.RunSynchronously(flow, Sam, CancellationToken.None);
+                    if (Sam.Asked.Count > asked0) {
+                        var d = Sam.Asked[asked0].diag;
+                        evidence["zoomed"] = d.zoomed;
+                        evidence["crop"] = d.zoomPlanned ? new[] { d.cropX0, d.cropY0, d.cropSide } : null;
+                        evidence["flood"] = d.floodWarning;
+                        evidence["count"] = Sam.Asked[asked0].count;
+                    }
+                    evidence["had"] = flow.HadEvidence;
+                    evidence["used"] = step == AutoTuneStep.Done && flow.HadEvidence && flow.UsedEvidence;
+                    leak["checked"] = flow.LeakChecked;
+                    leak["blobs"] = flow.LeakBlobCount;
+                    leak["excludedParts"] = flow.LeakExcludedParts;
+                    leak["excludedPixels"] = flow.LeakExcludedPixels;
+                    leak["skip"] = flow.LeakSkipReason;
+                    leak["applied"] = false;
+                    if (step == AutoTuneStep.Done) {
+                        flow.Result.ApplyTo(z);
+                        var excl = flow.TakeLeakExclusion();
+                        if (excl != null) {
+                            try {
+                                leak["applied"] = ApplyLeakRegion(z, excl, out int changed);
+                                leak["changed"] = changed;
+                            } finally {
+                                excl.Release();
+                            }
+                        }
+                    } else {
+                        failure = flow.Failure + (flow.Error != null ? ": " + flow.Error.Message : "");
+                    }
+                } finally {
+                    flow.Dispose();
+                }
+                return new Dictionary<string, object> {
+                    ["zone"] = ZoneDocument(z),
+                    ["method"] = flow.Method,
+                    ["provenance"] = flow.Provenance,
+                    ["conventionalReason"] = flow.ConventionalReason,
+                    ["leak"] = leak,
+                    ["evidence"] = evidence,
+                    ["failure"] = failure,
+                };
+            }
+
+            // 窓の AutoTuneService.Run.LeakRegionFor + ApplyRegion(DontPaintHere): マスクの寸法へ写し(寸法が違えば被覆を保って写し、
+            // マスクの寸法の画素があれば AA 包含をやり直す)、そのゾーンの「含める」の画素を外し、残れば「ここは塗らない」で書く。
+            private bool ApplyLeakRegion(ColorZone z, NativeBools excl, out int changed) {
+                changed = 0;
+                var region = ToMaskSize(excl, out bool owned);
+                if (!owned) {
+                    region = region.Clone();   // 自分の範囲は書き換えない
+                }
+                try {
+                    if (!AutoTuneFlow.DropIncluded(region, Masks.Layer(true, z.id))) {
+                        return false;
+                    }
+                    bool ok = Masks.ApplyRegion(region.Ptr, z.id, MaskRegionOp.DontPaintHere, null, out var result);
+                    changed = result.changed;
+                    return ok;
+                } finally {
+                    region.Release();
+                }
+            }
+
+            // 提案をマスクの寸法の範囲に(窓の ProposalMaskRegion と同じ規則。画素はマスクの寸法の画素 = --mask-pixels)。
+            private NativeBools ToMaskSize(NativeBools src, out bool owned)
+                => ProposalMaskTransfer.ToMaskSize(src, Masks.Width, Masks.Height,
+                    MaskPixels != null ? MaskPixels.Width : 0, MaskPixels != null ? MaskPixels.Height : 0,
+                    MaskPixels != null ? () => MaskPixels.AddRef() : null, out owned);
+
+            /// <summary>
+            /// 右クリックの範囲の操作(窓の MaskSuggestController.CommitProposalToMask と同じ): 用途 Region の AI 提案を取り、
+            /// マスクの寸法の範囲にし、空なら当てない。zoneId = null は全ゾーン共通(「塗らない」「消す」だけ)。
+            /// </summary>
+            public Dictionary<string, object> Region(string zoneId, float u, float v, MaskSuggestGranularity g, MaskRegionOp op) {
+                var p = Sam.Propose(u, v, g, MaskSuggestUse.Region, CancellationToken.None, out var diag);
+                var doc = new Dictionary<string, object> {
+                    ["zoomed"] = diag.zoomed,
+                    ["crop"] = diag.zoomPlanned ? new[] { diag.cropX0, diag.cropY0, diag.cropSide } : null,
+                    ["flood"] = p.floodWarning,
+                    ["proposalCount"] = p.mask.CountTrue(),
+                };
+                try {
+                    var region = ToMaskSize(p.mask, out bool owned);
+                    try {
+                        bool any = region.CountTrue() > 0;
+                        doc["empty"] = !any;
+                        if (!any) {
+                            return doc;   // 空の提案で「この部分だけ」を当てると全体が除外になるので、当てない
+                        }
+                        bool ok = Masks.ApplyRegion(region.Ptr, zoneId, op, null, out var result);
+                        doc["applied"] = ok;
+                        doc["changed"] = result.changed;
+                        doc["commonOverlap"] = result.commonOverlap;
+                    } finally {
+                        if (owned) {
+                            region.Release();
+                        }
+                    }
+                } finally {
+                    p.Release();
+                }
+                return doc;
+            }
+
+            /// <summary>全ゾーンを今のマスクで塗った出力(原本の写しへ塗る)。</summary>
+            public Color32[] Paint() {
+                var px = (Color32[])Original.Clone();
+                var snap = Masks.ToSnapshot();
+                try {
+                    ProcessZones(px, W, H, snap, Zones, Settings);
+                } finally {
+                    snap.Release();
+                }
+                return px;
+            }
+
+            /// <summary>
+            /// 今の状態を、そのまま --zones・mask.raw に渡せる形で書く(prefix + "zones.json"・"mask.raw"・ゾーンごとの
+            /// "zone{i}_exclude.raw"/"zone{i}_include.raw")。
+            /// </summary>
+            public void WriteState(string dir, string prefix) {
+                var cfg = new ZonesConfig { settings = Settings };
+                WriteLayer(Path.Combine(dir, prefix + "mask.raw"), Masks.Common);
+                for (int i = 0; i < Zones.Count; i++) {
+                    var z = Zones[i];
+                    var c = ZoneToCfg(z);
+                    var ex = Masks.Layer(false, z.id);
+                    if (ex != null) {
+                        c.excludeMask = Path.GetFullPath(Path.Combine(dir, $"{prefix}zone{i}_exclude.raw"));
+                        WriteLayer(c.excludeMask, ex);
+                    }
+                    var inc = Masks.Layer(true, z.id);
+                    if (inc != null) {
+                        c.includeMask = Path.GetFullPath(Path.Combine(dir, $"{prefix}zone{i}_include.raw"));
+                        WriteLayer(c.includeMask, inc);
+                    }
+                    cfg.zones.Add(c);
+                }
+                File.WriteAllText(Path.Combine(dir, prefix + "zones.json"), JsonSerializer.Serialize(cfg));
+            }
+
+            // 層を mask.raw の形で書く(null は全部 0)。
+            private void WriteLayer(string path, NativeBitMask layer) {
+                var bools = new bool[Masks.Width * Masks.Height];
+                if (layer != null) {
+                    for (int i = 0; i < bools.Length; i++) {
+                        bools[i] = layer.Get(i);
+                    }
+                }
+                WriteMaskRaw(path, Masks.Width, Masks.Height, bools);
+            }
+
+            public void Dispose() {
+                Sam?.Release();
+                Source.Release();
+                MaskPixels?.Release();
+                Masks.Clear();
             }
         }
 
@@ -363,67 +414,315 @@ namespace Iroca {
             ["sampleUV"] = z.HasSampleUV ? new[] { z.sampleUV.x, z.sampleUV.y } : null,
         };
 
-        // 調整後の zones JSON(そのまま --zones に渡せる形)。元の JSON を読み直し、ゾーン i を調整後の値にする。外す範囲を足した
-        // ゾーンの除外は zone<i>_exclude.raw に書いて指す。証拠のパスは外す(--autotune なしでは読まない)。
-        private static void WriteTunedZones(string zonesPath, int zi, ColorZone z, MaskSnapshot masks, string dir, int w, int h) {
-            var cfg = JsonSerializer.Deserialize<ZonesConfig>(File.ReadAllText(zonesPath), CaseInsensitiveJson);
-            var c = cfg.zones[zi];
-            c.sample = new[] { z.sampleColor.r, z.sampleColor.g, z.sampleColor.b };
-            c.samples = z.extraSamples.Count > 0 ? z.extraSamples.ConvertAll(s => new[] { s.r, s.g, s.b }).ToArray() : null;
-            c.tolerance = z.tolerance;
-            c.valueBlend = z.valueBlend;
-            c.edgeSoftness = z.edgeSoftness;
-            c.saturationStrictness = z.saturationStrictness;
-            c.saturationGuard = z.saturationGuard;
-            c.chromaThreshold = z.chromaThreshold;
-            c.shadowDesaturation = z.shadowDesaturation;
-            c.shadowForgivenessSatMin = z.shadowForgivenessSatMin;
-            c.shadowValueFloor = z.shadowValueFloor;
-            c.partSatCeiling = z.partSatCeiling;
-            c.partHueBand = z.partHueBand;
-            c.chromaCeiling = z.chromaCeiling;
-            c.holeFillMargin = z.holeFillMargin;
-            c.matchCutoff = z.matchCutoff;
-            c.outputSaturation = z.outputSaturation;
-            c.highlightRecovery = z.highlightRecovery;
-            c.highlightBandExpand = z.highlightBandExpand;
-            c.applyHighlightWash = z.applyHighlightWash;
-            c.autoHighlightSample = z.autoHighlightSample;
-            c.autoRecolorAnchor = z.autoRecolorAnchor;
-            c.evidenceMask = null;
-            if (masks.zones != null && masks.zones.TryGetValue(z.id, out var ex) && ex != null) {
-                string exPath = Path.Combine(dir, $"zone{zi}_exclude.raw");
-                var bools = new bool[ex.Length];
-                for (int i = 0; i < bools.Length; i++) {
-                    bools[i] = ex.Get(i);
+        // ゾーンを zones JSON の項目へ(BuildZone の逆。マスクのパスは呼ぶ側が足す)。
+        private static ZoneCfg ZoneToCfg(ColorZone z) => new ZoneCfg {
+            name = z.name,
+            sample = new[] { z.sampleColor.r, z.sampleColor.g, z.sampleColor.b },
+            samples = z.extraSamples.Count > 0 ? z.extraSamples.ConvertAll(s => new[] { s.r, s.g, s.b }).ToArray() : null,
+            target = new[] { z.targetColor.r, z.targetColor.g, z.targetColor.b },
+            tolerance = z.tolerance,
+            valueBlend = z.valueBlend,
+            edgeSoftness = z.edgeSoftness,
+            saturationStrictness = z.saturationStrictness,
+            saturationGuard = z.saturationGuard,
+            chromaThreshold = z.chromaThreshold,
+            shadowDesaturation = z.shadowDesaturation,
+            shadowForgivenessSatMin = z.shadowForgivenessSatMin,
+            shadowValueFloor = z.shadowValueFloor,
+            partSatCeiling = z.partSatCeiling,
+            partHueBand = z.partHueBand,
+            chromaCeiling = z.chromaCeiling,
+            holeFillMargin = z.holeFillMargin,
+            matchCutoff = z.matchCutoff,
+            outputSaturation = z.outputSaturation,
+            highlightRecovery = z.highlightRecovery,
+            highlightBandExpand = z.highlightBandExpand,
+            applyHighlightWash = z.applyHighlightWash,
+            autoHighlightSample = z.autoHighlightSample,
+            autoRecolorAnchor = z.autoRecolorAnchor,
+            layerIndex = z.layerIndex,
+            useFloodFill = z.useFloodFill,
+            seedUV = z.seedUV.x >= 0f ? new[] { z.seedUV.x, z.seedUV.y } : null,
+            sampleUV = z.HasSampleUV ? new[] { z.sampleUV.x, z.sampleUV.y } : null,
+        };
+
+        private static OrtSamInference.Models LoadModels(SamOptions o) => OrtSamInference.Models.Load(o.Models, o.Threads);
+
+        // ─── --oneshot ───
+        // --oneshot <in.raw(下原点 RGBA)> <mask.raw(1=共通の除外)> <zones.json> <out.raw> --zone i
+        //   [--sam-models dir] [--sam-cache dir] [--sam-threads n] [--sam-embedding full.f32] [--mask-pixels raw] [--emit-dir dir] [--sam-mirror]
+        // ゾーン i(スポイトの色 sample・スポイト位置 sampleUV・塗り先 target。ほかの項目は zones JSON に書いた値。窓の新しいゾーンの
+        // 既定は呼ぶ側が書く)を、窓のワンショットと同じ段取りで自動調整する(EditSession.AutoTune: AutoTuneFlow → TuneResult.ApplyTo →
+        // 外す範囲を窓の LeakRegionFor と同じ手順で「ここは塗らない」へ) → 全ゾーンを塗る。マスクは編集中のマスク(MaskWorkspace)として
+        // 持ち、自動調整・塗りへは窓と同じスナップショットで渡す。マスクの寸法が原本と違えば、提案は被覆を保って写す(--mask-pixels で
+        // マスクの寸法の画素を渡すと AA 包含もやり直す。窓の SourceTexture)。自動調整が失敗したら(証拠が来ないなど)ゾーンは変えずに塗る。
+        // 出力: out.raw と、標準出力の 1 行 ONESHOT {json}(調整後のゾーンの全項目を zones JSON の名前で・method・provenance・
+        // leak{checked, blobs, excludedParts, excludedPixels, skip, applied, changed}・evidence{zoomed, crop, flood, used}・failure)。
+        // --emit-dir: 証拠(evidence.raw)・漏れの塊ごとの提案(leak_<k>_<auto|fine>.raw)・調整後の状態(zones.json・mask.raw・
+        // zone<i>_exclude.raw ほか。そのまま --zones に渡せる)・提案の診断(asks.json)。
+        private static int RunOneshot(string[] args) {
+            var inv = CultureInfo.InvariantCulture;
+            var pos = new List<string>();
+            int zi = 0;
+            string emit = null;
+            var o = new SamOptions();
+            for (int i = 1; i < args.Length; i++) {
+                if (o.TryParse(args, ref i)) {
+                    continue;
                 }
-                WriteMaskRaw(exPath, masks.width, masks.height, bools);
-                c.excludeMask = Path.GetFullPath(exPath);
+                string a = args[i];
+                if (a == "--zone" && i + 1 < args.Length) {
+                    zi = int.Parse(args[++i], inv);
+                } else if (a == "--emit-dir" && i + 1 < args.Length) {
+                    emit = args[++i];
+                } else if (a.StartsWith("--", StringComparison.Ordinal)) {
+                    Console.Error.WriteLine($"--oneshot: 知らない引数 {a}");
+                    return 2;
+                } else {
+                    pos.Add(a);
+                }
             }
-            File.WriteAllText(Path.Combine(dir, "zones.json"), JsonSerializer.Serialize(cfg));
-        }
-
-        // 提案の源を包んで、届いた提案を --emit-dir へ書く(証拠は evidence.raw、漏れは leak_<k>_<auto|fine>.raw)。
-        private sealed class RecordingSource : IProposalSource {
-            private readonly IProposalSource _inner;
-            private readonly string _dir;
-            private readonly int _w, _h;
-
-            public RecordingSource(IProposalSource inner, string dir, int w, int h) {
-                _inner = inner;
-                _dir = dir;
-                _w = w;
-                _h = h;
+            if (pos.Count != 4) {
+                Console.Error.WriteLine("usage: --oneshot <in.raw> <mask.raw> <zones.json> <out.raw> --zone i [--sam-*] [--emit-dir dir] [--sam-mirror]");
+                return 2;
             }
-
-            public AutoTuneProposal Propose(AutoTuneAsk ask, CancellationToken ct) {
-                var p = _inner.Propose(ask, ct);
-                if (p.Mask != null) {
+            if (emit != null) {
+                Directory.CreateDirectory(emit);
+            }
+            OrtSamInference.Models m;
+            try {
+                m = LoadModels(o);
+            } catch (FileNotFoundException e) {
+                Console.Error.WriteLine(e.Message);
+                return 3;
+            }
+            var (w, h, pixels) = ReadRgbaRaw(pos[0]);
+            var (mw, mh, common) = ReadMaskRaw(pos[1]);
+            var (zoneList, st, zoneMasks, _) = LoadZones(pos[2]);
+            if (zi < 0 || zi >= zoneList.Count) {
+                Console.Error.WriteLine($"--zone {zi} がありません(ゾーン {zoneList.Count} 個)");
+                return 2;
+            }
+            using var s = new EditSession(pixels, w, h, zoneList, st, common, mw, mh, zoneMasks);
+            if (o.MaskPixelsPath != null) {
+                var (pw, ph, mp) = ReadRgbaRaw(o.MaskPixelsPath);
+                s.MaskPixels = NativePixels.CopyOf(mp, pw, ph);
+            }
+            s.Sam = new SamProposalSource(m, s.Source, o.Mirror, o.Cache, o.ReadEmbedding());
+            if (emit != null) {
+                s.Sam.OnAutoTuneProposal = (ask, mask) => {
                     string name = ask.Kind == AutoTuneAskKind.Evidence ? "evidence.raw"
                         : $"leak_{ask.Blob}_{(ask.Fine ? "fine" : "auto")}.raw";
-                    WriteMaskRaw(Path.Combine(_dir, name), p.Mask.Width, p.Mask.Height, p.Mask.ToArray());
+                    WriteMaskRaw(Path.Combine(emit, name), mask.Width, mask.Height, mask.ToArray());
+                };
+            }
+            var doc = s.AutoTune(zoneList[zi]);
+            WriteRawRgba(pos[3], w, h, s.Paint());
+            if (emit != null) {
+                s.WriteState(emit, "");
+                File.WriteAllText(Path.Combine(emit, "asks.json"), JsonSerializer.Serialize(AsksDocument(s.Sam)));
+            }
+            doc["fullEmbedding"] = s.Sam.FullEmbeddingOrigin;
+            doc["mirror"] = o.Mirror;
+            Console.WriteLine("ONESHOT " + JsonSerializer.Serialize(doc));
+            return 0;
+        }
+
+        private static List<Dictionary<string, object>> AsksDocument(SamProposalSource sam) => sam.Asked.ConvertAll(a => new Dictionary<string, object> {
+            ["kind"] = a.ask.Kind.ToString(),
+            ["blob"] = a.ask.Blob,
+            ["u"] = a.ask.U,
+            ["v"] = a.ask.V,
+            ["zoomed"] = a.diag.zoomed,
+            ["crop"] = a.diag.zoomPlanned ? new[] { a.diag.cropX0, a.diag.cropY0, a.diag.cropSide } : null,
+            ["flood"] = a.diag.floodWarning,
+            ["count"] = a.count,
+        });
+
+        // ─── --script ───
+        // --script <scenario.json> <in.raw(下原点 RGBA)> <out-dir> [--sam-models dir] [--sam-cache dir] [--sam-threads n]
+        //   [--sam-embedding full.f32] [--mask-pixels raw] [--sam-mirror]
+        // 窓の操作の列を、窓と同じ部品(ZoneEdits・AutoTuneFlow・SamProposalFlow・ProposalMaskTransfer・MaskWorkspace・
+        // ColorZone.SetToleranceManually)で再生する。scenario.json:
+        //   { "zones": [zones JSON の項目…](省略可。始めのゾーン), "settings": {…}(省略可), "mask": "<mask.raw>"(省略可。共通の除外),
+        //     "emit": "all"|"last"|"none"(既定 all), "steps": [手…] }
+        // 手(UV は下原点。--sam-mirror のときは鏡写しの世界の UV):
+        //   {"op":"eyedropper","uv":[u,v]}                 新しいゾーン(窓のスポイトと同じ: クリックした 1 画素の色・位置。既定は ZoneEdits.NewZone)
+        //   {"op":"eyedropper","uv":[u,v],"new":false}     今のゾーンの色を取り直す(EditingSession.ApplySample と同じ。色が変われば島の値を戻す)
+        //   {"op":"target","rgb":[r,g,b]}                  塗り先(0..1)
+        //   {"op":"autotune"}                              自動調整(--oneshot と同じ)
+        //   {"op":"region","uv":[u,v],"gran":"auto|fine|coarse","action":"PaintHere|DontPaintHere|OnlyThisPart|ClearHere","common":false}
+        //                                                  右クリックの範囲の操作(用途 Region の AI 提案)。common=true は全ゾーン共通(塗らない・消す)
+        //   {"op":"tolerance","value":t}                   許容範囲のスライダー(ColorZone.SetToleranceManually)
+        //   {"op":"zone","index":i}                        操作するゾーンを選ぶ
+        // 出力: 手ごとに標準出力の 1 行 SCRIPT {"step":k,"op":…,…}、emit が all なら手ごとに out-dir/step<k>_out.raw と
+        // step<k>_zones.json(・step<k>_mask.raw ほか。そのまま --zones に渡せる)、last なら最後の手だけ。
+        private static int RunScript(string[] args) {
+            var inv = CultureInfo.InvariantCulture;
+            var pos = new List<string>();
+            var o = new SamOptions();
+            for (int i = 1; i < args.Length; i++) {
+                if (o.TryParse(args, ref i)) {
+                    continue;
                 }
-                return p;
+                if (args[i].StartsWith("--", StringComparison.Ordinal)) {
+                    Console.Error.WriteLine($"--script: 知らない引数 {args[i]}");
+                    return 2;
+                }
+                pos.Add(args[i]);
+            }
+            if (pos.Count != 3) {
+                Console.Error.WriteLine("usage: --script <scenario.json> <in.raw> <out-dir> [--sam-*] [--mask-pixels raw] [--sam-mirror]");
+                return 2;
+            }
+            string outDir = pos[2];
+            Directory.CreateDirectory(outDir);
+            using var docJson = JsonDocument.Parse(File.ReadAllText(pos[0]));
+            var root = docJson.RootElement;
+            var (w, h, pixels) = ReadRgbaRaw(pos[1]);
+            bool[] common = null;
+            int mw = w, mh = h;
+            if (root.TryGetProperty("mask", out var maskEl) && maskEl.ValueKind == JsonValueKind.String) {
+                (mw, mh, common) = ReadMaskRaw(maskEl.GetString());
+            }
+            var cfg = new ZonesConfig();
+            if (root.TryGetProperty("zones", out var zonesEl)) {
+                cfg.zones = JsonSerializer.Deserialize<List<ZoneCfg>>(zonesEl.GetRawText(), CaseInsensitiveJson);
+            }
+            if (root.TryGetProperty("settings", out var settingsEl)) {
+                cfg.settings = JsonSerializer.Deserialize<SettingsCfg>(settingsEl.GetRawText(), CaseInsensitiveJson);
+            }
+            var (zoneList, st, zoneMasks, _) = LoadZones(cfg);
+            string emit = root.TryGetProperty("emit", out var emitEl) ? emitEl.GetString() : "all";
+            var steps = new List<JsonElement>();
+            if (root.TryGetProperty("steps", out var stepsEl)) {
+                foreach (var e in stepsEl.EnumerateArray()) {
+                    steps.Add(e);
+                }
+            }
+            OrtSamInference.Models m;
+            try {
+                m = LoadModels(o);
+            } catch (FileNotFoundException e) {
+                Console.Error.WriteLine(e.Message);
+                return 3;
+            }
+            using var s = new EditSession(pixels, w, h, zoneList, st, common, mw, mh, zoneMasks);
+            if (o.MaskPixelsPath != null) {
+                var (pw, ph, mp) = ReadRgbaRaw(o.MaskPixelsPath);
+                s.MaskPixels = NativePixels.CopyOf(mp, pw, ph);
+            }
+            s.Sam = new SamProposalSource(m, s.Source, o.Mirror, o.Cache, o.ReadEmbedding());
+            int current = zoneList.Count - 1;
+            for (int k = 0; k < steps.Count; k++) {
+                var e = steps[k];
+                string op = e.GetProperty("op").GetString();
+                var line = new Dictionary<string, object> { ["step"] = k, ["op"] = op };
+                ColorZone z = current >= 0 && current < zoneList.Count ? zoneList[current] : null;
+                switch (op) {
+                    case "eyedropper": {
+                            var uv = ReadUv(e.GetProperty("uv"));
+                            var picked = ZoneEdits.SampleColorAt(s.Source, uv.x, uv.y);
+                            bool isNew = !e.TryGetProperty("new", out var nEl) || nEl.GetBoolean();
+                            if (isNew || z == null) {
+                                // 窓のスポイトで新しいゾーンを作る(名前は窓の番号の規則の英語の形。名前は出力に関わらない)。
+                                z = ZoneEdits.NewZone(NextZoneName(zoneList));
+                                ZoneEdits.SetNewSample(z, picked, uv);
+                                zoneList.Add(z);
+                                current = zoneList.Count - 1;
+                                line["created"] = true;
+                            } else {
+                                bool changed = ZoneEdits.SampleColorChanges(z, picked);
+                                ZoneEdits.ApplySample(z, picked, uv, changed);
+                                line["colorChanged"] = changed;
+                            }
+                            line["sample"] = new[] { picked.r, picked.g, picked.b };
+                            line["zone"] = current;
+                            break;
+                        }
+                    case "target": {
+                            RequireZone(z, op);
+                            var rgb = e.GetProperty("rgb");
+                            ZoneEdits.SetTarget(z, new Color(rgb[0].GetSingle(), rgb[1].GetSingle(), rgb[2].GetSingle(), 1f));
+                            break;
+                        }
+                    case "autotune": {
+                            RequireZone(z, op);
+                            foreach (var kv in s.AutoTune(z)) {
+                                line[kv.Key] = kv.Value;
+                            }
+                            break;
+                        }
+                    case "region": {
+                            var uv = ReadUv(e.GetProperty("uv"));
+                            var g = ParseGranularity(e.TryGetProperty("gran", out var gEl) ? gEl.GetString() : "auto");
+                            var action = (MaskRegionOp)Enum.Parse(typeof(MaskRegionOp), e.GetProperty("action").GetString());
+                            bool toCommon = e.TryGetProperty("common", out var cEl) && cEl.GetBoolean();
+                            if (!toCommon) {
+                                RequireZone(z, op);
+                            }
+                            foreach (var kv in s.Region(toCommon ? null : z.id, uv.x, uv.y, g, action)) {
+                                line[kv.Key] = kv.Value;
+                            }
+                            break;
+                        }
+                    case "tolerance":
+                        RequireZone(z, op);
+                        z.SetToleranceManually(e.GetProperty("value").GetSingle());
+                        break;
+                    case "zone":
+                        current = e.GetProperty("index").GetInt32();
+                        if (current < 0 || current >= zoneList.Count) {
+                            throw new ArgumentException($"step {k}: ゾーン {current} がありません");
+                        }
+                        break;
+                    default:
+                        throw new ArgumentException($"step {k}: 知らない手 {op}");
+                }
+                bool write = emit == "all" || (emit == "last" && k == steps.Count - 1);
+                if (write) {
+                    WriteRawRgba(Path.Combine(outDir, $"step{k}_out.raw"), w, h, s.Paint());
+                    s.WriteState(outDir, $"step{k}_");
+                }
+                Console.WriteLine("SCRIPT " + JsonSerializer.Serialize(line));
+            }
+            Console.WriteLine("SCRIPT_DONE " + JsonSerializer.Serialize(new Dictionary<string, object> {
+                ["steps"] = steps.Count,
+                ["zones"] = zoneList.Count,
+                ["fullEmbedding"] = s.Sam.FullEmbeddingOrigin,
+                ["mirror"] = o.Mirror,
+            }));
+            return 0;
+        }
+
+        private static void RequireZone(ColorZone z, string op) {
+            if (z == null) {
+                throw new ArgumentException($"{op}: 操作するゾーンがありません(先に eyedropper か zone)");
+            }
+        }
+
+        private static Vector2 ReadUv(JsonElement e) => new Vector2(e[0].GetSingle(), e[1].GetSingle());
+
+        private static MaskSuggestGranularity ParseGranularity(string g) => g switch {
+            "auto" => MaskSuggestGranularity.Auto,
+            "fine" => MaskSuggestGranularity.Fine,
+            "coarse" => MaskSuggestGranularity.Coarse,
+            _ => throw new ArgumentException($"gran は auto|fine|coarse: {g}"),
+        };
+
+        // 窓の新しいゾーンの名前の規則(EditingSession.NextZoneName)の英語の形。名前は出力に関わらない。
+        private static string NextZoneName(List<ColorZone> zones) {
+            var used = new HashSet<string>();
+            foreach (var z in zones) {
+                if (z != null && !string.IsNullOrEmpty(z.name)) {
+                    used.Add(z.name);
+                }
+            }
+            for (int n = 1; ; n++) {
+                string candidate = "Zone " + n.ToString(CultureInfo.InvariantCulture);
+                if (!used.Contains(candidate)) {
+                    return candidate;
+                }
             }
         }
     }

@@ -44,9 +44,9 @@
     <!-- Scene でモデルをクリックした場所を求める当たり判定(光線と三角形・UV の補間)。 -->
     <Compile Include="..\..\Code\Infra\MeshRaycast.cs" />
     <!-- 右クリックの「ここも塗る / ここは塗らない / この部分だけ塗る」をマスク配列へ当てる規則。 -->
-    <Compile Include="..\..\Code\Application\MaskRegionEdit.cs" />
-    <Compile Include="..\..\Code\Application\MaskRegionEdit.ClearAt.cs" />
-    <Compile Include="..\..\Code\Application\MaskRegionEdit.Brush.cs" />
+    <Compile Include="..\..\Code\Core\Masks\MaskRegionEdit.cs" />
+    <Compile Include="..\..\Code\Core\Masks\MaskRegionEdit.ClearAt.cs" />
+    <Compile Include="..\..\Code\Core\Masks\MaskRegionEdit.Brush.cs" />
     <!-- 範囲の適用(大きい範囲は語の区間ごとに並列)が並列度の規則を使う。 -->
     <Compile Include="..\..\Code\Core\Foundation\CoreParallelism.cs" />
     <!-- 新しい版のお知らせで、公開リストから知らせる版を選ぶ部分(版の比べ方・JSON の読み取り)。 -->

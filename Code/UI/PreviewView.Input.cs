@@ -536,10 +536,8 @@ namespace Iroca {
             if (px == null || srcW <= 0 || srcH <= 0 || px.Length < srcW * srcH) {
                 return false;
             }
-            PreviewCoords.UvToPixel(u, v, srcW, srcH, out int x, out int y);
-            Color32 c = px.Get(y * srcW + x);
-            // サンプルカラーはマッチング基準(HSV)に使い α は無関係。スウォッチを不透明にするため a=1。
-            color = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
+            // サンプルカラーはマッチング基準(HSV)に使い α は無関係。スウォッチを不透明にするため a=1(規則は Core の ZoneEdits)。
+            color = ZoneEdits.SampleColorAt(px, srcW, srcH, u, v);
             return true;
         }
 

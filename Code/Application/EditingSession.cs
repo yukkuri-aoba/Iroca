@@ -209,15 +209,9 @@ namespace Iroca {
         /// (全ゾーンが同名だと、マスクの編集対象のプルダウンやドラッグ中のゴーストで見分けがつかなかった)。
         /// UI と自動化が同じ規則で作る。
         /// </summary>
-        internal static ColorZone NewZone(List<ColorZone> zones, string name = null) {
-            var zone = new ColorZone {
-                name = string.IsNullOrEmpty(name) ? NextZoneName(zones) : name,
-                // 「色を選べば何か変わる」状態から始められるようにする（定数のコメント参照）。
-                tolerance = NewZoneInitialTolerance,
-            };
-            zone.EnsureId();
-            return zone;
-        }
+        internal static ColorZone NewZone(List<ColorZone> zones, string name = null)
+            // 「色を選べば何か変わる」状態から始められるようにする（定数のコメント参照。規則は Core の ZoneEdits.NewZone）。
+            => ZoneEdits.NewZone(string.IsNullOrEmpty(name) ? NextZoneName(zones) : name);
 
         private static string NextZoneName(List<ColorZone> zones) {
             var used = new HashSet<string>();
@@ -254,10 +248,8 @@ namespace Iroca {
             var zones = State.zones;
             Undo.RegisterCompleteObjectUndo(Document, "Add Zone");
             var zone = NewZone(zones);
-            zone.sampleColor = picked;
-            zone.sampleColorSet = true;
-            // スポイトで取ったので位置も持つ（自動調整が AI 提案の証拠に使う。ApplySample と同じ）。
-            zone.sampleUV = uv;
+            // スポイトで取ったので位置も持つ（自動調整が AI 提案の証拠に使う。ApplySample と同じ。規則は Core の ZoneEdits）。
+            ZoneEdits.SetNewSample(zone, picked, uv);
             zones.Add(zone);
             NotifyChanged(EditChange.Content);
             return zones.Count - 1;
@@ -310,18 +302,13 @@ namespace Iroca {
         /// 書き換えでプレビューを作り直さない。位置は次の保存で一緒に書かれる)。
         /// </summary>
         internal bool ApplySample(ColorZone zone, Color picked, Vector2 uv) {
-            bool colorChanged = zone.sampleColor != picked || !zone.sampleColorSet;
+            bool colorChanged = ZoneEdits.SampleColorChanges(zone, picked);
             if (!colorChanged && zone.sampleUV == uv) {
                 return false;
             }
             Undo.RecordObject(Document, "Sample Color");
-            if (colorChanged) {
-                zone.sampleColor = picked;
-                zone.sampleColorSet = true;
-                // 主サンプル変更で陳腐化する、前の島から導いた値を捨てる（ColorField と同じ挙動）。
-                ClearIslandDerived(zone);
-            }
-            zone.sampleUV = uv;
+            // 色が変われば、前の島から導いた値を捨てる(規則は Core の ZoneEdits.ApplySample)。
+            ZoneEdits.ApplySample(zone, picked, uv, colorChanged);
             if (!colorChanged && !zone.SelectionUsesSampleUV) {
                 return false;
             }
@@ -336,13 +323,7 @@ namespace Iroca {
         /// (点検 2026-11-09 自-3)。詳細設定で手で入れた値も消す(どれも島から導く値という定義。利用者の判断で推奨どおり)。
         /// 許容範囲などほかの調整値は残す。記録(Undo)は呼び出し側。
         /// </summary>
-        internal static void ClearIslandDerived(ColorZone zone) {
-            if (zone == null) {
-                return;
-            }
-            zone.extraSamples?.Clear();
-            ZoneAutoTuner.ResetIslandDerived(zone);   // 6 項目の一覧は Core に 1 つだけ置く
-        }
+        internal static void ClearIslandDerived(ColorZone zone) => ZoneEdits.ClearIslandDerived(zone);   // 規則は Core に 1 つだけ置く
 
         /// <summary>連続領域の起点を置く。変わったときだけ記録して true。</summary>
         internal bool SetFloodFillSeed(ColorZone zone, Vector2 uv) {

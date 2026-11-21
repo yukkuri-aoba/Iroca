@@ -915,7 +915,7 @@ namespace Iroca {
             // 変更先を選んだ＝手順案内を「自動調整」へ進める（白を選んだ場合も既定の白と区別する）。
             // UndoHelper.ColorField が代入前に記録済みなので、Undo で色とフラグが対で戻る。
             if (zone.targetColor != prevTargetColor) {
-                zone.targetColorSet = true;
+                ZoneEdits.SetTarget(zone, zone.targetColor);   // 選んだ印を立てる(規則は Core。--script も同じ)
             }
             EditorGUIUtility.labelWidth = prevColorRowsLabelWidth;
         }
