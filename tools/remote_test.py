@@ -418,35 +418,29 @@ def _upload_dir_tar(t: Transport, which: str, src: Path) -> None:
         raise RuntimeError(f"{which} を送れない")
 
 
+def _label(argv: list[str]) -> str:
+    """status に出す実行の名札（引数を短く）。"""
+    s = " ".join(Path(a).name if i == 0 and not a.startswith("-") else a for i, a in enumerate(argv))
+    return s if len(s) <= 120 else s[:117] + "..."
+
+
 def run_remote(t: Transport, argv: list[str], fetch: list[str], env_extra: list[str], info: dict) -> int:
+    """相手の予約の列に並び、割り当てられたスロットに合わせて送ってから実行する（2026-11-22〜）。
+
+    使ってよいスロットは info["candidates"]（resolve が決める。好む順）。並んでいる間も、送る間も、実行中も
+    HEARTBEAT_S 秒ごとに 1 行送る。こちらが落ちる・止められると途絶え、相手は予約を取り消すか実行を止める。"""
     run_id = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     tmpdir = Path(tempfile.mkdtemp(prefix="iroca-remote-test-"))
+    p = None
     try:
+        slots = info.get("candidates") or [info.get("slot") or 0]
+        ticket = {"slots": slots, "label": _label(argv), "heartbeat_s": HEARTBEAT_S}
+        p = t.popen_agent("queue", run_id, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         try:
-            _prepare(t, run_id, argv, fetch, env_extra, info, tmpdir)
-        except (RuntimeError, OSError, subprocess.SubprocessError) as e:
-            # まだ何も実行していないので、auto なら手元でやり直してよい
-            raise Unavailable(f"送る途中で失敗: {e}") from e
-        # 実行中は HEARTBEAT_S 秒ごとに 1 行送る。こちらが落ちる・止められると途絶え、相手は実行を止める
-        # 出力に出る相手の本体の絶対パスは、手元の本体のパスに読み替えて出す（2026-11-19。visual_review.py compare が
-        # 出す「確認するパネル」の一覧を、持ち帰った手元のファイルとしてそのまま Read できるように）
-        remote_main = info.get("main")
-        rewrite = [(remote_main, str(REPO)), (remote_main.replace("\\", "/"), REPO.as_posix())] if remote_main else []
-        slot_args = ["--slot", str(info["slot"])] if info.get("slot") else []
-        p = t.popen_agent("run", run_id, *slot_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE if rewrite else None)
-
-        def _pump() -> None:
-            out = sys.stdout.buffer
-            for raw in iter(p.stdout.readline, b""):
-                line = raw.decode("utf-8", errors="replace")
-                for a, b in rewrite:
-                    line = line.replace(a, b)
-                out.write(line.encode("utf-8"))
-                out.flush()
-
-        pump = threading.Thread(target=_pump, daemon=True) if rewrite else None
-        if pump:
-            pump.start()
+            p.stdin.write(json.dumps(ticket, ensure_ascii=False).encode("utf-8") + b"\n")
+            p.stdin.flush()
+        except OSError as e:
+            raise Unavailable(f"予約を送れない: {e}") from e
 
         def _beat() -> None:
             while p.poll() is None:
@@ -458,10 +452,51 @@ def run_remote(t: Transport, argv: list[str], fetch: list[str], env_extra: list[
                 time.sleep(HEARTBEAT_S)
 
         threading.Thread(target=_beat, daemon=True).start()
+        busy = {int(s["slot"]) for s in info.get("slots") or [] if s.get("busy")}
+        if all(n in busy for n in slots):
+            log(f"使えるスロット {'・'.join(map(str, slots))} が使用中なので、予約の列に並びます（空いた所から順に回ります）")
+        slot = None
+        try:
+            for raw in iter(p.stdout.readline, b""):
+                m = re.match(rb"@@IROCA_SLOT (\d+)@@", raw.strip())
+                if m:
+                    slot = int(m.group(1))
+                    break
+                sys.stdout.buffer.write(raw)
+                sys.stdout.buffer.flush()
+        except KeyboardInterrupt:
+            p.terminate()
+            raise
+        if slot is None:
+            rc = p.wait()
+            raise Unavailable(f"相手で予約できなかった（終了コード {rc}）")
+        try:
+            info = remote_info(t, manifest=True, slot=slot)
+            info["slot"] = slot
+            _prepare(t, run_id, argv, fetch, env_extra, info, tmpdir)
+        except (RuntimeError, OSError, subprocess.SubprocessError, Unavailable) as e:
+            # まだ何も実行していないので、auto なら手元でやり直してよい（相手は合図が途絶えてスロットを返す）
+            p.terminate()
+            raise Unavailable(f"送る途中で失敗: {e}") from e
+        # 出力に出る相手の本体の絶対パスは、手元の本体のパスに読み替えて出す（2026-11-19。visual_review.py compare が
+        # 出す「確認するパネル」の一覧を、持ち帰った手元のファイルとしてそのまま Read できるように）
+        remote_main = info.get("main")
+        rewrite = [(remote_main, str(REPO)), (remote_main.replace("\\", "/"), REPO.as_posix())] if remote_main else []
+
+        def _pump() -> None:
+            out = sys.stdout.buffer
+            for raw in iter(p.stdout.readline, b""):
+                line = raw.decode("utf-8", errors="replace")
+                for a, b in rewrite:
+                    line = line.replace(a, b)
+                out.write(line.encode("utf-8"))
+                out.flush()
+
+        pump = threading.Thread(target=_pump, daemon=True)
+        pump.start()
         try:
             rc = p.wait()
-            if pump:
-                pump.join(timeout=30)
+            pump.join(timeout=30)
         except KeyboardInterrupt:
             p.terminate()
             raise
@@ -497,6 +532,8 @@ def run_remote(t: Transport, argv: list[str], fetch: list[str], env_extra: list[
             log(f"持ち帰り {n} 個")
         return rc
     finally:
+        if p is not None and p.poll() is None:
+            p.terminate()
         try:
             t.run_agent("cleanup", run_id, timeout=120)
         except Exception:
@@ -575,7 +612,8 @@ def needs_desktop(argv: list[str]) -> bool:
 # 同時に回せる。スロット 0 は従来の置き場。1〜 は 0 の写しで、実行キャッシュ（_harness_cache）だけ 0 と共有する。
 # 作業ツリーの中に前の実行の結果を残して次の実行が読む道具（visual_review の snapshot→compare・holdout_eval の記録・
 # EditMode のホスト）はスロット 0 に固定する。そうでない実行（pytest・abcheck・結果を --fetch で持ち帰る計測）は、
-# スロット 0 が使用中のときだけ空いている次のスロットへ回る。
+# どのスロットでもよい（1〜 を先に好む）。どれを使うかは相手の予約の列が決める（2026-11-22〜。来た順に、空いた
+# スロットを配る。前の実行が使えるスロットが空いていなければ、後ろの実行が使える別のスロットへ先に回る）。
 DEFAULT_SLOTS = 2
 _STATELESS_SCRIPTS = ("abcheck.py", "generalization_report.py", "highlight_recall.py", "color_report.py", "click_bridge.py")
 _STATELESS_PREFIXES = ("probe_", "measure_", "sweep_")
@@ -598,50 +636,52 @@ def is_stateless(argv: list[str]) -> bool:
     return name in _STATELESS_SCRIPTS or name.startswith(_STATELESS_PREFIXES)
 
 
-def choose_slot(info: dict, argv: list[str] | None, requested: int | None, need_editor: bool) -> int:
-    """使うスロットを決める。指定があればそれ。無指定は、0 が空いていれば 0、使用中で別スロットに回してよい実行なら空いている次のスロット。"""
+def candidate_slots(info: dict, argv: list[str] | None, requested: int | None, need_editor: bool) -> list[int]:
+    """使ってよいスロットを好む順に返す（どれを使うかは相手の予約の列が、空いた順に決める。2026-11-22〜）。
+
+    指定があればそれだけ。スロット 0 に固定する実行は 0 だけ。別スロットへ回してよい実行は 1〜 を先に、0 を最後に
+    （0 でしか回せない視覚レビュー・EditMode のために 0 を空けておく）。まだ作っていないスロットは、ほかが全部
+    使用中のときだけ作って入れる（作るのに数分かかるので、空いていればそちらで回る方が早い）。"""
     if requested is not None:
-        return requested
+        return [requested]
     if need_editor or argv is None or not is_stateless(argv):
-        return 0
-    slots = info.get("slots") or []
-    if not slots or not slots[0].get("busy"):
-        return 0
-    for s in slots[1:slot_count()]:
-        if not s.get("busy"):
-            return int(s["slot"])
-    return 0
+        return [0]
+    slots = {int(s["slot"]): s for s in info.get("slots") or []}
+    others = [n for n in range(1, slot_count()) if n in slots]
+    ready = [n for n in others if slots[n].get("ready")]
+    cands = ready + [0]
+    if all(slots.get(n, {}).get("busy") for n in cands):
+        cands = [n for n in others if not slots[n].get("ready")][:1] + cands
+    return cands
 
 
 def resolve(t: Transport, mode: str, manifest: bool, need_editor: bool = False,
             need_desktop: bool = False, argv: list[str] | None = None, slot: int | None = None) -> dict | None:
     """使えるならリモートの情報を返す。auto で使えなければ None（理由は log に出す）。
 
-    返す info の "slot" が使うスロット。argv を渡さない呼び手（visual_review など）は常にスロット 0。"""
+    返す info の "candidates" が使ってよいスロット（好む順）。実際のスロットは run_remote が予約して決まる。
+    argv を渡さない呼び手（visual_review など）は常にスロット 0。manifest は互換のために受けるだけ（データの一覧は
+    スロットが決まってから、そのスロットの分を取る）。"""
     if mode == "local":
         return None
     try:
         if not reachable(t):
             raise Unavailable(f"{t.host} につながらない")
-        info = remote_info(t, manifest=manifest)
+        info = remote_info(t)
         missing = check_ready(info, need_editor, need_desktop)
         if missing:
             raise Unavailable("相手の準備が足りない: " + "・".join(missing))
-        chosen = choose_slot(info, argv, slot, need_editor)
-        if chosen > 0:
-            if chosen >= len(info.get("slots") or []):
-                raise Unavailable(f"相手にスロット {chosen} は無い")
-            if not info["slots"][chosen].get("ready"):
-                log(f"スロット {chosen} を作ります（スロット 0 の写し。データを相手の中で写すので数分かかる）")
-                r = t.run_agent("slot-init", "--slot", str(chosen), *DATA_DIRS, capture=False)
+        cands = candidate_slots(info, argv, slot, need_editor)
+        slots = info.get("slots") or []
+        for n in cands:
+            if n >= len(slots):
+                raise Unavailable(f"相手にスロット {n} は無い")
+            if n > 0 and not slots[n].get("ready"):
+                log(f"スロット {n} を作ります（スロット 0 の写し。データを相手の中で写すので数分かかる）")
+                r = t.run_agent("slot-init", "--slot", str(n), *DATA_DIRS, capture=False)
                 if r.returncode != 0:
-                    raise Unavailable(f"スロット {chosen} を作れなかった")
-            info = remote_info(t, manifest=manifest, slot=chosen)
-            info["slots"] = info.get("slots") or []
-            log(f"スロット 0 が使用中なので、空いているスロット {chosen} で回ります")
-        info["slot"] = chosen
-        if info.get("busy"):   # 選んだスロットの排他（info は --slot のスロット分を返す）
-            log(f"相手のスロット {chosen} は別の実行中です。終わるのを待ってから回ります")
+                    raise Unavailable(f"スロット {n} を作れなかった")
+        info["candidates"] = cands
         return info
     except Unavailable as e:
         if mode == "remote":
@@ -708,7 +748,25 @@ def cmd_status(ns) -> int:
     except Unavailable as e:
         print(f"使えない: {e}")
         return 1
-    print(json.dumps(info, ensure_ascii=False, indent=2))
+    if not ns.json:
+        info_brief = {k: v for k, v in info.items() if k not in ("slots", "queue")}
+        print(json.dumps(info_brief, ensure_ascii=False, indent=2))
+        n = slot_count()
+        for s in (info.get("slots") or [])[:n]:
+            run = s.get("running")
+            if not s.get("ready"):
+                state = "未作成"
+            elif s.get("busy"):
+                state = (f"実行中 {run['label']}（{run['running_s'] // 60} 分）" if run else "実行中（従来の入口）")
+            else:
+                state = "空き"
+            print(f"スロット {s['slot']}: {state}")
+        queue = info.get("queue") or []
+        print(f"予約の列: {len(queue)} 件" if queue else "予約の列: なし")
+        for i, q in enumerate(queue, 1):
+            print(f"  {i}. {q['label']}（スロット {'・'.join(map(str, q['slots']))}・{q['waited_s'] // 60} 分待ち）")
+    else:
+        print(json.dumps(info, ensure_ascii=False, indent=2))
     missing = check_ready(info)
     print("準備: " + ("済み" if not missing else "足りない " + "・".join(missing)))
     return 0 if not missing else 1
@@ -740,7 +798,8 @@ def cmd_setup(ns) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd")
-    sp_status = sub.add_parser("status", help="相手につながるか・準備が済んでいるかを見る")
+    sp_status = sub.add_parser("status", help="相手につながるか・準備が済んでいるか・スロットと予約の列を見る")
+    sp_status.add_argument("--json", action="store_true", help="相手の状態を JSON のまま全部出す")
     sp_setup = sub.add_parser("setup", help="相手へ Unity の DLL・モデル・リポジトリ・データを送って .venv を作る")
     rp = sub.add_parser("run", help="（既定）Python を相手か手元で動かす。`--` の後ろが Python の引数")
     for p in (sp_status, sp_setup, rp):

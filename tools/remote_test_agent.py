@@ -12,12 +12,18 @@
       lock                同時に 2 つの実行が作業ツリーを書き換えないための排他（スロット 0 の分）
       Iroca_s<N>/ lock_s<N>   スロット N（1〜）の作業ツリーと排他。スロットごとに独立して 1 実行ずつ（2026-11-20〜）
       power.lock  power_users/   電源プランを上げ下げする数え（スロットをまたぐので）
+      queue/  queue.lock  予約の列（札 1 つが 1 ファイル。名前の順が並んだ順）と、列を見る間の排他
+      running_s<N>.json   スロット N で今動いている実行の名札（status で見せる）
 
 コマンド:
     info [--manifest]       状態を JSON で出す（--manifest でデータの一覧も。slots に全スロットの空き）
     slot-init <dirs...>     スロット N（--slot N、1〜）の作業ツリーをスロット 0 の写しとして作る（データも写す）
     recv <run_id> <name>    標準入力を inbox/<run_id>/<name> へ書く
-    run <run_id>            inbox/<run_id>/request.json に従って同期して実行する（排他つき）
+    queue <run_id>          予約の列に並び、空いたスロットを割り当ててから実行する（2026-11-22〜。呼び手の既定）。
+                            標準入力の 1 行目が予約の札（JSON: slots＝使ってよいスロットを好む順に・label）、
+                            その後は生存の合図。割り当てたら標準出力へ `@@IROCA_SLOT <n>@@` を 1 行出し、呼び手がその
+                            スロットに合わせて送る inbox/<run_id>/request.json を待って、run と同じように実行する
+    run <run_id>            inbox/<run_id>/request.json に従って同期して実行する（--slot のスロットの排他を待つ。従来の入口）
     cat <run_id> <name>     inbox/<run_id>/<name> を標準出力へ書く
     cleanup <run_id>        inbox/<run_id> を消す
   どのコマンドにも `--slot N` を付けられる（既定 0）。スロットは作業ツリーと排他が別なので、実行が同居できる。
@@ -54,6 +60,11 @@ EDITOR_HOST = BASE / "hosts" / "Iroca_U2022_ifx"
 LOCK_PATH = BASE / "lock"
 POWER_LOCK = BASE / "power.lock"
 POWER_USERS = BASE / "power_users"
+QUEUE_DIR = BASE / "queue"
+QUEUE_LOCK = BASE / "queue.lock"
+TICKET_STALE_S = 30            # 札の更新がこれより古ければ、並んだ人はもういない（落ちた）とみなして列から外す
+QUEUE_POLL_S = 1.0
+SLOT_LINE = "@@IROCA_SLOT {}@@"
 REQUIREMENTS = Path("dev_safe") / "Tests" / "requirements.txt"
 SNAP_REF = "refs/remote-test/snap"
 LAST_REF = "refs/remote-test/last"
@@ -214,8 +225,10 @@ def cmd_info(argv: list[str]) -> int:
         "busy": _lock_busy(),
         "slot": SLOT,
         "slot_ready": (MAIN / ".git").exists(),
-        "slots": [{"slot": i, "ready": (slot_paths(i)[0] / ".git").exists(), "busy": _lock_busy(slot_paths(i)[1])}
+        "slots": [{"slot": i, "ready": (slot_paths(i)[0] / ".git").exists(), "busy": _lock_busy(slot_paths(i)[1]),
+                   "running": _running_label(i) if _lock_busy(slot_paths(i)[1]) else None}
                   for i in range(MAX_SLOTS)],
+        "queue": queue_snapshot(),
         "smart_app_control": _smart_app_control(),
         "cpu_count": os.cpu_count(),
         "disk_free_gb": round(shutil.disk_usage(BASE).free / 1e9, 1),
@@ -429,6 +442,237 @@ def _acquire_lock() -> int:
             time.sleep(5)
 
 
+def _try_lock(path: Path) -> int | None:
+    """排他を待たずに取る。取れたら fd、取れなければ None。"""
+    import msvcrt
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT)
+    except OSError:
+        return None
+    try:
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        return fd
+    except OSError:
+        os.close(fd)
+        return None
+
+
+def _unlock(fd: int) -> None:
+    import msvcrt
+    try:
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+    os.close(fd)
+
+
+# ---- 予約の列（2026-11-22〜）----
+# 呼び手が実行の前にスロットを決め打ちすると、決めたスロットが空くまで待ち、別のスロットが先に空いても使えなかった。
+# また排他は 5 秒ごとに取り直すだけで順番が無く、後から来た実行が先に回ることがあった。
+# そこで相手の中に列を持つ。札は来た順に並び、空いたスロットを前の札から順に配る。前の札が使えるスロット（例: スロット 0
+# 固定の視覚レビュー）が空いていないときは、後ろの札が使える別のスロットへ先に回る（追い越しは空いた枠を埋めるときだけ。
+# 前の札が使えるスロットを後ろの札が取ることは無い）。
+
+class _Caller:
+    """呼び手からの標準入力を読む。queue では 1 行目が予約の札、その後は生存の合図（1 行ずつ）。
+
+    EOF は当てにしない: Windows の OpenSSH では、切れても子のプロセスが標準入力の書き口を持っていて EOF が届かなかった。
+    sys.stdin.buffer.read() は使わない: 読んでいる間は BufferedReader のロックを持つので、終わりの後片付けで
+    「could not acquire lock for <stdin>」になってプロセスが落ち、終了コードが壊れた(2026-11-11)。"""
+
+    def __init__(self, want_first_line: bool):
+        self.t = time.monotonic()
+        self.eof = False
+        self.first: str | None = None
+        self._want_first = want_first_line
+        self._first_ready = threading.Event()
+        if not want_first_line:
+            self._first_ready.set()
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self) -> None:
+        buf = b""
+        try:
+            while True:
+                chunk = os.read(0, 4096)
+                if not chunk:
+                    break
+                self.t = time.monotonic()
+                if not self._first_ready.is_set():
+                    buf += chunk
+                    if b"\n" in buf:
+                        self.first = buf.split(b"\n", 1)[0].decode("utf-8", "replace")
+                        self._first_ready.set()
+        except OSError:
+            pass
+        self.eof = True
+        self._first_ready.set()
+
+    def wait_first(self, timeout: float) -> str | None:
+        self._first_ready.wait(timeout)
+        return self.first
+
+    def alive(self, heartbeat: float) -> bool:
+        return not self.eof and (heartbeat <= 0 or time.monotonic() - self.t <= heartbeat * 6)
+
+
+class _FileLock:
+    """短い間だけ持つ排他（列を読んで書く間）。"""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.fd: int | None = None
+
+    def __enter__(self):
+        while True:
+            fd = _try_lock(self.path)
+            if fd is not None:
+                self.fd = fd
+                return self
+            time.sleep(0.05)
+
+    def __exit__(self, *exc):
+        _unlock(self.fd)
+        self.fd = None
+
+
+def _slot_free(n: int) -> bool:
+    main, lock = slot_paths(n)
+    return (main / ".git").exists() and not _lock_busy(lock)
+
+
+def _read_tickets(now: float, me: Path | None = None) -> list[tuple[Path, dict]]:
+    """列の札を並んだ順に返す。古い札（並んだ人が落ちた）は消す。列の排他の中で呼ぶ。"""
+    out = []
+    if not QUEUE_DIR.is_dir():
+        return out
+    for p in sorted(QUEUE_DIR.glob("*.json")):
+        try:
+            if p != me and now - p.stat().st_mtime > TICKET_STALE_S:
+                p.unlink(missing_ok=True)
+                continue
+            out.append((p, json.loads(p.read_text(encoding="utf-8"))))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def _try_assign(me: Path) -> tuple[int | None, int | None, int]:
+    """自分の札にスロットを配れるか見る。列の排他の中で呼ぶ。(スロット, 排他の fd, 前に並んでいる数) を返す。"""
+    free = [i for i in range(MAX_SLOTS) if _slot_free(i)]
+    ahead = 0
+    for p, t in _read_tickets(time.time(), me):
+        pick = next((s for s in t.get("slots", []) if s in free), None)
+        if p == me:
+            if pick is None:
+                return None, None, ahead
+            fd = _try_lock(slot_paths(pick)[1])
+            if fd is None:
+                return None, None, ahead
+            return pick, fd, ahead
+        if pick is not None:
+            free.remove(pick)     # 前の札の分。前の札は次の見回り（QUEUE_POLL_S 以内）で取る
+        ahead += 1
+    return None, None, ahead
+
+
+def _running_path(n: int) -> Path:
+    return BASE / f"running_s{n}.json"
+
+
+def queue_snapshot() -> list[dict]:
+    """info 用: 並んでいる札の一覧（並んだ順）。"""
+    now = time.time()
+    out = []
+    for p, t in _read_tickets(now):
+        out.append({"label": t.get("label", ""), "slots": t.get("slots", []),
+                    "waited_s": int(now - t.get("since", now))})
+    return out
+
+
+def _running_label(n: int) -> dict | None:
+    try:
+        r = json.loads(_running_path(n).read_text(encoding="utf-8"))
+        r["running_s"] = int(time.time() - r.get("since", time.time()))
+        return r
+    except (OSError, ValueError):
+        return None
+
+
+def cmd_queue(argv: list[str]) -> int:
+    run_id = _safe_name(argv[0])
+    caller = _Caller(want_first_line=True)
+    first = caller.wait_first(60)
+    if not first:
+        log("予約の札が届かない")
+        return SYNC_FAILED
+    try:
+        ticket = json.loads(first)
+        slots = [int(s) for s in ticket["slots"] if 0 <= int(s) < MAX_SLOTS]
+    except (ValueError, KeyError, TypeError):
+        log(f"予約の札が読めない: {first[:200]!r}")
+        return SYNC_FAILED
+    if not slots:
+        log("使ってよいスロットが無い")
+        return SYNC_FAILED
+    heartbeat = float(ticket.get("heartbeat_s") or 0)
+    label = str(ticket.get("label", ""))[:200]
+    QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+    since = time.time()
+    me = QUEUE_DIR / f"{time.time_ns():020d}-{run_id}.json"
+    tmp = me.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"run_id": run_id, "slots": slots, "label": label, "since": since},
+                              ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, me)
+    fd = None
+    started = time.monotonic()
+    last_note = None
+    try:
+        while True:
+            if not caller.alive(heartbeat):
+                log("呼び手との接続が切れたので、予約を取り消します")
+                return SYNC_FAILED
+            with _FileLock(QUEUE_LOCK):
+                try:
+                    os.utime(me)
+                except OSError:
+                    pass
+                slot, fd, ahead = _try_assign(me)
+                if slot is not None:
+                    me.unlink(missing_ok=True)
+            if slot is not None:
+                break
+            waited = time.monotonic() - started
+            if last_note is None or waited - last_note >= 60:
+                log(f"予約の列で待っています（{int(waited)} 秒・前に {ahead} 件・使えるスロット "
+                    f"{'・'.join(map(str, slots))} が空いていない）")
+                last_note = waited
+            time.sleep(QUEUE_POLL_S)
+    finally:
+        me.unlink(missing_ok=True)
+    set_slot(slot)
+    waited = time.monotonic() - started
+    if waited >= 1:
+        log(f"スロット {slot} が空きました（{waited:.0f} 秒待ち）")
+    try:
+        _running_path(slot).write_text(json.dumps({"run_id": run_id, "label": label, "since": time.time()},
+                                                  ensure_ascii=False), encoding="utf-8")
+        sys.stdout.write(SLOT_LINE.format(slot) + "\n")
+        sys.stdout.flush()
+        # 呼び手はこのスロットの状態を見て送る物を決め、最後に request.json を置く（recv は .part から置き換えるので、
+        # 見えたときには書き終わっている）
+        req_path = _run_dir(run_id) / "request.json"
+        while not req_path.is_file():
+            if not caller.alive(heartbeat):
+                log("呼び手との接続が切れたので、スロットを返します")
+                return SYNC_FAILED
+            time.sleep(0.2)
+        return _execute(run_id, caller)
+    finally:
+        _running_path(slot).unlink(missing_ok=True)
+        _unlock(fd)
+
+
 # ---- 同期 ----
 
 def _sync_repo(repo: Path, spec: dict, run_dir: Path, git_config: dict[str, str]) -> None:
@@ -468,8 +712,11 @@ def _sync_repo(repo: Path, spec: dict, run_dir: Path, git_config: dict[str, str]
         git(repo, "reset", "-q", "--soft", commit + "^")
     # 2 番目の親は呼び手の索引（ステージした中身。2026-11-19〜）。索引もそれにそろえる（作業ツリーは触らない）。
     # これで「HEAD・索引・作業ツリー」の 3 つとも手元と同じになり、compare --index も相手で測れる。
+    # -m を付ける: 付けないと索引の stat の記録（変わっていないファイルを読み直さずに済ませる印）が全部消え、次の
+    # checkout が dev_safe の 9000 余りのファイルを全部読み直していた（同期が毎回 30〜60 秒。2026-11-22）。
+    # 木が 1 つの -m は、中身が同じ項目の stat の記録を残す。
     if _rev(repo, commit + "^2") is not None:
-        git(repo, "read-tree", commit + "^2")
+        git(repo, "read-tree", "-m", commit + "^2")
 
 
 def _link_shared_cache() -> None:
@@ -732,14 +979,24 @@ def _build_dlls(venv_py: Path, env: dict, dlls: dict[str, str]) -> dict[str, str
 
 
 def cmd_run(argv: list[str]) -> int:
+    """従来の入口: --slot のスロットの排他を待ってから実行する。"""
     run_id = argv[0]
-    run_dir = _run_dir(run_id)
-    req = json.loads((run_dir / "request.json").read_text(encoding="utf-8"))
     if SLOT > 0 and not (MAIN / ".git").exists():
         log(f"スロット {SLOT} がまだ作られていない（slot-init が先）")
         return SYNC_FAILED
+    caller = _Caller(want_first_line=False)
     fd = _acquire_lock()
-    # 排他の中にいる間(=実行は 1 本だけ)は高パフォーマンス。終わりは finally で省電力へ戻す。
+    try:
+        return _execute(run_id, caller)
+    finally:
+        _unlock(fd)
+
+
+def _execute(run_id: str, caller: _Caller) -> int:
+    """スロットの排他を持った状態で、request.json に従って同期して実行する。"""
+    run_dir = _run_dir(run_id)
+    req = json.loads((run_dir / "request.json").read_text(encoding="utf-8"))
+    # 排他の中にいる間は高パフォーマンス。終わりは finally で省電力へ戻す（使っている実行の数を数えて、最後の 1 本のとき）。
     # 呼び手が切れたときの見張りも child を止めて finally に来るので、戻し忘れない。
     powered = power_acquire()
     if not powered:
@@ -748,13 +1005,26 @@ def cmd_run(argv: list[str]) -> int:
         t0 = time.monotonic()
         try:
             git_config = req.get("git_config", {})
+            steps = []
+            ts = time.monotonic()
+
+            def _mark(name: str) -> None:
+                nonlocal ts
+                now = time.monotonic()
+                steps.append(f"{name} {now - ts:.1f}")
+                ts = now
+
             _sync_repo(MAIN, req["repos"]["main"], run_dir, git_config.get("main", {}))
+            _mark("本体")
             _sync_repo(DEV_SAFE, req["repos"]["dev_safe"], run_dir, git_config.get("dev_safe", {}))
+            _mark("dev_safe")
             for b in ("main.bundle", "dev_safe.bundle"):
                 (run_dir / b).unlink(missing_ok=True)
             _apply_data(run_dir, req)
             _link_shared_cache()
+            _mark("データ")
             venv_py = _ensure_venv()
+            _mark("venv")
         except (SystemExit, OSError, subprocess.CalledProcessError, tarfile.TarError) as e:
             # まだ何も実行していない。呼び手はこの終了コードを見て手元でやり直せる
             log(f"同期に失敗: {e}")
@@ -774,7 +1044,7 @@ def cmd_run(argv: list[str]) -> int:
             argv = [DLL_TOKEN_RE.sub(lambda m: built[m.group(1)], a) for a in argv]
             for k in req.get("env", {}):
                 env[k] = DLL_TOKEN_RE.sub(lambda m: built[m.group(1)], env[k])
-        log(f"同期 {time.monotonic() - t0:.1f} 秒。実行: python {' '.join(argv)}")
+        log(f"同期 {time.monotonic() - t0:.1f} 秒（{'・'.join(steps)}）。実行: python {' '.join(argv)}")
         t1 = time.monotonic()
         child = subprocess.Popen([str(venv_py), *argv], cwd=str(MAIN), env=env, stdin=subprocess.DEVNULL)
         qos = None
@@ -790,28 +1060,14 @@ def cmd_run(argv: list[str]) -> int:
         if heartbeat > 0:
             # 呼び手は標準入力へ heartbeat 秒ごとに 1 行送る。途絶えたら呼び手(ssh)が切れたとみなし、置き去りの実行
             # (排他を持ったまま 20 分走り続ける)を止める。止めるのはここで起動したプロセスとその子だけ。
-            # EOF は当てにしない: Windows の OpenSSH では、切れても子のプロセスが標準入力の書き口を持っていて EOF が届かなかった。
-            seen = {"t": time.monotonic(), "eof": False}
-
-            def _read() -> None:
-                # sys.stdin.buffer.read() は使わない: 読んでいる間は BufferedReader のロックを持つので、終わりの後片付けで
-                # 「could not acquire lock for <stdin>」になってプロセスが落ち、終了コードが壊れた(2026-11-11)
-                try:
-                    while os.read(0, 4096):
-                        seen["t"] = time.monotonic()
-                except OSError:
-                    pass
-                seen["eof"] = True
-
             def _watch() -> None:
                 while child.poll() is None:
-                    if seen["eof"] or time.monotonic() - seen["t"] > heartbeat * 6:
+                    if not caller.alive(heartbeat):
                         log("呼び手との接続が切れたので、実行を止めます")
                         subprocess.run(["taskkill", "/T", "/F", "/PID", str(child.pid)], capture_output=True)
                         return
                     time.sleep(2)
 
-            threading.Thread(target=_read, daemon=True).start()
             threading.Thread(target=_watch, daemon=True).start()
         rc = child.wait()
         qos_note = f"・低 QoS を外したプロセス {qos.applied}（失敗 {qos.failed}）" if qos is not None else ""
@@ -822,17 +1078,12 @@ def cmd_run(argv: list[str]) -> int:
     finally:
         if not power_release() and powered:
             log("電源プランを省電力へ戻せませんでした（手で戻してください）")
-        import msvcrt
-        try:
-            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-        except OSError:
-            pass
-        os.close(fd)
 
 
 COMMANDS = {
     "info": cmd_info,
     "recv": cmd_recv,
+    "queue": cmd_queue,
     "run": cmd_run,
     "cat": cmd_cat,
     "cleanup": cmd_cleanup,
