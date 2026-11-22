@@ -19,6 +19,8 @@ namespace Iroca {
         internal const string ShowMeshIslands = "Iroca.ShowMeshIslands";
         internal const string PreviewSmoothMagnify = "Iroca.PreviewSmoothMagnify";
         internal const string PreviewDetailFullResolution = "Iroca.PreviewDetailFullResolution";
+        // スポイトでクリックしたら、その場で自動調整までかけてから塗るか(Preferences の「いろか」。既定はオン。2026-11-23)
+        internal const string AutoTuneOnPick = "Iroca.AutoTuneOnPick";
         internal const string LastTextureGuidPrefix = "Iroca.LastTextureGuid.";          // + プロジェクトのパスのハッシュ
         internal const string MaskBrushWindowPlacedPrefix = "Iroca.MaskBrushWindowPlaced:";  // + プロジェクトのパス
         internal const string AiSuggestPerfLog = "Iroca.AiSuggestPerfLog";

@@ -5,7 +5,8 @@ using UnityEngine;
 
 namespace Iroca {
     /// <summary>
-    /// 新しい版のお知らせ(<see cref="UpdateCheck"/>)の帯と、それを止める Preferences の項目。
+    /// 新しい版のお知らせ(<see cref="UpdateCheck"/>)の帯と、Preferences の「いろか」の頁(お知らせを止める項目と、
+    /// スポイトのクリックで自動調整するかの項目)。
     /// 更新は VCC / ALCOM で行うので、ここでは変更履歴とマニュアルの手順へ案内するだけにする。
     /// </summary>
     internal static class UpdateNotice {
@@ -45,6 +46,15 @@ namespace Iroca {
                 label = Localization.PreferencesLabel,
                 guiHandler = _ => {
                     EditorGUILayout.Space(4);
+                    // スポイトでクリックしたら、その場で自動調整までかけてから塗るか(IrocaWindow.AutoTuneOnPick。2026-11-23)。
+                    // 窓の縦幅を使わないよう、PC ごとの設定の置き場であるここに置く。
+                    bool autoTune = EditorGUILayout.ToggleLeft(
+                        TempContent.Of(Localization.AutoTuneOnPickToggle, Localization.AutoTuneOnPickToggleTooltip),
+                        IrocaWindow.AutoTuneOnPick);
+                    if (autoTune != IrocaWindow.AutoTuneOnPick) {
+                        IrocaWindow.AutoTuneOnPick = autoTune;
+                    }
+                    EditorGUILayout.Space(4);
                     bool enabled = EditorGUILayout.ToggleLeft(
                         TempContent.Of(Localization.UpdateCheckToggle, Localization.UpdateCheckToggleTooltip),
                         UpdateCheck.Enabled);
@@ -53,7 +63,7 @@ namespace Iroca {
                     }
                     EditorGUILayout.LabelField(Localization.UpdateCheckPrivacy, EditorStyles.wordWrappedMiniLabel);
                 },
-                keywords = new[] { "update", "version", "更新", "版" },
+                keywords = new[] { "update", "version", "更新", "版", "auto-tune", "eyedropper", "自動調整", "スポイト" },
             };
         }
     }

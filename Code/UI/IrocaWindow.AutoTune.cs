@@ -13,6 +13,42 @@ namespace Iroca {
         [System.NonSerialized] private int _autoTuneShownPct = -1;
         [System.NonSerialized] private bool _autoTuneShownPreparing;
 
+        /// <summary>
+        /// スポイトのクリックで始めた自動調整の当て先(<see cref="_autoTune"/> と対。null = 「自動調整」ボタンの自動調整か、走っていない)。
+        /// 待つ間はゾーンを足さず・色も替えず(塗らない)、結果が届いたら追加・色・調整の値・外す範囲を「元に戻す」1 回分で書く
+        /// (<see cref="ApplyPickAutoTune"/>)。取り消したら何も書かない(クリックの前のまま)。自動調整できなかったら、クリックした
+        /// ときに自動調整しない場合と同じに塗る(<see cref="FinishPickWithoutTune"/>)。
+        /// </summary>
+        private sealed class PickTune {
+            // 新しいゾーン(まだリストに無い。色と位置を入れたもの)。取り直しなら null。
+            public ColorZone newZone;
+            // 取り直しの当て先のゾーンの id(新しいゾーンなら null)。
+            public string zoneId;
+            // スポイトで取った色と位置。
+            public Color picked;
+            public Vector2 uv;
+        }
+
+        [System.NonSerialized] private PickTune _pickTune;
+
+        // スポイトでクリックしたら、その場で自動調整までかけてから塗るか(Preferences の「いろか」。既定はオン。2026-11-23 ユーザー決定)。
+        // オフなら、クリックしてすぐ新しいゾーンの許容範囲の初期値で塗る(「自動調整」はボタンで)。
+        private static bool? s_autoTuneOnPick;
+
+        internal static bool AutoTuneOnPick {
+            get => s_autoTuneOnPick ??= EditorPrefs.GetBool(IrocaPrefs.AutoTuneOnPick, true);
+            set {
+                s_autoTuneOnPick = value;
+                EditorPrefs.SetBool(IrocaPrefs.AutoTuneOnPick, value);
+            }
+        }
+
+        /// <summary>走っている自動調整(テストが進めるため。null = 走っていない)。</summary>
+        internal AutoTuneService.Run RunningAutoTune => _autoTune;
+
+        /// <summary>走っている自動調整が、スポイトのクリックで始めたものか(まだ何も当てていない)。</summary>
+        internal bool PickAutoTunePending => _pickTune != null;
+
         // ゾーン id → 最後に適用した自動調整の由来(AutoTuneService.Run.Provenance: 証拠の有無・正規化の有無・導出診断)。
         // 再現データ書き出し(ReproDump)が meta.json に載せる。テクスチャ固有の一時情報なので Undo/プリセットには載せない。
         [System.NonSerialized]
@@ -127,6 +163,216 @@ namespace Iroca {
             } finally { pixels.Release(); }
         }
 
+        // ─────────────── スポイトのクリックで自動調整する(2026-11-23) ───────────────
+        // 「スポイトで変えたい色を選ぶ / 別の色を追加」のクリックと、既にあるゾーンのスポイトの取り直しで、自動調整まで済ませてから
+        // 1 回で塗る。流れ(証拠待ち → 解析 → 漏れの確かめ)は「自動調整」ボタンと同じ AutoTuneService、待つ間の見せ方・取り消し・
+        // 後始末も同じ(_autoTune を共有する)。違うのは当て方だけ: 待つ間は何も書かず、届いたら追加・色・値・外す範囲を
+        // 「元に戻す」1 回分で書く。上書きの確認(モーダル)は出さない(取り直しで調整し直すのは、手で触っていないゾーンだけ)。
+        // AI が無い・失敗・期限切れのときは、知らせを出して自動調整しないときと同じに塗る(モーダルの導入案内は出さない)。
+        // ハーネスの --oneshot・--script と自動化(MCP)は、今までどおり「クリック → 塗り先 → 自動調整」の順で呼ぶ。この順の違いで
+        // 変わるのは模様保持だけで、塗り先を変えたときに導き直す(Core の ZoneEdits.SetTarget)。
+
+        /// <summary>
+        /// 「スポイトで変えたい色を選ぶ / 別の色を追加」のクリック(<see cref="RequestNewZoneFromSample"/> の後で呼ぶ)。設定が
+        /// オンで AI が使えれば自動調整を始め(ゾーンは結果が届いてから足す)、そうでなければすぐにゾーンを足す。
+        /// </summary>
+        internal void AddZoneByEyedropper(Color picked, Vector2 uv) {
+            if (StartPickAutoTune(null, picked, uv)) {
+                RequestRepaint();
+                return;
+            }
+            SetCurrentZoneIndex(Editing.AddZoneFromSample(picked, uv));
+            zonesFoldout = true;
+            // 別窓(プレビュー・マスク編集)も描き直す(新しいゾーンの見本・カーソル)。
+            RequestRepaint();
+        }
+
+        /// <summary>
+        /// 既にあるゾーンのスポイトのクリック。色か位置が変わり、そのゾーンの調整の値を利用者が手で触っていなければ
+        /// (<see cref="ZoneParamsUntouchedByUser"/>)、取り直した色で自動調整し直す(結果が届くまで色も替えない)。
+        /// そうでなければ、今までどおり色と位置だけを替える。
+        /// </summary>
+        internal void ApplyEyedropperSample(ColorZone zone, Color picked, Vector2 uv) {
+            if (zone == null) {
+                return;
+            }
+            bool changes = ZoneEdits.SampleColorChanges(zone, picked) || zone.sampleUV != uv;
+            if (changes && zone.mode == SelectionMode.ColorPick && ZoneParamsUntouchedByUser(zone)
+                && StartPickAutoTune(zone, picked, uv)) {
+                RequestRepaint();
+                return;
+            }
+            Editing.ApplySample(zone, picked, uv);
+        }
+
+        // スポイトのクリックの自動調整を始める。始めたら true(結果は TickAutoTune が当てる)。設定がオフ・ほかの自動調整が
+        // 走っている・始められなかったときは false で、呼び出し側が自動調整しないときと同じに塗る(始められなかった理由は知らせる)。
+        private bool StartPickAutoTune(ColorZone existing, Color picked, Vector2 uv) {
+            if (!AutoTuneOnPick || _autoTune != null || SourceTexture == null) {
+                return false;
+            }
+            bool repick = existing != null;
+            // AI(Sentis とモデル)が無ければ待たない。導入の案内は窓の上の帯が出している。
+            if (!MaskSuggestBridge.Available || !MaskSuggestSection.ToolReady) {
+                NotifyPickWithoutTune(Localization.AutoTuneNeedsAi, repick);
+                return false;
+            }
+
+            // 調整するゾーン: 新しいゾーンはリストに足さずに持ち、取り直しは今のゾーンの写しへ取った色を入れる(どちらも、今
+            // スポイトで塗ったら出来るゾーンと同じ。規則は Core の ZoneEdits)。
+            ColorZone tuneZone;
+            if (repick) {
+                existing.EnsureId();
+                tuneZone = existing.Clone();
+                ZoneEdits.ApplySample(tuneZone, picked, uv, ZoneEdits.SampleColorChanges(tuneZone, picked));
+            } else {
+                tuneZone = Editing.NewZoneFromSample(picked, uv);
+            }
+
+            PrepareAutoTunePixels(out NativePixels pixels, out bool trueSource);
+            if (pixels == null) {
+                NotifyPickWithoutTune(Localization.TextureReadError, repick);
+                return false;
+            }
+            try {
+                string key = trueSource && _previewView != null ? _previewView.TrueSourceCacheKey() : null;
+                NativeBools excluded = BuildCombinedExclusionForZone(tuneZone, out int mw, out int mh);
+                var run = AutoTuneService.Start(tuneZone, pixels, key, excluded, mw, mh,
+                    RecolorSettings.From(Session), BuildMaskSnapshot());
+                if (run.Status == AutoTuneService.Status.Failed) {
+                    NotifyPickWithoutTune(PickSkipReason(run), repick);
+                    return false;
+                }
+                _autoTune = run;
+                _pickTune = new PickTune {
+                    newZone = repick ? null : tuneZone,
+                    zoneId = repick ? existing.id : null,
+                    picked = picked,
+                    uv = uv,
+                };
+                _autoTuneShownPct = -1;
+                EditorApplication.update -= TickAutoTune;
+                EditorApplication.update += TickAutoTune;
+                return true;
+            } finally { pixels.Release(); }
+        }
+
+        /// <summary>
+        /// スポイトのボタンを押したとき(設定がオンなら)、クリックの後の待ちを短くするため、AI のモデルの読み込みと元の画像の
+        /// 埋め込みの計算を先に始める。AI が無い・エラー中なら何もしない(知らせも出さない)。
+        /// </summary>
+        internal void WarmAiForPick() {
+            if (!AutoTuneOnPick || _previewView == null || SourceTexture == null) {
+                return;
+            }
+            var svc = MaskSuggestBridge.Service;
+            if (svc == null || svc.Phase == MaskSuggestPhase.NoModel || svc.Phase == MaskSuggestPhase.Error) {
+                return;
+            }
+            _previewView.WarmAiSource(SourceTexture);
+        }
+
+        // 届いた自動調整の結果を、スポイトのクリックの当て先へ書く(「元に戻す」1 回分: 新しいゾーンの追加・取った色と位置・
+        // 調整の値・外す範囲)。
+        private void ApplyPickAutoTune(AutoTuneService.Run run, PickTune pick) {
+            try { ApplyPickAutoTuneCore(run, pick); } finally { run.ReleaseLeakExclusion(); }
+        }
+
+        private void ApplyPickAutoTuneCore(AutoTuneService.Run run, PickTune pick) {
+            bool add = pick.newZone != null;
+            var zone = add ? pick.newZone : FindZoneById(pick.zoneId);
+            if (zone == null) {
+                return;   // 取り直しの間にゾーンが消えた(Undo・テクスチャの切り替えでは待ちごと止めるので、ふつうは来ない)
+            }
+            NativeBools leak = null;
+            if (run.HasLeakExclusion && _maskView != null) {
+                _maskView.EnsureMasks();
+                leak = run.LeakRegionFor(_maskView.Workspace, SourceTexture);
+            }
+            bool leakApplied = false;
+            MaskRegionEditResult leakResult = default;
+            int index = -1;
+            string undoName = add ? "Add Zone" : "Sample Color";
+            try {
+                // 結果は押してから数秒後に届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする(SeparateUndo)。
+                // 先にマスクの今の中身を版にしてから文書を記録する(後で同じ 1 回分の中にゾーンの「塗らない」を書くため。
+                // ApplyAutoTuneCore と同じ理由)。外す範囲は、ゾーンがリストに入ってから書く(書き先をゾーンの id で引く)。
+                SeparateUndo.Record(undoName, () => {
+                    if (add) {
+                        index = Editing.AddPreparedZone(zone, undoName);
+                    } else {
+                        Editing.RecordMaskEdit(undoName);
+                        ZoneEdits.ApplySample(zone, pick.picked, pick.uv, ZoneEdits.SampleColorChanges(zone, pick.picked));
+                    }
+                    if (leak != null) {
+                        var dest = new MaskPaintView.MaskDestination(zone.id, MaskRegionOp.DontPaintHere);
+                        leakApplied = _maskView.ApplyRegion(leak, dest, out leakResult);
+                    }
+                    run.ApplyTo(zone);
+                });
+            } finally {
+                leak?.Release();
+            }
+            RecordAppliedAutoTune(run, zone, leakApplied, leakResult);
+            if (index >= 0) {
+                SetCurrentZoneIndex(index);
+                zonesFoldout = true;
+            }
+            RequestRepaint();
+        }
+
+        // スポイトのクリックの自動調整ができなかった(取り消し以外)。自動調整しないときと同じに塗り、理由を知らせる。
+        private void FinishPickWithoutTune(AutoTuneService.Run run, PickTune pick) {
+            if (run.Failure == AutoTuneService.Failure.Cancelled) {
+                return;   // 取り消した: 何も当てない(クリックの前のまま)
+            }
+            if (run.Failure == AutoTuneService.Failure.AnalysisFailed) {
+                var ex = run.Error;
+                Debug.LogError($"[Iroca] Auto-tune failed: {ex?.Message}\n{ex?.StackTrace}");
+            }
+            bool repick = pick.newZone == null;
+            // 待っている間の別の操作とは別の「元に戻す」1 回分にする。
+            SeparateUndo.Record(repick ? "Sample Color" : "Add Zone", () => {
+                if (repick) {
+                    var zone = FindZoneById(pick.zoneId);
+                    if (zone != null) {
+                        Editing.ApplySample(zone, pick.picked, pick.uv);
+                    }
+                } else {
+                    SetCurrentZoneIndex(Editing.AddZoneFromSample(pick.picked, pick.uv));
+                    zonesFoldout = true;
+                }
+            });
+            NotifyPickWithoutTune(PickSkipReason(run), repick);
+            RequestRepaint();
+        }
+
+        // 自動調整できなかった理由(知らせの 1 行目)。「自動調整」ボタンの知らせと同じ文言を使う。
+        private static string PickSkipReason(AutoTuneService.Run run) {
+            switch (run.Failure) {
+                case AutoTuneService.Failure.AiUnavailable:
+                    return Localization.AutoTuneNeedsAi;
+                case AutoTuneService.Failure.AiError:
+                    return string.Format(Localization.AutoTuneAiError, run.FailureDetail);
+                case AutoTuneService.Failure.SourceNotShared:
+                    return Localization.AutoTuneSourceNotShared;
+                case AutoTuneService.Failure.Timeout:
+                    return Localization.AutoTuneEvidenceTimeout;
+                case AutoTuneService.Failure.AnalysisFailed:
+                    return $"{Localization.Error}: {run.Error?.Message}";
+                default:
+                    return Localization.AutoTuneEvidenceCancelled;
+            }
+        }
+
+        private void NotifyPickWithoutTune(string reason, bool repick) {
+            string painted = repick
+                ? Localization.PickAutoTuneSkippedRepick
+                : string.Format(Localization.PickAutoTuneSkippedFormat,
+                    EditingSession.NewZoneInitialTolerance.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
+            ShowNotification(new GUIContent(reason + "\n" + painted));
+        }
+
         /// <summary>
         /// 導出パラメータが「ユーザーの手調整を含まない」状態か(<see cref="AutoTuneService.UntouchedByUser"/>。
         /// 自動調整済みかどうかは、このウィンドウが持つ最後の入力で見る)。
@@ -198,8 +444,8 @@ namespace Iroca {
 
         // EditorApplication.update から毎フレーム呼ばれる。Unity はそこで例外を受け止めないので、投げたまま
         // 購読を残すと、窓を閉じるまで毎フレーム、後ろに並んだ他のツールの更新まで飛ばし続ける。
-        // 例外のときは自動調整をやめて購読を外す。
-        private void TickAutoTune() {
+        // 例外のときは自動調整をやめて購読を外す。internal は EditMode テストが、偽物の AI で進めた自動調整を当てさせるため。
+        internal void TickAutoTune() {
             try { TickAutoTuneCore(); } catch (System.Exception e) {
                 EditorApplication.update -= TickAutoTune;
                 Debug.LogException(e);
@@ -218,14 +464,23 @@ namespace Iroca {
                 return;
             }
             run.Advance();
+            var pick = _pickTune;
             switch (run.Status) {
                 case AutoTuneService.Status.Done:
                     StopAutoTuneTick();
-                    ApplyAutoTune(run);
+                    if (pick != null) {
+                        ApplyPickAutoTune(run, pick);
+                    } else {
+                        ApplyAutoTune(run);
+                    }
                     return;
                 case AutoTuneService.Status.Failed:
                     StopAutoTuneTick();
-                    NotifyAutoTuneFailure(run);
+                    if (pick != null) {
+                        FinishPickWithoutTune(run, pick);
+                    } else {
+                        NotifyAutoTuneFailure(run);
+                    }
                     return;
             }
             // 準備の進み(モデルロード・埋め込み計算)と解析の進みを進捗バーに映す。
@@ -237,8 +492,10 @@ namespace Iroca {
             }
         }
 
+        // 待ちの印を外す(スポイトのクリックの当て先も捨てる。届く前に止めたら、何も当てない)。
         private void StopAutoTuneTick() {
             _autoTune = null;
+            _pickTune = null;
             EditorApplication.update -= TickAutoTune;
         }
 
@@ -278,6 +535,13 @@ namespace Iroca {
             } finally {
                 leak?.Release();
             }
+            RecordAppliedAutoTune(run, targetZone, leakApplied, leakResult);
+        }
+
+        // 当てた後の記録と知らせ(「自動調整」ボタンとスポイトのクリックで共通): 入力と由来をゾーンの id で覚え、編集を知らせ、
+        // 完了を知らせる。
+        private void RecordAppliedAutoTune(AutoTuneService.Run run, ColorZone targetZone, bool leakApplied,
+            MaskRegionEditResult leakResult) {
             (_autoTuneInputs ??= new Dictionary<string, AutoTuneService.Input>())[targetZone.id] = run.ToInput();
             Editing.NotifyChanged(EditChange.Content);
             (_autoTuneProvenance ??= new Dictionary<string, string>())[targetZone.id] = run.Provenance;
@@ -327,8 +591,9 @@ namespace Iroca {
             Repaint();
         }
 
-        // 自動調整の中止（ユーザーの中止・ウィンドウ無効化/破棄）。証拠待ちなら解析は始めない。
-        private void CancelAutoTune() {
+        // 自動調整の中止（ユーザーの中止・ウィンドウ無効化/破棄）。証拠待ちなら解析は始めない。スポイトのクリックの自動調整なら、
+        // ゾーンを足さず色も替えない(クリックの前のまま)。internal は EditMode テストが、進み具合の「キャンセル」と同じ中止を呼ぶため。
+        internal void CancelAutoTune() {
             var run = _autoTune;
             if (run == null) {
                 return;
@@ -344,8 +609,9 @@ namespace Iroca {
             if (_autoTune == null) {
                 return;
             }
+            bool pick = _pickTune != null;
             CancelAutoTune();
-            ShowNotification(new GUIContent(Localization.AutoTuneCancelledByEdit));
+            ShowNotification(new GUIContent(pick ? Localization.PickAutoTuneCancelledByEdit : Localization.AutoTuneCancelledByEdit));
             Repaint();
         }
     }

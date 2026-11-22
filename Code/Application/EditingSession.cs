@@ -247,9 +247,34 @@ namespace Iroca {
         internal int AddZoneFromSample(Color picked, Vector2 uv) {
             var zones = State.zones;
             Undo.RegisterCompleteObjectUndo(Document, "Add Zone");
-            var zone = NewZone(zones);
+            zones.Add(NewZoneFromSample(picked, uv));
+            NotifyChanged(EditChange.Content);
+            return zones.Count - 1;
+        }
+
+        /// <summary>
+        /// スポイトで取った色と位置の新しいゾーン(リストには足さない。名前は今のリストで振る)。スポイトのクリックで
+        /// 自動調整までかけるとき、窓は結果が届くまで足さずに持ち、届いたら <see cref="AddPreparedZone"/> で足す。
+        /// </summary>
+        internal ColorZone NewZoneFromSample(Color picked, Vector2 uv) {
+            var zone = NewZone(State.zones);
             // スポイトで取ったので位置も持つ（自動調整が AI 提案の証拠に使う。ApplySample と同じ。規則は Core の ZoneEdits）。
             ZoneEdits.SetNewSample(zone, picked, uv);
+            return zone;
+        }
+
+        /// <summary>
+        /// 用意したゾーン(<see cref="NewZoneFromSample"/>)を末尾に足す。足した位置を返す。マスクの今の中身を版にしてから文書を
+        /// 記録する(<see cref="RecordMaskEdit"/>)ので、同じ「元に戻す」の中で続けてそのゾーンのマスクを書いても、戻すとゾーンと
+        /// マスクがそろって足す前へ戻る。用意した後に同じ名前のゾーンが足されていたら、名前を振り直す。
+        /// </summary>
+        internal int AddPreparedZone(ColorZone zone, string undoName) {
+            var zones = State.zones;
+            RecordMaskEdit(undoName);
+            if (zones.Exists(z => z != null && z.name == zone.name)) {
+                zone.name = NextZoneName(zones);
+            }
+            zone.EnsureId();
             zones.Add(zone);
             NotifyChanged(EditChange.Content);
             return zones.Count - 1;

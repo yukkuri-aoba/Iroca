@@ -195,8 +195,8 @@ namespace Iroca {
             ? "スポイトが取るのは、元のテクスチャの画素の色です。\nプレビューは色替えの結果や「アバターの色」（マテリアルの色の設定を掛けた見た目）で描くので、カーソルの下の色と違って見えることがあります。"
             : "The eyedropper picks the color of the original texture pixel.\nThe preview shows the recolor result or the colors \"On avatar\" (with the material's color settings applied), so it can look different from the color under the cursor.";
         public static string EyedropperTooltip => IsJapanese
-            ? "押すとスポイトモードになり、プレビュー上をクリックするとそのピクセルの色を\nこのゾーンの「サンプルカラー」に取り込みます。\n実テクスチャの画素から直接取得するため、カラーピッカーのスポイトより正確です。\nもう一度押すと解除します。"
-            : "Enters eyedropper mode; click the preview to load that pixel's color into this zone's Sample Color.\nIt reads the actual texture pixel directly, so it is more accurate than the color picker's eyedropper.\nClick again to cancel.";
+            ? "押すとスポイトモードになり、プレビュー上をクリックするとそのピクセルの色を\nこのゾーンの「サンプルカラー」に取り込みます。\n実テクスチャの画素から直接取得するため、カラーピッカーのスポイトより正確です。\n調整の値を手で変えていなければ、取り直した色で自動調整もし直します（Preferences の「いろか」でオフにできます）。\nもう一度押すと解除します。"
+            : "Enters eyedropper mode; click the preview to load that pixel's color into this zone's Sample Color.\nIt reads the actual texture pixel directly, so it is more accurate than the color picker's eyedropper.\nUnless you have changed the zone's settings by hand, it also auto-tunes again with the new color (can be turned off under Preferences > Iroca).\nClick again to cancel.";
         public static string Tolerance => IsJapanese ? "許容範囲" : "Tolerance";
         public static string TargetColor => IsJapanese ? "変更先カラー" : "Target Color";
         public static string PatternPreserve => IsJapanese ? "模様保持" : "Pattern Preserve";
@@ -1077,8 +1077,8 @@ namespace Iroca {
             ? "■ プレビューで変えたい色をクリック"
             : "■ Click a color on the preview";
         public static string StartWithEyedropperTooltip => IsJapanese
-            ? "押してからプレビュー上の変えたい色をクリックすると、カラーゾーンを作ってその色をサンプルカラーに入れます。\nもう一度押すか Esc で解除します。"
-            : "Press, then click the color you want to change on the preview: a color zone is created with that color as its Sample Color.\nPress again or hit Esc to cancel.";
+            ? "押してからプレビュー上の変えたい色をクリックすると、カラーゾーンを作ってその色をサンプルカラーに入れ、自動調整までかけます（自動調整は Preferences の「いろか」でオフにできます）。\nもう一度押すか Esc で解除します。"
+            : "Press, then click the color you want to change on the preview: a color zone is created with that color as its Sample Color and auto-tuned (auto-tune can be turned off under Preferences > Iroca).\nPress again or hit Esc to cancel.";
         public static string CancelActionTooltip => IsJapanese
             ? "実行中の処理を中止します"
             : "Cancel the running operation";
@@ -1149,10 +1149,30 @@ namespace Iroca {
         public static string AutoTuneEvidenceCancelled => IsJapanese
             ? "AI 提案を取得できなかったため自動調整を中止しました"
             : "Auto-tune aborted: the AI suggestion could not be obtained";
+        // スポイトのクリックで自動調整できなかったとき(AI が無い・エラー・期限切れなど)、理由の次の行に足す。
+        // 新しいゾーンは許容範囲の初期値で塗る。{0} = 許容範囲。
+        public static string PickAutoTuneSkippedFormat => IsJapanese
+            ? "自動調整せずに許容範囲 {0} で塗りました（あとでゾーンの「自動調整」を押せます）"
+            : "Painted with tolerance {0} without auto-tune (you can press the zone's \"Auto-tune\" later)";
+        // 同じく、既にあるゾーンでスポイトを取り直したとき(色だけを替える)。
+        public static string PickAutoTuneSkippedRepick => IsJapanese
+            ? "自動調整せずに色だけを取り直しました（あとでゾーンの「自動調整」を押せます）"
+            : "Re-picked only the color without auto-tune (you can press the zone's \"Auto-tune\" later)";
+        // スポイトのクリックの自動調整を待っている間に、Undo・テクスチャの切り替えなどで編集が変わったとき(何も当てない)。
+        public static string PickAutoTuneCancelledByEdit => IsJapanese
+            ? "編集内容が戻った・切り替わったので、スポイトで取った色を当てずに中止しました"
+            : "Stopped without applying the picked color because the edit was undone or replaced";
+        // Preferences の「いろか」の項目。
+        public static string AutoTuneOnPickToggle => IsJapanese
+            ? "スポイトで色を選んだら自動調整する"
+            : "Auto-tune when picking a color";
+        public static string AutoTuneOnPickToggleTooltip => IsJapanese
+            ? "オンにすると、スポイトでプレビューをクリックしたとき、AI でそのパーツを見分けて許容範囲などを合わせてから塗ります（数秒かかります。待つ間は「キャンセル」で取りやめられます）。\n既にあるゾーンで色を取り直したときも、調整の値を手で変えていなければ合わせ直します。\nオフにすると、クリックしてすぐ許容範囲 0.20 で塗ります。どちらでも、ゾーンの「自動調整」でやり直せます。\nAI が使えないときは、オンでも自動調整せずに塗ります。"
+            : "When on, clicking the preview with the eyedropper lets the AI find that part and fits the tolerance and related settings before painting (takes a few seconds; press \"Cancel\" while waiting to stop).\nRe-picking the color of an existing zone fits it again, unless you have changed its settings by hand.\nWhen off, the color is painted right away with tolerance 0.20. Either way, the zone's \"Auto-tune\" redoes the fitting.\nIf the AI is unavailable, the color is painted without auto-tune even when this is on.";
         public static string AnalyzingTexture => IsJapanese ? "テクスチャを解析中…" : "Analyzing texture…";
         public static string AutoTuneTooltip => IsJapanese
-            ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\n上の 2 色（サンプルカラー・変更先カラー）を決めてから押してください。下の項目が結果で上書きされます。"
-            : "Analyzes the texture using the sample and target colors and automatically sets tolerance, saturation strictness, and related parameters.\nSet both colors above (sample and target) before pressing; the settings below are overwritten with the result.";
+            ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\nスポイトで色を選んだときにも自動でかかります（Preferences の「いろか」でオフにできます）。調整し直したいときに押してください。下の項目が結果で上書きされます。"
+            : "Analyzes the texture using the sample and target colors and automatically sets tolerance, saturation strictness, and related parameters.\nIt also runs automatically when you pick a color with the eyedropper (can be turned off under Preferences > Iroca). Press it to tune again; the settings below are overwritten with the result.";
         public static string AutoTuneDisabledTooltip => IsJapanese
             ? "次のときは使えません:\n・元テクスチャを選んでいない\n・テクスチャを読めない（Read/Write の警告が出ているとき）\n・サンプルカラーをまだ選んでいない"
             : "Disabled when:\n- No source texture is selected\n- The texture cannot be read (the Read/Write warning is shown)\n- No sample color has been picked yet";

@@ -74,15 +74,26 @@ namespace Iroca {
             ZoneAutoTuner.ResetIslandDerived(zone);   // 6 項目の一覧は Core に 1 つだけ置く
         }
 
-        /// <summary>塗り先の色を選ぶ(窓のカラーフィールドと同じ: 選んだ印を立てる。白を選んでも既定の白と区別する)。</summary>
+        /// <summary>
+        /// 塗り先の色を選ぶ(窓のカラーフィールドと同じ: 選んだ印を立てる。白を選んでも既定の白と区別する)。
+        /// 模様保持(valueBlend)が自動調整の導いた値のまま(<see cref="ColorZone.ValueBlendIsDerived"/>)なら、今のサンプル色と
+        /// 新しい塗り先から今の式(<see cref="ZoneAutoTuner.ValueBlendFor"/>)で導き直す。スポイトのクリックで自動調整したときの
+        /// 塗り先は既定の白で、模様保持は自動調整が導く項目のうち塗り先を見る唯一のもの。導き直せば「クリック → 自動調整 → 塗り先」が
+        /// 「クリック → 塗り先 → 自動調整」と同じ値になる。手で触った模様保持と、自動調整していないゾーンの既定値はそのまま。
+        /// </summary>
         public static void SetTarget(ColorZone zone, Color target) {
             zone.targetColor = target;
             zone.targetColorSet = true;
+            if (zone.ValueBlendIsDerived) {
+                float v = ZoneAutoTuner.ValueBlendFor(zone.sampleColor, zone.targetColor);
+                zone.valueBlend = v;
+                zone.derivedValueBlend = v;
+            }
         }
 
         /// <summary>
         /// 塗り先の色の欄に色を書く(窓のカラーフィールド)。欄が返した色をそのまま書き、前の色から変わったときだけ選んだ印を立てる
-        /// (<see cref="SetTarget"/>)。変わったら true。Undo の記録は呼ぶ側(欄が書く前に記録する)。
+        /// (<see cref="SetTarget"/>。自動調整の導いた模様保持も導き直す)。変わったら true。Undo の記録は呼ぶ側(欄が書く前に記録する)。
         /// </summary>
         public static bool SetTargetFromField(ColorZone zone, Color color) {
             Color prev = zone.targetColor;

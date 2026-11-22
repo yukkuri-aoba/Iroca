@@ -399,9 +399,10 @@ namespace Iroca {
                                 _host.RequestNewZoneFromSample(picked, uv);
                             } else {
                                 // 武装ゾーンは id で解決する（並べ替え・削除で index がずれても正しいゾーンに入る）。
+                                // 手で調整していないゾーンなら、設定に従って自動調整し直す(IrocaWindow.ApplyEyedropperSample)。
                                 var zone = _host.FindZoneById(_host.EyedropperZoneId);
                                 if (zone != null) {
-                                    _host.Editing.ApplySample(zone, picked, uv);
+                                    _host.ApplyEyedropperSample(zone, picked, uv);
                                 }
                             }
                             // one-shot: 取得したら武装解除。

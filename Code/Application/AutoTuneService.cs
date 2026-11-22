@@ -229,7 +229,7 @@ namespace Iroca {
         /// <summary>
         /// 導出パラメータが「ユーザーの手調整を含まない」状態か(上書きの確認を出さなくてよいか)。
         /// ・自動調整済みのゾーン(<paramref name="lastInput"/> がある): その適用値のまま(サンプル色を取り直して、前の島から
-        ///   導いた値だけが既定へ戻ったものを含む)なら手調整なし
+        ///   導いた値だけが既定へ戻ったもの・塗り先を変えて模様保持を導き直したものを含む)なら手調整なし
         /// ・それ以外(未調整のゾーン、自動調整の後に Undo で適用前の値へ戻ったゾーン): 新しいゾーンへ入れる初期値
         ///   （<see cref="EditingSession.NewZoneInitialTolerance"/>）だけが ZoneAutoTuner の既定と違うなら、それは置いた値で
         ///   あって手調整ではない(<see cref="UserOverwrittenSettings"/> が空)。入力は Undo では消えないので、適用値と違う
@@ -241,9 +241,15 @@ namespace Iroca {
             if (zone == null) {
                 return false;
             }
-            if (lastInput != null
-                && (ValuesIntact(zone, lastInput.applied) || ValuesIntact(zone, IslandCleared(lastInput.applied)))) {
-                return true;
+            if (lastInput != null) {
+                var applied = lastInput.applied;
+                // 塗り先を変えて模様保持を導き直した(ZoneEdits.SetTarget)ゾーンも、手で触っていない。
+                if (zone.ValueBlendIsDerived) {
+                    applied.valueBlend = zone.valueBlend;
+                }
+                if (ValuesIntact(zone, applied) || ValuesIntact(zone, IslandCleared(applied))) {
+                    return true;
+                }
             }
             return UserOverwrittenSettings(zone).Count == 0;
         }

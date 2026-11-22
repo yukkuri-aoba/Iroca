@@ -85,6 +85,17 @@ namespace Iroca {
         [Range(0f, 1f)]
         public float valueBlend = 1f;
 
+        // 自動調整が導いた模様保持(valueBlend)の値(負 = 導いていない: 新しいゾーン・zones JSON・この項目の無い古いデータ)。
+        // valueBlend がこの値のままの間は「模様保持を利用者が手で触っていない」とみなし、塗り先の色を変えたら今の式で
+        // 導き直す(ZoneEdits.SetTarget)。模様保持は自動調整の項目のうち塗り先を見る唯一のもので、スポイトのクリックで
+        // 自動調整するときの塗り先はまだ既定の白なので、色を選んだ後に導き直さないと「塗り先 → 自動調整」と違う値が残る。
+        // 書くのは自動調整の適用(ZoneAutoTuner.TuneResult.ApplyTo)と導き直しだけ。スライダー・プリセットなどで valueBlend を
+        // 書いても触らない(値が食い違うので、手で触ったことになる)。選択・再着色は読まない。
+        public float derivedValueBlend = -1f;
+
+        /// <summary>模様保持が自動調整の導いた値のまま(利用者が手で触っていない)か(<see cref="derivedValueBlend"/>)。</summary>
+        public bool ValueBlendIsDerived => derivedValueBlend >= 0f && Mathf.Abs(valueBlend - derivedValueBlend) <= 1e-5f;
+
         // 出力彩度スケール（1.0=従来の鮮やかさ維持）。1.0未満で再着色後の彩度を比例的に下げ、
         // 純色 target でも明度グラデーション（立体感）が出るようにする。
         [Range(0f, 1f)]
@@ -267,6 +278,7 @@ namespace Iroca {
         public void ResetTuningToDefault() {
             var d = new ColorZone();
             valueBlend = d.valueBlend;
+            derivedValueBlend = d.derivedValueBlend;   // 既定へ戻した値は自動調整が導いたものではない
             outputSaturation = d.outputSaturation;
             edgeSoftness = d.edgeSoftness;
             saturationStrictness = d.saturationStrictness;

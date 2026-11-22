@@ -45,6 +45,7 @@ SELECTION_IRRELEVANT = {
     "autoRecolorAnchor",   # 再着色アンカー正規化のみ(マッチはスポイト色のまま)
     "sampleColorSet",  # 自動調整の可否判定のみ(マッチ経路では未参照)
     "targetColorSet",  # UI の手順案内のみ(選択・再着色では未参照)
+    "derivedValueBlend",  # 自動調整が導いた模様保持の控え。塗り先を変えたときの導き直し(ZoneEdits.SetTarget)だけが読む
     "layerIndex",      # 非推奨(優先度はリスト並び順へ移行済み)
     "detailFoldout",   # UI 折りたたみ状態(NonSerialized)
 }

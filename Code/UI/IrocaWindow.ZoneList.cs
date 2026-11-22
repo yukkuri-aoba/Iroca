@@ -81,10 +81,8 @@ namespace Iroca {
                 return;
             }
             _pendingNewZoneFromSample = false;
-            SetCurrentZoneIndex(Editing.AddZoneFromSample(_pendingNewZoneColor, _pendingNewZoneUV));
-            zonesFoldout = true;
-            // 別窓(プレビュー・マスク編集)も描き直す(新しいゾーンの見本・カーソル)。
-            RequestRepaint();
+            // 設定がオンなら自動調整まで済ませてから足す(IrocaWindow.AutoTune の AddZoneByEyedropper)。
+            AddZoneByEyedropper(_pendingNewZoneColor, _pendingNewZoneUV);
         }
 
         // ゾーン並べ替え（ドラッグ）用。並び順が優先度なので、リスト上のドラッグで優先度を変える。
@@ -521,6 +519,7 @@ namespace Iroca {
                     ArmEyedropper(armed ? null : NewZoneEyedropperId);
                     if (!armed) {
                         EnsureClickablePreview();
+                        WarmAiForPick();   // クリックの後の自動調整の待ちを短くする
                     }
                     Repaint();
                 }
@@ -889,6 +888,7 @@ namespace Iroca {
                         ArmEyedropper(armed ? null : zone.id);
                         if (!armed) {
                             EnsureClickablePreview();
+                            WarmAiForPick();   // 取り直しで自動調整し直すときの待ちを短くする
                         }
                         Repaint();
                     }

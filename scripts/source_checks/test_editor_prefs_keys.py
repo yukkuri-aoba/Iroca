@@ -45,6 +45,8 @@ PREFS_KEYS = {
     "Iroca.Debug.SelectedZone",
     "Iroca.Perf.ThreadOverride",
     "Iroca.ReproDump.LastDir",
+    # 2026-11-23 追加: スポイトでクリックしたら自動調整までかける(Preferences の「いろか」)
+    "Iroca.AutoTuneOnPick",
     # 2026-11-12 追加: UV の詳しい表示(開発者向け)
     "Iroca.UvDetail.Fill",
     "Iroca.UvDetail.Wire",

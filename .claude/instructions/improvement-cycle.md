@@ -5,7 +5,7 @@
 
 ## 前提
 - **製品 C#（`Code/Core/Pipeline/PixelProcessor.cs` ほか）が唯一の正。** 良し悪しは、実 C# を動かす headless ハーネスの出力で判定する。アルゴリズムを Python で再実装して測らない（Python の写しが製品から IoU 0.26 離れ、プロキシを測っていた事故がある）。
-- **入口は窓で行き着く状態だけ**: (a) クリックした直後、(b) 自動調整の後、(c) その後の手直し、(d) 右クリックの後。Python 側の入口は `dev_safe/scripts/oneshot.py` の 1 つで、ハーネスの `--oneshot`・`--script` が製品の段取り（`AutoTuneFlow`・`SamProposalFlow`・`ZoneEdits`・`MaskWorkspace`）をそのまま回す。Python に段取りを書き写さない。クリックは面の内側から選ぶ。
+- **入口は窓で行き着く状態だけ**: (a) クリックした直後（自動調整なし。AI が使えないとき・「スポイトで色を選んだら自動調整する」がオフのとき）、(b) 自動調整の後（スポイトでクリックしたときの既定）、(c) その後の手直し、(d) 右クリックの後。Python 側の入口は `dev_safe/scripts/oneshot.py` の 1 つで、ハーネスの `--oneshot`・`--script` が製品の段取り（`AutoTuneFlow`・`SamProposalFlow`・`ZoneEdits`・`MaskWorkspace`）をそのまま回す。Python に段取りを書き写さない。クリックは面の内側から選ぶ。
 - **正解（GT）は PSD のレイヤー情報。** dev_safe の GT 生成スクリプト（`scripts/build_*_gt.py`・`analyze_*_psd.py` 等）で作る。テクスチャの目視や経験則は補助で、PSD と矛盾したら PSD を優先する。GT が足りないなら、GT なしで「改善した」と言わず GT を足す。
 - **ユーザーが絵で選んだ答え（お手本）は、PSD の GT と別の正解。** 見た目の判断（基準色の明るさなど）はお手本で決める。
 

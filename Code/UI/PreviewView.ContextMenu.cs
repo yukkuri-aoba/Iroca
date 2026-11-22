@@ -366,6 +366,38 @@ namespace Iroca {
             });
         }
 
+        /// <summary>
+        /// スポイトのボタンを押したとき(<see cref="IrocaWindow.WarmAiForPick"/>)、AI のモデルの読み込みと元の画像の埋め込みの計算を
+        /// 先に始める。クリックの後の自動調整は同じ元(同じ鍵)の埋め込みを使い回す。モデルの読み込みは同期で重い(初回は進捗バーを
+        /// 出して数秒止まる)ので、押したボタンの描き直しを先に済ませ、次のエディタの更新で始める(delayCall はテストランナーの
+        /// 数フレームでは回らなかったので、毎回回る update を 1 回だけ使う。RequestNewZoneFromSample と同じ)。そのときもう武装を
+        /// 解いていた・テクスチャが替わった・窓を閉じた・AI が使えない(モデルが無い・エラー中)なら何もしない。
+        /// </summary>
+        internal void WarmAiSource(Texture2D texture) {
+            EditorApplication.CallbackFunction once = null;
+            once = () => {
+                EditorApplication.update -= once;
+                var host = _host;
+                if (host == null || texture == null || host.SourceTexture != texture
+                    || string.IsNullOrEmpty(host.EyedropperZoneId)) {
+                    return;
+                }
+                var svc = MaskSuggestBridge.Service;
+                if (svc == null || svc.Phase == MaskSuggestPhase.NoModel || svc.Phase == MaskSuggestPhase.Error) {
+                    return;
+                }
+                if (!EnsureTrueSource(texture) || TrueSource == null || TrueSourceW <= 0) {
+                    return;
+                }
+                if (svc.Phase == MaskSuggestPhase.NotLoaded && !svc.TryEnsureModels()) {
+                    return;
+                }
+                // 待機中だけ元を渡す(ほかの要求の処理中・計算中なら何もしない。規則は AiSuggestBroker.Prepare)。
+                AiSuggestBroker.Prepare(TrueSourceCacheKey(), TrueSource);
+            };
+            EditorApplication.update += once;
+        }
+
         // AI 提案の要求。エクスポートと同一の実フル解像度ソースで推論する(プレビュー縮小の影響を受けない)。
         // granularity = null ならマスク編集の「提案の粒度」に従う。
         private void RequestAiSuggest(MaskSuggestController ctl, Vector2 uv, MaskPaintView.MaskDestination dest,

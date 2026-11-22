@@ -181,6 +181,8 @@ namespace Iroca {
                 zone.chromaThreshold = chromaThreshold;
                 zone.highlightRecovery = highlightRecovery;
                 zone.valueBlend = valueBlend;
+                // 導いた模様保持を覚える(手で触っていなければ、塗り先を変えたときに導き直す。ZoneEdits.SetTarget)。
+                zone.derivedValueBlend = valueBlend;
                 zone.edgeSoftness = edgeSoftness;
                 zone.shadowDesaturation = shadowDesaturation;
                 zone.shadowForgivenessSatMin = shadowForgivenessSatMin;
@@ -653,6 +655,31 @@ namespace Iroca {
             return stats.nearSampleCount >= MinNearSampleCount;
         }
 
+        /// <summary>
+        /// 模様保持(valueBlend)の導出: サンプルと塗り先の HSV の明度(V)の差だけで決まる。自動調整の解析(MergeAnalyzed)と、
+        /// 自動調整の後に塗り先を変えたときの導き直し(<see cref="ZoneEdits.SetTarget"/>)が同じ式を使う(式はここだけ)。
+        /// 自動調整が導く項目のうち塗り先を見るのはこれだけなので、「クリック → 自動調整(塗り先は白) → 塗り先」の順でも、
+        /// 塗り先の後に導き直せば「クリック → 塗り先 → 自動調整」と同じ値になる。
+        /// </summary>
+        internal static float ValueBlendFor(Color sample, Color target) {
+            Color.RGBToHSV(sample, out _, out _, out float sV);
+            Color.RGBToHSV(target, out _, out _, out float tV);
+            return ValueBlendFor(sV, tV);
+        }
+
+        private static float ValueBlendFor(float sV, float tV) {
+            // 原則 1.0（模様完全保持）を維持。
+            // サンプルとターゲットの明度差が極端（例: 明るい色 → 黒）な場合のみ下げる。
+            // それ以外では模様を残すことを最優先する方針。
+            float vDelta = Mathf.Abs(sV - tV);
+            if (vDelta > 0.55f) {
+                return 0.7f;        // 例: 白系 → 黒系
+            } else if (vDelta > 0.35f) {
+                return 0.9f;   // 中程度の明度差
+            }
+            return 1.0f;                       // 通常は模様完全保持
+        }
+
         private static TuneResult MergeAnalyzed(TuneResult heuristic, AnalysisStats s) {
             float hSpread = HueSpreadFromHistogram(s.hBins, s.sH, s.nearSampleCount);
             float sP10 = PercentileBin(s.sBins, s.nearSampleCount, 0.10f) / (float)HistogramBins;
@@ -692,18 +719,7 @@ namespace Iroca {
             int highlightThreshold = Mathf.Max(50, Mathf.RoundToInt(s.nearSampleCount * 0.02f));
             bool highlightRecovery = s.highlightCandidates >= highlightThreshold;
 
-            // valueBlend: 原則 1.0（模様完全保持）を維持。
-            // サンプルとターゲットの明度差が極端（例: 明るい色 → 黒）な場合のみ下げる。
-            // それ以外では模様を残すことを最優先する方針。
-            float vDelta = Mathf.Abs(s.sV - s.tV);
-            float valueBlend;
-            if (vDelta > 0.55f) {
-                valueBlend = 0.7f;        // 例: 白系 → 黒系
-            } else if (vDelta > 0.35f) {
-                valueBlend = 0.9f;   // 中程度の明度差
-            } else {
-                valueBlend = 1.0f;                       // 通常は模様完全保持
-            }
+            float valueBlend = ValueBlendFor(s.sV, s.tV);
 
             // edgeSoftness: 色相広がりが大きいほど柔らかく
             float edgeSoftness;

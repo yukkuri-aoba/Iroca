@@ -640,20 +640,32 @@ namespace Iroca.EditorTests {
         // 本体が裏のタブ(OnGUI が来ない)でも、別窓のプレビューで「スポイトで色を追加」したらゾーンができる。
         // CreateInstance の窓は表示されないので、裏のタブと同じ。
         [UnityTest]
+        // スポイトのクリックで自動調整する設定はオフにして見る(オンのときの待ちは PickAutoTuneWindowTests。AI の入ったホストでは、
+        // オンのままだと本物の AI を待ってからゾーンができる)。
         public IEnumerator NewZoneFromSample_IsMadeWithoutTheWindowDrawing() {
-            AddZones("服");
-            _win.ArmEyedropper(IrocaWindow.NewZoneEyedropperId);
-            var picked = new Color(0.2f, 0.4f, 0.6f, 1f);
-            _win.RequestNewZoneFromSample(picked, new Vector2(0.25f, 0.75f));
-            for (int i = 0; i < 5 && _win.Session.zones.Count < 2; i++) {
+            bool hadKey = EditorPrefs.HasKey(IrocaPrefs.AutoTuneOnPick);
+            bool before = IrocaWindow.AutoTuneOnPick;
+            IrocaWindow.AutoTuneOnPick = false;
+            try {
+                AddZones("服");
+                _win.ArmEyedropper(IrocaWindow.NewZoneEyedropperId);
+                var picked = new Color(0.2f, 0.4f, 0.6f, 1f);
+                _win.RequestNewZoneFromSample(picked, new Vector2(0.25f, 0.75f));
+                for (int i = 0; i < 5 && _win.Session.zones.Count < 2; i++) {
+                    yield return null;
+                }
+                Assert.AreEqual(2, _win.Session.zones.Count, "ゾーンができない");
+                var zone = _win.Session.zones[1];
+                Assert.AreEqual(picked, zone.sampleColor, "取った色が入っていない");
+                Assert.AreEqual(1, _win._maskView.activeMaskTarget, "作ったゾーンを直す対象にしていない");
                 yield return null;
+                Assert.AreEqual(2, _win.Session.zones.Count, "二重に作った");
+            } finally {
+                IrocaWindow.AutoTuneOnPick = before;
+                if (!hadKey) {
+                    EditorPrefs.DeleteKey(IrocaPrefs.AutoTuneOnPick);
+                }
             }
-            Assert.AreEqual(2, _win.Session.zones.Count, "ゾーンができない");
-            var zone = _win.Session.zones[1];
-            Assert.AreEqual(picked, zone.sampleColor, "取った色が入っていない");
-            Assert.AreEqual(1, _win._maskView.activeMaskTarget, "作ったゾーンを直す対象にしていない");
-            yield return null;
-            Assert.AreEqual(2, _win.Session.zones.Count, "二重に作った");
         }
 
         // テクスチャを選ぶ前に作ったゾーンは、そのテクスチャに編集内容が無ければ引き継ぐ。
