@@ -383,6 +383,8 @@ dotnet build scripts/build-check/IrocaSentisCheck.csproj
 ```
 
 別の場所に置くなら `-p:SentisAssembliesPath=` か `IROCA_SENTIS_ASSEMBLIES` で上書きする。
+Iroca_MLDev にはテストを繋いでいない。本物の推論を通す EditMode テストは、Sentis とテストを入れた `Iroca_U2022` で回す
+（テスト用 PC にも同じ名前で置いてある。下の「EditMode もテスト用 PC で回せる」）。
 Unity で開くと `Iroca.SentisIntegration.dll` も `Library\ScriptAssemblies` に出る。
 dotnet 側（`scripts/build-check`）も asmdef と同じ境目で分けてある（同じ所の README）が、任意のパッケージのある・無しの
 組み合わせまでは再現しない。境界（internal の見え方など）の最終確認はこの Unity 側コンパイルが正。
@@ -545,6 +547,32 @@ Python の入口なので、`remote_test.py` の `--` の後ろに置ける。�
   - `-SdkUpload` も同じ経路を通るが、SDK のログインと権利の同意は相手の画面で人がする（下の EditMode の節のとおり、当面は使わない）。
 - 実測（2026-11-19、G83）: 初回（ホストの取り込み込み）で全 783 件・成功 747・失敗 0・スキップ 36・351 秒。
   スキップは `-nographics`・AI パッケージの無いホスト・計測用（既定では回らない）で、手元の同じホストと同じ。
+- **本物の AI 推論（Sentis）のテストは、Sentis 入りの別のホスト `Iroca_U2022` で回す**（2026-11-22〜）。
+  既定のホスト `Iroca_U2022_ifx` には Sentis を入れない（AI の無い利用者の分岐 ―「AI が無いので自動調整を飛ばして知らせる」
+  「AI 連携をコンパイルしない」など ― をそこで見続けるため）。`--host` に名前だけを書くと、相手でも手元でも同じ置き場
+  （相手は `iroca-remote\hosts\`、手元は `Documents\Avatar_Projects\`）から探す:
+  ```powershell
+  # AI のテストだけ（GPU で推論する。-Graphics を外すと CPU に切り替えた経路を通り、GPU のテスト 2 件はスキップ）
+  .\.venv\Scripts\python.exe tools/remote_test.py --remote -- tools/editor_tests.py --host Iroca_U2022 -Graphics -TestFilter "MaskSuggest;RealAi;UsesAiEvidence"
+  # 全体
+  .\.venv\Scripts\python.exe tools/remote_test.py --remote -- tools/editor_tests.py --host Iroca_U2022 -Graphics
+  ```
+  - 中身は `com.unity.sentis` 2.1.3 と test-framework だけ（VRChat SDK・NDMF・lilToon・MCP for Unity は無い）。開発機の
+    `Iroca_U2022` から `ProjectSettings`・`Packages\manifest.json`・`packages-lock.json`・`Assets\IrocaEditorTests.meta` だけを
+    写し（Library・UserSettings は写さない。数百 KB）、相手で `Link-HostPackage.ps1 -WithEditorTests` で相手の `iroca-remote\Iroca`
+    へリンクした。パッケージは初回の起動で Unity のレジストリから取る。取り込み後の Library は相手で約 0.9GB。
+  - モデルは `setup` が送った相手の `%LOCALAPPDATA%\Iroca\Models`（製品と同じ置き場）を使う。変換済みのキャッシュは初回の推論で作られる。
+  - GPU: 相手は内蔵 GPU（Iris Xe・D3D11）。ssh の先（session 0）の batchmode でも、`-Graphics` を付ければ Sentis の
+    GPUCompute で推論する（`GpuFailures_FallBackToCpu_AndTheGpuIsRetriedOnce` と `GpuKernelPrewarm_*` が通る＝GPU で動いている）。
+    `-nographics` では GPUCompute の初期化が失敗して、製品の切り替えどおり CPU で推論する（その 2 件はスキップ）。
+  - 実測（2026-11-22、G83）: AI のテスト 16 件（`-TestFilter MaskSuggest`）はパッケージの取得と取り込み込みの初回で 100 秒・失敗 0・
+    スキップ 0。上の AI のテストだけの絞り込みは 18 件・21 秒（温まった後。同期の約 30 秒は別）。全体は `-Graphics` で 761 件・成功 698・失敗 0・スキップ 63・112 秒、`-nographics` で成功 693・スキップ 68・107 秒
+    （既定のホストより件数が少ないのは、VRChat SDK・NDMF の無いホストではコンパイルされないテストがあるため。スキップの内訳は
+    lilToon の無いホスト 27・MCP for Unity の無いホスト 22・VRChat SDK の無いホスト 5・計測用 9）。
+  - 本物の AI を通るのは `MaskSuggestInferenceTests`・`MaskSuggestZoomTests`・`MaskSuggestModelFilesTests` の一部・
+    `AutomationMaskTests.RealAi_DontPaint_FinishesThroughPolling`・`AutomationTests.Recolor_AutoTune_ClickedZone_UsesAiEvidenceWhenAvailable`
+    （後者は AI の無いホストでは「飛ばして知らせる」側の分岐を見る）。
+  - `MemoryBenchTests` の `aiSuggest`（`-MemCases`）もこのホストで回せる。ホストの Packages を変えたら、上と同じく写し直す。
 - Unity のライセンスは相手の PC で人が Unity Hub にサインインして取る（Personal。こちらからは取れない）。
   切れると Unity が起動直後に終わり、結果が出ずに失敗する（unity.log にライセンスの行が出る）。
 - 相手への Unity の入れ方（2026-11-19）: `winget install Unity.UnityHub`、エディタは Hub の `--headless install` が
@@ -1186,8 +1214,9 @@ python tools/visual_review.py check --index         # （任意）今ステー�
   Unity 実機の製品経路（`IrocaAutomation.RecolorWithZones`）に通してハーネスの出力と比べる。
   2026-09-24 時点で 25 件すべてバイト一致。`Code/Core` を大きく変えたら `Run-EditorTests.ps1` で再確認する。
 - **本物の推論（Sentis）とハーネスの推論（onnxruntime）の数値の差**は、2026-07 に 1 回突き合わせただけ（提案の IoU 0.998）。
-  ハーネスの数字は「onnxruntime の世界の数字」で、テスト用 PC には Sentis 入りのホスト（ML ホスト）が無い。
-  突き合わせの計画は dev_safe の `docs/test-validity-audit-2026-11-20/stage3-design.md` の 8.3（まだ作っていない）。
+  ハーネスの数字は「onnxruntime の世界の数字」。2026-11-22 からテスト用 PC に Sentis 入りのホスト `Iroca_U2022` があり
+  （上の「EditMode もテスト用 PC で回せる」）、Sentis の推論そのものは合成の円で毎回確かめられるが、同じテクスチャ・同じクリックで
+  両者の出力を突き合わせる仕組みはまだ無い。計画は dev_safe の `docs/test-validity-audit-2026-11-20/stage3-design.md` の 8.3。
   EditMode の自動調整のテストは偽の AI（`FakeMaskSuggestService`）で段の遷移を見るので、Sentis の後処理と数値は通らない。
 - **合成の契約テストが使う `fixtures.run_harness`（と `run_harness_many`・`run_harness_autotune`）は、上原点の配列をそのまま
   渡す**（製品から見て上下が鏡写し。座標を持つ入力も呼び手の配列の向きのまま）。合成の画像の性質を見る契約には効かないが、

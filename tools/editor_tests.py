@@ -8,6 +8,8 @@
 ホストの Unity プロジェクトは、`--host` → 環境変数 `IROCA_EDITOR_HOST` → 次の順で最初にあるもの:
   1. `<この作業ツリーの親>\\hosts\\Iroca_U2022_ifx`（テスト用 PC の置き場 `iroca-remote\\hosts\\`）
   2. `%USERPROFILE%\\Documents\\Avatar_Projects\\Iroca_U2022_ifx`（開発機。ユーザーが開いていないホスト）
+`--host` に名前だけを書くと、同じ 2 か所からその名前のホストを探す（`--host Iroca_U2022` は Sentis 入りのホスト。
+本物の AI 推論のテストを回す。2026-11-22〜）。パスを書けばそのまま使う。
 ホストは `scripts/Link-HostPackage.ps1 -WithEditorTests` でこの作業ツリーへリンク済みであること
 （Run-EditorTests.ps1 が確かめる）。
 
@@ -69,15 +71,29 @@ def desktop_sessions() -> list[int]:
     return out
 
 
-def default_host() -> Path | None:
+def find_host(name: str) -> Path | None:
+    """名前だけのホストを、テスト用 PC の置き場 → 開発機の置き場の順に探す（テストがリンクしてあるもの）。"""
     cands = [
-        REPO.parent / "hosts" / HOST_NAME,
-        Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Documents" / "Avatar_Projects" / HOST_NAME,
+        REPO.parent / "hosts" / name,
+        Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Documents" / "Avatar_Projects" / name,
     ]
     for c in cands:
         if (c / "Assets" / "IrocaEditorTests").exists():
             return c
     return None
+
+
+def default_host() -> Path | None:
+    return find_host(HOST_NAME)
+
+
+def resolve_host(arg: str) -> Path | None:
+    """`--host` の値。パスならそのまま、名前だけ（区切りの無い値）なら find_host で探す。
+    名前で渡せば、テスト用 PC でも開発機でも同じ書き方で同じホストを選べる（例: --host Iroca_U2022 で Sentis 入りのホスト）。"""
+    p = Path(arg)
+    if p.is_absolute() or len(p.parts) > 1:
+        return p
+    return find_host(arg)
 
 
 def _ps_quote(s: str) -> str:
@@ -214,10 +230,10 @@ def main() -> int:
             return 0
         rest.append(a)
         i += 1
-    host_path = Path(host) if host else default_host()
+    host_path = resolve_host(host) if host else default_host()
     if host_path is None:
-        print("[editor-tests] ホストの Unity プロジェクトが見つからない（--host か IROCA_EDITOR_HOST で指定）",
-              file=sys.stderr)
+        print(f"[editor-tests] ホストの Unity プロジェクトが見つからない（{host or HOST_NAME}。"
+              "--host か IROCA_EDITOR_HOST で、パスか置き場の中の名前を指定）", file=sys.stderr)
         return 2
 
     tmp_root = Path(os.environ.get("TEMP", "")) / "iroca-editor-tests"

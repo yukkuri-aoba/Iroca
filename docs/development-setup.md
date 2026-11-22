@@ -142,6 +142,10 @@ Unity 6 の確認用に、VRChat SDK も NDMF も入れない検証ホストを 
 `Link-HostPackage.ps1 -WithEditorTests` で繋ぎ、`Run-EditorTests.ps1 -HostProject <ホスト> -UnityExe <その版の Unity.exe>`
 で EditMode テストを回す。6.5 以降で必要になる修正の一覧と、最新の Unity の DLL でコンパイルを確かめる手順は
 `docs/unity-version-migration.md`。
+`Iroca_U2022` は本物の AI 推論（Sentis）のテストのホストも兼ね、テスト用 PC にも同じ名前で置いてある（2026-11-22〜）。
+`python tools/remote_test.py --remote -- tools/editor_tests.py --host Iroca_U2022 -Graphics` で、テスト用 PC の GPU で推論して回る。
+作り直すときは、開発機のこのホストから Library と UserSettings を除いて写し、相手で `Link-HostPackage.ps1 -WithEditorTests` で繋ぐ
+（`docs/testing-architecture.md` の「EditMode もテスト用 PC で回せる」）。
 
 UI を作り込むなど、コードを直しては Unity で見るのを繰り返すときは、軽いホスト `Iroca_Lite` を使う
 （2026-11-12〜。リポジトリは無く、手元で作る）。待ち時間の大半は、コンパイルの後のドメインリロードで、他のパッケージの
