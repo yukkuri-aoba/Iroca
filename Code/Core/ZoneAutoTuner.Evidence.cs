@@ -383,6 +383,7 @@ namespace Iroca {
             Color.RGBToHSV(zone.sampleColor, out _, out float clickSat, out _);
             bool tintedClick = clickSat > ColorZone.ChromaGateActivateSat && clickSat < AchromaSampleSatMax;
             bool tintRetry = false;
+            bool firstOnFringe = false;   // 元のクリック(1 周目)の素材がセグメントの裾か
             string retryDiag = "";
             Color rep;
             float clickT, repH, repS, repV, materialFrac;
@@ -409,6 +410,9 @@ namespace Iroca {
                 // クリックの素材がセグメントの裾(1/10 未満)のときだけ、縁の混色なら最寄りの芯の画素で
                 // 1 回だけやり直す(定数の説明参照)。
                 bool clickOnFringe = domain.Count < EvMinDomainPixels || materialFrac < NormOutlierFrac;
+                if (!snapped && !tintRetry) {
+                    firstOnFringe = clickOnFringe;
+                }
                 if (usable) {
                     break;
                 }
@@ -422,7 +426,17 @@ namespace Iroca {
                     continue;
                 }
                 // 縁の救済でも使えなかった(または対象外だった)色味の乗ったグレーのクリックを、1 回だけ寄せ直す。
+                // 寄せ直すのは、元のクリックの素材がセグメントの裾でないとき(素材の割合が NormOutlierFrac 以上)だけ。
+                // 寄せ直しの前提は「クリックはセグメントの主な素材のツヤか陰」で、ツヤ・陰ならクリックの素材(同じ陰影
+                // ランプ)はセグメントの何割かを占める。別の色の大きな面に乗った小さな柄(赤い布の上のクリームの三角など)を
+                // クリックすると、AI のセグメントは面の全体になり、クリックの素材は 1% ほどしかない。そこで寄せ直すと
+                // 見本が面の色へ替わり、クリックした柄でなく周りの地を塗っていた。裾なら寄せ直さず、従来の導出
+                // (クリックの色のまま)へ落とす。境の両側の実測は docs/algorithm-constants.md の NormOutlierFrac。
                 if (tintRetry || !tintedClick) {
+                    break;
+                }
+                if (firstOnFringe) {
+                    retryDiag += " tintSkip=fringe";
                     break;
                 }
                 click = zone;
