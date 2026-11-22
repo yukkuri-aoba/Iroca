@@ -194,12 +194,20 @@ namespace Iroca {
         /// strength>thr の画素のみ連結対象。マッチ無しは null。
         /// upMap: 同じ成分ごとに、白側の余白(AchromaHeadroomPercentile 参照、AchromaFormOffset 以下)を配る地図。
         /// 戻り値の地図と同じ画素に値が入る(戻り値が null なら null)。
+        /// preMap / preUp(どちらも null か、どちらも非 null): 含めるマスクを足す前の強さで作った、この関数の地図
+        /// (RecolorStatsStage)。渡すと新しく借りず、含めた後の強さでつないだ成分の基準をその地図へ書き直す(戻り値は
+        /// preMap、upMap は preUp)。成分の基準は、成分の中の「含める前から地図に値があった画素」(色で選ばれていた画素)
+        /// だけで数える。足した画素は基準を動かさず、つながった先の基準をそのまま使う。そうした画素が 1 つの値しか
+        /// 持たない成分(含める前の成分 1 つに足した画素がつながった)は、その値をそのまま配る(先に塗れていた画素の色は
+        /// 1 バイトも変わらない)。含める前の成分がいくつもつながった成分は、それらの画素を合わせた基準にそろえる
+        /// (別々の基準のまま残すと、足した所との境や、足した所に残った小さな成分が段差・点になる)。含める前の画素が
+        /// 無い成分(足した画素だけで成る)は、全画素で数える。
         /// </summary>
-        // 返す地図(upMap も)は s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。
+        // 返す地図(upMap も)は s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。preMap を渡したときは借りない。
         private static float* BuildComponentMedianLMap(
             Color32* px, float* strength, int w, int h, float thr, in SelectionCache.PostBox scan,
             out float* upMap, CancellationToken ct = default,
-            ColorPalette palette = null) {
+            ColorPalette palette = null, float* preMap = null, float* preUp = null) {
             upMap = null;
             int len = w * h;
             var bboxPo = CoreParallelism.Options(ct);
@@ -310,30 +318,55 @@ namespace Iroca {
                 int* compStartL = compStart;
                 float* medL = med, upL = up;
                 var orderL = order; var runX0L = runX0; var runX1L = runX1; var runYL = runY;
+                float* preMapL = preMap, preUpL = preUp;
                 Parallel.For(0, compCount, bboxPo, () => (new int[256], new int[256]), (c, _, hs) => {
                     var (hist, histCore) = hs;
                     Array.Clear(hist, 0, 256);
                     Array.Clear(histCore, 0, 256);
                     int size = 0, coreSize = 0;
-                    for (int q = compStartL[c]; q < compStartL[c + 1]; q++) {
-                        int r = orderL[q];
-                        int x0 = runX0L[r], x1 = runX1L[r];
-                        int grb = (runYL[r] + minY) * w + minX;
-                        if (binOf != null) {
-                            for (int lx = x0; lx <= x1; lx++) {
-                                int bin = binOf[pIdx[grb + lx]];
-                                hist[bin]++;
-                                if (strength[grb + lx] >= AnchorStrengthMin) { histCore[bin]++; coreSize++; }
-                            }
-                        } else {
+                    // 書き直し(preMap あり)のときは、成分の中の含める前から地図に値があった画素だけで数え、その値が
+                    // 1 つだけかも見る。そういう画素が無い成分(足した画素だけで成る)は、全画素で数える(2 周目)。
+                    bool uniform = true;
+                    float firstMid = -1f, firstUp = 0f;
+                    for (int pass = preMapL != null ? 0 : 1; pass < 2; pass++) {
+                        bool preOnly = pass == 0;
+                        for (int q = compStartL[c]; q < compStartL[c + 1]; q++) {
+                            int r = orderL[q];
+                            int x0 = runX0L[r], x1 = runX1L[r];
+                            int grb = (runYL[r] + minY) * w + minX;
                             int lrb = runYL[r] * bw;
                             for (int lx = x0; lx <= x1; lx++) {
-                                int bin = Mathf.Clamp((int)(okL[lrb + lx] * 255f), 0, 255);
+                                int gi = grb + lx;
+                                if (preOnly) {
+                                    float pm = preMapL[gi];
+                                    if (pm < 0f) {
+                                        continue;
+                                    }
+                                    float pu = preUpL[gi];
+                                    if (firstMid < 0f) {
+                                        firstMid = pm; firstUp = pu;
+                                    } else if (pm != firstMid || pu != firstUp) {
+                                        uniform = false;
+                                    }
+                                }
+                                int bin = binOf != null
+                                    ? binOf[pIdx[gi]]
+                                    : Mathf.Clamp((int)(okL[lrb + lx] * 255f), 0, 255);
                                 hist[bin]++;
-                                if (strength[grb + lx] >= AnchorStrengthMin) { histCore[bin]++; coreSize++; }
+                                size++;
+                                if (strength[gi] >= AnchorStrengthMin) { histCore[bin]++; coreSize++; }
                             }
                         }
-                        size += x1 - x0 + 1;
+                        if (size > 0) {
+                            break;
+                        }
+                    }
+                    if (firstMid >= 0f && uniform) {
+                        // 含める前の成分 1 つに足した画素がつながった成分: 含める前の値をそのまま配る。数え直すと、含めて
+                        // 強さ 1 になった画素がコアに入り、白側の余白がわずかに変わる。
+                        medL[c] = firstMid;
+                        upL[c] = firstUp;
+                        return hs;
                     }
                     medL[c] = Histogram.ValueAtPercentile(hist, size, AchromaRefPercentile, 1f);
                     // 明部の幅はコアマッチ(strength≥AnchorStrengthMin)の画素だけで測る。AA 縁は素材と隣の色の
@@ -352,6 +385,23 @@ namespace Iroca {
                 // 各画素を 1 回だけ書く: 行ごとに「run の間は印・run は値」を左から順に埋める(run は行の中で左から
                 // 重ならずに並ぶ)。bbox の外の行は印だけ。以前は全域を印で埋めてから run をもう 1 回書いていた
                 // (4K で 128MB の全域書き + run の分。書く値は同じなので出力は変わらない)。
+                if (preMapL != null) {
+                    // 書き直し: run の画素だけに書く。run の外は含める前も地図の外(含める前に値があった画素は、強さが
+                    // 下がらないので run の中にある)なので、印のまま触らない。
+                    Parallel.For(0, bh, bboxPo, ly => {
+                        long rowBase = (long)(ly + minY) * w + minX;
+                        for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++) {
+                            float v = medL[comp[k]];
+                            float u = upL[comp[k]];
+                            for (int lx = runX0[k]; lx <= runX1[k]; lx++) {
+                                preMapL[rowBase + lx] = v;
+                                preUpL[rowBase + lx] = u;
+                            }
+                        }
+                    });
+                    upMap = preUpL;
+                    return preMapL;
+                }
                 float* map = s_floatPool.Rent(len);
                 float* umap = s_floatPool.Rent(len);
                 // 呼び出し側へ渡す前に抜けたら(キャンセル)、借りた地図はここで返す。
@@ -423,9 +473,10 @@ namespace Iroca {
         // 含めるマスクの画素は、ここを読んだ後で強さ 1 になる(ApplyInclude)ので、含める前の強さで数える。手動で足した
         // 画素が領域 L 中央値を汚し、無彩リマップがゾーン全体で遠隔に変わるのを防ぐ。足した画素の再着色は、色マッチ画素
         // から求めた中央値で「同素材として」写像される。
-        // なお成分別の地色基準(BuildComponentMedianLMap)は含めた後の強さで作る — あちらは
-        // 成分ローカルな統計で遠隔作用が無く、同素材の島を含めた場合はその島自身の地色基準を
-        // 使うのが正しいため。
+        // 成分別の地色基準(BuildComponentMedianLMap)は含めた後の強さでつないだ成分で作るが、基準は含める前から選ばれて
+        // いた画素だけで数える(RecolorStatsStage)。足した画素はつながった先の基準で塗られ、同じ素材の離れた島を足せば、
+        // その島は自分の成分の基準になる。足した画素まで数えていたころは、足した地が文字とつながって文字の基準が地の
+        // 明るさへ上がり、文字が黒へ押し潰された(2026-11-22)。
         private static bool TryComputeRegionLRange(
             Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,

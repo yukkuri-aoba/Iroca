@@ -9,7 +9,8 @@ namespace Iroca {
         /// 再着色の段の 3 つ目「再着色の統計」(0.4.0 の計画の 3-7b で ProcessPixelsArrayCore から中身を書き換えずに
         /// 切り出した)。ハイライト合成の実効サンプル・OkLab のゾーン定数・地色アンカー・無彩パスの領域 L を求め、
         /// ゾーン不変の再着色パラメータ(<see cref="ZoneState.Params"/>)と領域 L(<see cref="ZoneState.RegLmid"/>・
-        /// 成分ごとの地図)を書く。途中で含めるマスクを強度へ足す(<see cref="ApplyInclude"/>。大域の統計の後・成分の地図の前)。
+        /// 成分ごとの地図)を書く。途中で含めるマスクを強度へ足す(<see cref="ApplyInclude"/>。統計と成分の地図の後で、
+        /// 足した画素の地図の値はその後に書き足す)。
         /// 地図はゾーンの作業配列(<see cref="ZoneBuffers"/>)の持ち物。
         /// </summary>
         private static class RecolorStatsStage {
@@ -210,17 +211,35 @@ namespace Iroca {
                         out zRegLmid, cancellationToken, palette);
                     _sub.Mark(SpRegionLRange);
                 }
-
-                // 含めるマスクを足す(マスクの契約の 2 つ目。ApplyInclude)。ここまでの段(無彩の固め・デコンタミ・基準色・
-                // 彩度の分位・領域 L)は含める前の強さを読んだので、範囲の外の色は含める前と同じ統計から決まる。
-                // 成分ごとの地図(下)と、混色帯・合成の段は、含めた後の強さを読む。
-                ApplyInclude(run, zone, strength, includedPx, z.IncludedBox, z.AaMask);
-
                 if (zHasRegL) {
+                    // 成分ごとの地図は、含める前の強さで作る(色で選ばれていた画素の基準は、含めても変わらない)。
                     // 地図はプールから借りる(ゾーンの終わりに返す)。
                     zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, ColorZone.MatchStrengthFloor, z.Scan,
                         out zRegUpMap, cancellationToken, palette);
                     zb.RegMidMap = zRegMidMap; zb.RegUpMap = zRegUpMap;
+                }
+
+                // 含めるマスクを足す(マスクの契約の 2 つ目。ApplyInclude)。ここまでの段(無彩の固め・デコンタミ・基準色・
+                // 彩度の分位・領域 L・成分ごとの地図)は含める前の強さを読んだので、先に塗れていた画素と範囲の外の色は
+                // 含める前と同じ統計から決まる。混色帯・合成の段は、含めた後の強さを読む。
+                ApplyInclude(run, zone, strength, includedPx, z.IncludedBox, z.AaMask);
+
+                // 含めた後の強さでつないだ成分で、地図を書き直す。成分の基準は含める前から選ばれていた画素だけで数えるので、
+                // 足した画素はつながった先の基準で塗られ、先に塗れていた画素の基準は動かない(BuildComponentMedianLMap の
+                // preMap)。足した画素まで数えていたころは、足した明るい地・ピンクの筋が成分の基準を上げ、先に塗れていた
+                // 文字・瞳・裏地の地が暗く変わった。足した画素だけに別の基準を書く作り(2026-11-22 の案 2b)は、明るさの
+                // 違う所がなだらかにつながる所を選択の境が横切ると、境に濃淡の逆転したぎざぎざの段差が出た。
+                // 含めるマスクのある無彩寄りのゾーンでだけ、地図をもう 1 回数える。
+                if (zHasRegL && includedPx != null && z.IncludedBox.Has) {
+                    if (zRegMidMap != null) {
+                        BuildComponentMedianLMap(originalPixels, strength, w, h, ColorZone.MatchStrengthFloor, z.Scan,
+                            out _, cancellationToken, palette, zRegMidMap, zRegUpMap);
+                    } else {
+                        // 含める前に成分が無かった(色で選ばれた画素が床を超えていない)。含めた後の地図をそのまま使う。
+                        zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, ColorZone.MatchStrengthFloor, z.Scan,
+                            out zRegUpMap, cancellationToken, palette);
+                        zb.RegMidMap = zRegMidMap; zb.RegUpMap = zRegUpMap;
+                    }
                 }
 
                 _sub.Mark(SpMedianLMap);
