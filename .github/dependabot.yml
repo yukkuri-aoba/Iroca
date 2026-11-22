@@ -1,0 +1,19 @@
+# GitHub Actions の版を自動で上げる PR を作る。
+# ワークフローの actions は SHA で固定してあるので、放っておくと古い版のまま
+# （2026-11 時点で Node.js 20 の廃止予告が出ていた）。Dependabot は SHA と横の版のコメントを一緒に上げる。
+#
+# この設定は既定のブランチ（main）に入ってから効く。PR は開発ブランチの develop へ向ける
+# （main へ直接入れない。.claude/instructions/git.md）。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+    # 1 か月分をまとめて 1 本の PR にする（個人開発で PR が積み上がらないように）
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: chore(ci)
