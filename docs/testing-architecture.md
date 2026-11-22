@@ -84,7 +84,7 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
 - 証拠なしの従来の自動調整は、窓ではスポイト位置の無いゾーン（色を数値で入れた・プリセット・自動化）でだけ通る予備の経路で、
   `test_fallback_autotune`（基準 1 つ）と `test_autotune_accuracy` の契約が見る。
 - 条件の機械定義は `tools/workflow_contract.py` の `WORKFLOWS`（`click`・`oneshot`・`assisted_include`・`oracle_masked`・
-  `fixed`・`fixed_excluded`・`fallback`）。条件を合算して「製品品質」と報告しない。主な条件は `pytest -m oneshot` /
+  `fallback`。固定設定の `fixed`・`fixed_excluded` は使う所が無くなり 2026-11-23 に外した）。条件を合算して「製品品質」と報告しない。主な条件は `pytest -m oneshot` /
   `-m assisted_include` / `-m oracle_masked` で個別に回せる。`oracle_masked` は PSD の部位レイヤーから合成した除外を与えた
   従来の自動調整で、理想の部位情報を与えた上限性能（実ユーザーや AI のマスクの精度ではない）。
 - GT は採点とクリック位置の選び方に使い、処理の入力に GT のマスクを渡さない（除外の契約を見る変種のように、

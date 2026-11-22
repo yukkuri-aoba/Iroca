@@ -24,7 +24,9 @@ CLICKS = ("p25", "p50", "p95")
 # 除外マスク付きの視覚レビューケース(subject_id -> 使うケース数。自動調整の後の状態に除外を与える)。選び方は visual_review.py。
 MASKED_REVIEW_CASES: dict[str, int] = dict(_SUBJECT_DOC.get("masked_review_cases", {}))
 WORKFLOWS = {
-    # 窓でクリックした直後(新しいゾーンの最初のプレビュー。自動調整なし。dev_safe/scripts/oneshot.py の状態 click)
+    # 窓でクリックした直後(新しいゾーンの最初のプレビュー。自動調整なし。dev_safe/scripts/oneshot.py の状態 click)。
+    # 2026-11-23(本体 b0d5cfec)からクリックは既定で自動調整までかけるので、窓でこの状態のまま塗られるのは
+    # AI が使えないとき・クリックで自動調整する設定がオフのときだけ。label はパネルの絵に出るので変えていない
     "click": {"label": "クリック直後(自動調整なし)", "mask_role": "none", "mask_source": "none",
               "settings_source": "window_new_zone", "additional_action": "none"},
     "oneshot": {"label": "ワンショット", "mask_role": "evidence_only",
@@ -39,10 +41,8 @@ WORKFLOWS = {
                          "additional_action": "right_click_paint_here"},
     "oracle_masked": {"label": "理想部位マスクによる上限性能", "mask_role": "exclude",
                       "mask_source": "psd_part_simulation", "settings_source": "legacy_autotune"},
-    "fixed": {"label": "固定設定", "mask_role": "none", "mask_source": "none",
-              "settings_source": "fixture"},
-    "fixed_excluded": {"label": "固定設定の除外契約", "mask_role": "exclude",
-                       "mask_source": "synthetic_from_gt", "settings_source": "fixture"},
+    # 固定設定(fixtures.make_zone)の条件 fixed・fixed_excluded は 2026-11-23 に外した。固定設定を入口にした品質のテストと
+    # パネルは 2026-11-21(C6)に 0 になり、読む所が無かった。固定設定そのものは合成の契約テストと abcheck の固定のシナリオが使う。
     "fallback": {"label": "従来の自動調整", "mask_role": "none", "mask_source": "none",
                  "settings_source": "legacy_autotune"},
 }
