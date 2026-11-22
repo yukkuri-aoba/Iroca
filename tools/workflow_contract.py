@@ -30,8 +30,10 @@ WORKFLOWS = {
     "oneshot": {"label": "ワンショット", "mask_role": "evidence_only",
                 "mask_source": "sam", "settings_source": "autotune",
                 "additional_action": "none"},
-    # 状態 (d): 自動調整の後に同じ所を右クリック「ここも塗る」。含めるかは製品の右クリックの手が決める
-    # (dev_safe/scripts/measure_evidence_autotune.run_assisted。2026-11-21 まで Python が拒否の規則を写していた)
+    # 状態 (d): 自動調整の後に、塗り残しの所(正解の中でまだ塗れていない所のいちばん内側)を右クリック「ここも塗る」。
+    # 塗り残しが無ければ右クリックしない。含めるかは製品の右クリックの手が決める
+    # (dev_safe/scripts/measure_evidence_autotune.run_assisted。2026-11-21 まで Python が拒否の規則を写していた。
+    # 2026-11-22 まで右クリックは自動調整のクリックと同じ点 = もう塗れている所だった)
     "assisted_include": {"label": "AI提案を含める適用後", "mask_role": "evidence_and_include",
                          "mask_source": "sam", "settings_source": "autotune",
                          "additional_action": "right_click_paint_here"},

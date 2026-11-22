@@ -2,8 +2,10 @@
 
 状態は窓で行き着くもの(2026-11-21、C6 の 5 章。入口は dev_safe/scripts/oneshot.py):
   - click: 状態 (a) 窓でクリックした直後(新しいゾーンの既定のまま。自動調整なし。新しいゾーンの最初のプレビュー)
-  - assisted_include: 状態 (d) 状態 (b) の後に同じ所を右クリック「ここも塗る」(measure_evidence_autotune.run_assisted。
-    ハーネスの --script で窓の手の列を再生し、含めるかは製品の右クリックが決める。test_assisted_include と同じ入口)
+  - assisted_include: 状態 (d) 状態 (b) の後に、塗り残しの所(正解の中でまだ塗れていない所のいちばん内側)を右クリック
+    「ここも塗る」(measure_evidence_autotune.run_assisted。塗り残しが無ければ右クリックしない。ハーネスの --script で
+    窓の手の列を再生し、含めるかは製品の右クリックが決める。test_assisted_include と同じ入口)。パネルの元の縮小に、
+    自動調整のクリック(赤紫の輪)と右クリック(水色の菱形)の印を付ける
   どちらも p50 のクリック(面の内側)・塗り先 1 色。状態 (b) そのもの(自動調整の後)は visual_review.py のパネルが
   塗り先 5 色で受け持つ(2026-11-21 まではここに「ワンショット」として 1 色で置いていた)。
 測る・承認するのは tools/visual_review.py の snapshot / compare / approve(自動調整の後のパネルと一緒に回す。ここだけを
@@ -234,7 +236,7 @@ def _measure_subjects(sids, snapshot: bool) -> dict:
     for sid in sids:
         subject = registry[sid]
         # 状態 (b)(AI の証拠の範囲と許容の行。visual_review のパネルが同じ呼び出しで使う = キャッシュに当たる)と、
-        # 状態 (d)(その後に同じ所を右クリック「ここも塗る」。test_assisted_include と同じ run_assisted)
+        # 状態 (d)(その後に塗り残しの所を右クリック「ここも塗る」。test_assisted_include と同じ run_assisted)
         r = mea.run_case(dll, subject, "p50", conventional=False, return_outputs=True)
         ra = mea.run_assisted(subject, "p50", return_outputs=True)
         rgba, gt = fx.load_subject_inputs(subject)
@@ -272,6 +274,7 @@ def _measure_subjects(sids, snapshot: bool) -> dict:
                 metrics = ra["assisted"]
                 workflow = dict(WORKFLOWS["assisted_include"], id="assisted_include", click="p50",
                                 gt_role="scoring_and_click_fixture", manual_mask=False, xy=list(xy),
+                                right_click_xy=ra["right_click_xy"],
                                 include_applied=bool(ra["applied"]), skip=ra["skip"])
                 regressions = baseline_regressions("assisted_include", f"{sid}/p50", metrics, baselines) or []
                 cond = {"state": "assisted_include", "subject": sid, "click": "p50", "xy": list(xy),
@@ -280,7 +283,9 @@ def _measure_subjects(sids, snapshot: bool) -> dict:
                         "evidence_used": bool(r["evidence"].get("evidence_used")),
                         "evidence_flood": bool(r.get("seg_flood")), "evidence_zoomed": bool(r.get("seg_zoomed")),
                         "leak_excluded_parts": (r["evidence"].get("leak") or {}).get("excludedParts"),
-                        "include_applied": bool(ra["applied"]), "include_skip": ra["skip"], "exclude_px": 0}
+                        "include_applied": bool(ra["applied"]), "include_skip": ra["skip"], "exclude_px": 0,
+                        "right_click_xy": ra["right_click_xy"], "residual_depth": ra["residual_depth"],
+                        "residual_px": ra["residual_px"]}
             if vr.alpha_violations(rgba, output):     # 再着色は色だけを変える(点検 B-7⑤)
                 regressions.append("alpha")
             previous = REVIEW / "snapshot" / name
@@ -299,8 +304,13 @@ def _measure_subjects(sids, snapshot: bool) -> dict:
             else:
                 before_tile = tile(np.full_like(output, 64), "変更前なし(新規条件)")
             label = WORKFLOWS[mode]["label"]
-            top = vr._hstack_with_sep([tile(rgba, f"元 / {sid} p50 @({xy[0]},{xy[1]})",
-                                            vr.mark_click(orig_thumb, xy, rgba.shape)),
+            rxy = ra["right_click_xy"] if mode == "assisted_include" else None
+            orig_marked = vr.mark_click(orig_thumb, xy, rgba.shape)
+            orig_label = f"元 / {sid} p50 @({xy[0]},{xy[1]})"
+            if mode == "assisted_include":
+                orig_marked = vr.mark_right_click(orig_marked, rxy, rgba.shape)
+                orig_label += (f" 右クリック@({rxy[0]},{rxy[1]})" if rxy is not None else " 右クリックなし")
+            top = vr._hstack_with_sep([tile(rgba, orig_label, orig_marked),
                                        before_tile, tile(output, label, out_thumb)])
             # AIマスクの役割とGT採点を別々の画像にする。GTを処理入力へ渡さない。
             overlay, _qm = vr.gt_overlay(rgba, output, {"inside": inside, "region": region, "tolerated": tolerated})
@@ -308,6 +318,9 @@ def _measure_subjects(sids, snapshot: bool) -> dict:
             if changed_any:
                 cy, cx = vr._densest_change_window(diff_px, vr.CROP_SIZE)
                 crop_label = f"等倍出力 @({cx},{cy}) 変化の密な所"
+            elif rxy is not None:
+                cy, cx = vr.crop_around(rxy, rgba.shape)
+                crop_label = f"等倍出力 @({cx},{cy}) 右クリックの周り"
             else:
                 cy, cx = vr.crop_around(xy, rgba.shape)
                 crop_label = f"等倍出力 @({cx},{cy}) クリックの周り"
@@ -326,7 +339,12 @@ def _measure_subjects(sids, snapshot: bool) -> dict:
             else:
                 evidence = rgba.copy()
                 evidence[r["_seg"], :3] = (0, 200, 255)
-                bottom = vr._hstack_with_sep([tile(evidence, f"AI証拠(自動調整) / 右クリックで含めた={ra['applied']}"),
+                inc = ra.get("_include")
+                if inc is not None:
+                    evidence[inc.astype(bool), :3] = (255, 200, 0)   # 右クリックで含めた範囲(証拠と重なる所もこちら)
+                ev_thumb = vr.mark_right_click(vr._make_thumb(evidence), rxy, rgba.shape)
+                bottom = vr._hstack_with_sep([tile(evidence, f"水色=AI証拠(自動調整) 黄=右クリックで含めた"
+                                                             f"(当てた={ra['applied']})", ev_thumb),
                                               gt_tile, crop])
                 del evidence
             lines = vr.condition_lines(cond)

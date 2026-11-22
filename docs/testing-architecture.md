@@ -62,7 +62,7 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
 | (a) クリックした直後 | 新しいゾーンの既定（許容範囲 0.2、ほかは `ColorZone` の既定）に、クリック位置（sampleUV）とクリックした 1 画素の色。自動調整なし | `run(…, state="click")` | 通常の実行 |
 | (b) 自動調整の後 | (a) → AI の証拠つき自動調整 → 漏れの確かめ（外す範囲を「ここは塗らない」へ書く）→ 塗る | `run(…)`（既定は `state="autotune"`） | `--oneshot` |
 | (c) その後の手直し | (b) の後に許容範囲を動かす・塗り先を変える・項目を書く・シードを置く | `script(rgba, [*click_steps(xy, 塗り先), …])` | `--script` |
-| (d) 右クリックの後 | (b) の後に右クリックの範囲の操作（ここも塗る・ここは塗らない・この部分だけ塗る・ここのマスクを消す） | 同上（「ここも塗る」は `measure_evidence_autotune.run_assisted`） | `--script` |
+| (d) 右クリックの後 | (b) の後に右クリックの範囲の操作（ここも塗る・ここは塗らない・この部分だけ塗る・ここのマスクを消す） | 同上（「ここも塗る」は `measure_evidence_autotune.run_assisted`。右クリックは塗り残しの所 = 正解の中でまだ塗れていない所のいちばん内側。深さ 2 画素未満なら右クリックしない。2026-11-22〜） | `--script` |
 
 - **Python 側の入口は `oneshot.py` の 1 つ。** 画像とクリックと塗り先を受け取ってハーネスを呼ぶだけで、段取りは持たない。
   新しいゾーンの既定値は手で写さず、製品のソース（`ColorZone.cs`・`EditingSession.cs`・`ZonesJsonDefaults.cs`）から読み、
@@ -1083,7 +1083,7 @@ python tools/visual_review.py check --index         # （任意）今ステー�
 | 同上 | (b) に除外マスク（GT の左半分）を与えた変種。守った画素が 1 つも変わらないかを機械で数える（マスク契約） | `…+masked`（被写体は `subjects.json` の `masked_review_cases`） | 4 |
 | 同上 | 実機から書き出した再現データ `dev_safe/Tests/repro_cases`（組み立ては `test_repro_cases.py` と同じ） | `repro__<名前>__…` | 4 |
 | `dev_safe/Tests/workflow_review/compare/` | (a) クリックした直後（自動調整なし）。塗り先 1 色 | `click/<被写体>/p50` | 33 |
-| 同上 | (d) (b) の後に同じ所を右クリック「ここも塗る」（`measure_evidence_autotune.run_assisted`。含めるかは製品の右クリックの手が決める） | `assisted_include/<被写体>/p50` | 33 |
+| 同上 | (d) (b) の後に塗り残しの所を右クリック「ここも塗る」（`measure_evidence_autotune.run_assisted`。塗り残しが無ければ右クリックしない。含めるかは製品の右クリックの手が決める。パネルは右クリックの点を水色の菱形で示す） | `assisted_include/<被写体>/p50` | 33 |
 
 - どのパネルも元画像（クリックの印）・変更前・変更後を並べ、状態 (b) と右クリックの後は AI の証拠・GT の採点・等倍の切り出しを
   分けて表示する。**パネルの下の行に、塗った状態（クリックの位置・自動調整の有無・導いた許容範囲・塗り先・除外）を書く。**

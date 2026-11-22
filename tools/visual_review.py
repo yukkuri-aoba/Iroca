@@ -642,6 +642,21 @@ def mark_click(thumb: np.ndarray, xy, shape) -> np.ndarray:
     return np.array(img)
 
 
+def mark_right_click(thumb: np.ndarray, xy, shape) -> np.ndarray:
+    """縮小に右クリックの位置(上原点の画素)の印を付けた写し(水色の菱形。クリックの赤紫の輪と見分ける)。"""
+    if xy is None:
+        return thumb.copy()
+    h, w = shape[:2]
+    th, tw = thumb.shape[:2]
+    x, y = (float(xy[0]) + 0.5) * tw / w, (float(xy[1]) + 0.5) * th / h
+    img = Image.fromarray(thumb.copy())
+    d = ImageDraw.Draw(img)
+    for r, col in ((10, (0, 0, 0, 255)), (9, (0, 230, 255, 255))):
+        d.polygon([(x, y - r), (x + r, y), (x, y + r), (x - r, y)], outline=col, width=2)
+    d.point([(x, y)], fill=(0, 230, 255, 255))
+    return np.array(img)
+
+
 def caption_strip(width: int, lines: list[str], swatch_u8=None) -> np.ndarray:
     """パネルの下に付ける説明の行(どの状態で塗ったか)。swatch_u8 があれば左に塗り先の色の見本を置く。"""
     h = CAPTION_LINE_H * len(lines) + 8
@@ -703,7 +718,7 @@ def condition_lines(cond: dict) -> list[str]:
     if st in ("autotune", "click", "assisted_include"):
         head = {"autotune": "状態 (b) クリック → AI の証拠つき自動調整 → 漏れの確かめ → 塗る",
                 "click": "状態 (a) クリック直後(新しいゾーンの既定のまま。自動調整なし)",
-                "assisted_include": "状態 (d) 状態 (b) の後に同じ所を右クリック「ここも塗る」(製品の右クリックの手)"}[st]
+                "assisted_include": "状態 (d) 状態 (b) の後に、塗り残しの所を右クリック「ここも塗る」(製品の右クリックの手)"}[st]
         lines = [f"{head} / {cond.get('subject')}",
                  f"クリック {cond.get('click')} @({cond['xy'][0]},{cond['xy'][1]}) 上原点  スポイト {_fmt_u8(cond.get('sample_u8'))}"
                  f"  塗り先 {cond.get('color', '')} {_fmt_u8(cond.get('target_u8'))}"]
@@ -721,6 +736,15 @@ def condition_lines(cond: dict) -> list[str]:
                          + (f"({cond['include_skip']})" if not cond.get("include_applied") and cond.get("include_skip")
                             else ""))
             lines.append(f"導いた許容 {tol_s}  方法 {cond.get('method')}  {ev}  {leak_s}  {ex_s}{extra}")
+            if st == "assisted_include":
+                depth = cond.get("residual_depth") or 0.0
+                rxy = cond.get("right_click_xy")
+                if rxy is not None:
+                    lines.append(f"右クリック(水色の菱形) @({rxy[0]},{rxy[1]}) 上原点: 塗り残しの所 = 正解の中でまだ塗れていない"
+                                 f"画素 {cond.get('residual_px', 0):,} のいちばん内側(深さ {depth:.1f} 画素)")
+                else:
+                    lines.append(f"塗り残しが無いので右クリックしない(正解の中でまだ塗れていない画素 {cond.get('residual_px', 0):,}・"
+                                 f"いちばん深い所 {depth:.1f} 画素 < 2)。出力は状態 (b) と同じ")
         if cond.get("perturbed"):
             lines.append("※ 試験用に塗り先をずらした(IROCA_REVIEW_PERTURB。この比較は承認できない)")
         return lines
