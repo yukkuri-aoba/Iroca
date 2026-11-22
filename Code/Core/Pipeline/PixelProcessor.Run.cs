@@ -204,7 +204,9 @@ namespace Iroca {
             public bool MixMode;                // 混色帯モード(IsMixtureBandZone)
             public float SampS;                 // サンプル色の彩度(再着色の統計と分岐の記録が読む)
             public bool* IncludedPx;            // 含めるマスクをテクスチャ解像度へ展開したもの(無ければ null)
-            // 選択の出力(マスクの契約を掛けた後の強度と、後段が走査する範囲)。
+            public SelectionCache.PostBox IncludedBox;   // 含めるマスクの画素の外接矩形(ApplyInclude が読む)
+            // 選択の出力(除外を掛け直した強度と、後段が走査する範囲)。含めるマスクは、含める前の強さを読む段の後に
+            // ApplyInclude が強度 1 で足す(RecolorStatsStage の中)。
             public float* Strength;
             public SelectionCache.PostBox Box;
             // マスクの契約の後に、強度が 0 でない画素がありうる範囲 = Box ∪ 含めるマスクの画素の外接矩形。
@@ -240,8 +242,8 @@ namespace Iroca {
 
             /// <summary>
             /// 後段(穴埋め・境界回復・ぼかし・デコンタミ・再着色の統計)が走査する範囲。選択の画素に余白を足したもので、
-            /// 選択が返した時点では、この外の強度は 0。Has = false なら選択の画素が無い。マスクの契約の後は、
-            /// 含めるマスクの画素がこの外にも強度 1 で立ちうる(ForceIncluded)ので、「外は 0」を前提に読み飛ばさないこと。
+            /// 選択が返した時点では、この外の強度は 0。Has = false なら選択の画素が無い。含めるを足した後
+            /// (ApplyInclude)は、含めるマスクの画素がこの外にも強度 1 で立ちうるので、「外は 0」を前提に読み飛ばさないこと。
             /// </summary>
             public SelectionCache.PostBox Box;
         }

@@ -9,7 +9,7 @@ namespace Iroca {
         /// 再着色の段の 3 つ目「再着色の統計」(0.4.0 の計画の 3-7b で ProcessPixelsArrayCore から中身を書き換えずに
         /// 切り出した)。ハイライト合成の実効サンプル・OkLab のゾーン定数・地色アンカー・無彩パスの領域 L を求め、
         /// ゾーン不変の再着色パラメータ(<see cref="ZoneState.Params"/>)と領域 L(<see cref="ZoneState.RegLmid"/>・
-        /// 成分ごとの地図)を書く。
+        /// 成分ごとの地図)を書く。途中で含めるマスクを強度へ足す(<see cref="ApplyInclude"/>。大域の統計の後・成分の地図の前)。
         /// 地図はゾーンの作業配列(<see cref="ZoneBuffers"/>)の持ち物。
         /// </summary>
         private static class RecolorStatsStage {
@@ -79,17 +79,17 @@ namespace Iroca {
                 // (AnchorCoreCounts。出力は変わらない。個数の配列はこの段の終わりで返す)。
                 using var anchorCounts = zone.autoRecolorAnchor && !zOkGray
                     ? AnchorCoreCounts.Count(originalPixels, strength, w, ppMinX, ppMinY, ppMaxX, ppMaxY,
-                        includedPx, run.Buf.Claimed, cancellationToken, palette)
+                        run.Buf.Claimed, cancellationToken, palette)
                     : null;
                 if (zone.autoRecolorAnchor && !zOkGray &&
                     TryComputeRecolorAnchor(originalPixels, strength, w,
                         ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC,
                         zSL, zSa, zSb,
-                        includedPx, run.Buf.Claimed, cancellationToken, palette, anchorCounts)) {
+                        run.Buf.Claimed, cancellationToken, palette, anchorCounts)) {
                     float zSC0 = zSC;
                     zAnchored = true;
                     ComputeCoreChromaMedianAndPercentile(originalPixels, strength, w,
-                        ppMinX, ppMinY, ppMaxX, ppMaxY, includedPx, run.Buf.Claimed, cancellationToken, palette,
+                        ppMinX, ppMinY, ppMaxX, ppMaxY, run.Buf.Claimed, cancellationToken, palette,
                         AchromaDeepChromaPercentile, out float coreMedianC, out zDeepC, anchorCounts);
                     zSL = anchorL;
                     zGateC = anchorC;
@@ -207,14 +207,20 @@ namespace Iroca {
                 if (zAchromaWeight > AchromaWeightActiveMin) {
                     zHasRegL = TryComputeRegionLRange(originalPixels, strength, w,
                         ppMinX, ppMinY, ppMaxX, ppMaxY,
-                        out zRegLmid, includedPx, cancellationToken, palette);
+                        out zRegLmid, cancellationToken, palette);
                     _sub.Mark(SpRegionLRange);
-                    if (zHasRegL) {
-                        // 地図はプールから借りる(ゾーンの終わりに返す)。
-                        zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, ColorZone.MatchStrengthFloor, z.Scan,
-                            out zRegUpMap, cancellationToken, palette);
-                        zb.RegMidMap = zRegMidMap; zb.RegUpMap = zRegUpMap;
-                    }
+                }
+
+                // 含めるマスクを足す(マスクの契約の 2 つ目。ApplyInclude)。ここまでの段(無彩の固め・デコンタミ・基準色・
+                // 彩度の分位・領域 L)は含める前の強さを読んだので、範囲の外の色は含める前と同じ統計から決まる。
+                // 成分ごとの地図(下)と、混色帯・合成の段は、含めた後の強さを読む。
+                ApplyInclude(run, zone, strength, includedPx, z.IncludedBox, z.AaMask);
+
+                if (zHasRegL) {
+                    // 地図はプールから借りる(ゾーンの終わりに返す)。
+                    zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, ColorZone.MatchStrengthFloor, z.Scan,
+                        out zRegUpMap, cancellationToken, palette);
+                    zb.RegMidMap = zRegMidMap; zb.RegUpMap = zRegUpMap;
                 }
 
                 _sub.Mark(SpMedianLMap);

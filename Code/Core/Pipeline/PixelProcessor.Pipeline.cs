@@ -59,11 +59,10 @@ namespace Iroca {
                 Color.RGBToHSV(zone.sampleColor, out float sampH, out float sampS, out float sampV);
 
                 // 含めるマスクをテクスチャ解像度の bool[] へ展開する(除外優先を焼き込む)。
-                // 用途は 3 つ: (a) 選択への強制適用(マスク再適用の直後・キャッシュ保存の前)
-                // (b) 大域統計(再着色アンカー/領域Lレンジ)からの除外 — 手動追加した画素が
-                //     地色統計を汚し、ゾーン全体の再着色が遠隔で変わるのを防ぐ
-                // (c) 塗り先の色で決まる後段(無彩の固め・デコンタミ)が強度を書き換えた後の再主張
-                // キャッシュヒット時も (b)(c) で必要になるため selCached と無関係に作る。
+                // 用途は 2 つ: (a) 選択への強制適用(ApplyInclude。選択だけを回すときは除外の掛け直しの直後、
+                //     再着色では含める前の強さを読む段 — 無彩の固め・デコンタミ・基準色・領域 L — の後)
+                // (b) 混色帯の素材色の推定からの除外(MixtureBand)
+                // 選択キャッシュは含める前の強さを持つので、キャッシュヒット時も作る(selCached と無関係)。
                 // 含めるマスクが無ければ null のまま = 以降の全分岐が no-op(出力ビット不変)。
                 // 展開しながら、含める画素の外接矩形も取る(後段の走査範囲 ZoneState.Scan に足す)。
                 var includedBox = default(SelectionCache.PostBox);
@@ -135,11 +134,12 @@ namespace Iroca {
                 var sel = RunSelection(run, zone, zb, zoneMaskLayer, zMixMode, sampH, sampS, sampV);
                 float* strength = sel.Strength;
 
-                // マスクの契約(除外の掛け直し・含める)。
-                ApplyMaskContract(run, zone, strength, zoneMask, includedPx, includedBox);
+                // マスクの契約の 1 つ目(除外の掛け直し)。含めるは ApplyInclude(再着色では RecolorStatsStage の中)。
+                ApplyMaskContract(run, zone, strength, zoneMask);
 
-                // 選択だけを回すとき(SimulateSelection)は、ここで強度を書いて止まる(作業配列は finally が返す)。
+                // 選択だけを回すとき(SimulateSelection)は、含めるを足して強度を書いて止まる(作業配列は finally が返す)。
                 if (run.SelectionOnly != null) {
+                    ApplyInclude(run, zone, strength, includedPx, includedBox, null);
                     run.SelectionOnly.Write(strength, w, h, UnionBox(sel.Box, includedBox), po);
                     return;
                 }
@@ -152,6 +152,7 @@ namespace Iroca {
                     MixMode = zMixMode,
                     SampS = sampS,
                     IncludedPx = includedPx,
+                    IncludedBox = includedBox,
                     Strength = strength,
                     Box = sel.Box,
                     Scan = UnionBox(sel.Box, includedBox),

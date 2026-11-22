@@ -5,19 +5,17 @@ using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Iroca {
-    // マスクの契約(除外・含める)。製品の約束で、選択の作りを替えても変えない。選択の強度に除外を掛け直し、
-    // 含めるを足す(ApplyMaskContract)。再着色の段も、除外の画素を読まないためにここの判定を使う。
+    // マスクの契約(除外・含める)。製品の約束で、選択の作りを替えても変えない。選択の強度に除外を掛け直し
+    // (ApplyMaskContract)、含めるを足す(ApplyInclude)。再着色の段も、除外の画素を読まないためにここの判定を使う。
     // 除外は 3 か所で効く: 照合(除外の画素に 0 を書く)、連結成分の直前(掛け直す。線の向こうの成分を切る壁)、
     // 最後(ApplyMaskContract。ぼかしのはみ出しを消す)。閉領域の復帰は除外を通れる(2026-11-11 に壁を足した)。
     internal static unsafe partial class PixelProcessor {
         /// <summary>
-        /// マスクの契約(製品の約束): 選択の強度に、除外マスクを掛け直し(ぼかしが除外の
-        /// 画素へはみ出すことがある)、含めるマスクの画素を全強度で足す(除外優先は焼き込み済み)。
-        /// ProcessPixelsArrayCore から中身を書き換えずに切り出したもの(0.4.0 の計画の 3-7a)。
+        /// マスクの契約(製品の約束)の 1 つ目: 選択の強度に、除外マスクを掛け直す(ぼかしが除外の画素へはみ出すことがある)。
+        /// ProcessPixelsArrayCore から中身を書き換えずに切り出したもの(0.4.0 の計画の 3-7a)。含めるマスクは
+        /// <see cref="ApplyInclude"/> が後で足す。
         /// </summary>
-        /// <param name="includedBox">含める画素の外接矩形(includedPx を展開したときに取ったもの。含める画素はこの外に無い)。</param>
-        private static void ApplyMaskContract(RunContext run, ColorZone zone, float* strength, ulong* zoneMask,
-            bool* includedPx, in SelectionCache.PostBox includedBox) {
+        private static void ApplyMaskContract(RunContext run, ColorZone zone, float* strength, ulong* zoneMask) {
             int w = run.W, h = run.H, len = run.Len;
             var po = run.Po;
             ulong* commonMask = run.CommonBits;
@@ -31,16 +29,28 @@ namespace Iroca {
                 ReapplyExclusion(strength, w, h, maskColOf, maskRowBase, maskW, maskH, commonMask, zoneMask, po);
                 debug?.RecordStage(zone.id, DebugStages.MaskReapply, ToManaged(strength, len), w, h);
             }
-
-            // 3a. 含めるマスク適用: 指定画素を full strength で選択へ強制追加する。
-            //     除外の再適用より後に置くが、includedPx には除外優先が焼き込み済みなので
-            //     順序に依らず「除外が勝つ」。ブラー等の後段パスより後 = マスク解像度の
-            //     ハードエッジになる(除外マスクと同じ WYSIWYG 契約)。
-            if (includedPx != null) {
-                ForceIncluded(strength, includedPx, w, includedBox, po);
-                debug?.RecordStage(zone.id, DebugStages.MaskReapply, ToManaged(strength, len), w, h);
-            }
             _sub.Mark(SpBlurReapply);
+        }
+
+        /// <summary>
+        /// マスクの契約の 2 つ目: 含めるマスクの画素を全強度(1)で選択へ足す。includedPx には除外優先が焼き込み済みなので
+        /// 「除外が勝つ」。後段のぼかしを通らないので、マスク解像度のハードエッジになる(除外マスクと同じ WYSIWYG 契約)。
+        /// 再着色では、含める前の強さを読む段(無彩の固め・デコンタミ・基準色・彩度の分位・領域 L)の後に呼ぶ
+        /// (RecolorStatsStage)。それらの段が含める前と同じ強さを読むので、統計は含める前と同じ画素から決まり、範囲の外の
+        /// 色が動かない。含める前に強さを 1 にしていたころは、色でもう選ばれていた画素まで統計から外す必要があり
+        /// (外さないと、足した画素が統計を汚す)、範囲が塗れていた画素の大半を覆うと基準が残りわずかの画素から決まって、
+        /// 範囲の外まで色がずれた(2026-11-22)。
+        /// デコンタミが AA 縁として分解した含める画素は、その印(aaMask。null 可)を下ろす(全強度で塗る画素なので、
+        /// 縁の合成をすると、範囲の中に元の背景色の混ざった輪が残る)。
+        /// </summary>
+        /// <param name="includedBox">含める画素の外接矩形(includedPx を展開したときに取ったもの。含める画素はこの外に無い)。</param>
+        private static void ApplyInclude(RunContext run, ColorZone zone, float* strength, bool* includedPx,
+            in SelectionCache.PostBox includedBox, bool* aaMask) {
+            if (includedPx == null) {
+                return;
+            }
+            ForceIncluded(strength, includedPx, aaMask, run.W, includedBox, run.Po);
+            run.Debug?.RecordStage(zone.id, DebugStages.MaskReapply, ToManaged(strength, run.Len), run.W, run.H);
         }
 
         /// <summary>
@@ -140,12 +150,13 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 含める画素(included[i] が true)の strength を 1(full strength)にする。他の画素は触らない。
+        /// 含める画素(included[i] が true)の strength を 1(full strength)にし、aaMask(null 可)の印を下ろす。
+        /// 他の画素は触らない。
         /// 読むのは含める画素の外接矩形 box の中だけ(外に含める画素は無いので、全画面を読むのと同じ結果。
         /// 含めるマスクのあるゾーンでは、色だけ変えた 1 手でも毎回ここを通る)。box が空なら何もしない。
         /// </summary>
-        private static void ForceIncluded(float* strength, bool* included, int w, in SelectionCache.PostBox box,
-            ParallelOptions po) {
+        private static void ForceIncluded(float* strength, bool* included, bool* aaMask, int w,
+            in SelectionCache.PostBox box, ParallelOptions po) {
             if (!box.Has) {
                 return;
             }
@@ -156,6 +167,9 @@ namespace Iroca {
                     int i = rowOff + x;
                     if (included[i]) {
                         strength[i] = 1f;
+                        if (aaMask != null) {
+                            aaMask[i] = false;
+                        }
                     }
                 }
             });

@@ -420,17 +420,16 @@ namespace Iroca {
         // bbMinX..bbMaxY: 対象(strength>0)が存在しうる矩形。呼び出し側が後段 bbox を渡す。
         // 集計対象はこの矩形の外に 1 画素も無いので、走査を絞ってもヒストグラム(整数加算・
         // 順序非依存)は全画素走査と完全に一致する = 出力ビット不変。
-        // statsExclude: 統計から除外する画素(null=除外なし)。含めるマスクの強制追加画素が
-        // 領域 L 中央値を汚し、無彩リマップがゾーン全体で遠隔に変わるのを防ぐ。
-        // 除外された画素の再着色は、色マッチ画素から求めた中央値で「同素材として」写像される。
-        // なお成分別の地色基準(BuildComponentMedianLMap)は意図的に除外しない — あちらは
+        // 含めるマスクの画素は、ここを読んだ後で強さ 1 になる(ApplyInclude)ので、含める前の強さで数える。手動で足した
+        // 画素が領域 L 中央値を汚し、無彩リマップがゾーン全体で遠隔に変わるのを防ぐ。足した画素の再着色は、色マッチ画素
+        // から求めた中央値で「同素材として」写像される。
+        // なお成分別の地色基準(BuildComponentMedianLMap)は含めた後の強さで作る — あちらは
         // 成分ローカルな統計で遠隔作用が無く、同素材の島を含めた場合はその島自身の地色基準を
         // 使うのが正しいため。
         private static bool TryComputeRegionLRange(
             Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float mid,
-            bool* statsExclude = null,
             CancellationToken ct = default,
             ColorPalette palette = null) {
             mid = 0.5f;
@@ -454,9 +453,6 @@ namespace Iroca {
                         for (int x = bbMinX; x <= bbMaxX; x++) {
                             int i = rowOff + x;
                             if (strength[i] < passThr || px[i].a < OpaqueAlphaMin) {
-                                continue;
-                            }
-                            if (statsExclude != null && statsExclude[i]) {
                                 continue;
                             }
                             float L;
