@@ -20,7 +20,9 @@ name: ci
 
 on:
   push:
-    branches: [develop, main]
+    # dev-* は版ごとの先行ブランチ（dev-0.4.0 など）。普段の作業がここに積まれるので、
+    # develop と main だけにしていると push しても CI が動かなかった（2026-11-23 に気づいた）。
+    branches: [develop, main, 'dev-*']
   pull_request:
   workflow_dispatch:
 
