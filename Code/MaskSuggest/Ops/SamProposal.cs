@@ -19,6 +19,11 @@ namespace Iroca {
         public float areaFrac;
         /// <summary>背景に流れた可能性(面積が棄却しきい以上のチャンネルしか無かった)。</summary>
         public bool floodWarning;
+        /// <summary>
+        /// 「ここも塗る」(MaskSuggestUse.RegionPaintHere・粒度 自動)で、右クリックした所の色から遠いとして範囲から外した画素数
+        /// (色で絞らない用途は 0)。窓は、色の近い所が全部もう塗れていたときの知らせに使う。
+        /// </summary>
+        public int colorDropped;
 
         /// <summary>範囲の参照を返す(2 回目からは何もしない)。</summary>
         public void Release() {

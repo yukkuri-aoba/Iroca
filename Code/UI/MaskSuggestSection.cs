@@ -450,6 +450,8 @@ namespace Iroca {
             if (ctl.LastProposalEmpty) {
                 EditorGUILayout.HelpBox(Localization.AiSuggestEmptyProposal, MessageType.Warning);
                 DrawRestartButton();
+            } else if (ctl.LastCommitNearColorDone) {
+                EditorGUILayout.HelpBox(Localization.NotifyPaintHereNearColorDone, MessageType.Info);
             } else if (ctl.LastCommitEmpty) {
                 EditorGUILayout.HelpBox(Localization.AiSuggestEmptyCommit, MessageType.Info);
             }

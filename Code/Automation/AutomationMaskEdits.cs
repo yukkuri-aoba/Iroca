@@ -42,6 +42,9 @@ namespace Iroca {
         private int _index;
         private bool _requested;
         private bool _askedAi;
+        // 「ここも塗る」の押した所が、もうそのゾーンで塗れているか(_paintedFor 番目の操作の分。1 回だけ求める)。
+        private int _paintedFor = -1;
+        private bool _clickPainted;
         private double _deadline;
 
         /// <summary>続けられない失敗の文言(無ければ null)。呼び出し側は結果を保存せずに返す。</summary>
@@ -128,6 +131,10 @@ namespace Iroca {
                 AiSuggestBroker.RetryAfterError();
             }
             _askedAi = true;
+            if (_paintedFor != _index) {
+                _paintedFor = _index;
+                _clickPainted = edit.op == MaskRegionOp.PaintHere && ClickPainted(edit);
+            }
             bool finished = false;
             var r = AiSuggestBroker.RequestWhenIdle(this, _key, _pixels, edit.uv.x, edit.uv.y, proposal => {
                 // 受け取りで投げても、待ちの状態は必ず戻して自分の失敗にする(broker はログに出すだけなので、以前は
@@ -144,7 +151,7 @@ namespace Iroca {
                     _requested = false;
                     _deadline = 0d;
                 }
-            }, edit.size, MaskSuggestUse.Region);
+            }, edit.size, SamProposalSteps.RegionUse(edit.op == MaskRegionOp.PaintHere, _clickPainted));
             switch (r) {
                 case AiSuggestBroker.Request.Started:
                     // 提案がその場で届いたら、次の件は受け取り先が進めてある。
@@ -160,6 +167,30 @@ namespace Iroca {
                     Error = "the AI is not available (Unity Sentis and the model are needed, or it reported an error). "
                         + "Use by:'island' to select by the mesh's UV island instead.";
                     return true;
+            }
+        }
+
+        // 押した所が、もうそのゾーンで塗れているか(窓の PreviewView.RequestAiSuggest と同じ規則 MaskRegionEdit.ZonePaintsAt。
+        // 強さは今のマスクでゾーンの選択を回して読む)。マスクの寸法が原本と違うとき・ゾーンが無いときは塗っていないとみなす。
+        private unsafe bool ClickPainted(Edit edit) {
+            var zone = _state.zones.Find(z => z != null && z.id == edit.zoneId);
+            if (zone == null || _pixels == null) {
+                return false;
+            }
+            EnsureMasks();
+            int w = _pixels.Width, h = _pixels.Height;
+            if (_masks.Width != w || _masks.Height != h) {
+                return false;
+            }
+            var indices = MaskRegionEdit.PaintedProbeIndices(edit.uv.x, edit.uv.y, w, h);
+            var snap = _masks.ToSnapshot();
+            NativeMemoryLifecycle.WorkStarted();
+            try {
+                var s = PixelProcessor.ZoneStrengthAt(_pixels.Ptr, w, h, zone, RecolorSettings.From(_state), snap, indices);
+                return MaskRegionEdit.ZonePaintsAt(s, indices.Length);
+            } finally {
+                NativeMemoryLifecycle.WorkEnded();
+                snap.Release();
             }
         }
 

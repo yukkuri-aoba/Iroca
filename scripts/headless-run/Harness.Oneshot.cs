@@ -299,16 +299,44 @@ namespace Iroca {
                     MaskPixels != null ? () => MaskPixels.AddRef() : null, out owned);
 
             /// <summary>
+            /// ゾーン zoneId が、UV(下原点)の点をもう塗っているか(MaskRegionEdit.ZonePaintsAt。強さは今のマスクで
+            /// ゾーンの選択を回して読む。マスクの寸法が原本と違うとき・ゾーンが無いときは塗っていないとみなす)。
+            /// </summary>
+            private bool ClickPainted(string zoneId, float u, float v) {
+                var z = zoneId == null ? null : Zones.Find(x => x != null && x.id == zoneId);
+                if (z == null || Masks.Width != W || Masks.Height != H) {
+                    return false;
+                }
+                var indices = MaskRegionEdit.PaintedProbeIndices(u, v, W, H);
+                var snap = Masks.ToSnapshot();
+                try {
+                    var s = PixelProcessor.ZoneStrengthAt(Source.Ptr, W, H, z, Settings.ToRecolorSettings(), snap, indices);
+                    return MaskRegionEdit.ZonePaintsAt(s, indices.Length);
+                } finally {
+                    snap.Release();
+                }
+            }
+
+            /// <summary>
             /// 右クリックの範囲の操作(窓の MaskSuggestController.CommitProposalToMask と同じ): 用途 Region の AI 提案を取り、
             /// マスクの寸法の範囲にし、空なら当てない。zoneId = null は全ゾーン共通(「塗らない」「消す」だけ)。
             /// </summary>
             public Dictionary<string, object> Region(string zoneId, float u, float v, MaskSuggestGranularity g, MaskRegionOp op) {
-                var p = Sam.Propose(u, v, g, MaskSuggestUse.Region, CancellationToken.None, out var diag);
+                // 「ここも塗る」を、もう塗れている所で押したときは、範囲を右クリックした所の色に近い画素へ絞る用途で求める
+                // (窓の PreviewView.RequestAiSuggest と同じ規則。窓はプレビューの選択の控えから、ここはゾーンの選択を回して強さを読む)。
+                bool clickPainted = op == MaskRegionOp.PaintHere && ClickPainted(zoneId, u, v);
+                var p = Sam.Propose(u, v, g, SamProposalSteps.RegionUse(op == MaskRegionOp.PaintHere, clickPainted),
+                    CancellationToken.None, out var diag);
+                int proposalCount = p.mask.CountTrue();
                 var doc = new Dictionary<string, object> {
+                    ["clickPainted"] = clickPainted,
                     ["zoomed"] = diag.zoomed,
                     ["crop"] = diag.zoomPlanned ? new[] { diag.cropX0, diag.cropY0, diag.cropSide } : null,
                     ["flood"] = p.floodWarning,
-                    ["proposalCount"] = p.mask.CountTrue(),
+                    ["proposalCount"] = proposalCount,
+                    // 色で絞る前後の画素数(絞らない操作・粒度では同じ)
+                    ["proposalBeforeColor"] = proposalCount + diag.colorDropped,
+                    ["colorDropped"] = diag.colorDropped,
                 };
                 try {
                     var region = ToMaskSize(p.mask, out bool owned);
@@ -584,8 +612,10 @@ namespace Iroca {
         // 位置の無いゾーンは、zones に sampleUV を書かずに渡すか、set の sample(色の欄)で作る。
         // 出力: 手ごとに標準出力の 1 行 SCRIPT {"step":k,"op":…,…}、emit が all なら手ごとに out-dir/step<k>_out.raw と
         // step<k>_zones.json(・step<k>_mask.raw ほか。そのまま --zones に渡せる)、last なら最後の手だけ。
-        // 行の項目: autotune は ONESHOT と同じ(evidenceDiag も)。region は zoomed・crop・flood・proposalCount・empty・regionCount
-        // (マスクの寸法にした範囲の画素数)・applied・changed・commonOverlap・skip(当てなかった・変わらなかった理由:
+        // 行の項目: autotune は ONESHOT と同じ(evidenceDiag も)。region は zoomed・crop・flood・proposalCount・
+        // clickPainted(押した所がもうそのゾーンで塗れていたか)・proposalBeforeColor・colorDropped(「ここも塗る」を塗れている所で
+        // 押したとき、右クリックした所の色に近い画素へ絞る前の画素数と外した画素数)・
+        // empty・regionCount(マスクの寸法にした範囲の画素数)・applied・changed・commonOverlap・skip(当てなかった・変わらなかった理由:
         // empty・rejected・no-change。当てて変わったら null)。seed は changed・seedUV・zone。set は keys・zone。
         private static int RunScript(string[] args) {
             var inv = CultureInfo.InvariantCulture;

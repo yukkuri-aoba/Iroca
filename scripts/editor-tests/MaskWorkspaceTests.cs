@@ -758,4 +758,49 @@ namespace Iroca.EditorTests {
             ws.Clear();
         }
     }
+
+    /// <summary>
+    /// 右クリックの範囲の操作が求める提案の用途(SamProposalSteps.RegionUse)と、色で絞るか(KeepsNearClickColor)の表。
+    /// 「ここも塗る」を、もう塗れている所で、粒度 自動で押したときだけ、押した所の色に近い画素へ絞る。塗れていない所(塗り残し)・
+    /// 小さめ・大きめ・ほかの操作は、範囲を色に関係なく当てる(2026-11-22 ユーザー判断)。返る値だけを見る。
+    /// </summary>
+    public class PaintHereUseTests {
+        [Test]
+        public void OnlyPaintHereOnPaintedAutoNarrowsByColor() {
+            var ops = new[] { MaskRegionOp.PaintHere, MaskRegionOp.DontPaintHere, MaskRegionOp.OnlyThisPart, MaskRegionOp.ClearHere };
+            var grans = new[] { MaskSuggestGranularity.Auto, MaskSuggestGranularity.Fine, MaskSuggestGranularity.Coarse };
+            foreach (var op in ops) {
+                foreach (bool painted in new[] { true, false }) {
+                    var use = SamProposalSteps.RegionUse(op == MaskRegionOp.PaintHere, painted);
+                    bool expectPaintHereUse = op == MaskRegionOp.PaintHere && painted;
+                    Assert.AreEqual(expectPaintHereUse ? MaskSuggestUse.RegionPaintHere : MaskSuggestUse.Region, use,
+                        $"{op} 塗れている={painted}");
+                    foreach (var g in grans) {
+                        bool expect = expectPaintHereUse && g == MaskSuggestGranularity.Auto;
+                        Assert.AreEqual(expect, SamProposalSteps.KeepsNearClickColor(use, g), $"{op} 塗れている={painted} {g}");
+                        // 色で絞る用途でも、部分の後処理(色で候補を選ぶ・離れた塊を外す)は「ここも塗る」以外と同じ
+                        Assert.AreEqual(SamProposalSteps.ChoosesByColor(MaskSuggestUse.Region, g),
+                            SamProposalSteps.ChoosesByColor(use, g), $"{op} {g} 候補の選び方");
+                        Assert.AreEqual(SamProposalSteps.DropsForeign(MaskSuggestUse.Region, g),
+                            SamProposalSteps.DropsForeign(use, g), $"{op} {g} 離れた塊");
+                    }
+                }
+            }
+        }
+
+        [Test]
+        public void ZonePaintsAtNeedsHalfOfTheWindow() {
+            Assert.IsFalse(MaskRegionEdit.ZonePaintsAt(null, 25), "強さが読めなければ塗っていない");
+            var s = new float[25];
+            for (int i = 0; i < 12; i++) {
+                s[i] = 1f;
+            }
+            Assert.IsFalse(MaskRegionEdit.ZonePaintsAt(s, 25), "半分未満なら塗っていない");
+            s[12] = 0.5f;
+            Assert.IsTrue(MaskRegionEdit.ZonePaintsAt(s, 25), "強さの合計が半分以上なら塗っている");
+            var idx = MaskRegionEdit.PaintedProbeIndices(0f, 0f, 10, 10);
+            Assert.AreEqual(9, idx.Length, "画像の角では窓を端で切る(3×3)");
+            Assert.AreEqual(25, MaskRegionEdit.PaintedProbeIndices(0.5f, 0.5f, 10, 10).Length, "中では 5×5");
+        }
+    }
 }

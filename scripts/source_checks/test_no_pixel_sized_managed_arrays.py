@@ -77,8 +77,12 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "タイル 3 枚の横並び。比較パネルのタイル。長辺は maxTile 以下に縮めるので、原本の大きさに依らない",
     ("Code/Core/RecolorPreview.cs", "new Color32[tw * th]"):
         "比較パネルのタイル。長辺は maxTile 以下に縮めるので、原本の大きさに依らない",
-    ("Code/UI/PreviewView.ContextMenu.cs", "new int[(x1 - x0 + 1) * (y1 - y0 + 1)]"):
-        "クリック位置の周りの小さな窓(半径 PaintingProbeRadius)",
+    ("Code/Core/Masks/MaskRegionEdit.cs", "new int[(x1 - x0 + 1) * (y1 - y0 + 1)]"):
+        "クリック位置の周りの小さな窓(半径 PaintedProbeRadius。5×5)",
+    ("Code/Core/Pipeline/PixelProcessor.cs", "new float[indices.Length]"):
+        "渡された添字の数(右クリックの周りの 5×5)。強度の全体はヒープの外に借りる",
+    ("Code/UI/PreviewView.ContextMenu.cs", "new float[indices.Length]"):
+        "右クリックの周りの小さな窓(MaskRegionEdit.PaintedProbeIndices。5×5)の強さ",
     ("Code/Infra/PngFileDecoder.cs", "new byte[stride * _rowsPerBlock]"):
         "展開した行の束。行数は BlockBytes(64KB) ÷ 1 行のバイト数(1 行より大きくはしない)なので、高さに依らず 64KB か 1 行分",
     ("Code/UI/PresetsView.cs", "new bool[files.Length]"):

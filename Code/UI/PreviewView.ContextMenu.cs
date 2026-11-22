@@ -233,9 +233,6 @@ namespace Iroca {
             ContextMenuUsed = true;
         }
 
-        // クリックした所の周り(半径 2 画素。1 画素だけだと、塗られた面の中の細い線や穴に当たって外れる)。
-        private const int PaintingProbeRadius = 2;
-
         /// <summary>
         /// クリックした場所をいま塗っているゾーン(無ければ null)。表示中のプレビューを作った選択(PreviewPipeline.Selection)を
         /// 上のゾーンから順に見る(規則は MaskRegionEdit.PaintingZoneAt)。ソロ表示中は、見えているそのゾーンだけを見る。
@@ -255,16 +252,9 @@ namespace Iroca {
                 return null;
             }
 
-            int cx = Mathf.Clamp((int)(uv.x * w), 0, w - 1), cy = Mathf.Clamp((int)(uv.y * h), 0, h - 1);
-            int x0 = Mathf.Max(0, cx - PaintingProbeRadius), x1 = Mathf.Min(w - 1, cx + PaintingProbeRadius);
-            int y0 = Mathf.Max(0, cy - PaintingProbeRadius), y1 = Mathf.Min(h - 1, cy + PaintingProbeRadius);
-            var indices = new int[(x1 - x0 + 1) * (y1 - y0 + 1)];
-            int n = 0;
-            for (int y = y0; y <= y1; y++) {
-                for (int x = x0; x <= x1; x++) {
-                    indices[n++] = y * w + x;   // 行 0 = 画像の下端(UV と同じ向き)
-                }
-            }
+            // クリックした所の周り(MaskRegionEdit.PaintedProbeRadius。行 0 = 画像の下端で、UV と同じ向き)
+            var indices = MaskRegionEdit.PaintedProbeIndices(uv.x, uv.y, w, h);
+            int n = indices.Length;
 
             var solo = _host.SoloZone;
             var strengths = new float[zones.Count][];
@@ -280,6 +270,75 @@ namespace Iroca {
             }
             int found = MaskRegionEdit.PaintingZoneAt(strengths, n);
             return found >= 0 ? zones[found] : null;
+        }
+
+        /// <summary>
+        /// ゾーン zoneId が、UV の点をもう塗っているか(<see cref="MaskRegionEdit.ZonePaintsAt"/>)。強さは表示中のプレビューを作った
+        /// 選択の控え(<see cref="PaintingZoneAt"/> と同じ読み方)。読めないとき(作り直しの途中・ゾーンが無い)は塗っていないとみなす。
+        /// </summary>
+        private bool ZonePaintsAt(Vector2 uv, string zoneId) {
+            var selection = _pipeline?.Selection;
+            if (selection == null || string.IsNullOrEmpty(zoneId) || !EnsureTrueSource(_host.SourceTexture)) {
+                return false;
+            }
+            int w = TrueSourceW, h = TrueSourceH;
+            if (w <= 0 || h <= 0) {
+                return false;
+            }
+            var indices = MaskRegionEdit.PaintedProbeIndices(uv.x, uv.y, w, h);
+            var s = new float[indices.Length];
+            return selection.TryReadLatest(zoneId, w, h, indices, s) && MaskRegionEdit.ZonePaintsAt(s, indices.Length);
+        }
+
+        // 塗れているかを読む区切りの画素数(読む並びを小さく保つ)。
+        private const int UnpaintedProbeChunk = 1 << 16;
+
+        /// <summary>
+        /// 範囲 region(元の画像の寸法・下原点)に、ゾーン zoneId がまだ塗っていない画素があるか。「ここも塗る」が色で絞った後、
+        /// 足す所が残っているかを知らせるのに使う(MaskSuggestController)。表示中のプレビューを作った選択の強さを、
+        /// <see cref="PaintingZoneAt"/> と同じく半分で分けて見る。選択を読めないときは「ある」とする(知らせを出さない)。
+        /// </summary>
+        internal unsafe bool AnyUnpaintedIn(NativeBools region, string zoneId) {
+            var selection = _pipeline?.Selection;
+            if (region == null || selection == null || string.IsNullOrEmpty(zoneId)) {
+                return true;
+            }
+            int w = region.Width, h = region.Height;
+            var indices = new int[UnpaintedProbeChunk];
+            var strength = new float[UnpaintedProbeChunk];
+            bool* p = region.Ptr;
+            long n = (long)w * h;
+            int k = 0;
+            for (long i = 0; i < n; i++) {
+                if (!p[i]) {
+                    continue;
+                }
+                indices[k++] = (int)i;
+                if (k == UnpaintedProbeChunk) {
+                    if (AnyBelowHalf(selection, zoneId, w, h, indices, strength, k)) {
+                        return true;
+                    }
+                    k = 0;
+                }
+            }
+            return k > 0 && AnyBelowHalf(selection, zoneId, w, h, indices, strength, k);
+        }
+
+        // indices の先頭 count 個のうち、選択の強さが半分に届かない画素があるか(読めなければ true)。残りは最後の画素で埋めて読む。
+        private static bool AnyBelowHalf(SelectionCache selection, string zoneId, int w, int h, int[] indices,
+                                         float[] strength, int count) {
+            for (int i = count; i < indices.Length; i++) {
+                indices[i] = indices[count - 1];
+            }
+            if (!selection.TryReadLatest(zoneId, w, h, indices, strength)) {
+                return true;
+            }
+            for (int i = 0; i < count; i++) {
+                if (strength[i] < 0.5f) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // 直すゾーンの切り替え(各ゾーン / 全ゾーン共通)。パレットの対象プルダウンと同じ activeMaskTarget を書き換える。
@@ -317,7 +376,10 @@ namespace Iroca {
             if (TrueSource == null || TrueSourceW <= 0) {
                 return;
             }
-            if (!ctl.RequestProposal(uv.x, uv.y, dest, TrueSource, TrueSourceCacheKey(), granularity)) {
+            // 「ここも塗る」を、もう宛先のゾーンで塗れている所で押したか(塗れていれば、押した所の色に近い所だけを足す。
+            // SamProposalSteps.RegionUse)。決め方は MaskRegionEdit.ZonePaintsAt(ハーネス・自動化と同じ)。
+            bool clickPainted = dest.op == MaskRegionOp.PaintHere && ZonePaintsAt(uv, dest.zoneId);
+            if (!ctl.RequestProposal(uv.x, uv.y, dest, TrueSource, TrueSourceCacheKey(), granularity, clickPainted)) {
                 _host.ShowNotification(new GUIContent(Localization.NotifyAiNotStarted));
             }
             _host.RequestRepaint();

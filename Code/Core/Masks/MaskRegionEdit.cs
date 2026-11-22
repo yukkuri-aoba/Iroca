@@ -188,6 +188,39 @@ namespace Iroca {
         }
 
         /// <summary>
+        /// 右クリックした所が「塗れているか」を見る窓の半径(画素。5×5)。1 画素だけだと、塗られた面の中の細い線や穴に当たって外れる。
+        /// </summary>
+        public const int PaintedProbeRadius = 2;
+
+        /// <summary>
+        /// UV(下原点)の点の周り <see cref="PaintedProbeRadius"/> の正方形(画像の端で切る)の画素の添字(行 0 = 下端)。
+        /// 右クリックの宛先(<see cref="PaintingZoneAt"/>)と「ここも塗る」の押した所(<see cref="ZonePaintsAt"/>)が同じ窓で見る。
+        /// </summary>
+        public static int[] PaintedProbeIndices(float u, float v, int w, int h) {
+            int cx = System.Math.Min(System.Math.Max((int)(u * w), 0), w - 1);
+            int cy = System.Math.Min(System.Math.Max((int)(v * h), 0), h - 1);
+            int x0 = System.Math.Max(0, cx - PaintedProbeRadius), x1 = System.Math.Min(w - 1, cx + PaintedProbeRadius);
+            int y0 = System.Math.Max(0, cy - PaintedProbeRadius), y1 = System.Math.Min(h - 1, cy + PaintedProbeRadius);
+            var indices = new int[(x1 - x0 + 1) * (y1 - y0 + 1)];
+            int n = 0;
+            for (int y = y0; y <= y1; y++) {
+                for (int x = x0; x <= x1; x++) {
+                    indices[n++] = y * w + x;
+                }
+            }
+            return indices;
+        }
+
+        /// <summary>
+        /// 1 つのゾーンが、右クリックした所をもう塗っているか。strength は押した所の窓(<see cref="PaintedProbeIndices"/>)の
+        /// 画素ごとの選択の強さ(null なら塗っていない)。規則は <see cref="PaintingZoneAt"/> と同じ(強さの合計が画素数の半分以上)。
+        /// 「ここも塗る」は、塗れている所で押したときだけ範囲を押した所の色に近い画素へ絞る(SamProposalSteps.RegionUse)。
+        /// 窓・自動化・ハーネスがこれで決める。
+        /// </summary>
+        public static bool ZonePaintsAt(float[] strength, int count)
+            => strength != null && PaintingZoneAt(new[] { strength }, count) == 0;
+
+        /// <summary>
         /// 右クリックした場所をいま塗っているゾーン(並び順の番号)。どのゾーンも塗っていなければ -1。
         /// <para>
         /// 右クリックの宛先は「いま直しているゾーン」(最後に触ったゾーン)だけで決めていたので、ゾーンが 2 つ以上あると、

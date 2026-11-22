@@ -92,7 +92,8 @@ namespace Iroca {
         /// pixels は下原点。サービスは自分の参照を足して持つ。
         /// </summary>
         internal static bool Enqueue(object owner, string sourceKey, NativePixels pixels, float u, float v,
-            MaskSuggestGranularity granularity, Action<MaskSuggestProposal> onResult) {
+            MaskSuggestGranularity granularity, Action<MaskSuggestProposal> onResult,
+            MaskSuggestUse use = MaskSuggestUse.Region) {
             var svc = Service;
             if (svc == null) {
                 return false;
@@ -106,7 +107,7 @@ namespace Iroca {
                 return false;
             }
             UseSource(svc, sourceKey, pixels);
-            return Submit(svc, owner, u, v, granularity, MaskSuggestUse.Region, onResult);
+            return Submit(svc, owner, u, v, granularity, use, onResult);
         }
 
         /// <summary>

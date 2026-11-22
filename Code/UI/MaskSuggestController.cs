@@ -58,6 +58,12 @@ namespace Iroca {
         /// </summary>
         public bool LastProposalEmpty { get; private set; }
 
+        /// <summary>
+        /// 直近の「ここも塗る」で、右クリックした所の色に近い所がもう全部塗れていて、色の違う所は足さなかった
+        /// (<see cref="LastCommitEmpty"/> も立つ)。色の違う所を足す道(小さめ・大きめの部分で)を案内するのに使う。
+        /// </summary>
+        public bool LastCommitNearColorDone { get; private set; }
+
         public void Initialize(IrocaWindow host, MaskPaintView maskView) {
             _host = host;
             _maskView = maskView;
@@ -122,17 +128,20 @@ namespace Iroca {
         /// 推論中の要求も FIFO で受理され順に反映される(受理された分だけマーカーを積む)。
         /// 戻り値 false = 受理できなかった(モデルのロード失敗など)。
         /// granularity = この 1 回だけの粒度(右クリックの「小さめの部分で」など)。null = <see cref="Granularity"/>。
+        /// clickPainted = 「ここも塗る」の押した所が、もう宛先のゾーンで塗れているか(呼ぶ側が MaskRegionEdit.ZonePaintsAt で決める)。
         /// </summary>
         public bool RequestProposal(float u, float v, MaskPaintView.MaskDestination dest,
                                     NativePixels pixelsBottomUp, string sourceKey,
-                                    MaskSuggestGranularity? granularity = null) {
+                                    MaskSuggestGranularity? granularity = null, bool clickPainted = false) {
             var click = new PendingClick { uv = new Vector2(u, v), at = MaskSuggestPerf.Now, dest = dest };
             // 手元の列には先に積む(受理されなかったら外す)。結果が null(取り消し・破棄・エラー)なら
             // マーカーだけ消す。残ると「処理中」に見え続ける。
             _pending.Add(click);
             _pendingClicks.Add(click.uv);
+            // 「ここも塗る」を、もう塗れている所(clickPainted)で押したときは、範囲を右クリックした所の色に近い画素へ絞る用途で
+            // 求める(SamProposalSteps.RegionUse)。
             if (!AiSuggestBroker.Enqueue(this, sourceKey, pixelsBottomUp, u, v, granularity ?? Granularity,
-                    proposal => OnProposal(click, proposal))) {
+                    proposal => OnProposal(click, proposal), SamProposalSteps.RegionUse(dest.op == MaskRegionOp.PaintHere, clickPainted))) {
                 RemovePending(click);
                 return false;
             }
@@ -204,6 +213,7 @@ namespace Iroca {
             // どのルートも「クリックしたのに何も起きない」に見えてしまうため。
             LastProposalEmpty = true;
             LastCommitEmpty = true;
+            LastCommitNearColorDone = false;
             if (_maskView == null) {
                 return;
             }
@@ -235,6 +245,11 @@ namespace Iroca {
                     return;
                 }
 
+                // 「ここも塗る」は範囲を右クリックした所の色に近い画素へ絞ってある(提案の後処理)。色の違う所を外した結果、
+                // 残った所がもう全部塗れていると、当てても見た目は変わらない。当て方は変えず(ハーネス・自動化と同じ道)、知らせだけ替える。
+                bool nearColorDone = dest.op == MaskRegionOp.PaintHere && proposal.colorDropped > 0
+                                     && _host?.Preview != null && !_host.Preview.AnyUnpaintedIn(src, dest.zoneId);
+
                 t = MaskSuggestPerf.Now;
                 bool ok = false;
                 MaskRegionEditResult result = default;
@@ -242,10 +257,13 @@ namespace Iroca {
                 SeparateUndo.Record("AI Mask Suggestion",
                     () => ok = _maskView.ApplyRegion(region, dest, out result));
                 applyMs = MaskSuggestPerf.MsSince(t);
-                LastCommitEmpty = !ok || result.changed == 0;
+                LastCommitNearColorDone = ok && nearColorDone;
+                LastCommitEmpty = !ok || result.changed == 0 || LastCommitNearColorDone;
                 // 何をしたか(と、指示どおりに塗られない理由)を知らせる。結果は推論待ちの後に届くので、
                 // 黙っていると右クリックの操作と結び付かない。
-                _host?.ShowNotification(new GUIContent(_maskView.DescribeRegionEdit(dest, ok, result)));
+                _host?.ShowNotification(new GUIContent(LastCommitNearColorDone
+                    ? Localization.NotifyPaintHereNearColorDone
+                    : _maskView.DescribeRegionEdit(dest, ok, result)));
                 if (MaskSuggestPerf.Enabled) {
                     MaskSuggestPerf.Log(
                         $"コミット: 転写 {timing.transferMs:F0}ms / GetPixels32 {timing.getPixelsMs:F0}ms / AA包含 {timing.aaMs:F0}ms" +
@@ -296,6 +314,7 @@ namespace Iroca {
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
             LastProposalEmpty = false;
+            LastCommitNearColorDone = false;
         }
 
         /// <summary>テクスチャ切替・ウィンドウ破棄時の後始末。</summary>
@@ -307,6 +326,7 @@ namespace Iroca {
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
             LastProposalEmpty = false;
+            LastCommitNearColorDone = false;
         }
     }
 }

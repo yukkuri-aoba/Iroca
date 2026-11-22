@@ -221,6 +221,36 @@ namespace Iroca {
                 cancellationToken, null, null, pixels, sink);
         }
 
+        /// <summary>
+        /// 1 つのゾーンの最終の強度(<see cref="SimulateSelection"/> と同じ道)のうち、画素 indices の値を返す。右クリックの
+        /// 「ここも塗る」が、押した所がもうそのゾーンで塗れているかを知るのに使う(ハーネスと自動化。窓はプレビューの選択の
+        /// 控えから読む。決め方は <see cref="MaskRegionEdit.ZonePaintsAt"/>)。強度は w*h の float をヒープの外に借り、返す前に放す。
+        /// 作業配列をプールから借りるので、製品では計算の間(NativeMemoryLifecycle.WorkStarted 〜 WorkEnded)に呼ぶ。
+        /// </summary>
+        internal static float[] ZoneStrengthAt(Color32* pixels, int w, int h, ColorZone zone, in RecolorSettings settings,
+            MaskSnapshot masks, int[] indices, CancellationToken cancellationToken = default) {
+            if (indices == null) {
+                throw new System.ArgumentNullException(nameof(indices));
+            }
+            long n = CheckSize(w, h);
+            var buf = new NativeBuffer(n * sizeof(float), NativeUsage.Selection);
+            try {
+                float* strength = (float*)buf.Ptr;
+                SimulateSelection(pixels, w, h, zone.Clone(), in settings, masks, null, strength, cancellationToken);
+                var dst = new float[indices.Length];
+                for (int i = 0; i < indices.Length; i++) {
+                    int k = indices[i];
+                    if (k < 0 || k >= n) {
+                        throw new System.ArgumentOutOfRangeException(nameof(indices));
+                    }
+                    dst[i] = strength[k];
+                }
+                return dst;
+            } finally {
+                buf.Release();
+            }
+        }
+
         // 寸法の検証(画素数は int に収まること)。戻り値は画素数。
         private static long CheckSize(int w, int h) {
             if (w <= 0 || h <= 0) {
