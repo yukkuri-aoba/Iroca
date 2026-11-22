@@ -53,6 +53,17 @@
     拡大表示のパン・ズームの追従の時間（DetailBenchTests、Category "DetailBench"）だけを回す。結果は出力フォルダの
     detail.jsonl。拡大表示の作りが違う版どうしを比べるときは、比べる版の作業ツリーごとに回す。
 
+.PARAMETER SamParity
+    製品の AI 推論（Sentis）とハーネスの推論（onnxruntime）の突き合わせの、Unity 側の書き出し（SamParityDumpTests、
+    Category "SamParity"）だけを回す。Sentis とモデルのあるホスト（Iroca_U2022）で -Graphics を付けて回す。
+    書き出しは -SamParityOut（既定は出力フォルダの sam_parity）。比べるのは dev_safe の台本（scripts/sam_parity.py）。
+
+.PARAMETER SamParityCases
+    -SamParity の入力（テクスチャの raw とクリックの一覧の JSON。dev_safe の台本が作る）。無ければ合成の絵だけを回す。
+
+.PARAMETER SamParityOut
+    -SamParity の書き出しの置き場（既定は出力フォルダの sam_parity）。
+
 .PARAMETER DebugCodeOptimization
     Unity を Debug の最適化モード（-debugCodeOptimization）で起動する。Mono のインライン展開が止まる状態での速さを見るとき。
 
@@ -110,6 +121,9 @@ param(
     [switch]$KernelBench,
     [switch]$UndoBench,
     [switch]$DetailBench,
+    [switch]$SamParity,
+    [string]$SamParityCases,
+    [string]$SamParityOut,
     [switch]$DebugCodeOptimization,
     [string]$TestFilter,
     [switch]$UndoReload,
@@ -329,6 +343,23 @@ if ($DetailBench) {
 } else {
     Remove-Item Env:IROCA_DETAIL_BENCH_REPORT -ErrorAction SilentlyContinue
 }
+# AI 推論の突き合わせの書き出しは SamParity カテゴリだけを回す（普段のテストでは IROCA_SAM_PARITY_OUT が無いので Ignore になる）。
+if ($SamParity) {
+    if ($PerfCases -or $MemCases -or $HiResCases -or $KernelBench -or $UndoBench -or $DetailBench) { throw "-SamParity はほかの計測と同時に指定できません" }
+    if (-not $SamParityOut) { $SamParityOut = Join-Path $outDir 'sam_parity' }
+    New-Item -ItemType Directory -Force $SamParityOut | Out-Null
+    $env:IROCA_SAM_PARITY_OUT = (Resolve-Path $SamParityOut).Path
+    if ($SamParityCases) {
+        if (-not (Test-Path $SamParityCases)) { throw "突き合わせのケースの JSON がありません: $SamParityCases" }
+        $env:IROCA_SAM_PARITY_CASES = (Resolve-Path $SamParityCases).Path
+    } else {
+        Remove-Item Env:IROCA_SAM_PARITY_CASES -ErrorAction SilentlyContinue
+    }
+    $unityArgs += @('-testCategory', 'SamParity')
+} else {
+    Remove-Item Env:IROCA_SAM_PARITY_OUT -ErrorAction SilentlyContinue
+    Remove-Item Env:IROCA_SAM_PARITY_CASES -ErrorAction SilentlyContinue
+}
 if ($DebugCodeOptimization) { $unityArgs += '-debugCodeOptimization' }
 if ($TestFilter) { $unityArgs += @('-testFilter', "`"$TestFilter`"") }
 Write-Host "Unity を batchmode で起動します（結果: $outDir）…"
@@ -369,6 +400,9 @@ if ($UndoBench -and (Test-Path $undoReport)) {
 if ($DetailBench -and (Test-Path $detailReport)) {
     Write-Host "拡大表示の追従の時間: $detailReport"
     Get-Content $detailReport | ForEach-Object { Write-Host "  $_" }
+}
+if ($SamParity) {
+    Write-Host "AI 推論の突き合わせの書き出し: $SamParityOut（python dev_safe/scripts/sam_parity.py で比べる）"
 }
 if ($HiResCases -and (Test-Path $hiresReport)) {
     Write-Host "大きなテクスチャの通し確認の結果: $hiresReport"

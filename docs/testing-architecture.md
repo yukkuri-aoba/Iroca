@@ -131,6 +131,49 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
   ハーネスのエンコードと凍結した埋め込みは 33 被写体でビット一致した。
 - 前からある `--autotune`（証拠を先に渡す。漏れの確かめはしない）も、中身は `AutoTuneFlow`。合成の契約テストと予備の経路が使う。
 
+### 製品の推論（Sentis）とハーネスの推論（onnxruntime）の突き合わせ（2026-11-23〜）
+
+上の計測はどれも「onnxruntime の世界の数字」なので、製品の Sentis（GPU・CPU）と同じ結果になるかを別に測る。
+Unity は書き出すだけ（EditMode の `scripts/editor-tests/SamParityDumpTests.cs`。カテゴリ `SamParity`。環境変数
+`IROCA_SAM_PARITY_OUT` が無ければ Ignore なので、普段の EditMode では 2 件のスキップになる）、比べるのは dev_safe の
+`scripts/sam_parity.py`。
+
+```powershell
+# テスト用 PC で 1 本（入力を作る → Unity の Sentis 入りのホストで書き出す → 同じ入力をハーネスで回して比べる）。
+# --remote を付ける（つながらないとき手元で Unity を起動しない）。結果は dev_safe/_spike/sam_parity/<label>/ の report.md・report.json
+.\.venv\Scripts\python.exe tools/remote_test.py --remote --fetch dev_safe/_spike/sam_parity/<label> -- dev_safe/scripts/sam_parity.py run --label <label>
+# 試し（先頭の 1 被写体と合成の絵だけ。約 2 分）
+.\.venv\Scripts\python.exe tools/remote_test.py --remote --fetch dev_safe/_spike/sam_parity/smoke -- dev_safe/scripts/sam_parity.py run --label smoke --subjects 1
+```
+
+- **いつ回すか**: 出荷の前。onnxruntime（`Harness.csproj` の `OnnxRuntimeVersion`・dev_safe の Python）・Sentis（ホストの
+  `com.unity.sentis`）・ONNX（モデルのファイル）のどれかの版を変えたとき。AI の前処理・後処理（`Code/MaskSuggest/Ops`・
+  `SamNativeOps`）か、推論のサービス（`Code/SentisIntegration`）・自動調整の段取り（`AutoTuneFlow`・`AutoTuneService`）を変えたとき。
+- **入力**: 開発側の被写体（`subjects.json` の subjects。ホールドアウトは使わない）の p50 のクリック（用途 証拠・粒度 自動 =
+  自動調整が頼む提案）とその自動調整、視覚レビューの状態 (d) の右クリック（`run_assisted` の点。塗り残しの無い被写体は無し）、
+  合成の絵（円・小さい円・形。テストの中で作る）。テクスチャは下原点の raw（ハーネスの in.raw と同じバイト）で渡し、
+  元の PNG を製品の読み込み（`PngFileDecoder`）で読んだ画素とも比べる。公開リポのテストは素材を持たず、一覧の JSON
+  （`IROCA_SAM_PARITY_CASES`）を dev_safe の台本が作る。
+- **Unity 側**（`Run-EditorTests.ps1 -SamParity [-SamParityCases <json>] [-SamParityOut <dir>]`、ホスト `Iroca_U2022`・`-Graphics`）:
+  GPU と CPU のバックエンドを 1 本ずつ（GPU の失敗の数を上限にして CPU だけを使わせる。`-nographics` では GPU の方は Ignore）。
+  書き出すのは (1) 全体の埋め込みとエンコーダの入力、(2) その埋め込みでクリックの点をデコードした logits・スコア（サービスの
+  デコーダを直に呼ぶ）、(3) 1 クリックの最終の提案（範囲・flood・ズームの有無・切り出しの矩形・切り出しの埋め込みと logits）、
+  (4) 窓の 1 クリック目（`ZoneEdits` のスポイト → 塗り先 → `AutoTuneService` + 本物の推論 → 外す範囲を「ここは塗らない」へ →
+  `PixelProcessor`）の調整後のゾーン・漏れの確かめ・外した範囲・塗った出力。サービスの内部は名前で読む（名前を変えたら直す）。
+- **比べ方**: ハーネスを 2 つの世界で回す。「ort」= onnxruntime だけ（今の計測そのもの。`--sam-propose`・`oneshot.script` の
+  スポイト → 塗り先 → 自動調整）、「dec」= 全体の埋め込みだけ Sentis のもの（`--sam-embedding`。デコーダ・切り出しは
+  onnxruntime）。埋め込みの差（エンコーダ）と logits の差（デコーダ）を分け、前処理は Unity（Mono）が作ったエンコーダの入力を
+  Python の onnxruntime に入れてハーネス（.NET）の埋め込みとビットで比べる。塗りの実行系（Mono ↔ .NET）の差は、Unity の調整後の
+  ゾーンをハーネスで塗り直して Unity の出力と比べて分ける（対照: ハーネス自身の調整後のゾーンの塗り直しが `--script` の出力と一致）。
+- **合否の目安**: 最終の提案の IoU ≥ 0.99・flood とズームの判定と切り出しの矩形の一致・調整後の値の一致（差 ≤ 1e-5）・
+  外した範囲の一致。外れた件は report.md の表に「外れ」で出る（終了コードは Unity の失敗の数だけ。合否で落とさない）。
+- 作業の置き場（埋め込み・logits・出力。19 テクスチャで数 GB）は相手の `%TEMP%\iroca-sam-parity\<label>` で、`run` の最後に消す。
+- 実測（2026-11-23、G83・Iris Xe。開発側 19 テクスチャ・提案 59 件・自動調整 36 件。993 秒のうち Unity 327 秒）: 前処理は 22/22 で
+  ビット一致。全体の埋め込みの相対 L2 は中央値 2.6e-6・最大 6.6e-6（GPU・CPU とも）。最終の提案は 56/59 がビット一致・IoU の最小
+  0.999988、flood・ズーム（8 件）・矩形の不一致 0。自動調整の調整後の値と外した範囲は 36/36 で一致。塗った出力は 10/36 だけ
+  ビット一致だが、違いは全部が塗りの実行系（Mono ↔ .NET）の分で、推論の違いで変わった出力は 0。計測の数字は、この顔ぶれでは製品の
+  推論の結果と同じ値になる。記録は dev_safe の `docs/sam-parity-2026-11-23.md`。
+
 ### 基準（凍結した物差しの値）
 
 基準は「正しい値」ではなく「採用した時点の値」。付け替えるときは、独立した正解（PSD の GT・お手本・指定色）に照らして
@@ -578,7 +621,8 @@ Python の入口なので、`remote_test.py` の `--` の後ろに置ける。�
     lilToon の無いホスト 27・MCP for Unity の無いホスト 22・VRChat SDK の無いホスト 5・計測用 9）。
   - 本物の AI を通るのは `MaskSuggestInferenceTests`・`MaskSuggestZoomTests`・`MaskSuggestModelFilesTests` の一部・
     `AutomationMaskTests.RealAi_DontPaint_FinishesThroughPolling`・`AutomationTests.Recolor_AutoTune_ClickedZone_UsesAiEvidenceWhenAvailable`
-    （後者は AI の無いホストでは「飛ばして知らせる」側の分岐を見る）。
+    （後者は AI の無いホストでは「飛ばして知らせる」側の分岐を見る）。突き合わせの書き出し `SamParityDumpTests`（2 件）は
+    `-SamParity` のときだけ回り、普段はスキップに加わる（上の「製品の推論（Sentis）とハーネスの推論（onnxruntime）の突き合わせ」）。
   - `MemoryBenchTests` の `aiSuggest`（`-MemCases`）もこのホストで回せる。ホストの Packages を変えたら、上と同じく写し直す。
 - Unity のライセンスは相手の PC で人が Unity Hub にサインインして取る（Personal。こちらからは取れない）。
   切れると Unity が起動直後に終わり、結果が出ずに失敗する（unity.log にライセンスの行が出る）。
