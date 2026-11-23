@@ -474,6 +474,11 @@ namespace Iroca {
         public static string NotifyPaintHereNearColorDone => IsJapanese
             ? "右クリックした所と近い色の所は、もう塗られています（色の違う所は足していません。足すときは右クリックの「小さめの部分で」「大きめの部分で」から「ここも塗る」を選んでください）"
             : "The colors near where you right-clicked are already painted (other colors were not added; to add them, choose \"Paint here too\" under \"As a smaller part\" or \"As a larger part\" in the right-click menu)";
+        // 「ここも塗る」をまだ塗れていない所で押したが、押した所の色がその部分のごく一部だったので、近い色の所だけを足したとき
+        // (知らせの 2 行目に添える)。
+        public static string NotifyPaintHereNearColorOnly => IsJapanese
+            ? "右クリックした所と近い色の所だけを足しました（その部分のごく一部の色だったため。色の違う所も足すときは、右クリックの「小さめの部分で」「大きめの部分で」から「ここも塗る」を選んでください）"
+            : "Only the colors near where you right-clicked were added (that color is only a small part of it; to add the other colors too, choose \"Paint here too\" under \"As a smaller part\" or \"As a larger part\" in the right-click menu)";
         // ブラシを使っている間に、カードを開いて直すゾーン(ブラシの塗り先)が替わったときの知らせ。{0} = ゾーン名、{1} = 除外 / 含める。
         public static string NotifyBrushTargetFormat => IsJapanese
             ? "ブラシの塗り先: {0}（{1}）"

@@ -46,7 +46,8 @@ namespace Iroca {
         // スカート precision 0.95→0.54、合成 adjacent_similar が隣接パーツへ滲んで
         // precision 1.00→0.50)。正規化は「外した位置を救う」ための補正であって、
         // 「当たっている位置を作り直す」ためのものではない。
-        private const float NormOutlierFrac = 0.10f;
+        // 右クリックの「ここも塗る」も同じ線で「押した色が足す画素の少数派か」を決める(PaintHereNarrowing。2026-11-23)。
+        internal const float NormOutlierFrac = 0.10f;
         // 証拠つき導出(母集団=セグメント)で、上の門を掛けない「クリックがトーン連結域の端に居る」
         // 判定。連結域 [loBin, hiBin] の中でクリック V bin の相対位置 t=(click-lo)/(hi-lo) が
         // [NormEdgeFrac, 1-NormEdgeFrac] の外なら端。地色には両側に陰影が付く(暗部と明部が地色を

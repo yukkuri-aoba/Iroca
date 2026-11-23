@@ -242,7 +242,6 @@ namespace Iroca.EditorTests {
                 line["score"] = p.score;
                 line["areaFrac"] = p.areaFrac;
                 line["flood"] = p.floodWarning;
-                line["colorDropped"] = p.colorDropped;
             } finally {
                 p.Release();
             }
@@ -478,7 +477,6 @@ namespace Iroca.EditorTests {
         static MaskSuggestUse ParseUse(string u) {
             switch (u) {
                 case "region": return MaskSuggestUse.Region;
-                case "regionPaintHere": return MaskSuggestUse.RegionPaintHere;
                 default: return MaskSuggestUse.Evidence;
             }
         }

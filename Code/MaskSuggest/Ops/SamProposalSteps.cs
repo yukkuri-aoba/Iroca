@@ -29,11 +29,6 @@ namespace Iroca {
         // 部分をマスクに当てる用途(MaskSuggestUse.Region)なら、精密化の後に色の違う離れた塊を外す。
         // クリックは全体の画素座標(下原点)。ズームの第 2 段・第 1 段への退避もこれを見る。
         public bool dropForeign;
-        // 「ここも塗る」(MaskSuggestUse.RegionPaintHere)で粒度が自動なら、最後に右クリックした所の色に近い画素だけに絞る
-        // (SamMaskRefine.KeepNearClickColor)。ズームの第 2 段・第 1 段への退避もこれを見る。
-        public bool keepNear;
-        // keepNear で外した画素数(診断用。ハーネスの SCRIPT の行と、窓の「足す所が無い」の知らせが読む)。
-        public int colorDropped;
         // 部分をマスクに当てる用途で粒度が自動なら、候補を色で選ぶ(SamMaskPostprocess.SelectAndUpscaleByColor)。
         // ズームの第 2 段もこれを見る。
         public bool byColor;
@@ -64,39 +59,14 @@ namespace Iroca {
         /// 利用者が大きさを選んだ細かい・大きいは既定の選び方。
         /// </summary>
         public static bool ChoosesByColor(MaskSuggestUse use, MaskSuggestGranularity granularity)
-            => IsRegion(use) && granularity == MaskSuggestGranularity.Auto;
-
-        /// <summary>
-        /// 右クリック・自動化の範囲の操作に使う提案の用途。「ここも塗る」(paintsHere)を、もうそのゾーンで塗れている所で押した
-        /// (clickPainted。決め方は MaskRegionEdit.ZonePaintsAt)ときだけ、範囲を右クリックした所の色に近い画素へ絞る用途
-        /// (<see cref="MaskSuggestUse.RegionPaintHere"/>)、ほかは <see cref="MaskSuggestUse.Region"/>(範囲を色に関係なく当てる)。
-        /// 塗れている所を押したなら、利用者は塗れていない部品を指していない。範囲に入る色の違う所はゾーンが色で分けて塗らなかった
-        /// 所なので足さない(2026-11-22 ユーザー判断: 黒い文字の上で押しても下地は塗らない)。塗れていない所を押したなら、色の照合が
-        /// 取りこぼしたその部品を指しているので、色が違っても丸ごと足す(星柄の明るい雲・宝石の明暗・瞳)。色の距離では「別の物」と
-        /// 「同じ物の明暗」を分けられない(dev_safe の 2026-11-22 の診断)ので、押した所で分ける。
-        /// 窓・自動化・ハーネスが同じ規則で求める(操作の型 MaskRegionOp は Core にあり、ここからは見えないので、呼ぶ側が渡す)。
-        /// </summary>
-        public static MaskSuggestUse RegionUse(bool paintsHere, bool clickPainted)
-            => paintsHere && clickPainted ? MaskSuggestUse.RegionPaintHere : MaskSuggestUse.Region;
-
-        /// <summary>部分をマスクに当てる用途か(右クリック・自動化のマスク操作。「ここも塗る」を含む)。</summary>
-        public static bool IsRegion(MaskSuggestUse use)
-            => use == MaskSuggestUse.Region || use == MaskSuggestUse.RegionPaintHere;
-
-        /// <summary>
-        /// 最後に、右クリックした所の色に近い画素だけに絞るか。「ここも塗る」で粒度が自動のときだけ。利用者が大きさを選んだ
-        /// 「小さめ・大きめ」は、選んだ大きさの範囲をそのまま足す(色の違う所まで足したいときの道。影で暗い歯と白い歯のように、
-        /// 同じ部品の明暗が色で分かれる細部を小さめで足す使い方も残る)。ChoosesByColor と同じ分け方。
-        /// </summary>
-        public static bool KeepsNearClickColor(MaskSuggestUse use, MaskSuggestGranularity granularity)
-            => use == MaskSuggestUse.RegionPaintHere && granularity == MaskSuggestGranularity.Auto;
+            => use == MaskSuggestUse.Region && granularity == MaskSuggestGranularity.Auto;
 
         /// <summary>
         /// 精密化の後に、クリックした塊と色の違う離れた塊を外すか。細かいは細部を狙って選ぶ粒度なので外さない
         /// (SamMaskRefine.DropForeignComponents の説明)。
         /// </summary>
         public static bool DropsForeign(MaskSuggestUse use, MaskSuggestGranularity granularity)
-            => IsRegion(use) && granularity != MaskSuggestGranularity.Fine;
+            => use == MaskSuggestUse.Region && granularity != MaskSuggestGranularity.Fine;
 
         /// <summary>切り出しの埋め込みの鍵(元の鍵と切り出しの矩形)。</summary>
         public static string CropEmbeddingKey(string sourceKey, int x0, int y0, int side)
@@ -138,7 +108,6 @@ namespace Iroca {
                 int cx = Mathf.Clamp((int)(u * w), 0, w - 1);
                 int cy = Mathf.Clamp((int)(v * h), 0, h - 1); // v は下原点 → 下原点行と一致
                 o.dropForeign = DropsForeign(use, granularity);
-                o.keepNear = KeepsNearClickColor(use, granularity);
                 o.clickX = cx;
                 o.clickY = cy;
                 int bb = ClickComponentBBoxLong(o.mask, cx, cy);
@@ -153,7 +122,7 @@ namespace Iroca {
                 }
                 coarseDone?.Invoke();
                 if (!hasCrop) {
-                    o.colorDropped = RefineStage1(o.mask, px, o.dropForeign, o.keepNear, cx, cy, ct);
+                    RefineStage1(o.mask, px, o.dropForeign, cx, cy, ct);
                 }
                 return o;
             } catch {
@@ -163,18 +132,16 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// 第 1 段の範囲の精密化 4 段 →(dropForeign なら)クリックした塊と色の違う離れた塊を外す →(keepNear なら)
-        /// クリックの色に近い画素だけに絞る。ズームしなかったときの第 1 段と、ズームが失敗して第 1 段へ戻すときの両方がこれを通る。
-        /// mask はその場で書き換える(持ち主は変わらない)。クリックは px の画素座標(下原点)。px が無ければ何もしない。
-        /// 色で絞って外した画素数を返す。
+        /// 第 1 段の範囲の精密化 4 段 →(dropForeign なら)クリックした塊と色の違う離れた塊を外す。ズームしなかったときの
+        /// 第 1 段と、ズームが失敗して第 1 段へ戻すときの両方がこれを通る。mask はその場で書き換える(持ち主は変わらない)。
+        /// クリックは px の画素座標(下原点)。px が無ければ何もしない。
         /// </summary>
-        public static int RefineStage1(NativeBools mask, NativePixels px, bool dropForeign, bool keepNear,
-                                       int clickX, int clickY, CancellationToken ct) {
+        public static void RefineStage1(NativeBools mask, NativePixels px, bool dropForeign, int clickX, int clickY,
+                                        CancellationToken ct) {
             RefineInPlace(mask, px, ct);
             if (dropForeign) {
                 DropForeignComponents(mask, px, clickX, clickY, ct);
             }
-            return keepNear ? KeepNearClickColor(mask, px, clickX, clickY, ct) : 0;
         }
 
         /// <summary>
@@ -192,7 +159,6 @@ namespace Iroca {
                 : SelectAndUpscale(logits, scores, side, side, cropPx, granularity, ct);
             NativeBools full;
             int trueCount;
-            int colorDropped = 0;
             try {
                 if (plan.byColor) {
                     RefineInPlace(res.mask, cropPx, ct);
@@ -200,9 +166,6 @@ namespace Iroca {
                 // 切り出しの中で外しても、貼り戻した全体で外したのと同じ(提案は切り出しの外に無い)。
                 if (plan.dropForeign) {
                     DropForeignComponents(res.mask, cropPx, plan.clickX - x0, plan.clickY - y0, ct);
-                }
-                if (plan.keepNear) {
-                    colorDropped = KeepNearClickColor(res.mask, cropPx, plan.clickX - x0, plan.clickY - y0, ct);
                 }
                 full = PasteCrop(res.mask, w, h, x0, y0, out trueCount);
             } finally { res.mask.Release(); }
@@ -212,7 +175,6 @@ namespace Iroca {
                 score = res.score,
                 areaFrac = trueCount / (float)(w * h),
                 floodWarning = res.floodWarning,
-                colorDropped = colorDropped,
             };
         }
 
@@ -236,18 +198,6 @@ namespace Iroca {
                 return 0;
             }
             return SamMaskRefine.DropForeignComponents(mask.Ptr, px.Ptr, px.Width, px.Height, clickX, clickY, token);
-        }
-
-        /// <summary>
-        /// クリックの色に近い画素だけを残す(<see cref="SamMaskRefine.KeepNearClickColor(bool*, Color32*, int, int, int, int, CancellationToken, float, float)"/>)。
-        /// クリックは px の画素座標(下原点)。画素か範囲が無ければ何もしない。外した画素数を返す。
-        /// </summary>
-        public static int KeepNearClickColor(NativeBools mask, NativePixels px, int clickX, int clickY,
-            CancellationToken token = default) {
-            if (px == null || mask == null) {
-                return 0;
-            }
-            return SamMaskRefine.KeepNearClickColor(mask.Ptr, px.Ptr, px.Width, px.Height, clickX, clickY, token);
         }
 
         /// <summary>切り出し(参照 1。受け取った側が手放す)。</summary>

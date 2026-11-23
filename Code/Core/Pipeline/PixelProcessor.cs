@@ -197,7 +197,8 @@ namespace Iroca {
         /// 1 つのゾーンの選択だけを、製品が塗るときと同じ道(<see cref="ProcessPixelsArrayCore"/> → RunZone の
         /// 選択 → マスクの契約)に通し、最終の強度を返す。再着色の段は走らせない(マスクの契約の後で止まる。
         /// <see cref="RunContext.SelectionOnly"/>)。自動調整の後の確かめ(<see cref="ZoneAutoTuner.FindLeakBlobs"/>。
-        /// 別の部品の一部だけが塗られた所を外す)が、ゾーンが実際に塗る画素を知るのに使う。
+        /// 別の部品の一部だけが塗られた所を外す)と、右クリックの「ここも塗る」の絞り込み(<see cref="PaintHereNarrowing.NarrowBySelection"/>。
+        /// 自動化とハーネス)が、ゾーンが実際に塗る画素を知るのに使う。
         /// pixels(w*h 画素。並びは処理の入口と同じ下原点)は読むだけで、処理が返るまで呼び出し側が保つこと。
         /// zone は範囲へ丸められうる(ProcessPixelsArrayCore の冒頭)ので写しを渡す。masks は null 可(除外・含めるなし)。
         /// selected(w*h 要素。null 可)には「強度 &gt; <see cref="RecolorMinStrength"/>」(再着色のループが塗る画素)を、
@@ -219,36 +220,6 @@ namespace Iroca {
             // 入力の控えに pixels そのものを渡す(選択だけなら pixels へは書かないので、写さない)。
             ProcessPixelsArrayCore(pixels, w, h, masks, new[] { zone }, in settings,
                 cancellationToken, null, null, pixels, sink);
-        }
-
-        /// <summary>
-        /// 1 つのゾーンの最終の強度(<see cref="SimulateSelection"/> と同じ道)のうち、画素 indices の値を返す。右クリックの
-        /// 「ここも塗る」が、押した所がもうそのゾーンで塗れているかを知るのに使う(ハーネスと自動化。窓はプレビューの選択の
-        /// 控えから読む。決め方は <see cref="MaskRegionEdit.ZonePaintsAt"/>)。強度は w*h の float をヒープの外に借り、返す前に放す。
-        /// 作業配列をプールから借りるので、製品では計算の間(NativeMemoryLifecycle.WorkStarted 〜 WorkEnded)に呼ぶ。
-        /// </summary>
-        internal static float[] ZoneStrengthAt(Color32* pixels, int w, int h, ColorZone zone, in RecolorSettings settings,
-            MaskSnapshot masks, int[] indices, CancellationToken cancellationToken = default) {
-            if (indices == null) {
-                throw new System.ArgumentNullException(nameof(indices));
-            }
-            long n = CheckSize(w, h);
-            var buf = new NativeBuffer(n * sizeof(float), NativeUsage.Selection);
-            try {
-                float* strength = (float*)buf.Ptr;
-                SimulateSelection(pixels, w, h, zone.Clone(), in settings, masks, null, strength, cancellationToken);
-                var dst = new float[indices.Length];
-                for (int i = 0; i < indices.Length; i++) {
-                    int k = indices[i];
-                    if (k < 0 || k >= n) {
-                        throw new System.ArgumentOutOfRangeException(nameof(indices));
-                    }
-                    dst[i] = strength[k];
-                }
-                return dst;
-            } finally {
-                buf.Release();
-            }
         }
 
         // 寸法の検証(画素数は int に収まること)。戻り値は画素数。

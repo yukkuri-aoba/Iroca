@@ -54,8 +54,6 @@ namespace Iroca {
         public float score;
         public float areaFrac;
         public bool floodWarning;
-        /// <summary>「ここも塗る」で、右クリックした所の色から遠いとして外した画素数(色で絞らなければ 0)。</summary>
-        public int colorDropped;
     }
 
     /// <summary>
@@ -357,7 +355,6 @@ namespace Iroca {
             diag.score = r.score;
             diag.areaFrac = r.areaFrac;
             diag.floodWarning = r.floodWarning;
-            diag.colorDropped = r.colorDropped;
             // 範囲は提案へ渡す(切り出しはもう使わないので返す。サービスの配信と同じ)。
             var proposal = new MaskSuggestProposal {
                 mask = r.mask,
@@ -366,7 +363,6 @@ namespace Iroca {
                 score = r.score,
                 areaFrac = r.areaFrac,
                 floodWarning = r.floodWarning,
-                colorDropped = r.colorDropped,
             };
             r.mask = null;
             r.Release();
@@ -443,8 +439,7 @@ namespace Iroca {
                 case SamWorkKind.Zoom:
                     return SamProposalSteps.ZoomPost(_plan, _granularity, _logits, _scores, _w, _h, _px, ct);
                 default:
-                    _plan.colorDropped = SamProposalSteps.RefineStage1(_mask, _px, _plan.dropForeign, _plan.keepNear,
-                                                                       _plan.clickX, _plan.clickY, ct);
+                    SamProposalSteps.RefineStage1(_mask, _px, _plan.dropForeign, _plan.clickX, _plan.clickY, ct);
                     return _plan;
             }
         }

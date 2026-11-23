@@ -24,21 +24,6 @@ namespace Iroca {
         internal const float ForeignNearColor = 0.08f;
 
         /// <summary>
-        /// 右クリックの「ここも塗る」(粒度 自動)で、範囲のうち右クリックした所の色と同じとみなす色味の幅(OkLab の a・b 平面の距離。
-        /// <see cref="KeepNearClickColor"/>)。色味の違う別の部品(地と文字・瞳の筋・紋章)を外す幅。
-        /// <see cref="ForeignNearColor"/>(離れた塊を外すために割合を数える幅)とは目的が違うので分けてある。値の根拠は
-        /// docs/algorithm-constants.md。
-        /// </summary>
-        internal const float PaintHereNearColor = 0.16f;
-
-        /// <summary>
-        /// 同じく、右クリックした所と同じとみなす明るさの幅(OkLab の L の差)。アニメ調の塗りの陰影は主に明るさで付く(セル影・
-        /// 乗算の影・金属の明暗)ので、色味の幅より広く取る。有限にして、色味が同じでも明るさの大きく違う所(白地の黒い文字)は外す。
-        /// 判定は (dL / 明るさの幅)² + (da² + db²) / 色味の幅² ≤ 1 の楕円。値の根拠は docs/algorithm-constants.md。
-        /// </summary>
-        internal const float PaintHereNearLightness = 0.36f;
-
-        /// <summary>
         /// 外す成分の、クリック色の割合の上限(クリックした成分の割合に対する比)。これ未満の成分を外す。
         /// </summary>
         internal const float ForeignNearFracRatio = 0.5f;
@@ -142,75 +127,8 @@ namespace Iroca {
             return removed;
         }
 
-        /// <summary>
-        /// mask(下原点 w*h)のうち、クリック (clickX, clickY)(下原点)の色(<see cref="DropForeignComponents"/> と同じ 5×5 の中央値)から
-        /// 離れた画素を外す(in-place)。外した画素数を返す。近さは OkLab の楕円 (dL / <paramref name="nearLightness"/>)² +
-        /// (da² + db²) / <paramref name="nearChroma"/>² ≤ 1(明るさの差は広く、色味の差は狭く見る)。
-        /// 右クリックの「ここも塗る」(粒度 自動)の最後の段(SamProposalSteps.KeepsNearClickColor)。AI の範囲は部品の形で決まるので、
-        /// 黒い文字の上で押すと文字と地の両方が入る。足すのは押した所の色に近い所だけにする(2026-11-22 ユーザー判断: 文字と下地は
-        /// 色が別)。幅は <see cref="PaintHereNearLightness"/> と <see cref="PaintHereNearColor"/>。画素ごとに見る(つながりは見ない)。
-        /// </summary>
-        public static int KeepNearClickColor(bool* mask, Color32* pixelsBottomUp, int w, int h, int clickX, int clickY,
-                                             CancellationToken token = default, float nearChroma = PaintHereNearColor,
-                                             float nearLightness = PaintHereNearLightness) {
-            if (mask == null || pixelsBottomUp == null || (uint)clickX >= (uint)w || (uint)clickY >= (uint)h) {
-                return 0;
-            }
-            var po = MakeParallelOptions(token);
-            if (!TryMaskBounds(mask, w, h, po, out int x0, out int y0, out int x1, out int y1)) {
-                return 0;
-            }
-            ReferenceOklab(pixelsBottomUp, w, h, clickX, clickY, out float rL, out float ra, out float rb);
-            float invL2 = 1f / (nearLightness * nearLightness);
-            float invC2 = 1f / (nearChroma * nearChroma);
-            int bh = y1 - y0 + 1;
-            var removed = new int[bh];   // 行ごとに数えて整数で足す(並列でも決定的)
-            Parallel.For(0, bh, po, ly => {
-                int y = ly + y0;
-                bool* row = mask + (long)y * w;
-                Color32* px = pixelsBottomUp + (long)y * w;
-                int n = 0;
-                for (int x = x0; x <= x1; x++) {
-                    if (!row[x]) {
-                        continue;
-                    }
-                    var c = px[x];
-                    OkLab.RgbToOklab(c.r, c.g, c.b, out float L, out float a, out float b);
-                    float dL = L - rL, da = a - ra, db = b - rb;
-                    if (dL * dL * invL2 + (da * da + db * db) * invC2 > 1f) {
-                        row[x] = false;
-                        n++;
-                    }
-                }
-                removed[ly] = n;
-            });
-            int total = 0;
-            for (int i = 0; i < bh; i++) {
-                total += removed[i];
-            }
-            return total;
-        }
-
         // クリックの周り(半径 ForeignRefRadius の正方形、画像の端で切る)の RGB のチャンネルごとの中央値を OkLab にする。
-        static void ReferenceOklab(Color32* px, int w, int h, int cx, int cy, out float L, out float a, out float b) {
-            int xa = Mathf.Max(0, cx - ForeignRefRadius), xb = Mathf.Min(w - 1, cx + ForeignRefRadius);
-            int ya = Mathf.Max(0, cy - ForeignRefRadius), yb = Mathf.Min(h - 1, cy + ForeignRefRadius);
-            int n = (xb - xa + 1) * (yb - ya + 1);
-            var rs = new byte[n];
-            var gs = new byte[n];
-            var bs = new byte[n];
-            int i = 0;
-            for (int y = ya; y <= yb; y++) {
-                for (int x = xa; x <= xb; x++) {
-                    var c = px[(long)y * w + x];
-                    rs[i] = c.r; gs[i] = c.g; bs[i] = c.b;
-                    i++;
-                }
-            }
-            System.Array.Sort(rs);
-            System.Array.Sort(gs);
-            System.Array.Sort(bs);
-            OkLab.RgbToOklab(rs[n / 2], gs[n / 2], bs[n / 2], out L, out a, out b);
-        }
+        static void ReferenceOklab(Color32* px, int w, int h, int cx, int cy, out float L, out float a, out float b)
+            => OkLab.MedianAround(px, w, h, cx, cy, ForeignRefRadius, out L, out a, out b);
     }
 }

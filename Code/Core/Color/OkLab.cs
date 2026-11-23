@@ -96,6 +96,33 @@ namespace Iroca {
                 out L, out a, out bb);
         }
 
+        /// <summary>
+        /// 画素 (cx, cy) の周り(半径 radius の正方形、画像の端で切る)の RGB のチャンネルごとの中央値を OkLab にする。
+        /// px は w*h 画素。クリックした所の色を、縁取り・ノイズの 1 画素に当たっても地色で取るのに使う(AI 提案の
+        /// 離れた塊を外す段 SamMaskRefine.DropForeignComponents と、「ここも塗る」の絞り込み PaintHereNarrowing)。
+        /// </summary>
+        internal static unsafe void MedianAround(Color32* px, int w, int h, int cx, int cy, int radius,
+            out float L, out float a, out float b) {
+            int xa = Mathf.Max(0, cx - radius), xb = Mathf.Min(w - 1, cx + radius);
+            int ya = Mathf.Max(0, cy - radius), yb = Mathf.Min(h - 1, cy + radius);
+            int n = (xb - xa + 1) * (yb - ya + 1);
+            var rs = new byte[n];
+            var gs = new byte[n];
+            var bs = new byte[n];
+            int i = 0;
+            for (int y = ya; y <= yb; y++) {
+                for (int x = xa; x <= xb; x++) {
+                    var c = px[(long)y * w + x];
+                    rs[i] = c.r; gs[i] = c.g; bs[i] = c.b;
+                    i++;
+                }
+            }
+            Array.Sort(rs);
+            Array.Sort(gs);
+            Array.Sort(bs);
+            RgbToOklab(rs[n / 2], gs[n / 2], bs[n / 2], out L, out a, out b);
+        }
+
         // OkLab → 線形 sRGB(切り詰めなし)。範囲の判定と変換で同じ値を使うために分けてある。
         private static void OklabToLinear(float L, float a, float b,
             out float lr, out float lg, out float lb) {

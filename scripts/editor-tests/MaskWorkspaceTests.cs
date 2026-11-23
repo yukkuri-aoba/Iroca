@@ -760,32 +760,161 @@ namespace Iroca.EditorTests {
     }
 
     /// <summary>
-    /// 右クリックの範囲の操作が求める提案の用途(SamProposalSteps.RegionUse)と、色で絞るか(KeepsNearClickColor)の表。
-    /// 「ここも塗る」を、もう塗れている所で、粒度 自動で押したときだけ、押した所の色に近い画素へ絞る。塗れていない所(塗り残し)・
-    /// 小さめ・大きめ・ほかの操作は、範囲を色に関係なく当てる(2026-11-22 ユーザー判断)。返る値だけを見る。
+    /// 右クリックの「ここも塗る」の絞り込み(PaintHereNarrowing)の決め方の表。「ここも塗る」で粒度が自動のときだけ考え、
+    /// 押した所(5×5)がもう塗れているか、押した色が「足すことになる画素」(範囲のうち、まだ塗れていない画素)の少数派なら、
+    /// 範囲を押した所の色に近い画素へ絞る。それ以外(塗り残しの同じ素材・小さめ・大きめ・ほかの操作・強さを読めない)は、範囲を
+    /// そのまま当てる(2026-11-22・11-23 ユーザー判断)。合成の画像(赤い面に白い小さな四角)で、返る範囲と理由だけを見る。
     /// </summary>
-    public class PaintHereUseTests {
+    public unsafe class PaintHereUseTests {
+        private const int W = 40, H = 30;
+        // 白い四角 [Sq0, Sq1)²(36 画素)。ほかは赤い面。
+        private const int Sq0 = 10, Sq1 = 16;
+        private static readonly UnityEngine.Color32 Red = new UnityEngine.Color32(200, 30, 30, 255);
+        private static readonly UnityEngine.Color32 White = new UnityEngine.Color32(250, 250, 250, 255);
+
+        private static bool InSquare(int i) {
+            int x = i % W, y = i / W;
+            return x >= Sq0 && x < Sq1 && y >= Sq0 && y < Sq1;
+        }
+
+        private static NativePixels Image() {
+            var px = NativePixels.Allocate(W, H);
+            for (int i = 0; i < W * H; i++) {
+                px.Ptr[i] = InSquare(i) ? White : Red;
+            }
+            return px;
+        }
+
+        // 範囲は画像の全部(AI が面ごと取った)。
+        private static NativeBools WholeRegion() {
+            var m = NativeBools.Allocate(W, H);
+            for (int i = 0; i < W * H; i++) {
+                m.Ptr[i] = true;
+            }
+            return m;
+        }
+
+        // 画素ごとの強さ(painted(i) なら 1)を読む。
+        private static PaintHereNarrowing.StrengthReader Reader(System.Func<int, bool> painted)
+            => (indices, strength, count) => {
+                for (int i = 0; i < count; i++) {
+                    strength[i] = painted(indices[i]) ? 1f : 0f;
+                }
+                return true;
+            };
+
+        private static float U(int x) => (x + 0.5f) / W;
+        private static float V(int y) => (y + 0.5f) / H;
+
+        // 範囲を絞って、残った画素の数・白の数・理由を返す(範囲は書き換えないことも見る)。
+        private static (int kept, int white, PaintHereNarrowing.Outcome o, bool owned) Run(int x, int y, MaskRegionOp op,
+            bool sizeAuto, PaintHereNarrowing.StrengthReader read) {
+            var px = Image();
+            var region = WholeRegion();
+            try {
+                var r = PaintHereNarrowing.Narrow(region, px, U(x), V(y), op, sizeAuto, read, out bool owned, out var o);
+                try {
+                    Assert.AreEqual(W * H, region.CountTrue(), "渡した範囲は書き換えない");
+                    Assert.AreEqual(owned, !ReferenceEquals(r, region), "絞ったときだけ新しい範囲");
+                    int white = 0;
+                    for (int i = 0; i < W * H; i++) {
+                        if (r.Ptr[i] && InSquare(i)) {
+                            white++;
+                        }
+                    }
+                    return (r.CountTrue(), white, o, owned);
+                } finally {
+                    if (owned) {
+                        r.Release();
+                    }
+                }
+            } finally {
+                region.Release();
+                px.Release();
+            }
+        }
+
         [Test]
-        public void OnlyPaintHereOnPaintedAutoNarrowsByColor() {
+        public void OnlyPaintHereWithAutoSizeIsConsidered() {
             var ops = new[] { MaskRegionOp.PaintHere, MaskRegionOp.DontPaintHere, MaskRegionOp.OnlyThisPart, MaskRegionOp.ClearHere };
-            var grans = new[] { MaskSuggestGranularity.Auto, MaskSuggestGranularity.Fine, MaskSuggestGranularity.Coarse };
             foreach (var op in ops) {
-                foreach (bool painted in new[] { true, false }) {
-                    var use = SamProposalSteps.RegionUse(op == MaskRegionOp.PaintHere, painted);
-                    bool expectPaintHereUse = op == MaskRegionOp.PaintHere && painted;
-                    Assert.AreEqual(expectPaintHereUse ? MaskSuggestUse.RegionPaintHere : MaskSuggestUse.Region, use,
-                        $"{op} 塗れている={painted}");
-                    foreach (var g in grans) {
-                        bool expect = expectPaintHereUse && g == MaskSuggestGranularity.Auto;
-                        Assert.AreEqual(expect, SamProposalSteps.KeepsNearClickColor(use, g), $"{op} 塗れている={painted} {g}");
-                        // 色で絞る用途でも、部分の後処理(色で候補を選ぶ・離れた塊を外す)は「ここも塗る」以外と同じ
-                        Assert.AreEqual(SamProposalSteps.ChoosesByColor(MaskSuggestUse.Region, g),
-                            SamProposalSteps.ChoosesByColor(use, g), $"{op} {g} 候補の選び方");
-                        Assert.AreEqual(SamProposalSteps.DropsForeign(MaskSuggestUse.Region, g),
-                            SamProposalSteps.DropsForeign(use, g), $"{op} {g} 離れた塊");
+                foreach (bool auto in new[] { true, false }) {
+                    Assert.AreEqual(op == MaskRegionOp.PaintHere && auto, PaintHereNarrowing.Applies(op, auto), $"{op} 自動={auto}");
+                    // 押した所が塗れていても、考えない操作・粒度なら範囲をそのまま返す
+                    var (kept, _, o, owned) = Run(12, 12, op, auto, Reader(_ => true));
+                    if (!(op == MaskRegionOp.PaintHere && auto)) {
+                        Assert.IsFalse(owned || o.Narrowed, $"{op} 自動={auto} は絞らない");
+                        Assert.AreEqual(W * H, kept);
                     }
                 }
             }
+        }
+
+        [Test]
+        public void SmallPatternOnUnpaintedSurface_AddsOnlyItsColor() {
+            // どこも塗れていない。白い四角(全体の 3%)を押すと、足すことになる画素のうち白は少数派なので、白だけを足す。
+            var (kept, white, o, owned) = Run(12, 12, MaskRegionOp.PaintHere, true, Reader(_ => false));
+            Assert.AreEqual(PaintHereNarrowing.Reason.Minority, o.reason);
+            Assert.IsFalse(o.clickPainted);
+            Assert.IsTrue(owned);
+            Assert.AreEqual(W * H, o.unpainted);
+            Assert.AreEqual(36, o.unpaintedNear);
+            Assert.AreEqual(36, kept, "白い四角だけが残る");
+            Assert.AreEqual(36, white);
+            Assert.AreEqual(W * H - 36, o.dropped);
+            Assert.IsFalse(o.NothingLeftToAdd);
+        }
+
+        [Test]
+        public void MajorityColorOnUnpaintedSurface_AddsTheWholeRegion() {
+            // どこも塗れていない。赤い面を押すと、赤は多数派なので範囲を丸ごと足す(白い四角も)。
+            var (kept, white, o, owned) = Run(30, 20, MaskRegionOp.PaintHere, true, Reader(_ => false));
+            Assert.AreEqual(PaintHereNarrowing.Reason.None, o.reason);
+            Assert.IsFalse(owned);
+            Assert.AreEqual(W * H, kept);
+            Assert.AreEqual(36, white);
+        }
+
+        [Test]
+        public void FractionIsMeasuredOnlyOverUnpaintedPixels() {
+            // 赤い面はもう塗れていて、白い四角だけが塗り残し。白は範囲の全部では 3% だが、足すことになる画素(白い四角)では全部なので、
+            // 絞らない(大半が塗れている布の中の明るい雲を押した例。範囲の全部で測ると雲の芯が塗りむらになる)。
+            var (kept, _, o, owned) = Run(12, 12, MaskRegionOp.PaintHere, true, Reader(i => !InSquare(i)));
+            Assert.AreEqual(PaintHereNarrowing.Reason.None, o.reason);
+            Assert.AreEqual(36, o.unpainted);
+            Assert.AreEqual(36, o.unpaintedNear);
+            Assert.IsFalse(owned);
+            Assert.AreEqual(W * H, kept);
+        }
+
+        [Test]
+        public void PaintedClick_AddsOnlyItsColor_AndSaysWhenNothingIsLeft() {
+            // 赤い面はもう塗れている。赤を押すと(塗れている所)、色の違う白い四角は足さない。足す所(塗れていない赤)は無い。
+            var (kept, white, o, owned) = Run(30, 20, MaskRegionOp.PaintHere, true, Reader(i => !InSquare(i)));
+            Assert.AreEqual(PaintHereNarrowing.Reason.ClickPainted, o.reason);
+            Assert.IsTrue(o.clickPainted);
+            Assert.IsTrue(owned);
+            Assert.AreEqual(W * H - 36, kept);
+            Assert.AreEqual(0, white);
+            Assert.AreEqual(36, o.dropped);
+            Assert.IsTrue(o.NothingLeftToAdd, "近い色の所はもう全部塗れている");
+        }
+
+        [Test]
+        public void UnreadableStrength_DoesNotNarrow() {
+            var (kept, _, o, owned) = Run(12, 12, MaskRegionOp.PaintHere, true, (indices, strength, count) => false);
+            Assert.IsFalse(owned || o.Narrowed);
+            Assert.AreEqual(W * H, kept);
+            var (kept2, _, o2, owned2) = Run(12, 12, MaskRegionOp.PaintHere, true, null);
+            Assert.IsFalse(owned2 || o2.Narrowed);
+            Assert.AreEqual(W * H, kept2);
+        }
+
+        [Test]
+        public void PixelPaintedIsHalfOrMore() {
+            Assert.IsFalse(MaskRegionEdit.PixelPainted(0.49f));
+            Assert.IsTrue(MaskRegionEdit.PixelPainted(0.5f));
+            Assert.IsTrue(MaskRegionEdit.PixelPainted(1f));
         }
 
         [Test]
@@ -801,6 +930,203 @@ namespace Iroca.EditorTests {
             var idx = MaskRegionEdit.PaintedProbeIndices(0f, 0f, 10, 10);
             Assert.AreEqual(9, idx.Length, "画像の角では窓を端で切る(3×3)");
             Assert.AreEqual(25, MaskRegionEdit.PaintedProbeIndices(0.5f, 0.5f, 10, 10).Length, "中では 5×5");
+        }
+    }
+
+    /// <summary>
+    /// 「ここも塗る」の絞り込みで、窓の読み方(プレビューの選択の控え + 今のマスク。PaintHereNarrowing.WithMaskContract)と、
+    /// 自動化・ハーネスの読み方(今のマスクでゾーンの選択を回す。PaintHereNarrowing.NarrowBySelection)が、同じ入力で同じ決め方
+    /// (理由・押した所が塗れているか・塗れていない画素数・近い色の画素数・外した画素数・絞った範囲)になること。
+    /// 控えは含めるマスクを足さずに保存しているので、重ねないと、先に「ここも塗る」で含めた所を窓だけが「塗れていない」と数えた。
+    /// 場面: 左半分が赤(ゾーンが色で選ぶ)、右半分が青(選ばない)、青の中に白い四角。範囲は画像の全部(AI が面ごと取った)。
+    /// </summary>
+    public unsafe class PaintHereWindowParityTests {
+        private const int W = 64, H = 48;
+        // 白い四角 [Sq0, Sq1)²。
+        private const int Sq0 = 40, Sq1 = 48;
+
+        private static bool InSquare(int x, int y) => x >= Sq0 && x < Sq1 && y >= Sq0 - 20 && y < Sq1 - 20;
+
+        private static UnityEngine.Color32[] Scene() {
+            var px = new UnityEngine.Color32[W * H];
+            for (int y = 0; y < H; y++) {
+                for (int x = 0; x < W; x++) {
+                    byte v = (byte)(170 + (y * 60) / H);
+                    px[y * W + x] = InSquare(x, y) ? new UnityEngine.Color32(250, 250, 250, 255)
+                        : x < W / 2 ? new UnityEngine.Color32(v, 40, 40, 255)
+                        : new UnityEngine.Color32(40, 80, v, 255);
+                }
+            }
+            return px;
+        }
+
+        private static ColorZone RedZone() {
+            var z = new ColorZone {
+                name = "red",
+                sampleColor = new UnityEngine.Color(200 / 255f, 40 / 255f, 40 / 255f),
+                sampleColorSet = true,
+                targetColor = new UnityEngine.Color(0.1f, 0.6f, 0.6f),
+                targetColorSet = true,
+                tolerance = 0.25f,
+                edgeSoftness = 0.4f,
+            };
+            z.EnsureId();
+            return z;
+        }
+
+        private static float U(int x) => (x + 0.5f) / W;
+        private static float V(int y) => (y + 0.5f) / H;
+
+        private static NativeBools WholeRegion() {
+            var m = NativeBools.Allocate(W, H);
+            for (int i = 0; i < W * H; i++) {
+                m.Ptr[i] = true;
+            }
+            return m;
+        }
+
+        // 窓の読み方と自動化・ハーネスの読み方で絞り、決め方が同じことを確かめる。窓の絞った範囲(持ち主は呼び出し側)を返す。
+        private static NativeBools AssertSameDecision(string label, UnityEngine.Color32[] src, ColorZone zone, MaskSnapshot masks,
+            int cx, int cy, out PaintHereNarrowing.Outcome window) {
+            var settings = RecolorSettings.Default;
+            var px = NativePixels.CopyOf(src, W, H);
+            var region = WholeRegion();
+            using var cache = new SelectionCache();
+            try {
+                // プレビューと同じく、今のマスクで塗って選択の控えを作る。
+                var outPx = (UnityEngine.Color32[])src.Clone();
+                PixelProcessor.ProcessPixelsArray(outPx, W, H, masks, new List<ColorZone> { zone }, settings, default, null,
+                    cache, src);
+                PaintHereNarrowing.StrengthReader cached = (indices, strength, count)
+                    => cache.TryReadLatest(zone.id, W, H, indices, strength);
+                var read = PaintHereNarrowing.WithMaskContract(cached, masks, zone.id, W, H);
+                var a = PaintHereNarrowing.Narrow(region, px, U(cx), V(cy), MaskRegionOp.PaintHere, true, read,
+                    out bool ownA, out window);
+                var b = PaintHereNarrowing.NarrowBySelection(region, px, U(cx), V(cy), MaskRegionOp.PaintHere, true,
+                    zone.Clone(), settings, masks, out bool ownB, out var sim);
+                try {
+                    Assert.IsTrue(window.measured && sim.measured, $"{label}: 強さを読めなかった");
+                    Assert.AreEqual(sim.reason, window.reason, $"{label}: 理由");
+                    Assert.AreEqual(sim.clickPainted, window.clickPainted, $"{label}: 押した所が塗れているか");
+                    Assert.AreEqual(sim.unpainted, window.unpainted, $"{label}: 塗れていない画素数");
+                    Assert.AreEqual(sim.unpaintedNear, window.unpaintedNear, $"{label}: 近い色の画素数");
+                    Assert.AreEqual(sim.dropped, window.dropped, $"{label}: 外した画素数");
+                    Assert.AreEqual(ownB, ownA, $"{label}: 絞ったか");
+                    for (int i = 0; i < W * H; i++) {
+                        Assert.AreEqual(b.Ptr[i], a.Ptr[i], $"{label}: 絞った範囲が画素 {i} で違う");
+                    }
+                } finally {
+                    if (ownB) {
+                        b.Release();
+                    }
+                }
+                if (ownA) {
+                    return a;
+                }
+                return region.Clone();
+            } finally {
+                region.Release();
+                px.Release();
+            }
+        }
+
+        [Test]
+        public void NoMasks_SameDecision() {
+            var src = Scene();
+            var zone = RedZone();
+            var masks = MaskSnapshot.FromBuffers(W, H, null, null, null);
+            try {
+                // 白い四角(塗れていない・少数派)と、赤(塗れている)を押す。
+                AssertSameDecision("マスクなし・白", src, zone, masks, 43, 23, out var o1).Release();
+                Assert.AreEqual(PaintHereNarrowing.Reason.Minority, o1.reason, "場面の前提: 白は少数派");
+                AssertSameDecision("マスクなし・赤", src, zone, masks, 10, 10, out var o2).Release();
+                Assert.AreEqual(PaintHereNarrowing.Reason.ClickPainted, o2.reason, "場面の前提: 赤は塗れている");
+            } finally {
+                masks.Release();
+            }
+        }
+
+        [Test]
+        public void IncludeMask_CountsAsPainted() {
+            var src = Scene();
+            var zone = RedZone();
+            // 白い四角と、その周りの青の一部を含める(色の照合では選ばれない所)。
+            var include = new bool[W * H];
+            for (int y = 15; y < 33; y++) {
+                for (int x = 36; x < 52; x++) {
+                    include[y * W + x] = true;
+                }
+            }
+            var masks = MaskSnapshot.FromBuffers(W, H, null, null,
+                new Dictionary<string, bool[]> { { zone.id, include } });
+            try {
+                AssertSameDecision("含める・白", src, zone, masks, 43, 23, out var o).Release();
+                Assert.IsTrue(o.clickPainted, "含めた所は塗れている");
+                AssertSameDecision("含める・青", src, zone, masks, 58, 40, out _).Release();
+            } finally {
+                masks.Release();
+            }
+        }
+
+        [Test]
+        public void ExcludeMasks_CountAsUnpainted() {
+            var src = Scene();
+            var zone = RedZone();
+            var common = new bool[W * H];
+            var zoneExclude = new bool[W * H];
+            for (int y = 0; y < H; y++) {
+                for (int x = 0; x < W; x++) {
+                    common[y * W + x] = x >= 8 && x < 14;
+                    zoneExclude[y * W + x] = y >= 30 && y < 38;
+                }
+            }
+            var masks = MaskSnapshot.FromBuffers(W, H, common,
+                new Dictionary<string, bool[]> { { zone.id, zoneExclude } }, null);
+            try {
+                AssertSameDecision("除外・共通の帯の赤", src, zone, masks, 10, 10, out var o1).Release();
+                Assert.IsFalse(o1.clickPainted, "共通の除外の上は塗れていない");
+                AssertSameDecision("除外・ゾーンの帯の赤", src, zone, masks, 20, 33, out var o2).Release();
+                Assert.IsFalse(o2.clickPainted, "ゾーンの除外の上は塗れていない");
+                AssertSameDecision("除外・白", src, zone, masks, 43, 23, out _).Release();
+            } finally {
+                masks.Release();
+            }
+        }
+
+        [Test]
+        public void PaintHereTwiceAtTheSamePlace_SameDecision() {
+            var src = Scene();
+            var zone = RedZone();
+            var ws = new MaskWorkspace();
+            ws.Reset(W, H);
+            try {
+                // 1 回目: 白い四角を押す(少数派で白だけに絞って含める)。
+                var snap = ws.ToSnapshot();
+                NativeBools first;
+                try {
+                    first = AssertSameDecision("1 回目", src, zone, snap, 43, 23, out var o1);
+                    Assert.AreEqual(PaintHereNarrowing.Reason.Minority, o1.reason);
+                } finally {
+                    snap.Release();
+                }
+                try {
+                    Assert.IsTrue(ws.ApplyRegion(first.Ptr, zone.id, MaskRegionOp.PaintHere, null, out var r));
+                    Assert.Greater(r.changed, 0);
+                } finally {
+                    first.Release();
+                }
+                // 2 回目: 同じ所。含めた白は塗れている(窓も、控えに含めるを重ねて同じに数える)。
+                snap = ws.ToSnapshot();
+                try {
+                    AssertSameDecision("2 回目", src, zone, snap, 43, 23, out var o2).Release();
+                    Assert.IsTrue(o2.clickPainted, "1 回目で含めた所は塗れている");
+                    Assert.AreEqual(PaintHereNarrowing.Reason.ClickPainted, o2.reason);
+                } finally {
+                    snap.Release();
+                }
+            } finally {
+                ws.Clear();
+            }
         }
     }
 }

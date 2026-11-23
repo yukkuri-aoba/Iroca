@@ -299,75 +299,83 @@ namespace Iroca {
                     MaskPixels != null ? () => MaskPixels.AddRef() : null, out owned);
 
             /// <summary>
-            /// ゾーン zoneId が、UV(下原点)の点をもう塗っているか(MaskRegionEdit.ZonePaintsAt。強さは今のマスクで
-            /// ゾーンの選択を回して読む。マスクの寸法が原本と違うとき・ゾーンが無いときは塗っていないとみなす)。
+            /// 右クリックの範囲の操作(窓の MaskSuggestController.CommitProposalToMask と同じ): 用途 Region の AI 提案を取り、
+            /// 「ここも塗る」(粒度 自動)なら押した所の色に近い画素へ絞るかを決めて絞り(PaintHereNarrowing。窓はプレビューの選択の
+            /// 控えから、ここは今のマスクでゾーンの選択を回して強さを読む)、マスクの寸法の範囲にし、空なら当てない。
+            /// zoneId = null は全ゾーン共通(「塗らない」「消す」だけ)。
             /// </summary>
-            private bool ClickPainted(string zoneId, float u, float v) {
-                var z = zoneId == null ? null : Zones.Find(x => x != null && x.id == zoneId);
-                if (z == null || Masks.Width != W || Masks.Height != H) {
-                    return false;
-                }
-                var indices = MaskRegionEdit.PaintedProbeIndices(u, v, W, H);
-                var snap = Masks.ToSnapshot();
+            public Dictionary<string, object> Region(string zoneId, float u, float v, MaskSuggestGranularity g, MaskRegionOp op) {
+                var p = Sam.Propose(u, v, g, MaskSuggestUse.Region, CancellationToken.None, out var diag);
+                NativeBools proposal = null;
+                bool ownProposal = false;
                 try {
-                    var s = PixelProcessor.ZoneStrengthAt(Source.Ptr, W, H, z, Settings.ToRecolorSettings(), snap, indices);
-                    return MaskRegionEdit.ZonePaintsAt(s, indices.Length);
+                    return RegionApply(p, diag, zoneId, u, v, g, op, ref proposal, ref ownProposal);
                 } finally {
-                    snap.Release();
+                    if (ownProposal) {
+                        proposal.Release();
+                    }
+                    p.Release();
                 }
             }
 
-            /// <summary>
-            /// 右クリックの範囲の操作(窓の MaskSuggestController.CommitProposalToMask と同じ): 用途 Region の AI 提案を取り、
-            /// マスクの寸法の範囲にし、空なら当てない。zoneId = null は全ゾーン共通(「塗らない」「消す」だけ)。
-            /// </summary>
-            public Dictionary<string, object> Region(string zoneId, float u, float v, MaskSuggestGranularity g, MaskRegionOp op) {
-                // 「ここも塗る」を、もう塗れている所で押したときは、範囲を右クリックした所の色に近い画素へ絞る用途で求める
-                // (窓の PreviewView.RequestAiSuggest と同じ規則。窓はプレビューの選択の控えから、ここはゾーンの選択を回して強さを読む)。
-                bool clickPainted = op == MaskRegionOp.PaintHere && ClickPainted(zoneId, u, v);
-                var p = Sam.Propose(u, v, g, SamProposalSteps.RegionUse(op == MaskRegionOp.PaintHere, clickPainted),
-                    CancellationToken.None, out var diag);
-                int proposalCount = p.mask.CountTrue();
+            // Region の続き(提案 p を絞って当てる)。絞った範囲は proposal に置く(ownProposal なら呼び出し側が放す)。
+            private Dictionary<string, object> RegionApply(MaskSuggestProposal p, SamProposalDiag diag, string zoneId,
+                float u, float v, MaskSuggestGranularity g, MaskRegionOp op, ref NativeBools proposal, ref bool ownProposal) {
+                var zone = zoneId == null ? null : Zones.Find(x => x != null && x.id == zoneId);
+                int proposalBeforeColor = p.mask.CountTrue();
+                PaintHereNarrowing.Outcome narrowing;
+                var snap = Masks.ToSnapshot();
+                try {
+                    proposal = PaintHereNarrowing.NarrowBySelection(p.mask, Source, u, v, op, g == MaskSuggestGranularity.Auto,
+                        zone, Settings.ToRecolorSettings(), snap, out ownProposal, out narrowing);
+                } finally {
+                    snap.Release();
+                }
+                int proposalCount = ownProposal ? proposal.CountTrue() : proposalBeforeColor;
                 var doc = new Dictionary<string, object> {
-                    ["clickPainted"] = clickPainted,
+                    // 押した所(5×5)がもうそのゾーンで塗れていたか(「ここも塗る」・粒度 自動のときだけ見る)
+                    ["clickPainted"] = narrowing.clickPainted,
                     ["zoomed"] = diag.zoomed,
                     ["crop"] = diag.zoomPlanned ? new[] { diag.cropX0, diag.cropY0, diag.cropSide } : null,
                     ["flood"] = p.floodWarning,
                     ["proposalCount"] = proposalCount,
-                    // 色で絞る前後の画素数(絞らない操作・粒度では同じ)
-                    ["proposalBeforeColor"] = proposalCount + diag.colorDropped,
-                    ["colorDropped"] = diag.colorDropped,
+                    // 色で絞る前後の画素数(絞らない操作・粒度では同じ)と、絞って外した画素数
+                    ["proposalBeforeColor"] = proposalBeforeColor,
+                    ["colorDropped"] = narrowing.dropped,
+                    // 絞った理由(painted = 押した所が塗れていた・minority = 押した色が足す画素の少数派。絞らなければ null)
+                    ["narrowed"] = narrowing.reason == PaintHereNarrowing.Reason.ClickPainted ? "painted"
+                        : narrowing.reason == PaintHereNarrowing.Reason.Minority ? "minority" : null,
+                    // 範囲のうちまだ塗れていない画素・そのうち押した色に近い画素・その割合(診断。強さを読めなければ null)
+                    ["unpaintedPixels"] = narrowing.measured ? narrowing.unpainted : (int?)null,
+                    ["unpaintedNearPixels"] = narrowing.measured ? narrowing.unpaintedNear : (int?)null,
+                    ["nearFraction"] = narrowing.measured ? narrowing.NearFraction : (float?)null,
                 };
+                var region = ToMaskSize(proposal, out bool owned);
                 try {
-                    var region = ToMaskSize(p.mask, out bool owned);
-                    try {
-                        int regionCount = region.CountTrue();
-                        bool any = regionCount > 0;
-                        doc["empty"] = !any;
-                        // マスクの寸法にした範囲の画素数(当てる範囲。寸法が原本と同じなら proposalCount と同じ)。
-                        doc["regionCount"] = regionCount;
-                        if (!any) {
-                            // 空の提案で「この部分だけ」を当てると全体が除外になるので、当てない(窓も同じ)
-                            doc["applied"] = false;
-                            doc["skip"] = "empty";
-                            return doc;
-                        }
-                        bool ok = Masks.ApplyRegion(region.Ptr, zoneId, op, null, out var result);
-                        doc["applied"] = ok;
-                        doc["changed"] = result.changed;
-                        doc["commonOverlap"] = result.commonOverlap;
-                        // 当てなかった・何も変わらなかった理由(窓の知らせ MaskPaintView.DescribeRegionEdit と同じ分け方)。
-                        // 背景まで広がった提案(flood)も窓は当てる(知らせるだけ)ので、理由にはしない。
-                        doc["skip"] = !ok ? "rejected" : result.changed == 0 ? "no-change" : null;
-                    } finally {
-                        if (owned) {
-                            region.Release();
-                        }
+                    int regionCount = region.CountTrue();
+                    bool any = regionCount > 0;
+                    doc["empty"] = !any;
+                    // マスクの寸法にした範囲の画素数(当てる範囲。寸法が原本と同じなら proposalCount と同じ)。
+                    doc["regionCount"] = regionCount;
+                    if (!any) {
+                        // 空の提案で「この部分だけ」を当てると全体が除外になるので、当てない(窓も同じ)
+                        doc["applied"] = false;
+                        doc["skip"] = "empty";
+                        return doc;
                     }
+                    bool ok = Masks.ApplyRegion(region.Ptr, zoneId, op, null, out var result);
+                    doc["applied"] = ok;
+                    doc["changed"] = result.changed;
+                    doc["commonOverlap"] = result.commonOverlap;
+                    // 当てなかった・何も変わらなかった理由(窓の知らせ MaskPaintView.DescribeRegionEdit と同じ分け方)。
+                    // 背景まで広がった提案(flood)も窓は当てる(知らせるだけ)ので、理由にはしない。
+                    doc["skip"] = !ok ? "rejected" : result.changed == 0 ? "no-change" : null;
+                    return doc;
                 } finally {
-                    p.Release();
+                    if (owned) {
+                        region.Release();
+                    }
                 }
-                return doc;
             }
 
             /// <summary>全ゾーンを今のマスクで塗った出力(原本の写しへ塗る)。</summary>
@@ -613,8 +621,10 @@ namespace Iroca {
         // 出力: 手ごとに標準出力の 1 行 SCRIPT {"step":k,"op":…,…}、emit が all なら手ごとに out-dir/step<k>_out.raw と
         // step<k>_zones.json(・step<k>_mask.raw ほか。そのまま --zones に渡せる)、last なら最後の手だけ。
         // 行の項目: autotune は ONESHOT と同じ(evidenceDiag も)。region は zoomed・crop・flood・proposalCount・
-        // clickPainted(押した所がもうそのゾーンで塗れていたか)・proposalBeforeColor・colorDropped(「ここも塗る」を塗れている所で
-        // 押したとき、右クリックした所の色に近い画素へ絞る前の画素数と外した画素数)・
+        // clickPainted(押した所がもうそのゾーンで塗れていたか)・proposalBeforeColor・colorDropped(「ここも塗る」(粒度 自動)で
+        // 右クリックした所の色に近い画素へ絞る前の画素数と外した画素数)・narrowed(絞った理由: painted = 押した所が塗れていた・
+        // minority = 押した色が足す画素の少数派・null = 絞らない)・unpaintedPixels・unpaintedNearPixels・nearFraction(範囲のうち
+        // まだ塗れていない画素・そのうち押した色に近い画素・その割合。「ここも塗る」(粒度 自動)のときだけ。PaintHereNarrowing)・
         // empty・regionCount(マスクの寸法にした範囲の画素数)・applied・changed・commonOverlap・skip(当てなかった・変わらなかった理由:
         // empty・rejected・no-change。当てて変わったら null)。seed は changed・seedUV・zone。set は keys・zone。
         private static int RunScript(string[] args) {

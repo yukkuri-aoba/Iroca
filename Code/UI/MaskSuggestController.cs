@@ -30,6 +30,8 @@ namespace Iroca {
             public Vector2 uv;
             public long at;
             public MaskPaintView.MaskDestination dest;
+            // この 1 回の粒度(「ここも塗る」で色で絞るかの決め手の 1 つ。PaintHereNarrowing.Applies)。
+            public MaskSuggestGranularity granularity;
         }
         readonly List<PendingClick> _pending = new List<PendingClick>();
 
@@ -128,20 +130,19 @@ namespace Iroca {
         /// 推論中の要求も FIFO で受理され順に反映される(受理された分だけマーカーを積む)。
         /// 戻り値 false = 受理できなかった(モデルのロード失敗など)。
         /// granularity = この 1 回だけの粒度(右クリックの「小さめの部分で」など)。null = <see cref="Granularity"/>。
-        /// clickPainted = 「ここも塗る」の押した所が、もう宛先のゾーンで塗れているか(呼ぶ側が MaskRegionEdit.ZonePaintsAt で決める)。
         /// </summary>
         public bool RequestProposal(float u, float v, MaskPaintView.MaskDestination dest,
                                     NativePixels pixelsBottomUp, string sourceKey,
-                                    MaskSuggestGranularity? granularity = null, bool clickPainted = false) {
-            var click = new PendingClick { uv = new Vector2(u, v), at = MaskSuggestPerf.Now, dest = dest };
+                                    MaskSuggestGranularity? granularity = null) {
+            var click = new PendingClick {
+                uv = new Vector2(u, v), at = MaskSuggestPerf.Now, dest = dest, granularity = granularity ?? Granularity,
+            };
             // 手元の列には先に積む(受理されなかったら外す)。結果が null(取り消し・破棄・エラー)なら
             // マーカーだけ消す。残ると「処理中」に見え続ける。
             _pending.Add(click);
             _pendingClicks.Add(click.uv);
-            // 「ここも塗る」を、もう塗れている所(clickPainted)で押したときは、範囲を右クリックした所の色に近い画素へ絞る用途で
-            // 求める(SamProposalSteps.RegionUse)。
-            if (!AiSuggestBroker.Enqueue(this, sourceKey, pixelsBottomUp, u, v, granularity ?? Granularity,
-                    proposal => OnProposal(click, proposal), SamProposalSteps.RegionUse(dest.op == MaskRegionOp.PaintHere, clickPainted))) {
+            if (!AiSuggestBroker.Enqueue(this, sourceKey, pixelsBottomUp, u, v, click.granularity,
+                    proposal => OnProposal(click, proposal))) {
                 RemovePending(click);
                 return false;
             }
@@ -160,7 +161,7 @@ namespace Iroca {
                 return;
             }
             if (proposal != null) {
-                CommitProposalToMask(proposal, click.dest, click.at);
+                CommitProposalToMask(proposal, click, click.at);
             }
             _host.RequestRepaint();
         }
@@ -207,8 +208,8 @@ namespace Iroca {
         /// 1 つの Undo ストロークとして当てる(規則は MaskRegionEdit、当てるのは MaskPaintView.ApplyRegion)。
         /// 反映後は通常のマスクとしてブラシ修正・Ctrl+Z(1 ストローク扱い)が効く。
         /// </summary>
-        unsafe void CommitProposalToMask(MaskSuggestProposal proposal, MaskPaintView.MaskDestination dest,
-                                         long clickStartedAt = 0) {
+        unsafe void CommitProposalToMask(MaskSuggestProposal proposal, PendingClick click, long clickStartedAt = 0) {
+            var dest = click.dest;
             // 反映できなかったときは黙って戻らず「空だった」と UI に出す。画面上は
             // どのルートも「クリックしたのに何も起きない」に見えてしまうため。
             LastProposalEmpty = true;
@@ -232,23 +233,43 @@ namespace Iroca {
             long tCommit = MaskSuggestPerf.Now;
             double applyMs;
             long t;
+            // 「ここも塗る」(粒度 自動)は、押した所が塗れていた・押した色が足す画素の少数派なら、範囲を押した所の色に近い画素へ
+            // 絞る(PaintHereNarrowing。自動化・ハーネスと同じ規則。強さはプレビューの選択の控えから読む)。絞ったら新しい範囲。
+            var narrowing = default(PaintHereNarrowing.Outcome);
+            bool ownSrc = false;
+            if (_host?.Preview != null && PaintHereNarrowing.Applies(dest.op, click.granularity == MaskSuggestGranularity.Auto)) {
+                // 選択の控えに、今のマスク(含める・除外)を重ねて読む(自動化・ハーネスと同じ「塗れている」)。
+                var masks = _maskView.Workspace.ToSnapshot();
+                try {
+                    src = _host.Preview.NarrowPaintHere(src, click.uv, dest, click.granularity, masks, out ownSrc,
+                        out narrowing);
+                } finally {
+                    masks.Release();
+                }
+            }
             // 範囲はマスクの寸法(ヒープの外)。提案のまま使うときは提案のもの、転写したときは自分で作って手放す。
-            NativeBools region = ProposalMaskRegion.ToMaskSize(src, mw, mh, _host?.SourceTexture, out bool ownRegion, out var timing);
+            NativeBools region = null;
+            bool ownRegion = false;
             try {
+                region = ProposalMaskRegion.ToMaskSize(src, mw, mh, _host?.SourceTexture, out ownRegion, out var timing);
                 // 提案が空か(推論が領域を返していない)。要るのは空かどうかだけなので、全画素を数えずに最初の 1 画素で止める
                 // (以前は CountTrue でメインスレッドが 4K で 1600 万画素を毎回数えていた)。
                 bool proposedAny = AnyTrue(region);
                 LastClickFloodWarning = proposal.floodWarning;
-                LastProposalEmpty = !proposedAny;
-                // 空の提案で「この部分だけ」を当てると全体が除外になるので、当てずに止める。
+                LastProposalEmpty = !proposedAny && !narrowing.Narrowed;
+                // 空の提案で「この部分だけ」を当てると全体が除外になるので、当てずに止める。色で絞って空になったのは推論が空なのでは
+                // ないので、近い色の所はもう塗れている(足す所が無い)と知らせる。
                 if (!proposedAny) {
+                    if (narrowing.Narrowed) {
+                        LastCommitNearColorDone = true;
+                        _host?.ShowNotification(new GUIContent(Localization.NotifyPaintHereNearColorDone));
+                    }
                     return;
                 }
 
-                // 「ここも塗る」は範囲を右クリックした所の色に近い画素へ絞ってある(提案の後処理)。色の違う所を外した結果、
-                // 残った所がもう全部塗れていると、当てても見た目は変わらない。当て方は変えず(ハーネス・自動化と同じ道)、知らせだけ替える。
-                bool nearColorDone = dest.op == MaskRegionOp.PaintHere && proposal.colorDropped > 0
-                                     && _host?.Preview != null && !_host.Preview.AnyUnpaintedIn(src, dest.zoneId);
+                // 色で絞った結果、残った所がもう全部塗れていると、当てても見た目は変わらない。当て方は変えず(ハーネス・自動化と
+                // 同じ道)、知らせだけ替える。
+                bool nearColorDone = narrowing.NothingLeftToAdd;
 
                 t = MaskSuggestPerf.Now;
                 bool ok = false;
@@ -261,9 +282,15 @@ namespace Iroca {
                 LastCommitEmpty = !ok || result.changed == 0 || LastCommitNearColorDone;
                 // 何をしたか(と、指示どおりに塗られない理由)を知らせる。結果は推論待ちの後に届くので、
                 // 黙っていると右クリックの操作と結び付かない。
-                _host?.ShowNotification(new GUIContent(LastCommitNearColorDone
+                string message = LastCommitNearColorDone
                     ? Localization.NotifyPaintHereNearColorDone
-                    : _maskView.DescribeRegionEdit(dest, ok, result)));
+                    : _maskView.DescribeRegionEdit(dest, ok, result);
+                // 塗り残しを押したのに一部しか足さなかった(押した色が少数派)ときは、なぜ一部だけか・丸ごと足す道を添える。
+                if (!LastCommitNearColorDone && ok && result.changed > 0 && narrowing.dropped > 0
+                    && narrowing.reason == PaintHereNarrowing.Reason.Minority) {
+                    message += "\n" + Localization.NotifyPaintHereNearColorOnly;
+                }
+                _host?.ShowNotification(new GUIContent(message));
                 if (MaskSuggestPerf.Enabled) {
                     MaskSuggestPerf.Log(
                         $"コミット: 転写 {timing.transferMs:F0}ms / GetPixels32 {timing.getPixelsMs:F0}ms / AA包含 {timing.aaMs:F0}ms" +
@@ -282,6 +309,9 @@ namespace Iroca {
             } finally {
                 if (ownRegion) {
                     region.Release();
+                }
+                if (ownSrc) {
+                    src.Release();
                 }
             }
         }

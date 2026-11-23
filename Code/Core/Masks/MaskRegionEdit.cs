@@ -214,11 +214,16 @@ namespace Iroca {
         /// <summary>
         /// 1 つのゾーンが、右クリックした所をもう塗っているか。strength は押した所の窓(<see cref="PaintedProbeIndices"/>)の
         /// 画素ごとの選択の強さ(null なら塗っていない)。規則は <see cref="PaintingZoneAt"/> と同じ(強さの合計が画素数の半分以上)。
-        /// 「ここも塗る」は、塗れている所で押したときだけ範囲を押した所の色に近い画素へ絞る(SamProposalSteps.RegionUse)。
-        /// 窓・自動化・ハーネスがこれで決める。
+        /// 「ここも塗る」の絞り込み(<see cref="PaintHereNarrowing"/>)が、押した所が塗れているかをこれで決める。
         /// </summary>
         public static bool ZonePaintsAt(float[] strength, int count)
             => strength != null && PaintingZoneAt(new[] { strength }, count) == 0;
+
+        /// <summary>
+        /// 1 画素が、そのゾーンでもう塗れているか(選択の強さが半分以上。<see cref="PaintingZoneAt"/> の窓の規則を 1 画素にしたもの)。
+        /// 「ここも塗る」の絞り込み(<see cref="PaintHereNarrowing"/>)が、範囲のうちまだ塗れていない画素を数えるのに使う。
+        /// </summary>
+        public static bool PixelPainted(float strength) => strength >= 0.5f;
 
         /// <summary>
         /// 右クリックした場所をいま塗っているゾーン(並び順の番号)。どのゾーンも塗っていなければ -1。

@@ -70,7 +70,8 @@ Code/Core/
   Pipeline/    PixelProcessor（入口）・ゾーン 1 つ分の流れ・RunContext / RunBuffers / ZoneState / ZoneBuffers・
                SelectionResult（選択と再着色の境目）・強度の範囲
   Selection/   選択の段（`RunSelection`）・`ColorZone` の照合 `ColorZone.Matcher`・選択キャッシュの鍵
-  Masks/       編集中のマスク（MaskWorkspace・範囲の操作の規則 MaskRegionEdit・塗った範囲の記録 MaskPatch。AI 提案の範囲をマスクの寸法へ写す規則は Ops の ProposalMaskTransfer。窓・自動化・ハーネスの
+  Masks/       編集中のマスク（MaskWorkspace・範囲の操作の規則 MaskRegionEdit・塗った範囲の記録 MaskPatch・「ここも塗る」で
+               範囲を押した色に近い所へ絞るかの規則 PaintHereNarrowing。AI 提案の範囲をマスクの寸法へ写す規則は Ops の ProposalMaskTransfer。窓・自動化・ハーネスの
                --script が同じ部品で編集する）と、除外・含めるの適用（製品の契約）。除外は照合・連結成分の直前・最後の 3 か所で効く
                （連結成分の直前の掛け直しで、除外の線が連結を切る壁になる。閉領域の復帰は除外を通れる。
                除外が変われば、選択キャッシュは使い回さず選択を計算し直す。中身が同じなら使い回す）

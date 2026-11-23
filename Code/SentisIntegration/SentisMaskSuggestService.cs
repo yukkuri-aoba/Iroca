@@ -989,7 +989,6 @@ namespace Iroca.SentisIntegration {
                 score = o.score,
                 areaFrac = o.areaFrac,
                 floodWarning = o.floodWarning,
-                colorDropped = o.colorDropped,
             });
             o.mask = null;
             o.Release();
