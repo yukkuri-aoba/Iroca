@@ -483,6 +483,28 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
   空きメモリに収まる数まで自動で減る。下の「並列数は…自動的に減る」。`loadfile` はモジュール単位の割り当てで、これを外すと
   module スコープ fixture が各ワーカーで再実行されて逆に遅くなる）。直列に戻すなら `-n 0`。CI は `ci.yml` が `-n 4` を渡す。
 
+### 変更から回すテストを選ぶ（`tools/test_select.py`。2026-11-23〜）
+
+UI・Infra だけの変更に回帰 FULL を回さないための道具。変更ファイルの一覧（作業ツリー＋index と HEAD の差。本体と dev_safe の両方）から、
+回すコマンドを `python tools/remote_test.py -- …` の形で、理由（どのファイルがどの範囲に入ったか）つきで出す。
+
+```powershell
+python tools/test_select.py              # 今の変更から選ぶ
+python tools/test_select.py --index      # ステージしたものだけ（コミット前）
+python tools/test_select.py --rev A..B --dev-rev C..D   # コミット範囲（本体 / dev_safe）
+python tools/test_select.py --run        # 出した順に実行する（最初の失敗で止める）
+```
+
+- ハーネス範囲の製品ソース・測定器（`review_state.in_main_scope` / `in_dev_safe_scope`。一覧は写さず、そこへ聞く）→ golden・source_checks・unit-run、
+  回帰、視覚レビューの compare。pre-commit が承認を求めるファイルなので、ここは省かない。
+- 範囲外の `Code/`（UI・Infra・Automation など）→ build-check の型チェック、golden・source_checks・unit-run、EditMode
+  （型名を参照している EditMode のクラスへ `-TestFilter` で絞る。絞れなければ全件）。
+- `scripts/editor-tests/` → テストのコンパイル（`IrocaEditorTests.csproj`）と、そのクラスだけの EditMode。
+- docs だけ → source_checks（定数の台帳など）。マニュアルは組み立ても。
+- dev_safe の回帰テストだけの変更 → そのファイルだけ。dev_safe の測定器・基準 → 回帰と視覚レビュー。
+- 採否判断なら `IROCA_GATE_FULL=1`、snapshot は変更前に撮る、は出力の注意に出る。EditMode の絞りは推定なので、迷ったら絞りなしで回す。
+- 判定の確かめは `scripts/source_checks/test_test_select.py`。
+
 ### テスト用の別 PC で回す（2026-11-11〜）
 
 LAN にテスト用の PC があるときは、テストをそちらで回して開発機の CPU・メモリを空ける。
