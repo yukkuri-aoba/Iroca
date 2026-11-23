@@ -166,11 +166,35 @@
         4
       ]
     },
+    "mixband_tie_lightness": {
+      "sha256": "e3c12b1f719bb3374c8dab72b77e8a6ec39d7faa03ba034268b844a5cdc05fb0",
+      "shape": [
+        24,
+        20,
+        4
+      ]
+    },
     "nondefault_chromathreshold_graymode": {
       "sha256": "9bf7465b70090663408495493480df0edca376910bf9fffaf40f141a7b93e216",
       "shape": [
         48,
         48,
+        4
+      ]
+    },
+    "real_cube_chromatic_tuned": {
+      "sha256": "c882b2ef37c55aa213b7cd44edd50b1cb190f801c1fd1e91fdff8ba97e47e58f",
+      "shape": [
+        128,
+        128,
+        4
+      ]
+    },
+    "real_cube_pale_tuned": {
+      "sha256": "92b111de6d9a229c248a89dffa4bb231d64053fec68f58e30db923c27d512082",
+      "shape": [
+        128,
+        128,
         4
       ]
     },

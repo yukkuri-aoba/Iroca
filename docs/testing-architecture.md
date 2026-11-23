@@ -1264,6 +1264,11 @@ python tools/visual_review.py check --index         # （任意）今ステー�
   その差は `scripts/editor-tests/RuntimeParityTests` が測る: golden の入力（`scripts/golden/cases/`）を
   Unity 実機の製品経路（`IrocaAutomation.RecolorWithZones`）に通してハーネスの出力と比べる。
   2026-09-24 時点で 25 件すべてバイト一致。`Code/Core` を大きく変えたら `Run-EditorTests.ps1` で再確認する。
+  2026-11-23 に、実物のテクスチャでは Mono（float の式を倍精度のまま次へ渡す）と .NET で値 1 の段差が出て、しきい値ちょうどの
+  判定が割れることも分かった（dev_safe の `docs/runtime-parity-2026-11-23.md`）。それを見張る golden のケースを 3 つ足した
+  （`real_cube_*`: 色の立方体を敷き詰めた絵を端数のあるゾーンの値で塗る。`mixband_tie_lightness`: 混色帯の判定がしきい値ちょうどに
+  並ぶ絵）。31 件中 30 件がバイト一致、`real_cube_chromatic_tuned` は値 1 の段差が 1 画素（許容の中。件数は parity.tsv に出る）。
+  実物の 4K で両者を突き合わせるのは dev_safe の `scripts/runtime_parity.py`。
 - **本物の推論（Sentis）とハーネスの推論（onnxruntime）の数値の差**は、2026-07 に 1 回突き合わせただけ（提案の IoU 0.998）。
   ハーネスの数字は「onnxruntime の世界の数字」。2026-11-22 からテスト用 PC に Sentis 入りのホスト `Iroca_U2022` があり
   （上の「EditMode もテスト用 PC で回せる」）、Sentis の推論そのものは合成の円で毎回確かめられるが、同じテクスチャ・同じクリックで

@@ -84,6 +84,43 @@ def chromatic_on_neutral(fg_rgb, bg_gray: int = 235, h: int = 48, w: int = 48) -
     return img
 
 
+# ─── 実物に近い色の数（製品の Mono と ハーネスの .NET の突き合わせ用。2026-11-23） ───
+# 上の絵は色の数がごく少なく、浮動小数の丸めの際（× 255 が .5 の際・しきい値ちょうど）に当たる色がほぼ無い。
+# 実物のテクスチャは 1 枚に数千〜数百万の色があり、Unity の Mono（float の式を倍精度のまま次へ渡す）と .NET 8 で
+# 値 1 の段差が出る（dev_safe/docs/runtime-parity-2026-11-23.md）。
+
+def color_cube_tiles(tiles: int = 4, tile: int = 32) -> np.ndarray:
+    """色の立方体を敷き詰めた絵。tiles×tiles 枚のタイルが青の段（0..255 を tiles² 段）で、タイルの中は
+    赤を横・緑を縦に 0..255 で並べる（隣どうしは近い色なので、選択は塊になる）。128² で 16,384 色。"""
+    h = w = tiles * tile
+    img = _rgba(h, w)
+    levels = tiles * tiles
+    ramp = np.round(np.arange(tile) * (255.0 / (tile - 1))).astype(np.uint8)
+    for ty in range(tiles):
+        for tx in range(tiles):
+            b = int(round((ty * tiles + tx) * 255.0 / (levels - 1)))
+            ys, xs = ty * tile, tx * tile
+            img[ys:ys + tile, xs:xs + tile, 0] = ramp[None, :]
+            img[ys:ys + tile, xs:xs + tile, 1] = ramp[:, None]
+            img[ys:ys + tile, xs:xs + tile, 2] = b
+    return img
+
+
+def mixture_band_tie(h: int = 24, w: int = 20, x0: int = 8) -> np.ndarray:
+    """混色帯の「面の一部か」の判定（画素と背景の面の明るさの差 ≤ 24）が、ちょうど 24 に並ぶ絵。
+    左は素材（列 x0 より左）、列 x0 は素材の外の 1 列、右は背景の面（行ごとに 3 色を繰り返す）。列 x0 の画素から
+    見て、隣の背景の面の 3 画素の色の和が (224, 211, 312)（明るさ 83）、画素の明るさが 59 で、差がちょうど 24。
+    背景の明るさを float の 1 演算ずつで求めると 83.0 になり、倍精度のまま足すと 1 ulp ずれる（Mono が 2026-11-23 に
+    50 以上の段差で塗った並び）。"""
+    img = _rgba(h, w)
+    img[:, :x0, 0], img[:, :x0, 1], img[:, :x0, 2] = 20, 33, 56
+    img[:, x0, 0], img[:, x0, 1], img[:, x0, 2] = 50, 51, 76
+    bg = np.array([(74, 70, 104), (75, 70, 104), (75, 71, 104)], np.uint8)
+    for y in range(h):
+        img[y, x0 + 1:, :3] = bg[y % 3]
+    return img
+
+
 # ─── 端ケース（α・極端な寸法） ───
 # 上の関数は α=255 固定・40〜48 px の正方形しか作らない。実テクスチャには透明部（UV の隙間）や
 # 半透明の縁があり、ハーネスには 1 px 幅や奇数寸法も来うる。ここではそれらを作る。

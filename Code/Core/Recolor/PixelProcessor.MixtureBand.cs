@@ -143,6 +143,14 @@ namespace Iroca {
             return best;
         }
 
+        // 実行系で割れない判定のための丸め(2026-11-23。dev_safe/docs/runtime-parity-2026-11-23.md)。Unity の Mono は float の
+        // 式を倍精度のまま次の演算へ渡し、.NET は 1 演算ごとに float へ丸める。整数の和から作る平均・色度と、それを
+        // きりのよいしきい値(面の色度の揃い・素材の色度の大きさ・明るさの差 24 など)と比べる量は、しきい値ちょうどに
+        // 並びうる(背景の面の明るさが 83.0 か 83.0000076 かで、素材の外の画素を塗るかが変わり、Mono で最大 58 の段差が出た)。
+        // そこで、それらの量は 1 演算ごとに (float) で丸める(明示の変換は Mono でも丸める)。.NET の結果は 1 ビットも変わらない。
+        private static float SqLen3(float x, float y, float z)
+            => (float)((float)((float)(x * x) + (float)(y * y)) + (float)(z * z));
+
         private static float ChromaSq(Color c) {
             float m = (c.r + c.g + c.b) * (1f / 3f);
             float r = c.r - m, g = c.g - m, b = c.b - m;
@@ -164,17 +172,18 @@ namespace Iroca {
             float residAbs2 = MixResidAbs * MixResidAbs;
             float flat2 = MixFlatChroma * MixFlatChroma;
             float noiseTol = MixNoiseK * noise;
-            float cp2 = cpR * cpR + cpG * cpG + cpB * cpB;
-            float cb2 = cbR * cbR + cbG * cbG + cbB * cbB;
+            // しきい値と比べる色度の大きさ・差・明るさの差は 1 演算ごとに丸める(SqLen3 のコメント)。
+            float cp2 = SqLen3(cpR, cpG, cpB);
+            float cb2 = SqLen3(cbR, cbG, cbB);
             // ほぼ無彩の画素は、有彩の面との混色としては見ない(仮説 2 だけで見る)。
             if (hasB && (cp2 > flat2 || cb2 <= flat2)) {
-                float qR = cpR - cbR, qG = cpG - cbG, qB = cpB - cbB;
-                float q2 = qR * qR + qG * qG + qB * qB;
-                float dR = cfR - cbR, dG = cfG - cbG, dB = cfB - cbB;
-                float d2 = dR * dR + dG * dG + dB * dB;
+                float qR = (float)(cpR - cbR), qG = (float)(cpG - cbG), qB = (float)(cpB - cbB);
+                float q2 = SqLen3(qR, qG, qB);
+                float dR = (float)(cfR - cbR), dG = (float)(cfG - cbG), dB = (float)(cfB - cbB);
+                float d2 = SqLen3(dR, dG, dB);
                 if (d2 < MixMinSeparation * MixMinSeparation) {
                     // 素材と面の色度が近く α が決まらない。面と同じ色なら面の一部、そうでなければ仮説 2 で見る。
-                    if (q2 <= residAbs2 && Mathf.Abs(pm - bm) <= MixLightAbs) {
+                    if (q2 <= residAbs2 && Mathf.Abs((float)(pm - bm)) <= MixLightAbs) {
                         return MixBackground;
                     }
                 } else {
@@ -400,9 +409,10 @@ namespace Iroca {
                 byte zRb = (byte)Mathf.Clamp(Mathf.RoundToInt(zoneMaterial.r * 255f), 0, 255);
                 byte zGb = (byte)Mathf.Clamp(Mathf.RoundToInt(zoneMaterial.g * 255f), 0, 255);
                 byte zBb = (byte)Mathf.Clamp(Mathf.RoundToInt(zoneMaterial.b * 255f), 0, 255);
-                float zM = (zRb + zGb + zBb) * (1f / 3f);
-                float zcR = zRb - zM, zcG = zGb - zM, zcB = zBb - zM;
-                float zc2 = zcR * zcR + zcG * zcG + zcB * zcB;
+                // 整数の和からの平均・色度としきい値と比べる大きさは 1 演算ごとに丸める(SqLen3 のコメント)。
+                float zM = (float)((zRb + zGb + zBb) * (1f / 3f));
+                float zcR = (float)(zRb - zM), zcG = (float)(zGb - zM), zcB = (float)(zBb - zM);
+                float zc2 = SqLen3(zcR, zcG, zcB);
                 bool hasZoneMaterial = zc2 >= minChromaSq;
                 Color32 zTo = hasZoneMaterial
                     ? RecolorPixel(zRb, zGb, zBb, Mathf.Max(zRb, Mathf.Max(zGb, zBb)) / 255f, 1f, in rcL, regLmid, AchromaFormOffset)
@@ -506,11 +516,12 @@ namespace Iroca {
                                     Color32 o = originalPixels[setIdx[k]];
                                     lfR += o.r; lfG += o.g; lfB += o.b;
                                 }
-                                float inv = 1f / setN;
-                                lfR *= inv; lfG *= inv; lfB *= inv;
-                                lfM = (lfR + lfG + lfB) * (1f / 3f);
-                                lcR = lfR - lfM; lcG = lfG - lfM; lcB = lfB - lfM;
-                                lc2 = lcR * lcR + lcG * lcG + lcB * lcB;
+                                // 平均・色度・色度の大きさは 1 演算ごとに丸める(SqLen3 のコメント)。
+                                float inv = (float)(1f / setN);
+                                lfR = (float)(lfR * inv); lfG = (float)(lfG * inv); lfB = (float)(lfB * inv);
+                                lfM = (float)((float)((float)(lfR + lfG) + lfB) * (1f / 3f));
+                                lcR = (float)(lfR - lfM); lcG = (float)(lfG - lfM); lcB = (float)(lfB - lfM);
+                                lc2 = SqLen3(lcR, lcG, lcB);
                                 // 素材色を推定した画素の色度のばらつき(ノイズ・質感の大きさ)。
                                 float v = 0f;
                                 for (int k = 0; k < setN; k++) {
@@ -529,8 +540,8 @@ namespace Iroca {
                                 continue;
                             }
 
-                            float pM = (op.r + op.g + op.b) * (1f / 3f);
-                            float cpR = op.r - pM, cpG = op.g - pM, cpB = op.b - pM;
+                            float pM = (float)((op.r + op.g + op.b) * (1f / 3f));
+                            float cpR = (float)(op.r - pM), cpG = (float)(op.g - pM), cpB = (float)(op.b - pM);
                             if (isSolid) {
                                 // 色度の射影が、素材色の推定に使った画素(無ければゾーンの素材色)のどれよりも低いときだけ
                                 // 調べる。それ以上なら素材自身の模様・陰影の範囲(RecolorPixel が塗る)。
@@ -581,8 +592,9 @@ namespace Iroca {
                                         byte fc = flatL[gr2 + xx];
                                         if (fc == 0) {
                                             // 面の判定: 3×3 の隣が全部未選択で、色度が揃っていて、±R に透明が無い。
-                                            float oM = (o.r + o.g + o.b) * (1f / 3f);
-                                            float ocR = o.r - oM, ocG = o.g - oM, ocB = o.b - oM;
+                                            // 色度の揃いの判定(しきい値 flatSq)に使う量は 1 演算ごとに丸める(SqLen3 のコメント)。
+                                            float oM = (float)((o.r + o.g + o.b) * (1f / 3f));
+                                            float ocR = (float)(o.r - oM), ocG = (float)(o.g - oM), ocB = (float)(o.b - oM);
                                             bool flat = true;
                                             int ty1 = Mathf.Min(h - 1, yy + R), tx0 = Mathf.Max(0, xx - R), tx1 = Mathf.Min(w - 1, xx + R);
                                             for (int ny = Mathf.Max(0, yy - R); ny <= ty1 && flat; ny++) {
@@ -606,9 +618,11 @@ namespace Iroca {
                                                     }
                                                     if (strength[k] > 0f) { flat = false; break; }
                                                     Color32 q = originalPixels[k];
-                                                    float qM = (q.r + q.g + q.b) * (1f / 3f);
-                                                    float eR0 = q.r - qM - ocR, eG0 = q.g - qM - ocG, eB0 = q.b - qM - ocB;
-                                                    if (eR0 * eR0 + eG0 * eG0 + eB0 * eB0 > flatSq) { flat = false; break; }
+                                                    float qM = (float)((q.r + q.g + q.b) * (1f / 3f));
+                                                    float eR0 = (float)((float)(q.r - qM) - ocR);
+                                                    float eG0 = (float)((float)(q.g - qM) - ocG);
+                                                    float eB0 = (float)((float)(q.b - qM) - ocB);
+                                                    if (SqLen3(eR0, eG0, eB0) > flatSq) { flat = false; break; }
                                                 }
                                             }
                                             fc = flat ? FlatYesB : FlatNoB;
@@ -623,10 +637,11 @@ namespace Iroca {
                             }
                             float cbR = 0f, cbG = 0f, cbB = 0f, bM = 0f;
                             if (bN > 0) {
-                                float inv = 1f / bN;
-                                float mR = bR * inv, mG = bG * inv, mB = bB * inv;
-                                bM = (mR + mG + mB) * (1f / 3f);
-                                cbR = mR - bM; cbG = mG - bM; cbB = mB - bM;
+                                // 面の平均・明るさ・色度は 1 演算ごとに丸める(SqLen3 のコメント。ClassifyMixture が明るさの差 24 と比べる)。
+                                float inv = (float)(1f / bN);
+                                float mR = (float)(bR * inv), mG = (float)(bG * inv), mB = (float)(bB * inv);
+                                bM = (float)((float)((float)(mR + mG) + mB) * (1f / 3f));
+                                cbR = (float)(mR - bM); cbG = (float)(mG - bM); cbB = (float)(mB - bM);
                             }
 
                             // 近くの素材色で判定し、それで説明できない(より鮮やか / そもそも無い)ときはゾーンの素材色で。

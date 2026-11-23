@@ -412,6 +412,28 @@ def build_cases() -> list[tuple[str, np.ndarray, dict, dict]]:
                   zone(sample=n((210, 50, 50)), target=n((40, 70, 200)), tolerance=0.30),
                   settings(edgeFeather=2.0, useDecontamination=False)))
 
+    # ─── 実物に近いシナリオ（Unity の Mono とハーネスの .NET の突き合わせ。2026-11-23） ───
+    # 上のケースは色の数が少なくゾーンの値もきりがよいので、Mono（float の式を倍精度のまま次へ渡す）と .NET の丸めの
+    # 違いが出る際に当たらず、RuntimeParityTests が実物での食い違いを見逃していた（dev_safe/docs/runtime-parity-2026-11-23.md）。
+    # 色の立方体を敷き詰めた絵を、自動調整の後のような端数のある値で塗る（有彩のサンプル = 混色帯・基準色の自動補正、
+    # 淡い無彩寄りのサンプル = 無彩パス・成分ごとの地図）。値 1 の段差は出てよい（RuntimeParityTests の許容の中）。
+    cube = S.color_cube_tiles()
+    cases.append(("real_cube_chromatic_tuned", cube,
+                  zone(sample=(0.7137255, 0.3058824, 0.2470588), target=(0.2196078, 0.6431373, 0.5490196),
+                       tolerance=0.2731, valueBlend=0.9123, saturationStrictness=0.4137,
+                       shadowDesaturation=0.2747, shadowForgivenessSatMin=0.0371, holeFillMargin=0.0412,
+                       highlightRecovery=True, autoRecolorAnchor=True), settings()))
+    cases.append(("real_cube_pale_tuned", cube,
+                  zone(sample=(0.8509804, 0.8431373, 0.8352941), target=(0.2392157, 0.4156863, 0.7019608),
+                       tolerance=0.2387, valueBlend=0.8961, saturationStrictness=0.3719,
+                       shadowDesaturation=0.3113, chromaThreshold=0.0613,
+                       highlightRecovery=True, autoRecolorAnchor=True), settings()))
+    # 混色帯の「面の一部か」の判定が、しきい値ちょうど（明るさの差 24）に並ぶ絵（S.mixture_band_tie）。
+    # 背景の面の明るさの丸めが実行系で割れると、素材の外の 1 列を塗るか塗らないかが変わる（2026-11-23 に Mono で
+    # 最大 58 の段差。PixelProcessor.MixtureBand の判定を 1 演算ずつ丸めて揃えた）。
+    cases.append(("mixband_tie_lightness", S.mixture_band_tie(),
+                  zone(sample=n((20, 33, 56)), target=n((230, 150, 40)), tolerance=0.10), settings()))
+
     # ─── 端ケース（α・極端な寸法）。落ちない・黙って変わらないことを固定する ───
     red, blue = n((200, 50, 50)), n((40, 70, 200))
     red_zone = dict(sample=red, target=blue, tolerance=0.35)
