@@ -263,7 +263,7 @@ def _measure_subjects(sids, snapshot: bool) -> dict:
             cid = f"{mode}/{sid}/p50"
             name = f"{mode}__{sid}__p50.png"
             if snapshot:
-                Image.fromarray(output).save(folder / name)
+                Image.fromarray(output).save(folder / name, compress_level=vr.SNAPSHOT_PNG_LEVEL)
                 continue
             if tolerated is None:
                 tolerated, _tol_info = gtt.tolerance_for_subject(subject, rgba, inside, region, overrides)

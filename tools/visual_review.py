@@ -92,6 +92,9 @@ APPROVED_JSON = REVIEW_DIR / "approved.json"
 CSHARP_WORK = REVIEW_DIR / "_csharp_work"
 # snapshot で PNG を並べて保存するスレッドの数(4K の出力 1 枚 64MB。待ちはこの 2 倍まで)。
 SNAPSHOT_SAVE_WORKERS = 4
+# snapshot の PNG の圧縮レベル(既定 6)。画素は変わらない(可逆)。4K で書き出し 1.03 → 0.61 秒・読み込みは同じ・
+# ファイルは約 3% 増(性能の候補 T2 の手軽な代案。レベル 1 は読み込みが 2 倍遅いので使わない)。
+SNAPSHOT_PNG_LEVEL = 3
 
 THUMB_HEIGHT = 512  # 比較パネルの列高さ（px）
 
@@ -476,20 +479,23 @@ def alpha_violations(orig: np.ndarray, after: np.ndarray) -> int:
 
 
 def _densest_change_window(changed: np.ndarray, size: int) -> tuple[int, int]:
-    """変化画素が最も密な size×size 窓の左上座標。積分画像 + 粗いステップで探す。"""
+    """変化画素が最も密な size×size 窓の左上座標。積分画像 + 粗いステップで探す。
+
+    候補の窓(左上が step おきの格子)の和を numpy でまとめて求める(性能の候補 T7。以前は Python の二重ループ)。
+    同点なら行優先で最初の窓(y が小さい方、同じ y なら x が小さい方)を選ぶ。argmax は最初の最大を返すので、
+    以前のループ(厳密な > で更新)と同じ窓になる。
+    """
     h, w = changed.shape
     size = min(size, h, w)
     ii = np.pad(np.cumsum(np.cumsum(changed.astype(np.int64), axis=0), axis=1),
                 ((1, 0), (1, 0)))
     step = max(1, size // 4)
-    best, by, bx = -1, 0, 0
-    for y in range(0, h - size + 1, step):
-        for x in range(0, w - size + 1, step):
-            s = int(ii[y + size, x + size] - ii[y, x + size]
-                    - ii[y + size, x] + ii[y, x])
-            if s > best:
-                best, by, bx = s, y, x
-    return by, bx
+    ys = np.arange(0, h - size + 1, step)
+    xs = np.arange(0, w - size + 1, step)
+    win = (ii[np.ix_(ys + size, xs + size)] - ii[np.ix_(ys, xs + size)]
+           - ii[np.ix_(ys + size, xs)] + ii[np.ix_(ys, xs)])
+    iy, ix = np.unravel_index(int(np.argmax(win)), win.shape)
+    return int(ys[iy]), int(xs[ix])
 
 
 def phantom_change(orig: np.ndarray, before: np.ndarray, after: np.ndarray) -> dict:
@@ -834,7 +840,8 @@ def cmd_snapshot(engine: str = "csharp", source: str = "rev:HEAD", allow_externa
     with ThreadPoolExecutor(max_workers=SNAPSHOT_SAVE_WORKERS) as pool:
         for item in _iter_engine(engine):
             case_id = item["case_id"]
-            pending.append(pool.submit(Image.fromarray(item["output"]).save, SNAPSHOT_BEFORE_DIR / f"{case_id}.png"))
+            pending.append(pool.submit(Image.fromarray(item["output"]).save, SNAPSHOT_BEFORE_DIR / f"{case_id}.png",
+                                       compress_level=SNAPSHOT_PNG_LEVEL))
             saved.append(case_id)
             print(f"  保存: {case_id}.png")
             del item
@@ -966,7 +973,26 @@ def cmd_compare(engine: str = "csharp", source: str = "worktree", allow_external
     perturbed: list[str] = []              # 試験用に出力をわざと変えたケース(承認できない)
     orig_thumb_src: np.ndarray | None = None   # 元テクスチャの縮小を作った入力(同じ被写体のケースで使い回す)
     orig_thumb_raw: np.ndarray | None = None
-    for item in _iter_engine(engine, detail=True):
+    def _read_before(cid: str) -> list:
+        bp = before_paths.get(cid)
+        return [np.array(Image.open(bp).convert("RGBA")) if bp else None]
+
+    def _with_before(items):
+        """ケースと、その変更前の画(PNG のデコード 4K で約 0.2 秒)を、次のケースの分を背景のスレッドで先に読みながら返す
+        (デコードは GIL を放す。同時に持つのは今のケースと次のケースの変更前の 2 枚まで。性能の候補 T1)。
+        変更前は 1 要素のリストに入れて渡す(受け取る側が pop して手放せるように。Future も持ち続けない)。"""
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            prev = None
+            for it in items:
+                cur = (it, pool.submit(_read_before, it["case_id"]))
+                if prev is not None:
+                    yield prev[0], prev[1].result()
+                prev = cur
+            if prev is not None:
+                yield prev[0], prev[1].result()
+
+    for item, before_box in _with_before(_iter_engine(engine, detail=True)):
+        before_rgba: np.ndarray | None = before_box.pop()
         case_id, input_rgba, after_rgba = item["case_id"], item["input"], item["output"]
         exclude, shared_diff, cond = item["exclude"], item["shared_diff"], item["cond"]
         if shared_diff is not None:
@@ -978,9 +1004,6 @@ def cmd_compare(engine: str = "csharp", source: str = "worktree", allow_external
             alpha_contract[case_id] = n_alpha
         if cond.get("perturbed"):
             perturbed.append(case_id)
-        bp = before_paths.get(case_id)
-        before_rgba: np.ndarray | None = np.array(Image.open(bp).convert("RGBA")) if bp else None
-
         lines = condition_lines(cond)
         if item["kind"] == "autotune":
             after_label = f"変更後: 自動調整の後 / {cond['color']}"
