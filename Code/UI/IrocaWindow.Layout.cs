@@ -33,6 +33,17 @@ namespace Iroca {
         // オーバーレイの中身を変えたときに黙ってずれる）。0（未計測）時は決定論フォールバック。
         [System.NonSerialized] private float _jobOverlayHeight;
 
+        // 書き出し欄の下端をウィンドウの下端にそろえるための補正(2026-11-23)。中ほどの領域の高さは「窓の高さ − 枠の見積もり
+        // (WindowChromeMargin)− 書き出し欄の見積もり」で決めるので、見積もりの誤差がそのまま書き出し欄の下の余白になっていた。
+        // 書き出し欄の後ろに伸びる空きを置いて Repaint 時に実際の描画領域の下端を測り、ずれの分を次の描画の高さに足す
+        // (_sideBySideTopHeight と同じく前フレームの実測を使う)。_clientBottomInset は position.height と描画領域の下端の差。
+        [System.NonSerialized] private float _bottomFitAdjust;
+        // 浮いた窓では差がほぼ 0(端数で負にもなる)なので、測ったかどうかは別に持つ。
+        [System.NonSerialized] private float _clientBottomInset;
+        [System.NonSerialized] private bool _clientBottomMeasured;
+        // 中ほどの領域が下限(MiddleAreaMinHeight)に張り付いている(補正しても高さが変わらない)か。
+        [System.NonSerialized] private bool _middleAreaClamped;
+
         /// <summary>
         /// ジョブ実行中で UI 操作を止めるべきか。エクスポート中と自動調整中（証拠待ちを含む）は
         /// 操作を受け付けない。
@@ -108,13 +119,18 @@ namespace Iroca {
             // 実描画領域はそれより低い。エクスポートが画面外に押し出されないよう安全マージンを引く。
             // ジョブのオーバーレイの高さはここで引かない。引くとジョブの開始・終了のたびに
             // プレビューが縮んで下の欄が上下に跳ねるので、オーバーレイは下端に重ねて描く。
-            float availableContentH = position.height - IrocaUiConsts.Layout.WindowChromeMargin;
+            float availableContentH = position.height - IrocaUiConsts.Layout.WindowChromeMargin + _bottomFitAdjust;
             float exportH = _exportView.GetSectionHeight();
 
             if (sideBySide) {
                 DrawSideBySideLayout(availableContentH, exportH);
             } else {
                 DrawVerticalLayout(availableContentH, exportH);
+            }
+            // 書き出し欄の下の空き。高さが 0 より大きいとき、その下端が描画領域の下端になる。
+            var bottomSlack = GUILayoutUtility.GetRect(0f, 0f, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
+            if (Event.current.type == EventType.Repaint) {
+                FitExportToWindowBottom(bottomSlack);
             }
 
             EditorGUI.EndDisabledGroup();
@@ -144,6 +160,29 @@ namespace Iroca {
             } else {
                 _jobOverlayHeight = 0f;
             }
+        }
+
+        /// <summary>
+        /// 書き出し欄の下端(<paramref name="slack"/> の上端)と描画領域の下端のずれを測り、次の描画の中ほどの高さに足す。
+        /// 空きが残っていればその下端が描画領域の下端なので、position.height との差も測り直す(はみ出していて空きが 0 のときは、
+        /// 前に測った差で描画領域の下端を求める。まだ測っていなければ見積もりのまま)。
+        /// </summary>
+        private void FitExportToWindowBottom(Rect slack) {
+            if (slack.height > 0.5f) {
+                _clientBottomInset = position.height - slack.yMax;
+                _clientBottomMeasured = true;
+            }
+            if (!_clientBottomMeasured) {
+                return;
+            }
+            float error = (position.height - _clientBottomInset) - slack.y;
+            // 下限に張り付いているときは高さを足しても変わらないので、補正を積み増さない(描き直しが止まらなくなる)。
+            // ただし余った分(空き)を返すのはよい。1 未満のずれは整数への丸めなので追わない。
+            if (Mathf.Abs(error) < 1f || (_middleAreaClamped && error < 0f)) {
+                return;
+            }
+            _bottomFitAdjust += error;
+            Repaint();
         }
 
         // ジョブオーバーレイ 1 行（DrawJobProgressRow）の進捗バーとキャンセルボタンの高さ。
@@ -273,9 +312,9 @@ namespace Iroca {
             float fallbackTopH = EditorStyles.toolbar.fixedHeight
                 + 4f + (EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing) * 2 + 4f;
             float topOverheadH = _sideBySideTopHeight > 1f ? _sideBySideTopHeight : fallbackTopH;
-            float horizH = Mathf.Max(
-                IrocaUiConsts.Layout.MiddleAreaMinHeight,
-                availableContentH - topOverheadH - exportH);
+            float horizWanted = availableContentH - topOverheadH - exportH;
+            _middleAreaClamped = horizWanted < IrocaUiConsts.Layout.MiddleAreaMinHeight;
+            float horizH = Mathf.Max(IrocaUiConsts.Layout.MiddleAreaMinHeight, horizWanted);
 
             EditorGUILayout.BeginHorizontal(GUILayout.Height(horizH));
 
@@ -388,9 +427,9 @@ namespace Iroca {
         private void DrawVerticalLayout(float availableContentH, float exportH) {
             // エクスポートを常にウィンドウ下部に表示するため、上部だけをスクロール領域にする。
             float toolbarH = EditorStyles.toolbar.fixedHeight + 4f;
-            float topScrollH = Mathf.Max(
-                IrocaUiConsts.Layout.MiddleAreaMinHeight,
-                availableContentH - toolbarH - exportH);
+            float topScrollWanted = availableContentH - toolbarH - exportH;
+            _middleAreaClamped = topScrollWanted < IrocaUiConsts.Layout.MiddleAreaMinHeight;
+            float topScrollH = Mathf.Max(IrocaUiConsts.Layout.MiddleAreaMinHeight, topScrollWanted);
 
             // 横バーは無効化(GUIStyle.none)。この外側 ScrollView は縦スクロール専用で、
             // 横スクロールは内側プレビューに任せる（横並びレイアウトと同じ理由）。
