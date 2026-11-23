@@ -124,6 +124,10 @@ namespace Iroca {
         public static string TextureTooltip => IsJapanese
             ? "色を変えたいテクスチャをここにドラッグ＆ドロップするか、右の◎から選びます。\nゾーンとマスクはテクスチャごとに保存され、切り替えると読み戻されます。"
             : "Drag & drop the texture you want to recolor here, or pick it with the ◎ button.\nZones and masks are saved per texture and restored when you switch back.";
+        public static string CloseTexture => "×";
+        public static string CloseTextureTooltip => IsJapanese
+            ? "このテクスチャを閉じます。ゾーンとマスクは保存され、また開くと戻ります。\n閉じた後に Scene でモデルをクリックすると、クリックした部分のテクスチャが開きます。"
+            : "Close this texture. Zones and masks are saved and come back when you open it again.\nAfter closing, click the model in the Scene view to open the texture of the clicked part.";
         public static string ReadWriteError => IsJapanese
             ? "Read/Write Enabled がオフです。\nインポート設定で有効にしてください。"
             : "Read/Write Enabled is off.\nPlease enable it in the import settings.";
@@ -1287,8 +1291,8 @@ namespace Iroca {
               + "Unity selects the object as usual, and none of the Iroca settings change.\n"
               + "If no texture is open in Iroca, the texture of the clicked part is opened.";
         public static string SceneClickOtherTextureFormat => IsJapanese
-            ? "ここは「{0}」のテクスチャです"
-            : "This part uses \"{0}\"";
+            ? "Scene でクリックした所は「{0}」のテクスチャです"
+            : "The part clicked in the Scene uses \"{0}\"";
         public static string SceneClickOtherTextureTooltip => IsJapanese
             ? "Scene でクリックした部分は、いま開いているのとは別のテクスチャを使っています。"
             : "The part you clicked in the Scene view uses a different texture from the one open now.";

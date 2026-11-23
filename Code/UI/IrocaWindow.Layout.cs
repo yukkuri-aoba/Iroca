@@ -808,9 +808,24 @@ namespace Iroca {
             var field = EditorGUI.PrefixLabel(row, heading, EditorStyles.boldLabel);
             EditorGUIUtility.labelWidth = prevLabelWidth;
 
+            // 開いているときは右端に「閉じる」を置く。何も開いていない状態へ戻すと、Scene でモデルをクリックするだけで
+            // 次のテクスチャが開く(2026-11-23。以前は欄を選んで Delete を押すか、ピッカーで None を選ぶしかなかった)。
+            var shownTex = _pendingSourceTextureSet ? _pendingSourceTexture : SourceTexture;
+            var closeRect = default(Rect);
+            if (shownTex != null) {
+                var closeContent = TempContent.Of(Localization.CloseTexture, Localization.CloseTextureTooltip);
+                float closeW = Mathf.Ceil(EditorStyles.miniButton.CalcSize(closeContent).x);
+                closeRect = new Rect(field.xMax - closeW, field.y, closeW, field.height);
+                field.xMax -= closeW + 2f;
+            }
+
             bool changedBefore = GUI.changed;
-            var newTex = (Texture2D)EditorGUI.ObjectField(field,
-                _pendingSourceTextureSet ? _pendingSourceTexture : SourceTexture, typeof(Texture2D), false);
+            var newTex = (Texture2D)EditorGUI.ObjectField(field, shownTex, typeof(Texture2D), false);
+            if (shownTex != null
+                && GUI.Button(closeRect, TempContent.Of(Localization.CloseTexture, Localization.CloseTextureTooltip),
+                              EditorStyles.miniButton)) {
+                newTex = null;
+            }
 
             // 開始点が分かりにくいので、テクスチャ未設定時だけ一連の流れを案内する。
             if (SourceTexture == null) {

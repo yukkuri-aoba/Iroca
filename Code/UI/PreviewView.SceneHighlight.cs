@@ -233,21 +233,27 @@ namespace Iroca {
             DetailView.OnViewMoved();
         }
 
-        // 案内の「開く」。ボタン枠を付けると行が miniLabel より高くなりプレビュー枠が跳ねるので、
-        // miniLabel と同じ寸法のリンク風の文字にする。
-        [System.NonSerialized] private static GUIStyle s_sceneLinkStyle;
-        private static GUIStyle SceneLinkStyle {
+        // 案内の「開く」。以前は miniLabel と同じ寸法のリンク風の文字で、灰色のヒントに紛れて押せると気づきにくかった
+        // (2026-11-23)。ボタンの枠を付け、高さと上下の余白は miniLabel に合わせる(行が高くなるとプレビュー枠が跳ねる)。
+        [System.NonSerialized] private static GUIStyle s_sceneOpenButtonStyle;
+        private static GUIStyle SceneOpenButtonStyle {
             get {
-                if (s_sceneLinkStyle == null) {
-                    s_sceneLinkStyle = new GUIStyle(EditorStyles.miniLabel);
-                    var link = EditorStyles.linkLabel;
-                    s_sceneLinkStyle.normal.textColor = link.normal.textColor;
-                    s_sceneLinkStyle.hover.textColor = link.hover.textColor;
-                    s_sceneLinkStyle.active.textColor = link.active.textColor;
+                if (s_sceneOpenButtonStyle == null) {
+                    var label = EditorStyles.miniLabel;
+                    var style = new GUIStyle(EditorStyles.miniButton);
+                    style.fixedHeight = Mathf.Ceil(label.CalcSize(new GUIContent("Ag")).y);
+                    style.margin = new RectOffset(4, 4, label.margin.top, label.margin.bottom);
+                    style.padding = new RectOffset(8, 8, 0, 0);
+                    style.fontStyle = FontStyle.Bold;
+                    s_sceneOpenButtonStyle = style;
                 }
-                return s_sceneLinkStyle;
+                return s_sceneOpenButtonStyle;
             }
         }
+
+        // 案内を出すかは Layout のときに決める(Scene のクリックで Layout と Repaint の間に変わると、同じフレームで
+        // コントロールの数が食い違い IMGUI がエラーを出す)。
+        [System.NonSerialized] private Texture2D _idleRowOther;
 
         /// <summary>
         /// 操作モード行が空いているときの中身: 別のテクスチャの部分をクリックした案内(と「開く」)か、
@@ -256,15 +262,25 @@ namespace Iroca {
         /// 行はモードが無いときも高さを取っているので、案内を出しても下のプレビューは動かない。
         /// </summary>
         private void DrawIdleRow() {
-            var other = _host.SceneOtherTexture;
+            if (Event.current.type == EventType.Layout) {
+                _idleRowOther = _host.SceneOtherTexture;
+            }
+            var other = _idleRowOther;
             if (other != null) {
+                // 灰色のヒントと見分けられるよう、案内と「開く」の後ろに薄い色を敷く(Repaint のときだけ。枠の位置はそこで決まる)。
+                var notice = EditorGUILayout.BeginHorizontal(GUILayout.ExpandWidth(false));
+                if (Event.current.type == EventType.Repaint) {
+                    EditorGUI.DrawRect(notice, IrocaColors.SceneOtherNotice);
+                }
                 GUILayout.Label(
                     TempContent.Of(string.Format(Localization.SceneClickOtherTextureFormat, other.name),
                                    Localization.SceneClickOtherTextureTooltip),
                     // 文の長さだけ取り、「開く」をすぐ後ろに置く(広げると「開く」が行の右端へ離れる)
                     EditorStyles.miniLabel, GUILayout.MinWidth(0f), GUILayout.ExpandWidth(false));
-                if (GUILayout.Button(TempContent.Of(Localization.SceneClickOpen, Localization.SceneClickOpenTooltip),
-                                     SceneLinkStyle, GUILayout.ExpandWidth(false))) {
+                bool open = GUILayout.Button(TempContent.Of(Localization.SceneClickOpen, Localization.SceneClickOpenTooltip),
+                                             SceneOpenButtonStyle, GUILayout.ExpandWidth(false));
+                EditorGUILayout.EndHorizontal();
+                if (open) {
                     // テクスチャの切り替えでプレビューの中身が変わるので、この描画の途中ではなく次の更新で行う
                     // (同じフレームの Layout と Repaint で並びが食い違うと IMGUI がエラーを出す)。
                     // delayCall で Unity は例外を受け止めない(投げると、同じ回に積まれた他のツールの処理が飛ぶ)ので、ここで受け止める。
@@ -277,7 +293,6 @@ namespace Iroca {
                         } catch (System.Exception e) { Debug.LogException(e); }
                     };
                 }
-                EditorGUIUtility.AddCursorRect(GUILayoutUtility.GetLastRect(), MouseCursor.Link);
                 return;
             }
             // 範囲を直す操作(右クリック)はメニューの奥にあり、マスク編集ウィンドウを開かないと案内が無かった。

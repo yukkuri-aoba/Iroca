@@ -42,5 +42,12 @@ namespace Iroca {
 
         // Scene でモデルをクリックした場所。マスクの赤・緑、ゾーン色の塗り、島の輪郭の黄と別の色にする。
         public static Color SceneHighlight => new Color(0.25f, 0.9f, 1f, 0.95f);
+
+        // Scene でクリックした部分が別のテクスチャだったときの案内の下地。灰色の文字のヒントと見分けられるよう、
+        // Scene の場所の表示と同じ水色を薄く敷く。
+        public static Color SceneOtherNotice =>
+            EditorGUIUtility.isProSkin
+                ? new Color(0.25f, 0.9f, 1f, 0.16f)
+                : new Color(0.10f, 0.55f, 0.85f, 0.18f);
     }
 }
