@@ -73,19 +73,68 @@ namespace Iroca {
             /// <summary>1 件(範囲の参照ごと渡す。受け取った側が Release)。u, v は下原点(mirror なら鏡写しの世界の UV)。</summary>
             public MaskSuggestProposal Propose(float u, float v, MaskSuggestGranularity g, MaskSuggestUse use,
                                                CancellationToken ct, out SamProposalDiag diag) {
+                // 同じ問いの答えをプロセスの中で使い回す(SamProposalMemo)。鍵は呼ばれたままの u, v(mirror の変換の前)。
+                bool memo = SamProposalMemo.Enabled;
+                string scope = null;
+                if (memo) {
+                    scope = MemoScope();
+                    var hit = SamProposalMemo.TryGet(scope, u, v, g, use, out diag);
+                    if (hit != null) {
+                        // 埋め込みも推論も使わなかった(来歴は診断だけ。出力には関わらない)
+                        FullEmbeddingOrigin ??= "memo";
+                        return hit;
+                    }
+                }
+                float qu = u, qv = v;
                 if (_mirror) {
-                    u = Round9(u);
-                    v = Round9(1.0 - v);
+                    qu = Round9(u);
+                    qv = Round9(1.0 - v);
                 }
                 var ai = new OrtSamInference(_models, _sam, _cache, _givenFull);
-                var p = SamProposalFlow.RunSynchronously(ai, _sam, "harness", u, v, g, use, ct, out diag);
+                var p = SamProposalFlow.RunSynchronously(ai, _sam, "harness", qu, qv, g, use, ct, out diag);
                 FullEmbeddingOrigin ??= ai.FullEmbeddingOrigin;
                 if (_mirror) {
                     var flipped = FlipMask(p.mask);
                     p.mask.Release();
                     p.mask = flipped;
                 }
+                // 取り消された(途中で止まったかもしれない)結果と、切り出しの失敗で第 1 段へ戻した結果(失敗が一時のものかも
+                // しれない)は覚えない。例外で終わった問いはここまで来ない。
+                if (memo && !ct.IsCancellationRequested && diag.cropError == null && p.mask != null) {
+                    SamProposalMemo.Put(scope, u, v, g, use, p, diag);
+                }
                 return p;
+            }
+
+            private string _memoScope;
+
+            // 画像 1 枚ぶんの鍵(SamProposalMemo の説明)。画素のハッシュは 4K で数十ミリ秒なので、このソースで 1 回だけ作る。
+            private unsafe string MemoScope() {
+                if (_memoScope != null) {
+                    return _memoScope;
+                }
+                var inv = CultureInfo.InvariantCulture;
+                var sb = new System.Text.StringBuilder("sammemo-v1");
+                sb.Append("|px=").Append(_sam.Width.ToString(inv)).Append('x').Append(_sam.Height.ToString(inv)).Append(':')
+                  .Append(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                      new ReadOnlySpan<byte>((byte*)_sam.Ptr, checked(_sam.Width * _sam.Height * 4)))));
+                sb.Append("|enc=").Append(_models.EncoderDigest).Append("|dec=").Append(_models.DecoderDigest);
+                sb.Append("|models=").Append(Path.GetFullPath(_models.Directory));
+                sb.Append("|threads=").Append(_models.IntraOpThreads.ToString(inv));
+                sb.Append("|ort=").Append(OrtSamInference.OrtVersion);
+                sb.Append("|mirror=").Append(_mirror ? '1' : '0');
+                sb.Append("|cache=").Append(_cache ?? "");
+                sb.Append("|par=").Append(DebugCaptureHooks.ParallelismOverride.ToString(inv));
+                if (_givenFull != null) {
+                    fixed (float* p = _givenFull) {
+                        sb.Append("|given=").Append(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                            new ReadOnlySpan<byte>((byte*)p, _givenFull.Length * sizeof(float)))));
+                    }
+                } else {
+                    sb.Append("|given=-");
+                }
+                _memoScope = sb.ToString();
+                return _memoScope;
             }
 
             public AutoTuneProposal Propose(AutoTuneAsk ask, CancellationToken ct) {
@@ -120,6 +169,128 @@ namespace Iroca {
                     Buffer.MemoryCopy(src.Ptr + (long)y * w, dst.Ptr + (long)(h - 1 - y) * w, w, w);
                 }
                 return dst;
+            }
+        }
+
+        /// <summary>
+        /// AI 提案(<see cref="SamProposalSource.Propose(float, float, MaskSuggestGranularity, MaskSuggestUse, CancellationToken, out SamProposalDiag)"/>
+        /// の結果)をプロセスの中で覚えて使い回す(2026-11-24)。色の物差し・回帰・視覚レビューは、同じ画像・同じクリックで塗り先だけを
+        /// 変えて続けて回す。塗り先は AI への問いに入らないので、提案(デコーダーと製品の後処理 SamProposalFlow)は同じになる。
+        /// 常駐(--serve)の依頼をまたいで効く。単発の起動でも、1 回の中で同じ問いが重なれば効く。出力は変えない。
+        ///
+        /// 鍵: 画像 1 枚ぶんの鍵(scope。SamProposalSource.MemoScope) = 推論に渡す画素(mirror なら反転後)の SHA-256 と寸法・
+        /// エンコーダとデコーダの ONNX のダイジェストと置き場・onnxruntime のスレッド数と版・mirror・埋め込みの控えの置き場・
+        /// 並列度の上書き・与えた全体の埋め込み(--sam-embedding)の SHA-256。結果を左右しうるものは迷えば入れる(外れが増えるだけ)。
+        /// 1 件の鍵 = u, v(呼ばれたままの float のビット)・粒度・用途。
+        ///
+        /// 参照の約束: 返す提案の範囲(NativeBools)は受け取った側が Release する。覚える側は範囲をビットに詰めた管理配列の写しを
+        /// 持ち(4K で 2MB。ネイティブの確保を常駐の依頼をまたいで持ち越さない)、返すたびに新しい NativeBools を作って渡す
+        /// (受け取った側が範囲を書き換えても、覚えた写しは変わらない)。0/1 以外のバイトがあれば詰めずにそのまま写す。
+        /// 取り消した問い・例外で終わった問い・切り出しの失敗で戻した問いは覚えない。
+        ///
+        /// 捨てる規則: 覚えるのは直近の画像 1 枚ぶんだけ(scope が変わったら全部捨てる)、件数は <see cref="Capacity"/> まで
+        /// (超えたら古い順に捨てる)。
+        /// IROCA_SAM_MEMO=0 で止める(確かめ用。dev_safe の harness_server.py は環境変数が違えば常駐を分ける)。
+        /// </summary>
+        private static class SamProposalMemo {
+            public const int Capacity = 64;
+
+            private sealed class Entry {
+                public int Width, Height;     // 範囲の寸法
+                public int PropW, PropH;      // 提案の width・height(範囲の寸法と同じはずだが、そのまま返す)
+                public ulong[] Bits;      // 詰めた範囲(Raw が null のとき)
+                public byte[] Raw;        // 0/1 以外のバイトがあったときのそのままの写し
+                public float Score, AreaFrac;
+                public bool FloodWarning;
+                public SamProposalDiag Diag;
+            }
+
+            private static readonly object s_lock = new object();
+            private static string s_scope;
+            private static readonly Dictionary<string, Entry> s_entries = new Dictionary<string, Entry>();
+            private static readonly Queue<string> s_order = new Queue<string>();
+
+            public static bool Enabled => Environment.GetEnvironmentVariable("IROCA_SAM_MEMO") != "0";
+
+            private static string Key(float u, float v, MaskSuggestGranularity g, MaskSuggestUse use) {
+                var inv = CultureInfo.InvariantCulture;
+                return BitConverter.SingleToInt32Bits(u).ToString("X8", inv) + "|" + BitConverter.SingleToInt32Bits(v).ToString("X8", inv)
+                    + "|" + ((int)g).ToString(inv) + "|" + ((int)use).ToString(inv);
+            }
+
+            /// <summary>覚えていれば新しい参照の提案を返す(受け取った側が Release)。無ければ null。</summary>
+            public static unsafe MaskSuggestProposal TryGet(string scope, float u, float v, MaskSuggestGranularity g,
+                                                            MaskSuggestUse use, out SamProposalDiag diag) {
+                diag = default;
+                Entry e;
+                lock (s_lock) {
+                    if (s_scope != scope || !s_entries.TryGetValue(Key(u, v, g, use), out e)) {
+                        return null;
+                    }
+                }
+                // Entry は書き換えないので、鍵を放してから写す
+                int len = e.Width * e.Height;
+                var mask = NativeBools.AllocateUninitialized(e.Width, e.Height);
+                byte* d = (byte*)mask.Ptr;
+                if (e.Raw != null) {
+                    fixed (byte* s = e.Raw) {
+                        Buffer.MemoryCopy(s, d, len, len);
+                    }
+                } else {
+                    var bits = e.Bits;
+                    for (int i = 0; i < len; i++) {
+                        d[i] = (byte)((bits[i >> 6] >> (i & 63)) & 1UL);
+                    }
+                }
+                diag = e.Diag;
+                return new MaskSuggestProposal {
+                    mask = mask, width = e.PropW, height = e.PropH,
+                    score = e.Score, areaFrac = e.AreaFrac, floodWarning = e.FloodWarning,
+                };
+            }
+
+            /// <summary>提案 p の写しを覚える(p の範囲は読むだけ。参照は呼んだ側のまま)。</summary>
+            public static unsafe void Put(string scope, float u, float v, MaskSuggestGranularity g, MaskSuggestUse use,
+                                          MaskSuggestProposal p, SamProposalDiag diag) {
+                int w = p.mask.Width, h = p.mask.Height;
+                int len = w * h;
+                byte* s = (byte*)p.mask.Ptr;
+                var bits = new ulong[(len + 63) >> 6];
+                byte[] raw = null;
+                for (int i = 0; i < len; i++) {
+                    byte b = s[i];
+                    if (b > 1) {
+                        raw = new byte[len];
+                        fixed (byte* r = raw) {
+                            Buffer.MemoryCopy(s, r, len, len);
+                        }
+                        break;
+                    }
+                    if (b != 0) {
+                        bits[i >> 6] |= 1UL << (i & 63);
+                    }
+                }
+                var e = new Entry {
+                    Width = w, Height = h, PropW = p.width, PropH = p.height, Bits = raw == null ? bits : null, Raw = raw,
+                    Score = p.score, AreaFrac = p.areaFrac, FloodWarning = p.floodWarning, Diag = diag,
+                };
+                string key = Key(u, v, g, use);
+                lock (s_lock) {
+                    if (s_scope != scope) {
+                        // 別の画像へ移った: 前の画像の分は全部捨てる
+                        s_entries.Clear();
+                        s_order.Clear();
+                        s_scope = scope;
+                    }
+                    if (s_entries.ContainsKey(key)) {
+                        return;
+                    }
+                    s_entries[key] = e;
+                    s_order.Enqueue(key);
+                    while (s_order.Count > Capacity) {
+                        s_entries.Remove(s_order.Dequeue());
+                    }
+                }
             }
         }
 
