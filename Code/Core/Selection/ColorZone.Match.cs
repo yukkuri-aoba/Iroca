@@ -336,6 +336,12 @@ namespace Iroca {
             }
 
             /// <summary>
+            /// 結果が画素の色(と、その色から求めた HSV)だけで決まるか。ColorPick は色とサンプル・設定しか読まない
+            /// (x, y を読むのは Rect だけ。無効なら常に 0)。自動調整が照合を色ごとに 1 回で済ませてよいかの判定に使う。
+            /// </summary>
+            internal bool ColorOnly => !enabled || mode == SelectionMode.ColorPick;
+
+            /// <summary>
             /// 画素(HSV は計算済みのものを受ける)とゾーンの一致の強さ・ハイライトの候補の強さ・色の一致の確信度を求める。
             /// 位置(x, y)を見るのは Rect モードだけ。
             /// </summary>

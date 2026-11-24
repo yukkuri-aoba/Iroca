@@ -252,7 +252,53 @@ namespace Iroca {
                 }
             }
 
-            public void Dispose() => scratch.Dispose();
+            // ── 色ごとの照合の控え ──
+            // 照合(ColorZone.Matcher。ColorPick)の結果は、画素の色(照合へ渡す 0〜1 の色)と、その色から格子が求めた HSV
+            // だけで決まる(どちらも RGB だけの関数で、x, y・マスクは読まない)。同じ RGBA の画素は色の表で同じ番号になるので、
+            // 番号ごとに 1 回だけ照合して覚えた結果を配れば、画素ごとに照合したときとビット単位で同じ判定になる。
+            // 照合へ渡す HSV は今までどおり格子の値(番号の最初の画素で求めたもの)で、表の HSV は使わない。
+            // 格子の点は 4K で 255〜420 万、色の種類は 1.3 万〜9.6 万なので、照合の回数は数十分の 1 になる。
+            // 表が無いとき(色の種類が多すぎる・DisablePalette)は colorId が null で、画素ごとに照合する。
+            /// <summary>画素(y * w + x)→ 色の番号(色の表の Index)。表が無ければ null。</summary>
+            public int* colorId;
+            /// <summary>色の種類の数(控えの長さ)。</summary>
+            public int colorCount;
+            private PixelProcessor.ColorIndexLease _colors;
+            private readonly Stack<IntPtr> _freeMemos = new Stack<IntPtr>();
+
+            internal void AttachColors(PixelProcessor.ColorIndexLease colors) {
+                _colors = colors;
+                if (colors != null) {
+                    colorId = colors.Index;
+                    colorCount = colors.Count;
+                }
+            }
+
+            /// <summary>
+            /// 色ごとの控え(長さ colorCount、0 で埋めてある)を借りる。表が無い・照合が色だけで決まらないときは null(控えない)。
+            /// 使い終わったら <see cref="ReturnColorMemo"/> で返す。並列ループの外で借りること(作業配列と同じ)。
+            /// 控えは 1 色 1 バイト。並列のループから同じ番号へ書くことがあるが、書くのはどれも同じ値なので、どちらが残っても同じ。
+            /// </summary>
+            internal byte* RentColorMemo(bool colorOnly) {
+                if (colorId == null || !colorOnly) {
+                    return null;
+                }
+                byte* p = _freeMemos.Count > 0 ? (byte*)_freeMemos.Pop() : scratch.Byte(colorCount, clear: false);
+                new Span<byte>(p, colorCount).Clear();
+                return p;
+            }
+
+            internal void ReturnColorMemo(byte* memo) {
+                if (memo != null) {
+                    _freeMemos.Push((IntPtr)memo);
+                }
+            }
+
+            public void Dispose() {
+                scratch.Dispose();
+                Interlocked.Exchange(ref _colors, null)?.Dispose();
+                colorId = null;
+            }
         }
 
         private static HsvGrid BuildHsvGrid(Color32* pixels, int w, int h, CancellationToken ct) {
@@ -273,6 +319,8 @@ namespace Iroca {
                             out grid.h[grow + gx], out grid.s[grow + gx], out grid.v[grow + gx]);
                     }
                 });
+                // 色ごとの照合の控えに使う色の番号(HsvGrid の説明)。表が作られなければ画素ごとに照合する。
+                grid.AttachColors(PixelProcessor.ColorIndexLease.Acquire(pixels, w, h, po));
             } catch {
                 grid.Dispose();   // 取り消し。呼び出し側はまだ受け取っていない
                 throw;

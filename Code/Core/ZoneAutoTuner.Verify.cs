@@ -78,6 +78,7 @@ namespace Iroca {
             public Color32 c;
             public Color col;     // c を 0〜1 にした色(α は 1)。照合へ渡す
             public float h, s, v;
+            public int id;        // 色の番号(HsvGrid.colorId。表が無ければ -1)。色ごとの控えの添字
         }
 
         /// <summary>数えた数(何を数えるかは呼ぶ側が決める。使わない欄は 0 のまま)。</summary>
@@ -99,6 +100,7 @@ namespace Iroca {
             int stride = hsv.stride, gw = hsv.gw;
             var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, gw, hsv.gh);
             var rows = new Tally[hsv.gh];
+            int* colorId = hsv.colorId;
             Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy => {
                 SimCell p = default;
                 p.gy = gy;
@@ -126,6 +128,7 @@ namespace Iroca {
                     p.h = hsv.h[cell];
                     p.s = hsv.s[cell];
                     p.v = hsv.v[cell];
+                    p.id = colorId != null ? colorId[rowStart + x] : -1;
                     visit(in p, ref n);
                 }
                 rows[gy] = n;
@@ -146,6 +149,43 @@ namespace Iroca {
         private static bool Selects(ColorZone.Matcher matcher, in SimCell p, int w, int h) {
             matcher.GetMatchScoresPrecomputedHSV(p.h, p.s, p.v, p.col, p.x, p.y, w, h, out float strength, out _, out _);
             return strength > 0f;
+        }
+
+        /// <summary>色ごとの控え(HsvGrid.RentColorMemo。1 色 1 バイト)の値。0 埋めで借りるので、まだ照合していない色は Unknown。</summary>
+        private enum SelMemo : byte { Unknown = 0, Selected, NotSelected }
+
+        /// <summary>ハイライト成長テストの色ごとの控えの値(<see cref="VerifyHighlightRecoveryGrowth"/>)。</summary>
+        private enum HlMemo : byte { Unknown = 0, Selected, Candidate, None }
+
+        /// <summary>
+        /// <see cref="Selects(ColorZone.Matcher, in SimCell, int, int)"/> を色ごとに 1 回だけ求める版。memo が null なら毎回照合する。
+        /// 不変の根拠: 照合の結果は色(と色から求めた HSV)だけで決まり、同じ番号の画素は同じ色(HsvGrid の説明)。
+        /// </summary>
+        private static bool SelectsMemo(ColorZone.Matcher matcher, byte* memo, in SimCell p, int w, int h) {
+            if (memo == null) {
+                return Selects(matcher, p, w, h);
+            }
+            var st = (SelMemo)memo[p.id];
+            if (st == SelMemo.Unknown) {
+                st = Selects(matcher, p, w, h) ? SelMemo.Selected : SelMemo.NotSelected;
+                memo[p.id] = (byte)st;
+            }
+            return st == SelMemo.Selected;
+        }
+
+        /// <summary>証拠の画素 1 つを、色ごとの控えを使って照合に通す(上の SelectsMemo の証拠の点の版)。</summary>
+        private static bool SelectsMemo(ColorZone.Matcher matcher, byte* memo, HsvGrid hsv, Color32* pixels, int w, int h,
+            GridPt p) {
+            if (memo == null) {
+                return Selects(matcher, hsv, pixels, w, h, p, out _);
+            }
+            int id = hsv.colorId[p.y * w + p.x];
+            var st = (SelMemo)memo[id];
+            if (st == SelMemo.Unknown) {
+                st = Selects(matcher, hsv, pixels, w, h, p, out _) ? SelMemo.Selected : SelMemo.NotSelected;
+                memo[id] = (byte)st;
+            }
+            return st == SelMemo.Selected;
         }
 
         /// <summary>証拠の画素 1 つを照合に通して、選択されるか。<paramref name="col"/> は照合へ渡した色(0〜1・α は 1)。</summary>
@@ -180,11 +220,33 @@ namespace Iroca {
             float bandSatFloor = bSS * PixelProcessor.HlBandMinSatFrac;
 
             var evl = GridMaskLookup.Build(evidence, evW, evH, w, h, hsv.stride, hsv.gw, hsv.gh);   // 証拠が無ければ null
+            // 色ごとの控え(HlMemo): 選ばれる / 選ばれないがハイライト系の経路で加わり得る / どちらでもない。
+            // 照合と帯拡張の候補判定(IsHighlightBandCandidate。色・HSV・サンプルだけを読む)は、どちらも色だけで決まる。
+            // 証拠の内側か(位置で決まる)は控えに入れず、セルごとに引く。前は証拠の内側の選ばれないセルでは候補を判定せずに
+            // 抜けていたが、判定は値を返すだけなので、先に判定しておいても数は同じ。
+            byte* memo = hsv.RentColorMemo(matcher.ColorOnly);
             // a = 基礎選択、b = ハイライト系の経路だけで加わり得る数
             Tally n = CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, null, null, (in SimCell p, ref Tally row) => {
-                matcher.GetMatchScoresPrecomputedHSV(p.h, p.s, p.v, p.col, p.x, p.y, w, h,
-                    out float strength, out float hlPot, out _);
-                if (strength > 0f) {
+                var st = memo != null ? (HlMemo)memo[p.id] : HlMemo.Unknown;
+                if (st == HlMemo.Unknown) {
+                    matcher.GetMatchScoresPrecomputedHSV(p.h, p.s, p.v, p.col, p.x, p.y, w, h,
+                        out float strength, out float hlPot, out _);
+                    if (strength > 0f) {
+                        st = HlMemo.Selected;
+                    } else if (hlPot > 0f) {
+                        st = HlMemo.Candidate;
+                    } else if (bandActive && PixelProcessor.IsHighlightBandCandidate(p.h, p.s, p.v, p.c,
+                            bSH, bSS, bSV, sR, sG, sB, dR, dG, dB, dsq, hueCap, bandSatFloor)) {
+                        // 帯拡張の候補条件(GrowHighlightBand と同じ判定)
+                        st = HlMemo.Candidate;
+                    } else {
+                        st = HlMemo.None;
+                    }
+                    if (memo != null) {
+                        memo[p.id] = (byte)st;
+                    }
+                }
+                if (st == HlMemo.Selected) {
                     row.a++;
                     selGrid[p.cell] = true;
                     return;
@@ -194,16 +256,11 @@ namespace Iroca {
                 if (evl != null && evidence[evl.Row[p.gy] + evl.Col[p.gx]]) {
                     return;
                 }
-                if (hlPot > 0f) {
-                    row.b++;
-                    return;
-                }
-                // 帯拡張の候補条件(GrowHighlightBand と同じ判定)
-                if (bandActive && PixelProcessor.IsHighlightBandCandidate(p.h, p.s, p.v, p.c,
-                        bSH, bSS, bSV, sR, sG, sB, dR, dG, dB, dsq, hueCap, bandSatFloor)) {
+                if (st == HlMemo.Candidate) {
                     row.b++;
                 }
             });
+            hsv.ReturnColorMemo(memo);
             int baseSel = n.a, hlOnly = n.b;
             baseOut.tolerance = sim.tolerance;
             baseOut.sel = selGrid;
@@ -249,17 +306,20 @@ namespace Iroca {
                 bool* record = known == null && baseSel.sel == null && tol == derived
                     ? hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true) : null;
                 var caches = SampleWindows(sim);
+                // 色ごとの控え(免除あり・なしの照合ごとに 1 つ。免除ありは、基礎選択が分かっていれば照合しない)。
+                byte* memoWith = known == null ? hsv.RentColorMemo(withForgive.ColorOnly) : null;
+                byte* memoWithout = hsv.RentColorMemo(withoutForgive.ColorOnly);
                 // a = 免除ありで選択、b = 免除なしでも選択、c = そのうち証拠(near 窓の中)。
                 // 基礎選択が分かっていれば、その印の付いたセルだけを見る(印の無いセルは未選択: 不透明でない・除外も含む)。
                 Tally n = CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, known, null, (in SimCell p, ref Tally row) => {
-                    if (known == null && !Selects(withForgive, p, w, h)) {
+                    if (known == null && !SelectsMemo(withForgive, memoWith, p, w, h)) {
                         return;
                     }
                     row.a++;
                     if (record != null) {
                         record[p.cell] = true;
                     }
-                    if (Selects(withoutForgive, p, w, h)) {
+                    if (SelectsMemo(withoutForgive, memoWithout, p, w, h)) {
                         row.b++;
                     }
                     // 証拠 = いずれかのサンプルの near 窓に入る有彩画素(クラスタと同一条件)。
@@ -271,6 +331,8 @@ namespace Iroca {
                         row.c++;
                     }
                 });
+                hsv.ReturnColorMemo(memoWith);
+                hsv.ReturnColorMemo(memoWithout);
                 if (record != null) {
                     baseSel.tolerance = tol;
                     baseSel.sel = record;
@@ -360,12 +422,14 @@ namespace Iroca {
             bool* baseSel = reuse ? known.sel : hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true);
             int baseCount = reuse ? known.count : 0;
             if (!reuse) {
+                byte* memo = hsv.RentColorMemo(matcher.ColorOnly);
                 baseCount = CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, null, null, (in SimCell p, ref Tally row) => {
-                    if (Selects(matcher, p, w, h)) {
+                    if (SelectsMemo(matcher, memo, p, w, h)) {
                         baseSel[p.cell] = true;
                         row.a++;
                     }
                 }).a;
+                hsv.ReturnColorMemo(memo);
             }
             if (baseCount < VerifyMinBaseSelected) {
                 return;
@@ -411,9 +475,10 @@ namespace Iroca {
                     sim.tolerance = stepTol[j];
                     matchers[j] = new ColorZone.Matcher(sim);
                 }
+                byte* memo = RentStepMemo(hsv, matchers);
                 // 基礎選択の外だけを見る。a〜c = 最初に選ばれる段が 0〜2 の数、d〜f = そのうちツヤのシグネチャに合う数
                 Tally n = CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, null, baseSel, (in SimCell p, ref Tally row) => {
-                    int k = FirstSelectingStep(matchers, p.h, p.s, p.v, p.col, p.x, p.y, w, h);
+                    int k = FirstSelectingStepMemo(matchers, memo, p.id, p.h, p.s, p.v, p.col, p.x, p.y, w, h);
                     if (k < 0) {
                         return;
                     }
@@ -440,6 +505,7 @@ namespace Iroca {
                         }
                     }
                 });
+                hsv.ReturnColorMemo(memo);
                 addedAt = new[] { n.a, n.a + n.b, n.a + n.b + n.c };
                 sigAt = new[] { n.d, n.d + n.e, n.d + n.e + n.f };
             }

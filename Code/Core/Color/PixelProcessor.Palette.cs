@@ -192,6 +192,37 @@ namespace Iroca {
             return built;
         }
 
+        /// <summary>
+        /// 色の表の「画素 → 色の番号」だけを外へ見せる借り物(自動調整が、色だけで決まる照合を色ごとに 1 回で済ませるのに使う。
+        /// ZoneAutoTuner.HsvGrid)。表の参照を 1 つ持ち、Dispose で返す。番号は同じ RGBA の画素どうしで同じで、違う RGBA なら違う。
+        /// 番号の振り方は実行ごとに変わりうるので、番号は色の見分けにだけ使う(上の ColorPalette の注意)。
+        /// </summary>
+        internal sealed class ColorIndexLease : IDisposable {
+            private ColorPalette _palette;
+            /// <summary>色の種類の数(番号は 0 〜 Count − 1)。</summary>
+            internal readonly int Count;
+            /// <summary>画素(y * w + x)→ 色の番号。Dispose するまで読める。</summary>
+            internal readonly int* Index;
+
+            private ColorIndexLease(ColorPalette palette) {
+                _palette = palette;
+                Count = palette.Count;
+                Index = palette.Index;
+            }
+
+            /// <summary>
+            /// 原本の色の表(キャッシュにあればそれ、無ければ作ってキャッシュへ入れる)の「画素 → 色の番号」を借りる。表を作らない
+            /// とき(色の種類が多すぎる・<see cref="DebugCaptureHooks.DisablePalette"/>)は null。作った表は直後の選択(SimulateSelection・
+            /// プレビュー)が同じキャッシュから引くので、作る手間は前へ移るだけ。
+            /// </summary>
+            internal static ColorIndexLease Acquire(Color32* pixels, int w, int h, ParallelOptions po) {
+                var p = GetOrBuildPalette(pixels, w, h, po);
+                return p == null ? null : new ColorIndexLease(p);
+            }
+
+            public void Dispose() => Interlocked.Exchange(ref _palette, null)?.Release();
+        }
+
         /// <summary>色の表のキャッシュを空にする(使っている処理が無い表はすぐ解放される)。CoreMemory.ReleaseIdle が呼ぶ。</summary>
         internal static void ClearPaletteCache() {
             var drop = new ColorPalette[PaletteCacheSize];

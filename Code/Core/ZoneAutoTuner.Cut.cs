@@ -107,6 +107,9 @@ namespace Iroca {
             var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, gw, hsv.gh);
             byte* firstAt = hsv.scratch.Byte(gw * hsv.gh, false);
             new Span<byte>(firstAt, gw * hsv.gh).Fill(EvCutNoStep);
+            // 「最初に選ばれる目盛り」は色だけで決まる(FirstSelectingStepMemo)ので、格子と芯で同じ控えを使う。
+            int* colorId = hsv.colorId;
+            byte* memo = RentStepMemo(hsv, matchers);
             int[] first = ParallelGridCounts(hsv, m, (gy, local) => {
                 int y = gy * stride;
                 int rowStart = y * w;
@@ -121,7 +124,8 @@ namespace Iroca {
                     }
                     int cell = grow + gx;
                     var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
-                    int k = FirstSelectingStep(matchers, hsv.h[cell], hsv.s[cell], hsv.v[cell], col, x, y, w, h);
+                    int id = colorId != null ? colorId[rowStart + x] : -1;
+                    int k = FirstSelectingStepMemo(matchers, memo, id, hsv.h[cell], hsv.s[cell], hsv.v[cell], col, x, y, w, h);
                     if (k >= 0) {
                         local[k]++;
                         firstAt[cell] = (byte)k;
@@ -139,13 +143,15 @@ namespace Iroca {
                     var p = core[i];
                     Color32 c = pixels[p.y * w + p.x];
                     var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
-                    int k = FirstSelectingStep(matchers, hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col, p.x, p.y, w, h);
+                    int id = colorId != null ? colorId[p.y * w + p.x] : -1;
+                    int k = FirstSelectingStepMemo(matchers, memo, id, hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col, p.x, p.y, w, h);
                     if (k >= 0) {
                         local[k]++;
                     }
                 }
                 parts[ci] = local;
             });
+            hsv.ReturnColorMemo(memo);
             // 累積: n[i] = 目盛り i で選ばれる点の数(1 以上に切り上げ。比を取るため)、e[i] = 証拠の芯の被覆。
             var n = new double[m];
             var e = new double[m];
@@ -323,6 +329,37 @@ namespace Iroca {
                 }
             }
             return lo;
+        }
+
+        /// <summary>
+        /// <see cref="FirstSelectingStep"/> を色ごとに 1 回だけ求める版。控え(<paramref name="memo"/>。<see cref="RentStepMemo"/>)には
+        /// 段の添字 + 2 を置く(0 = まだ、1 = どの段でも選ばれない)。memo が null なら毎回求める。
+        /// 不変の根拠: どの段の照合の結果も色(と色から求めた HSV)だけで決まり、同じ番号の画素は同じ色(HsvGrid の説明)なので、
+        /// 最初に選ばれる段も番号ごとに同じ。
+        /// </summary>
+        private static int FirstSelectingStepMemo(ColorZone.Matcher[] matchers, byte* memo, int id,
+            float ph, float ps, float pv, Color col, int x, int y, int w, int h) {
+            if (memo == null) {
+                return FirstSelectingStep(matchers, ph, ps, pv, col, x, y, w, h);
+            }
+            int st = memo[id];
+            if (st == 0) {
+                st = FirstSelectingStep(matchers, ph, ps, pv, col, x, y, w, h) + 2;
+                memo[id] = (byte)st;
+            }
+            return st - 2;
+        }
+
+        /// <summary>
+        /// <see cref="FirstSelectingStepMemo"/> の控えを借りる。段の照合がどれも色だけで決まり、段の添字 + 2 が 1 バイトに収まるときだけ
+        /// (収まらなければ null = 控えない)。使い終わったら hsv.ReturnColorMemo で返す。
+        /// </summary>
+        private static byte* RentStepMemo(HsvGrid hsv, ColorZone.Matcher[] matchers) {
+            bool colorOnly = matchers.Length + 1 <= byte.MaxValue;
+            for (int i = 0; i < matchers.Length && colorOnly; i++) {
+                colorOnly = matchers[i].ColorOnly;
+            }
+            return hsv.RentColorMemo(colorOnly);
         }
     }
 }

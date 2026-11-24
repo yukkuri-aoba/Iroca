@@ -876,11 +876,12 @@ namespace Iroca {
             const int Chunk = 4096;
             int n = domain.Count;
             var counts = new int[(n + Chunk - 1) / Chunk];
+            byte* memo = hsv.RentColorMemo(matcher.ColorOnly);   // 色ごとに 1 回だけ照合する(SelectsMemo)
             Parallel.For(0, counts.Length, MatcherLoopOptions(hsv), ci => {
                 int end = Mathf.Min(n, (ci + 1) * Chunk);
                 int k = 0;
                 for (int i = ci * Chunk; i < end; i++) {
-                    bool s = Selects(matcher, hsv, pixels, w, h, domain[i], out _);
+                    bool s = SelectsMemo(matcher, memo, hsv, pixels, w, h, domain[i]);
                     if (selOut != null) {
                         selOut[i] = s;
                     }
@@ -890,6 +891,7 @@ namespace Iroca {
                 }
                 counts[ci] = k;
             });
+            hsv.ReturnColorMemo(memo);
             int sel = SumCounts(counts);
             return sel / (float)domain.Count;
         }
@@ -972,11 +974,14 @@ namespace Iroca {
             var sim = BuildSimZone(aZone, result);
             sim.highlightRecovery = false;
             var matcher = new ColorZone.Matcher(sim);
-            return CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, null, null, (in SimCell p, ref Tally row) => {
-                if (Selects(matcher, p, w, h)) {
+            byte* memo = hsv.RentColorMemo(matcher.ColorOnly);   // 色ごとに 1 回だけ照合する(SelectsMemo)
+            int n = CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, null, null, (in SimCell p, ref Tally row) => {
+                if (SelectsMemo(matcher, memo, p, w, h)) {
                     row.a++;
                 }
             }).a;
+            hsv.ReturnColorMemo(memo);
+            return n;
         }
 
         // ─────────────────── bool マスクの収縮(4 近傍) ───────────────────
