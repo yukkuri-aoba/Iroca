@@ -163,6 +163,12 @@ namespace Iroca {
             }
 
             double hold = EvCutEvidenceHold * e[m - 1];
+            CutSeamTable seams = null;   // 継ぎ目の表。最初に数えるときに 1 回だけ作る(作らずに抜けるなら作らない)
+            // 数え直す目盛りの下端: 証拠を覆える最初の目盛り(下の繰り返しはここより下で数えない。e は増える一方)。
+            int minCut = 0;
+            while (minCut < m - 1 && e[minCut] < hold) {
+                minCut++;
+            }
             int cut = -1;
             long seam = 0, outline = 0;
             for (int i = 0; i < m - 1; i++) {
@@ -172,7 +178,8 @@ namespace Iroca {
                 if (n[m - 1] < n[i] * (1.0 + EvCutMinGain)) {
                     break;      // n は増える一方なので、ここから上は切る得が無い
                 }
-                CountCutSeams(hsv, pixels, w, firstAt, i, m - 1, out seam, out outline);
+                seams ??= CutSeamTable.Build(hsv, pixels, w, firstAt, m, minCut);
+                seams.Count(i, m - 1, out seam, out outline);
                 if (seam > EvCutSeamMaxFrac * outline) {
                     continue;   // 境目が、入力では見えない所を通る(同じ面の続きを切っている)
                 }
@@ -185,7 +192,8 @@ namespace Iroca {
             // 切った所から上へ、境目がまだ見える縁に沿っている(= 切り落とした色のまとまりが入り始めていない)目盛りまで。
             int hi = cut;
             while (hi + 1 <= m - 1) {
-                CountCutSeams(hsv, pixels, w, firstAt, hi + 1, m - 1, out long s2, out long o2);
+                seams ??= CutSeamTable.Build(hsv, pixels, w, firstAt, m, minCut);
+                seams.Count(hi + 1, m - 1, out long s2, out long o2);
                 if (s2 > EvCutSeamMaxFrac * o2) {
                     break;
                 }
@@ -200,54 +208,97 @@ namespace Iroca {
         /// <summary>
         /// 目盛り cut で切ったときの、継ぎ目の組の数 seam と、切った後の選択の輪郭の組の数 outline(どちらも格子の 4 近傍)。
         /// 輪郭 = cut 以下で選ばれる点と、そうでない点が隣り合う組。継ぎ目 = そのうち、相手が cut より上・top 以下で選ばれる点
-        /// (切ると外れる点)で、入力の色の差が EvCutSeamDeltaE 未満の組。整数の和なので、行をどう分けても同じ値。
+        /// (切ると外れる点)で、入力の色の差が EvCutSeamDeltaE 未満の組。
+        /// cut ごとに格子をなめ直す(1 回の解析で最大 14 回)代わりに、格子を 1 回なめて表を作り、cut ごとの数は表の和で求める。
+        /// 隣り合う 2 点の「最初に選ばれる目盛り」を (小さい方 a, 大きい方 b) の組にして数える(選ばれない印は m 番目に置く)。
+        /// 組が cut の輪郭になるのは a ≤ cut &lt; b のとき、継ぎ目になるのはそのうち b ≤ top で色の差が見分けられないとき。
+        /// 不変の根拠: firstAt は表を作った後に書き換えないので、どの cut・top でも、cut ごとに数えたときと同じ組を数える。
+        /// 数は整数の和なので、足す順に依らず同じ値になる(色の差の式・比べ方も前と同じ)。
         /// </summary>
-        private static void CountCutSeams(HsvGrid hsv, Color32* pixels, int w, byte* firstAt, int cut, int top,
-            out long seam, out long outline) {
-            int gw = hsv.gw, gh = hsv.gh, stride = hsv.stride;
-            float seam2 = EvCutSeamDeltaE * EvCutSeamDeltaE;
-            int[] total = ParallelGridCounts(hsv, 2, (gy, local) => {
-                byte* row = firstAt + gy * gw;
-                int py = gy * stride * w;
-                for (int gx = 0; gx < gw; gx++) {
-                    int f = row[gx];
-                    // 右と下の隣だけを見る(組を 1 回ずつ数える)。
-                    for (int dir = 0; dir < 2; dir++) {
-                        int g2;
-                        int p2;
-                        if (dir == 0) {
-                            if (gx + 1 >= gw) {
-                                continue;
+        private sealed class CutSeamTable {
+            private int n;            // 表の一辺(m + 1)
+            private int[] outlineTab; // [a * n + b](a &lt; b)
+            private int[] seamTab;    // [a * n + b](a &lt; b ≤ m − 1。色の差が見分けられない組)
+            private int minCut;       // 数えてよい cut の下端
+
+            /// <param name="minCut">この表で数える cut の下端。b ≤ minCut の組はどの cut ≥ minCut でも輪郭にならないので数えない
+            /// (入力の色の差を求める組を減らす)。</param>
+            internal static CutSeamTable Build(HsvGrid hsv, Color32* pixels, int w, byte* firstAt, int m, int minCut) {
+                int gw = hsv.gw, gh = hsv.gh, stride = hsv.stride;
+                int n = m + 1;
+                int nn = n * n;
+                float seam2 = EvCutSeamDeltaE * EvCutSeamDeltaE;
+                // 前半 nn が輪郭、後半 nn が継ぎ目。
+                int[] total = ParallelGridCounts(hsv, 2 * nn, (gy, local) => {
+                    byte* row = firstAt + gy * gw;
+                    int py = gy * stride * w;
+                    for (int gx = 0; gx < gw; gx++) {
+                        int f = row[gx];
+                        // 右と下の隣だけを見る(組を 1 回ずつ数える)。
+                        for (int dir = 0; dir < 2; dir++) {
+                            int g2;
+                            int p2;
+                            if (dir == 0) {
+                                if (gx + 1 >= gw) {
+                                    continue;
+                                }
+                                g2 = row[gx + 1];
+                                p2 = py + (gx + 1) * stride;
+                            } else {
+                                if (gy + 1 >= gh) {
+                                    continue;
+                                }
+                                g2 = row[gx + gw];
+                                p2 = py + stride * w + gx * stride;
                             }
-                            g2 = row[gx + 1];
-                            p2 = py + (gx + 1) * stride;
-                        } else {
-                            if (gy + 1 >= gh) {
-                                continue;
+                            if (f == g2) {
+                                continue;   // どの目盛りで切っても同じ側(輪郭にならない)
                             }
-                            g2 = row[gx + gw];
-                            p2 = py + stride * w + gx * stride;
+                            int a = f < g2 ? f : g2;
+                            int b = f < g2 ? g2 : f;
+                            if (b == EvCutNoStep) {
+                                b = m;
+                            }
+                            if (b <= minCut) {
+                                continue;   // a ≤ cut < b になる cut ≥ minCut が無い
+                            }
+                            int idx = a * n + b;
+                            local[idx]++;
+                            if (b == m) {
+                                continue;   // 相手はいまの許容範囲でも選ばれていない(継ぎ目にならない)
+                            }
+                            Color32 ca = pixels[py + gx * stride], cb = pixels[p2];
+                            OkLab.RgbToOklab(ca.r, ca.g, ca.b, out float aL, out float aa, out float ab);
+                            OkLab.RgbToOklab(cb.r, cb.g, cb.b, out float bL, out float ba, out float bb);
+                            float dL = aL - bL, da = aa - ba, db = ab - bb;
+                            if (dL * dL + da * da + db * db < seam2) {
+                                local[nn + idx]++;
+                            }
                         }
-                        bool k1 = f <= cut, k2 = g2 <= cut;
-                        if (k1 == k2) {
-                            continue;
-                        }
-                        local[1]++;
-                        if ((k1 ? g2 : f) > top) {
-                            continue;   // 相手は、いまの許容範囲でも選ばれていない(切る前からの輪郭)
-                        }
-                        Color32 a = pixels[py + gx * stride], b = pixels[p2];
-                        OkLab.RgbToOklab(a.r, a.g, a.b, out float aL, out float aa, out float ab);
-                        OkLab.RgbToOklab(b.r, b.g, b.b, out float bL, out float ba, out float bb);
-                        float dL = aL - bL, da = aa - ba, db = ab - bb;
-                        if (dL * dL + da * da + db * db < seam2) {
-                            local[0]++;
+                    }
+                });
+                var t = new CutSeamTable { n = n, minCut = minCut, outlineTab = new int[nn], seamTab = new int[nn] };
+                Array.Copy(total, 0, t.outlineTab, 0, nn);
+                Array.Copy(total, nn, t.seamTab, 0, nn);
+                return t;
+            }
+
+            /// <summary>目盛り cut で切ったときの継ぎ目と輪郭の組の数。top は m − 1 以下、cut は minCut 以上。</summary>
+            internal void Count(int cut, int top, out long seam, out long outline) {
+                if (cut < minCut) {
+                    throw new ArgumentOutOfRangeException(nameof(cut));
+                }
+                seam = 0;
+                outline = 0;
+                for (int a = 0; a <= cut; a++) {
+                    for (int b = cut + 1; b < n; b++) {
+                        outline += outlineTab[a * n + b];
+                        if (b <= top) {
+                            seam += seamTab[a * n + b];
                         }
                     }
                 }
-            });
-            seam = total[0];
-            outline = total[1];
+            }
         }
 
         /// <summary>
