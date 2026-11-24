@@ -344,25 +344,35 @@ namespace Iroca {
             // 「証拠の中だけ」を見るための除外マスク(非証拠画素 ∪ 実際の除外)。
             int evLen = evW * evH;
             bool* notEvidence = evScratch.Bool(evLen, clear: false);
-            for (int i = 0; i < evLen; i++) {
-                notEvidence[i] = !evidence[i];
-            }
             // 利用者の除外マスクも母集団から外す。証拠と同じ寸法なら「証拠の外」へ重ね、違う寸法なら 2 枚目の除外として
             // 正規化へ渡す(2026-11-13 まで、寸法が違うと無視していた: 辺が 8192 を超えるテクスチャや、保存したマスクが今の
             // テクスチャと違う解像度のとき、除外した所の色が地色の母集団に入っていた)。
             bool* alsoExcluded = null;
             int alsoW = 0, alsoH = 0;
+            bool* overlay = null;   // 「証拠の外」へ重ねる除外(証拠と同じ寸法のとき)
             if (excluded != null && maskW > 0 && maskH > 0) {
                 if (maskW == evW && maskH == evH) {
-                    for (int i = 0; i < evLen; i++) {
-                        notEvidence[i] |= excluded[i];
-                    }
+                    overlay = excluded;
                 } else {
                     alsoExcluded = excluded;
                     alsoW = maskW;
                     alsoH = maskH;
                 }
             }
+            // 画素ごとに自分の画素だけを書く(!証拠 ∨ 除外)ので、行ごとに並列に回しても逐次と同じ値になる。
+            Parallel.For(0, evH, CoreParallelism.Options(ct), y => {
+                int row = y * evW;
+                int end = row + evW;
+                if (overlay != null) {
+                    for (int i = row; i < end; i++) {
+                        notEvidence[i] = !evidence[i] | overlay[i];
+                    }
+                } else {
+                    for (int i = row; i < end; i++) {
+                        notEvidence[i] = !evidence[i];
+                    }
+                }
+            });
 
             // ── 1. 地色 = スポイト位置の正規化を「母集団 = セグメント」で行う ──
             // 面積最頻の色をそのまま地色にすると、面積最大の暗部やベタ塗りに落ちる(実測: ゴーグル
