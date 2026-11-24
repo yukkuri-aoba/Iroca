@@ -82,7 +82,7 @@ namespace Iroca {
 
         /// <summary>数えた数(何を数えるかは呼ぶ側が決める。使わない欄は 0 のまま)。</summary>
         private struct Tally {
-            public int a, b, c;
+            public int a, b, c, d, e, f;
         }
 
         private delegate void SimVisitor(in SimCell p, ref Tally row);
@@ -135,6 +135,9 @@ namespace Iroca {
                 sum.a += rows[i].a;
                 sum.b += rows[i].b;
                 sum.c += rows[i].c;
+                sum.d += rows[i].d;
+                sum.e += rows[i].e;
+                sum.f += rows[i].f;
             }
             return sum;
         }
@@ -368,31 +371,90 @@ namespace Iroca {
                 return;
             }
 
-            // ── 段階拡張: 追加画素の面積とシグネチャを実マッチャーで判定 ──
-            float accepted = derived;
-            foreach (float mult in SheenTolGrowSteps) {
-                float t = Mathf.Min(derived * mult, ChromaTolMax);
-                if (t <= accepted) {
-                    break; // 上限到達でこれ以上伸ばせない
+            // ── 段階拡張: 追加画素の面積とシグネチャを実マッチャーで判定(段ごとの数は 1 パスで数える) ──
+            GrowSheenOnePass(pixels, w, h, excluded, maskW, maskH, hsv, sim, baseSel, baseCount, derived,
+                sH, sV, satSigFloor, sheenVMax, ref result);
+        }
+
+        /// <summary>
+        /// 明部ツヤ救済の段階拡張(<see cref="VerifyBrightSheenRecall"/>)。段ごとに全格子を照合し直す代わりに、基礎選択の外の
+        /// セルごとに「最初に選ばれる段」を 1 回だけ求め、段ごとの累積の数から、段を順に見る判定(面積超過の打ち切り・
+        /// シグネチャの合格・上限での打ち切り)を同じ順に決める。
+        /// 不変の根拠: 基底のマッチ(ハイライト復元は切ってある)は許容範囲に対して単調(<see cref="FirstSelectingStep"/>。
+        /// 距離とゲートは許容範囲に依らず、選ばれるのは距離 &lt; 許容範囲のとき。照合の上限距離はこの時点では既定のまま)で、
+        /// 段の許容範囲は小さい順に並ぶ(同じ値が並んでも二分探索の答えは変わらない)。よって段 j で追加される数 =
+        /// 「最初に選ばれる段 ≤ j」のセルの数。シグネチャはセルの色だけで決まり段に依らない。数は整数の和なので同じ値になる。
+        /// 段の照合は sim の許容範囲を段の値にして作る(段ごとに照合し直していたときと同じ)。数えるのは、判定が最初の段を
+        /// 照合する所まで進んだときだけ(進まなければ元も数えない)。
+        /// </summary>
+        private static void GrowSheenOnePass(Color32* pixels, int w, int h, bool* excluded, int maskW, int maskH,
+            HsvGrid hsv, ColorZone sim, bool* baseSel, int baseCount, float derived,
+            float sH, float sV, float satSigFloor, float sheenVMax, ref TuneResult result) {
+            // 段の許容範囲(小さい順。上限で頭打ちになったら、その段で打ち切る)。
+            // 段ごとの数は Tally の a〜c と d〜f に置くので、段は 3 つまで。
+            if (SheenTolGrowSteps.Length > 3) {
+                throw new System.InvalidOperationException("SheenTolGrowSteps は 3 段まで(Tally の欄の数)");
+            }
+            int nSteps = 0;
+            var stepTol = new float[3];   // 段の数の上限(上の確かめ)
+            for (int j = 0; j < SheenTolGrowSteps.Length; j++) {
+                float t = Mathf.Min(derived * SheenTolGrowSteps[j], ChromaTolMax);
+                stepTol[nSteps++] = t;
+                if (t >= ChromaTolMax) {
+                    break;
                 }
-                sim.tolerance = t;
-                var grown = new ColorZone.Matcher(sim);
-                // 基礎選択の外だけを見る。a = 追加で選択される数、b = そのうちツヤのシグネチャに合う数
+            }
+            int[] addedAt = null, sigAt = null;   // 累積: 段 j までに追加される数・そのうちシグネチャに合う数
+            void CountSteps() {
+                var matchers = new ColorZone.Matcher[nSteps];
+                for (int j = 0; j < nSteps; j++) {
+                    sim.tolerance = stepTol[j];
+                    matchers[j] = new ColorZone.Matcher(sim);
+                }
+                // 基礎選択の外だけを見る。a〜c = 最初に選ばれる段が 0〜2 の数、d〜f = そのうちツヤのシグネチャに合う数
                 Tally n = CountOnGrid(pixels, w, h, excluded, maskW, maskH, hsv, null, baseSel, (in SimCell p, ref Tally row) => {
-                    if (!Selects(grown, p, w, h)) {
+                    int k = FirstSelectingStep(matchers, p.h, p.s, p.v, p.col, p.x, p.y, w, h);
+                    if (k < 0) {
                         return;
                     }
-                    row.a++;
                     float hd = Mathf.Abs(p.h - sH);
                     if (hd > 0.5f) {
                         hd = 1f - hd;
                     }
-                    if (p.v > sV && p.v < sheenVMax
-                        && hd < ColorZone.ForgivenessHueGate && p.s >= satSigFloor) {
+                    bool sig = p.v > sV && p.v < sheenVMax
+                        && hd < ColorZone.ForgivenessHueGate && p.s >= satSigFloor;
+                    if (k == 0) {
+                        row.a++;
+                        if (sig) {
+                            row.d++;
+                        }
+                    } else if (k == 1) {
                         row.b++;
+                        if (sig) {
+                            row.e++;
+                        }
+                    } else {
+                        row.c++;
+                        if (sig) {
+                            row.f++;
+                        }
                     }
                 });
-                int added = n.a, sig = n.b;
+                addedAt = new[] { n.a, n.a + n.b, n.a + n.b + n.c };
+                sigAt = new[] { n.d, n.d + n.e, n.d + n.e + n.f };
+            }
+
+            // 段を小さい順に見て判定する(数は累積から読む)。
+            float accepted = derived;
+            for (int j = 0; j < nSteps; j++) {
+                float t = stepTol[j];
+                if (t <= accepted) {
+                    break; // 上限到達でこれ以上伸ばせない
+                }
+                if (addedAt == null) {
+                    CountSteps();
+                }
+                int added = addedAt[j], sig = sigAt[j];
                 if (added > baseCount * SheenGrowMaxAddedFrac) {
                     break; // 面積超過(単調)→打ち切り
                 }
