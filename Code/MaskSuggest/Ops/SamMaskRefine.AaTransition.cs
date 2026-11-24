@@ -37,8 +37,16 @@ namespace Iroca {
             // (実測: 各階段角に 1 画素、再着色で点ノイズ化)。ここでは面統計を使わず、
             // 画素自身の「隣接マスク画素 m ⇄ 反対側の画素 q」を両端とする局所線分で
             // p = α·m + (1-α)·q の実混合判定を行う(統計汚染と無縁・向き非依存)。
+            // 1 パスで足せるのはマスクに 8 近傍で接する画素だけなので、走査はマスクの外接矩形を 1px 広げた範囲で足りる
+            // (その外の画素は 8 近傍にマスクが無く、どの向きでも m が見つからない)。パスごとに外接矩形は高々 1px
+            // 広がるので、範囲も 1px ずつ広げる。読む画素と判定は全画像の走査と同じなので、出力はビット同一。
+            if (!TryMaskBounds(mask, w, h, MakeParallelOptions(token), out int bx0, out int by0, out int bx1, out int by1)) {
+                return;
+            }
             for (int pass = 0; pass < AaMaxPasses; pass++) {
-                if (AbsorbEdgeBlendPass(mask, pixelsBottomUp, w, h, token) == 0) {
+                bx0 = Mathf.Max(0, bx0 - 1); by0 = Mathf.Max(0, by0 - 1);
+                bx1 = Mathf.Min(w - 1, bx1 + 1); by1 = Mathf.Min(h - 1, by1 + 1);
+                if (AbsorbEdgeBlendPass(mask, pixelsBottomUp, w, h, bx0, by0, bx1, by1, token) == 0) {
                     break;
                 }
             }
@@ -120,8 +128,10 @@ namespace Iroca {
         /// 境界に接する外側画素を、隣接マスク画素 m と反対側画素 q の局所線分で実混合判定して
         /// マスクへ吸収する 1 パス。追加した画素数を返す。読みはパス開始時のスナップショット、
         /// 書きは追加のみ(決定的・順序非依存)。別色の構造(輪郭線等)は残差ゲートで残る。
+        /// 走査するのは矩形 [x0, x1] × [y0, y1] の中だけ(呼び出し側がマスクの外接矩形を 1px 広げて渡す)。
         /// </summary>
         static int AbsorbEdgeBlendPass(bool* mask, Color32* pixelsBottomUp, int w, int h,
+                                       int x0, int y0, int x1, int y1,
                                        System.Threading.CancellationToken token = default) {
             using var scratch = new WorkScratch();
             bool* mask0 = scratch.CopyOf(mask, w * h);
@@ -130,11 +140,11 @@ namespace Iroca {
             // 読みはスナップショット・書きは自画素のみなので行並列で決定的。
             // added は行ローカルに数えて最後に合算する(値も逐次実行と一致)。
             int added = 0;
-            Parallel.For(0, h, MakeParallelOptions(token),
+            Parallel.For(y0, y1 + 1, MakeParallelOptions(token),
                 () => 0,
                 (y, _, local) => {
                     int row = y * w;
-                    for (int x = 0; x < w; x++) {
+                    for (int x = x0; x <= x1; x++) {
                         int i = row + x;
                         if (mask0[i]) {
                             continue;
@@ -256,12 +266,26 @@ namespace Iroca {
             // (決定的・順序非依存。統計は確信領域=帯外なので追加書き込みの影響を受けない)。
             // 行並列でも決定的: 各画素の mask 読みは自インデックスのみで、そこへ書くのは
             // 自イテレーションだけ(近傍の mask は読まない)。added は行ローカル合算。
+            //
+            // 窓の集計(半径の選び方・内側と外側の合算・窓の中の有効なモードの並び)はセル (gx, gy) だけで決まり、
+            // 画素の色に依らない。そこで行の中で同じセルが続く間は 1 回だけ集計して使い回し、画素ごとには
+            // 「最も近いモード」の走査だけを行う(走査の順と比較 `<` は以前と同じなので、選ぶモードも同じ)。
+            // 遠方軸の最近傍は、近傍軸で含めると決まらなかった画素でだけ求める(以前も遠方軸の結果は
+            // そのときしか使っていない)。どちらも同じ値の計算を省くだけなので、出力はビット同一。
             int added = 0;
+            int windowCells = (2 * MaxWindowRadius + 1) * (2 * MaxWindowRadius + 1);
             Parallel.For(0, h, po,
                 () => 0,
                 (y, _, local) => {
                     int row = y * w;
                     int gy = y / d;
+                    int* nearList = stackalloc int[windowCells];
+                    int* farList = stackalloc int[windowCells];
+                    int nearLen = 0, farLen = 0;
+                    int cachedGx = -1;
+                    long ir = 0, ig = 0, ib = 0, ia = 0;
+                    long nr = 0, ng = 0, nb = 0, na = 0, fr = 0, fg = 0, fb = 0, fa = 0;
+                    int ic = 0, nc = 0, fc = 0;
                     for (int x = 0; x < w; x++) {
                         int i = row + x;
                         if (mask[i] || distOut[i] > d) {
@@ -269,61 +293,62 @@ namespace Iroca {
                         }
 
                         int gx = x / d;
-                        var c = pixelsBottomUp[i];
-                        long ir = 0, ig = 0, ib = 0, ia = 0;
-                        long nr = 0, ng = 0, nb = 0, na = 0, fr = 0, fg = 0, fb = 0, fa = 0;
-                        int ic = 0, nc = 0, fc = 0;
-                        double bestNearD = double.MaxValue, bestFarD = double.MaxValue;
-                        int bestNearO = -1, bestFarO = -1;
-                        for (int radius = MinWindowRadius; radius <= MaxWindowRadius; radius += 2) {
-                            ir = ig = ib = ia = 0; ic = 0;
-                            nr = ng = nb = na = 0; nc = 0;
-                            fr = fg = fb = fa = 0; fc = 0;
-                            bestNearD = bestFarD = double.MaxValue;
-                            bestNearO = bestFarO = -1;
-                            int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
-                            int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
-                            for (int yy = gy0; yy <= gy1; yy++) {
-                                int gRow = yy * gw;
-                                for (int xx = gx0; xx <= gx1; xx++) {
-                                    int g = gRow + xx;
-                                    int o = g * 4;
-                                    if (cntIn[g] > 0) {
-                                        ir += sumIn[o]; ig += sumIn[o + 1]; ib += sumIn[o + 2]; ia += sumIn[o + 3];
-                                        ic += cntIn[g];
-                                    }
-                                    if (cntOutNear[g] > 0) {
-                                        nr += sumOutNear[o]; ng += sumOutNear[o + 1];
-                                        nb += sumOutNear[o + 2]; na += sumOutNear[o + 3];
-                                        nc += cntOutNear[g];
-                                        if (validNear[g]) {
-                                            double dd = Dist2Mean(c, meanNear, o);
-                                            if (dd < bestNearD) { bestNearD = dd; bestNearO = o; }
+                        if (gx != cachedGx) {
+                            cachedGx = gx;
+                            for (int radius = MinWindowRadius; radius <= MaxWindowRadius; radius += 2) {
+                                ir = ig = ib = ia = 0; ic = 0;
+                                nr = ng = nb = na = 0; nc = 0;
+                                fr = fg = fb = fa = 0; fc = 0;
+                                nearLen = farLen = 0;
+                                int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
+                                int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
+                                for (int yy = gy0; yy <= gy1; yy++) {
+                                    int gRow = yy * gw;
+                                    for (int xx = gx0; xx <= gx1; xx++) {
+                                        int g = gRow + xx;
+                                        int o = g * 4;
+                                        if (cntIn[g] > 0) {
+                                            ir += sumIn[o]; ig += sumIn[o + 1]; ib += sumIn[o + 2]; ia += sumIn[o + 3];
+                                            ic += cntIn[g];
                                         }
-                                    }
-                                    if (cntOutFar[g] > 0) {
-                                        fr += sumOutFar[o]; fg += sumOutFar[o + 1];
-                                        fb += sumOutFar[o + 2]; fa += sumOutFar[o + 3];
-                                        fc += cntOutFar[g];
-                                        if (validFar[g]) {
-                                            double dd = Dist2Mean(c, meanFar, o);
-                                            if (dd < bestFarD) { bestFarD = dd; bestFarO = o; }
+                                        if (cntOutNear[g] > 0) {
+                                            nr += sumOutNear[o]; ng += sumOutNear[o + 1];
+                                            nb += sumOutNear[o + 2]; na += sumOutNear[o + 3];
+                                            nc += cntOutNear[g];
+                                            if (validNear[g]) {
+                                                nearList[nearLen++] = o;
+                                            }
+                                        }
+                                        if (cntOutFar[g] > 0) {
+                                            fr += sumOutFar[o]; fg += sumOutFar[o + 1];
+                                            fb += sumOutFar[o + 2]; fa += sumOutFar[o + 3];
+                                            fc += cntOutFar[g];
+                                            if (validFar[g]) {
+                                                farList[farLen++] = o;
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            if (ic >= MinSamples && nc >= MinSamples) {
-                                break;
+                                if (ic >= MinSamples && nc >= MinSamples) {
+                                    break;
+                                }
                             }
                         }
                         if (ic < MinSamples) {
                             continue; // 内側統計不足 → 触らない
                         }
 
+                        var c = pixelsBottomUp[i];
                         double inR = ir / (double)ic, inG = ig / (double)ic,
                                inB = ib / (double)ic, inA = ia / (double)ic;
                         bool include = false;
                         if (nc >= MinSamples) {
+                            double bestNearD = double.MaxValue;
+                            int bestNearO = -1;
+                            for (int k = 0; k < nearLen; k++) {
+                                double dd = Dist2Mean(c, meanNear, nearList[k]);
+                                if (dd < bestNearD) { bestNearD = dd; bestNearO = nearList[k]; }
+                            }
                             include = bestNearO >= 0
                                 ? IsAaBlend(c, inR, inG, inB, inA, meanNear[bestNearO],
                                             meanNear[bestNearO + 1], meanNear[bestNearO + 2],
@@ -332,6 +357,12 @@ namespace Iroca {
                                             ng / (double)nc, nb / (double)nc, na / (double)nc);
                         }
                         if (!include && fc >= MinSamples) {
+                            double bestFarD = double.MaxValue;
+                            int bestFarO = -1;
+                            for (int k = 0; k < farLen; k++) {
+                                double dd = Dist2Mean(c, meanFar, farList[k]);
+                                if (dd < bestFarD) { bestFarD = dd; bestFarO = farList[k]; }
+                            }
                             include = bestFarO >= 0
                                 ? IsAaBlend(c, inR, inG, inB, inA, meanFar[bestFarO],
                                             meanFar[bestFarO + 1], meanFar[bestFarO + 2],

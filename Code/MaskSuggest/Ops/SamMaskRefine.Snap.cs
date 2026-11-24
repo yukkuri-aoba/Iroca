@@ -79,9 +79,20 @@ namespace Iroca {
             // 帯画素の再分類。元の mask を読みながら書き換えると統計自体は粗グリッド由来なので
             // 影響しない(確信領域は帯外で不変)。判定入力は mask0/統計(読み取り専用)、
             // 書き込みは自画素のみなので行並列で決定的。
+            //
+            // 窓の集計(半径・内外の合算・窓の中の有効なモードの並び)はセル (gx, gy) だけで決まり画素の色に依らないので、
+            // 行の中で同じセルが続く間は 1 回だけ求めて使い回す。画素ごとに走るのは最も近いモードの距離だけで、
+            // 走査の順も比較も以前と同じなので、出力はビット同一。
+            int windowCells = (2 * MaxWindowRadius + 1) * (2 * MaxWindowRadius + 1);
             Parallel.For(0, h, po, y => {
                 int row = y * w;
                 int gy = y / d;
+                int* inList = stackalloc int[windowCells];
+                int* outList = stackalloc int[windowCells];
+                int inLen = 0, outLen = 0;
+                int cachedGx = -1;
+                long ir = 0, ig = 0, ib = 0, ia = 0, or_ = 0, og = 0, ob = 0, oa = 0;
+                int ic = 0, oc = 0;
                 for (int x = 0; x < w; x++) {
                     int i = row + x;
                     bool inBand = mask0[i] ? distIn[i] <= d : distOut[i] <= d;
@@ -93,48 +104,56 @@ namespace Iroca {
                     // 再集計する。先細りウェッジ等、局所幅が帯より狭い形状では片側の確信領域が
                     // 直近に無いことがあるため(過去は即座に諦めて SAM の粗い判定を残していた)。
                     int gx = x / d;
-                    var c = pixelsBottomUp[i];
-                    long ir = 0, ig = 0, ib = 0, ia = 0, or_ = 0, og = 0, ob = 0, oa = 0;
-                    int ic = 0, oc = 0;
-                    double minIn = double.MaxValue, minOut = double.MaxValue;
-                    for (int radius = MinWindowRadius; radius <= MaxWindowRadius; radius += 2) {
-                        ir = ig = ib = ia = or_ = og = ob = oa = 0; ic = 0; oc = 0;
-                        minIn = minOut = double.MaxValue;
-                        int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
-                        int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
-                        for (int yy = gy0; yy <= gy1; yy++) {
-                            int gRow = yy * gw;
-                            for (int xx = gx0; xx <= gx1; xx++) {
-                                int g = gRow + xx;
-                                int o = g * 4;
-                                if (cntIn[g] > 0) {
-                                    ir += sumIn[o]; ig += sumIn[o + 1]; ib += sumIn[o + 2]; ia += sumIn[o + 3];
-                                    ic += cntIn[g];
-                                    if (validIn[g]) {
-                                        double dd = Dist2Mean(c, meanIn, o);
-                                        if (dd < minIn) {
-                                            minIn = dd;
+                    if (gx != cachedGx) {
+                        cachedGx = gx;
+                        for (int radius = MinWindowRadius; radius <= MaxWindowRadius; radius += 2) {
+                            ir = ig = ib = ia = or_ = og = ob = oa = 0; ic = 0; oc = 0;
+                            inLen = outLen = 0;
+                            int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
+                            int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
+                            for (int yy = gy0; yy <= gy1; yy++) {
+                                int gRow = yy * gw;
+                                for (int xx = gx0; xx <= gx1; xx++) {
+                                    int g = gRow + xx;
+                                    int o = g * 4;
+                                    if (cntIn[g] > 0) {
+                                        ir += sumIn[o]; ig += sumIn[o + 1]; ib += sumIn[o + 2]; ia += sumIn[o + 3];
+                                        ic += cntIn[g];
+                                        if (validIn[g]) {
+                                            inList[inLen++] = o;
                                         }
                                     }
-                                }
-                                if (cntOut[g] > 0) {
-                                    or_ += sumOut[o]; og += sumOut[o + 1]; ob += sumOut[o + 2]; oa += sumOut[o + 3];
-                                    oc += cntOut[g];
-                                    if (validOut[g]) {
-                                        double dd = Dist2Mean(c, meanOut, o);
-                                        if (dd < minOut) {
-                                            minOut = dd;
+                                    if (cntOut[g] > 0) {
+                                        or_ += sumOut[o]; og += sumOut[o + 1]; ob += sumOut[o + 2]; oa += sumOut[o + 3];
+                                        oc += cntOut[g];
+                                        if (validOut[g]) {
+                                            outList[outLen++] = o;
                                         }
                                     }
                                 }
                             }
-                        }
-                        if (ic >= MinSamples && oc >= MinSamples) {
-                            break;
+                            if (ic >= MinSamples && oc >= MinSamples) {
+                                break;
+                            }
                         }
                     }
                     if (ic < MinSamples || oc < MinSamples) {
                         continue; // 統計不足 → SAM の判定を維持
+                    }
+
+                    var c = pixelsBottomUp[i];
+                    double minIn = double.MaxValue, minOut = double.MaxValue;
+                    for (int k = 0; k < inLen; k++) {
+                        double dd = Dist2Mean(c, meanIn, inList[k]);
+                        if (dd < minIn) {
+                            minIn = dd;
+                        }
+                    }
+                    for (int k = 0; k < outLen; k++) {
+                        double dd = Dist2Mean(c, meanOut, outList[k]);
+                        if (dd < minOut) {
+                            minOut = dd;
+                        }
                     }
 
                     double dIn = minIn != double.MaxValue ? minIn : Dist2(c, ir, ig, ib, ia, ic);
