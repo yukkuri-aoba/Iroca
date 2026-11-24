@@ -69,7 +69,8 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
   zones JSON に全項目を書く（JSON の既定と窓の既定は違う項目があるため）。被写体のケースを (a)(b) で塗る口は
   `dev_safe/Tests/regression/window_cases.py`。結果のキャッシュの鍵には DLL・onnxruntime・ONNX・テクスチャ・
   **クリックの位置**・塗り先・ゾーンの全文・このファイルが入る（置き場は `_harness_cache/results/oneshot`、
-  無効化は `IROCA_RESULT_CACHE=0`）。
+  無効化は `IROCA_RESULT_CACHE=0`。出力は入力との XOR を縮めて置き、使われなくなった DLL の分は掃除で消える。
+  「キャッシュの効率」の節）。
 - **画像は製品と同じ下原点で渡す。** numpy の配列（上原点）を上下反転してハーネスへ渡し、出力を戻す。クリック (x, y) は
   sampleUV ((x+0.5)/w, 1 − (y+0.5)/h) になる。2026-11-21 までの Python の写しは自動調整・塗りを上下が鏡写しの世界で回していて、
   向きを直すと開発側 198 件のうち 73 件の出力が変わった（dev_safe の `bridge.md`）。
@@ -533,6 +534,11 @@ LAN にテスト用の PC があるときは、テストをそちらで回して
   （`IROCA_REMOTE_SLOTS` で変える。1 にすると従来どおり 1 本ずつ）。スロット 0 は従来の置き場 `Iroca\`、1〜 は
   `Iroca_s<N>\` で、初めて使うときに 0 の写しとして相手の中で作る（リポジトリは `git clone --local`、git に入らない
   データは相手の中で写す。Wi-Fi 越しの送り直しは無い）。実行キャッシュ `dev_safe\_harness_cache` だけは 0 へのジャンクションで共有する。
+  `texture_sample` の無視されたデータ（約 14GB）は、2026-11-24 から 0 のファイルへの**ハードリンク**で共有する
+  （`remote_test_agent._link_shared_data`。中身が 0 と同じ写しは、同期のたびに初回だけ読み比べてリンクに置き換える）。
+  フォルダごとのジャンクションにしないのは、`texture_sample` に git が追跡するファイルも混ざり、スロットごとに別のコミットを
+  checkout するから。データの展開（tar）はその場で書くので、書く前に共有している名前を外す（`_break_link`）。git の checkout
+  と data の削除は名前を外す形なので、相手のスロットの中身は変わらない。`Tests/Baselines` はスロットごとに違いうるので写しのまま。
   - **予約の列**（2026-11-22〜）: 実行は相手の列（`iroca-remote\queue\`）に並び、相手が来た順に空いたスロットを配る。
     スロットは割り当てが決まってから送る物（差分のバンドル・データ）をそのスロットに合わせて送る。前の実行が使える
     スロット（例: 0 固定の視覚レビュー）が空いていないときは、後ろの実行が使える別のスロットへ先に回る（空いた枠を
@@ -767,7 +773,11 @@ DLL 全体に戻る。容量は既定 150GB 上限（2026-11-08 に 24GB から�
 （`fixtures._mark_dll_used` が DLL を使うたびに `_harness_cache/dlls/<ダイジェスト>` の mtime を進め、
 `<key>.dllref` に DLL のダイジェストを書く。`cache_gc._sweep_dead_dll` が、印が `IROCA_CACHE_GC_DLL_DAYS`（既定 1）日
 動いていない DLL の `.raw` / `.aux.json` / `.dllref` を消す。ビルドを往復する A/B の間は印が進むので消えない。
-`.dllref` の無い古いエントリは日数で消える。結果キャッシュ `results/` `rows/` は未対応）。「使った」は mtime で見る。キャッシュは当たったときに
+`.dllref` の無い古いエントリは日数で消える。2026-11-24 から、鍵に DLL のダイジェストが入る結果キャッシュ
+`results/oneshot`・`results/oneshot_script` も同じ印を持つ: `oneshot.run`・`oneshot.script` が置くとき（と、印の無いエントリに
+当たったとき）に `<key>.dllref` を書き（`fixtures.result_dllref`）、`_sweep_dead_dll` が同じ鍵のファイル（`<key>.npz`・
+`<key>.out.raw`・`<key>.s<k>.out.raw`・`<key>.dllref`）をまとめて消す。テスト用 PC ではこの 2 つが 50GB 近くあり、日数と空きでしか
+消えていなかった。ほかの結果キャッシュ `results/` `rows/` は未対応）。「使った」は mtime で見る。キャッシュは当たったときに
 `fixtures.touch` で mtime を進め、作業ファイルは使うたびに書き直されるか touch される
 （atime はウイルス対策の読み取りでも進むので使えない）。消したものがまた要れば計算し直すだけで、
 結果は変わらない。走査はふだん 0.2 秒程度。消すと pytest の要約に 1 行出て、
@@ -780,7 +790,8 @@ DLL 全体に戻る。容量は既定 150GB 上限（2026-11-08 に 24GB から�
 入力キャッシュ）に広げた。以前は自分の dev_safe しか見なかったので、テストを回さなくなった複製は
 一度も掃除されず、複製 5 つで 229GB 溜まっていた。さらに、ドライブの空きが
 `IROCA_CACHE_GC_MIN_FREE_GB`（既定 50GB。冷えた状態から回帰を 1 回回すと複製 1 つのキャッシュが
-20〜26GB まで育つので、その 2 回分）を切っていたら、6 時間の間隔を待たずに走り、日数に届かないものも
+20〜26GB まで育つので、その 2 回分。1TB 未満のドライブでは 2026-11-24 から 25GB。256GB のテスト用 PC では 50GB を
+いつも切っていて、有効なエントリまで空きのために消していた）を切っていたら、6 時間の間隔を待たずに走り、日数に届かないものも
 最後に使ったのが古い順に空きが戻るまで消す。6 時間以内に使ったもの（走っている別のテストの分）は消さない。
 それでも足りなければ pytest の要約に、キャッシュ以外（取り込み済みの worktree・scratchpad・
 Unity の確認用ホスト）を見直すよう 1 行出す。これらは掃除の対象にしない。
@@ -803,14 +814,25 @@ DLL の印と同じ `IROCA_CACHE_GC_DLL_DAYS`（既定 1 日）使われなけ�
 始めに今の DLL へ使った印を付け、6 時間の間隔を待たずに `cache_gc.sweep_dead_dll_now` で、印が `IROCA_CACHE_GC_DLL_DAYS`
 使われていない DLL の `*.raw` を消す。小さいドライブではこの既定を 1 時間にした（印は使っている間 30 分ごとに進むので、
 並行して走る別の実行の DLL は消さない。2TB では 1 日のまま）。キャッシュが有効かどうかを判断できるのは、DLL の印を持つ
-実行キャッシュだけで、テスト用 PC では容量の 97% を占める。ほかのキャッシュ（`results/` `rows/` `decoded/` など）は鍵が
-入力のハッシュだけで、どの入力から作ったかが残らないので、これまでどおり日数で消す。
+実行キャッシュと `results/oneshot`・`results/oneshot_script`（2026-11-24〜）だけ。ほかのキャッシュ（ほかの `results/`・`rows/`・
+`decoded/` など）は鍵が入力のハッシュだけで、どの入力から作ったかが残らないので、これまでどおり日数で消す。
 テストを相手で回すと、手元では pytest が始まらず、この掃除も走らない。そこで `tools/remote_test.py` は、相手へ送る前に
 手元の dev_safe でも pytest の開始時と同じ `maybe_sweep` を呼ぶ（使われなくなった DLL の分は毎回・印の期限は手元の 2TB では
 1 日、日数での掃除は 6 時間に 1 回。ふだん 0.1 秒かからない）。
 **キャッシュの効率**（同日）: 一度でも当たった実行キャッシュは 1 割強（開発機 362/2842 件・テスト用 PC 209/1458 件）で、
 C# を変えるたびに全件を作り直す。そこで実行キャッシュは **zstd（レベル 3）で縮めて置く**（`fixtures._RAWZ_MAGIC` で始まる。
 4096² の 64MB が約 8 分の 1、縮める・戻すとも 1 件 約 0.02 秒。縮める前の古いエントリもそのまま読める。戻した配列はビット一致）。
+2026-11-24 から、ほかのキャッシュも縮めて置く（どれも読み戻した配列はビット一致で、`test_cache_gc.py` が確かめる）:
+- `oneshot.run`・`oneshot.script` の出力（`results/oneshot*/<key>*.out.raw`）は、**入力のテクスチャとの XOR** を zstd で縮める
+  （`fixtures.write_cached_out`・`read_cached_out`、先頭が `ZSTXRAW1`）。塗った所しか入力と違わないので XOR はほとんど 0 で、
+  zstd だけの約 5 分の 1（4096² で 14.7MB → 2.35MB）。読むときは呼び手が持っている同じ入力で戻す。入力と出力の形が違えば
+  XOR せず `ZSTZRAW1` で置く。それまでの形式（`ZSTZRAW1`・無圧縮）もそのまま読める。
+- デコード結果（`decoded/`）は `.npy` を zstd で縮めて `<鍵>.npy.zst` に置く（4096² の 64MB が 0.1MB 前後）。縮める前の
+  `.npy` は読まず、1 回デコードし直して新しい形で置く（古いものは日数で消える）。
+- `results/` の npz は 2026-11-23 から deflate（`np.savez_compressed`）。それより前に無圧縮で置いた分（開発機の
+  `results/sam_proposals` 45.8GB の大半）は、`python dev_safe/Tests/regression/cache_gc.py --recompress [--dry-run]` で一度だけ
+  置き直す（mtime を保ち、tmp に書いて読み直して確かめてから差し替える。走査の後に使われたもの・読めないもの・開かれていて
+  差し替えられないものは飛ばす）。
 また、使い回されない中間ファイルを使い終えたら消す: `sam_proposal.proposal_for_click_full` は呼び手が渡した作業ディレクトリ
 （logits・post・クロップ。提案は結果キャッシュ、クロップの埋め込みは `cropemb/` に残る）を、`measure_evidence_autotune.run_case`
 は自分で書いた証拠・含めるマスクの raw を、ハーネスへ渡し終えたら消す（開発機で `_sam_freeze_work` 133GB・`_spike/evidence` 64GB

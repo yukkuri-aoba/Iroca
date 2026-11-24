@@ -285,11 +285,35 @@ def cmd_cleanup(argv: list[str]) -> int:
     return 0
 
 
+def _break_link(path: Path) -> None:
+    """path がハードリンク（ほかのスロットと共有したデータ。_link_shared_data）なら、書き込む前にこのスロットの名前だけを外す。
+    tarfile は既存のファイルへその場で書くので、外さないと共有している相手のファイルまで書き換わる。外せないとき
+    （相手がそのファイルを開いている）は、その場で書かずに少し待ってやり直し、だめなら OSError（同期の失敗）にする。"""
+    for attempt in range(30):
+        try:
+            st = os.stat(path, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        if not os.path.isfile(path) or st.st_nlink <= 1:
+            return
+        try:
+            os.unlink(path)
+            return
+        except PermissionError:
+            if attempt == 29:
+                raise
+            time.sleep(1.0)
+
+
 def _extract_stream(fileobj, dest: Path) -> int:
     dest.mkdir(parents=True, exist_ok=True)
     n = 0
     with tarfile.open(fileobj=fileobj, mode="r|") as tf:
         for member in tf:
+            # 置き場の外を指す名前は data_filter が断る（その前に外のファイルを触らない）
+            member = tarfile.data_filter(member, str(dest))
+            if member.isreg():
+                _break_link(dest / member.name)
             tf.extract(member, dest, filter="data")
             n += 1
     return n
@@ -736,13 +760,64 @@ def _link_shared_cache() -> None:
             + r.stderr.decode("mbcs", "replace").strip())
 
 
+# スロット 1〜で、スロット 0 とハードリンクで共有する git に無いデータの置き場（2026-11-24）。texture_sample の無視された
+# データ（PNG・PSD・凍結した埋め込み。約 17GB）はスロットごとに同じ中身の写しを持っていた。フォルダごとのジャンクション
+# にしないのは、texture_sample には git が追跡するファイル（1500 余り）も混ざっていて、スロットごとに別のコミットを checkout
+# するから（ジャンクション越しにスロット 0 の追跡ファイルを書き換え、git はジャンクションを symlink として置き換えうる）。
+# ファイル単位のハードリンクなら、書き換えはどれも「名前を外して新しく作る」形なので、相手のスロットの中身は変わらない:
+# データの更新（_extract_stream）は書く前に _break_link で名前を外す。data_delete は名前を消すだけ。git の checkout -f は
+# 既存のファイルを消してから書く（clean は無視されたファイルを触らない）。Tests/Baselines はスロットごとに違いうるので共有しない。
+SHARED_DATA_DIRS = ("texture_sample",)
+
+
+def _link_shared_data() -> tuple[int, int]:
+    """スロット 1〜の SHARED_DATA_DIRS の無視されたデータのうち、スロット 0 の同じパスと中身が同じものを、スロット 0 の
+    ファイルへのハードリンクに置き換える（既にリンクなら何もしない）。（リンクにした数, その大きさ）を返す。
+
+    中身が同じかは、大きさ・mtime（秒）が同じものだけ、バイト列を比べて確かめる（初回だけ読む。2 回目からはリンク済みで
+    stat だけ）。スロット 0 の実行は読むだけなので、走っている最中でも害は無い。失敗したファイルは写しのまま残す。"""
+    if SLOT == 0:
+        return 0, 0
+    import filecmp
+    src_dev = slot_paths(0)[0] / "dev_safe"
+    linked = size = failed = 0
+    for rel in data_manifest_of(DEV_SAFE, list(SHARED_DATA_DIRS)):
+        src, dst = src_dev / rel, DEV_SAFE / rel
+        try:
+            sd, ss = os.stat(dst, follow_symlinks=False), os.stat(src, follow_symlinks=False)
+            if os.path.samestat(sd, ss) or not os.path.isfile(src):
+                continue
+            if sd.st_size != ss.st_size or int(sd.st_mtime) != int(ss.st_mtime):
+                continue
+            if not filecmp.cmp(src, dst, shallow=False):
+                continue
+            tmp = dst.with_name(f"{dst.name}.{os.getpid()}.link.tmp")
+            tmp.unlink(missing_ok=True)
+            os.link(src, tmp)
+            try:
+                os.replace(tmp, dst)
+            except OSError:
+                tmp.unlink(missing_ok=True)
+                raise
+            linked += 1
+            size += ss.st_size
+        except OSError as e:
+            failed += 1
+            if failed <= 3:
+                log(f"共有できない（写しのまま）: {rel}: {e}")
+    if failed > 3:
+        log(f"ほかに {failed - 3} 個を共有できなかった（写しのまま）")
+    return linked, size
+
+
 def cmd_slot_init(argv: list[str]) -> int:
     """slot-init <データのフォルダ...>（--slot N、1〜）: スロット 0 の写しとしてスロット N の作業ツリーを作る。
 
     リポジトリはスロット 0 から `git clone --local --no-checkout`（オブジェクトはハードリンクで速い）。
     refs/remote-test/* も写すので、呼び手の差分のバンドルはスロット 0 と同じ基準で送れる。作業ツリーの中身は次の run の
     checkout で入る。git に入らないデータ（dev_safe の無視されたファイル）は、スロット 0 から写す（Wi-Fi 越しに 14GB を
-    送り直さないため。ハードリンクにしないのは、tar の展開が元のファイルへ書き込んでしまうから）。"""
+    送り直さないため）。texture_sample（SHARED_DATA_DIRS）は写さずにスロット 0 のファイルへのハードリンクにする
+    （2026-11-24。tar の展開はその場で書くので、書く前に _break_link で名前を外す。_link_shared_data の説明）。"""
     if SLOT == 0:
         raise SystemExit("slot-init はスロット 1 以上に使う（--slot N）")
     dirs = argv
@@ -774,11 +849,24 @@ def cmd_slot_init(argv: list[str]) -> int:
                     if dst.exists() and dst.stat().st_size == st.st_size and int(dst.stat().st_mtime) == int(st.st_mtime):
                         continue
                     dst.parent.mkdir(parents=True, exist_ok=True)
+                    _break_link(dst)      # copy2 はその場で書くので、共有している名前は先に外す
+                    if rel.split("/", 1)[0] in SHARED_DATA_DIRS:
+                        try:              # 共有する置き場は写さずにリンクする（できなければ写す）
+                            dst.unlink(missing_ok=True)
+                            os.link(src, dst)
+                            copied += 1
+                            continue
+                        except OSError:
+                            pass
                     shutil.copy2(src, dst)
                     copied += 1
                 except OSError as e:
                     log(f"写せない: {rel}: {e}")
-        log(f"スロット {SLOT}: データ {copied} 個を写した（{time.monotonic() - t0:.0f} 秒）")
+        log(f"スロット {SLOT}: データ {copied} 個を写した・リンクした（{time.monotonic() - t0:.0f} 秒）")
+        # 前からある写しのうち、スロット 0 と同じ中身のものをハードリンクに置き換える（SHARED_DATA_DIRS）
+        n, nbytes = _link_shared_data()
+        if n:
+            log(f"スロット {SLOT}: データ {n} 個（{nbytes / 1e9:.1f} GB）をスロット 0 と共有した")
     finally:
         import msvcrt
         try:
@@ -1022,6 +1110,10 @@ def _execute(run_id: str, caller: _Caller) -> int:
                 (run_dir / b).unlink(missing_ok=True)
             _apply_data(run_dir, req)
             _link_shared_cache()
+            # 前からあるスロットの写しも、中身がスロット 0 と同じならハードリンクへ置き換える（初回だけ読み比べる）
+            n, nbytes = _link_shared_data()
+            if n:
+                log(f"スロット {SLOT}: データ {n} 個（{nbytes / 1e9:.1f} GB）をスロット 0 と共有した")
             _mark("データ")
             venv_py = _ensure_venv()
             _mark("venv")
