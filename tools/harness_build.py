@@ -5,8 +5,9 @@ tools/visual_review.py(index や HEAD から書き出したソースを測ると
 
 決まり:
 - ビルドはプロセスをまたぐロック(%TEMP%/iroca_harness_build.lock)の中で行う。並列実行で同じ csproj を
-  同時にビルドすると中間ファイルを奪い合って偽のビルド失敗になる。取れないまま上限を過ぎたら、取り残しと
-  みなして進む(異常終了したプロセスのロックで全体が止まる方が害が大きい)。
+  同時にビルドすると中間ファイルを奪い合って偽のビルド失敗になる。ロックは OS のファイルロックで、持ち主の
+  プロセスが死ねば外れる(2026-11-24〜。取り残しは起きない)。取れないまま上限を過ぎたら(本当に 15 分ビルドが
+  続いているとき)、そのまま進む(全体が止まる方が害が大きい)。
 - ビルドの前と後で、コンパイルするソースの中身(git の blob の id)を取る。食い違ったら(ビルド中に誰かが
   編集した)作り直す。DLL がどのソースから作られたかを来歴(sources)として返す。
 - ソースの中身が前回のビルドと違うのに DLL のバイト列が同じなら、MSBuild が CoreCompile を飛ばした
@@ -226,25 +227,54 @@ def build_inputs(root: Path, with_samops: bool = True) -> list[str]:
 
 # ─────────────────────────── ビルド ───────────────────────────
 class _Lock:
+    """OS のファイルロック(Windows は msvcrt.locking、ほかは fcntl.flock)。持ち主のプロセスが死ねば OS が外すので、
+    止めたプロセスのロックが残らない(2026-11-24 まではファイルの有無で見ていて、止めた実行の残したファイルのせいで
+    以後のビルドが毎回 LOCK_WAIT_S 待ち、待った後はロックなしで同時にビルドして obj を取り合っていた)。
+    ファイルそのものは消さない(残っていても、開いてロックを取るだけなので邪魔にならない)。"""
+
     def __enter__(self):
         deadline = time.time() + LOCK_WAIT_S
         self.acquired = False
-        while time.time() < deadline:
+        self._fd = os.open(str(LOCK), os.O_CREAT | os.O_RDWR)
+        while True:
             try:
-                fd = os.open(str(LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.close(fd)
+                _lock_fd(self._fd)
                 self.acquired = True
                 break
-            except FileExistsError:
+            except OSError:
+                if time.time() >= deadline:
+                    break
                 time.sleep(0.5)
         return self
 
     def __exit__(self, *exc):
-        if self.acquired:
-            try:
-                LOCK.unlink()
-            except OSError:
-                pass
+        try:
+            if self.acquired:
+                _unlock_fd(self._fd)
+        except OSError:
+            pass
+        finally:
+            os.close(self._fd)
+
+
+if os.name == "nt":
+    import msvcrt
+
+    def _lock_fd(fd: int) -> None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)   # 取れなければ OSError(待ちは呼び手のループ)
+
+    def _unlock_fd(fd: int) -> None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _lock_fd(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock_fd(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 def build_lock() -> _Lock:
