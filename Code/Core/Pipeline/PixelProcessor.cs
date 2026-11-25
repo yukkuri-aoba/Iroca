@@ -203,12 +203,16 @@ namespace Iroca {
         /// zone は範囲へ丸められうる(ProcessPixelsArrayCore の冒頭)ので写しを渡す。masks は null 可(除外・含めるなし)。
         /// selected(w*h 要素。null 可)には「強度 &gt; <see cref="RecolorMinStrength"/>」(再着色のループが塗る画素)を、
         /// strength(w*h 要素。null 可)にはマスクの契約を掛けた後の強度を書く。どちらも全画素を書く。混色帯(再着色の段が
-        /// 選択の外側の縁に被覆率で塗る画素)は入らない。選択キャッシュ・デバッグの記録・計測の知らせ(PerfReport)は使わない。
+        /// 選択の外側の縁に被覆率で塗る画素)は入らない。デバッグの記録・計測の知らせ(PerfReport)は使わない。
+        /// selectionCache(null 可)を渡すと、通常の塗りと同じ所(RunSelection の終わり。マスクを掛ける前)で選択を保存し、同じ鍵の
+        /// 選択があれば写して使い、原本のハッシュもそこから引く・そこへ覚える(どれも通常の塗りに渡したときと同じ契約で、
+        /// 返す強度は渡さないときとビット単位で同じ)。渡すのは、pixels と同じ原本で作ったキャッシュだけ(覚えたハッシュは
+        /// 原本を読み直さずに信じるので、別の画素のキャッシュを渡すと色の表を取り違える)。
         /// 作業配列をプールから借りるので、製品では計算の間(NativeMemoryLifecycle.WorkStarted 〜 WorkEnded)に呼ぶ。
         /// </summary>
         internal static void SimulateSelection(Color32* pixels, int w, int h, ColorZone zone,
             in RecolorSettings settings, MaskSnapshot masks, bool* selected, float* strength,
-            CancellationToken cancellationToken = default) {
+            CancellationToken cancellationToken = default, SelectionCache selectionCache = null) {
             if (pixels == null) {
                 throw new System.ArgumentNullException(nameof(pixels));
             }
@@ -219,7 +223,7 @@ namespace Iroca {
             var sink = new SelectionSink { Selected = selected, Strength = strength };
             // 入力の控えに pixels そのものを渡す(選択だけなら pixels へは書かないので、写さない)。
             ProcessPixelsArrayCore(pixels, w, h, masks, new[] { zone }, in settings,
-                cancellationToken, null, null, pixels, sink);
+                cancellationToken, null, selectionCache, pixels, sink);
         }
 
         // 寸法の検証(画素数は int に収まること)。戻り値は画素数。

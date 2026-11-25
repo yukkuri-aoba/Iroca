@@ -262,13 +262,13 @@ namespace Iroca {
 
         /// <summary>
         /// 証拠つきの解析の本体。evidence は evW*evH、excluded は maskW*maskH 要素以上を、解析が返るまで保つこと。
-        /// evidence が null なら証拠なしの解析へ落ちる。
+        /// evidence が null なら証拠なしの解析へ落ちる。selections は原本のハッシュを引く・覚える選択キャッシュ(<see cref="AnalyzeCore"/>)。
         /// </summary>
         internal static TuneResult AnalyzeWithEvidenceCore(Color32* pixels, int width, int height,
             ColorZone zone,
             bool* evidence, int evW, int evH,
             bool* excluded, int maskW, int maskH, CancellationToken ct,
-            System.Action<float> report) {
+            System.Action<float> report, SelectionCache selections = null) {
             bool canAnalyze = pixels != null
                 && width >= MinTextureDim && height >= MinTextureDim
                 && evidence != null && evW > 0 && evH > 0;
@@ -278,7 +278,7 @@ namespace Iroca {
             // 証拠の段が false で戻る道(芯が少ない・ドメインが足りない／汚染)は、どれも格子の値・控え(HueGate・色ごとの
             // 控え)・格子の作業配列に触れる前に戻る(TryAnalyzeWithEvidenceInner の説明)ので、渡す格子は作りたてと同じ状態。
             // 取り消し・例外のときも using がここで 1 回だけ返す(従来の導出は渡された格子を返さない)。
-            using var hsv = canAnalyze ? BuildHsvGrid(pixels, width, height, ct) : null;
+            using var hsv = canAnalyze ? BuildHsvGrid(pixels, width, height, ct, selections) : null;
             if (canAnalyze && TryAnalyzeWithEvidenceInner(pixels, width, height, zone,
                     evidence, evW, evH, excluded, maskW, maskH, hsv, ct, report,
                     out var result, out fallbackDiag)) {
@@ -287,7 +287,8 @@ namespace Iroca {
             // 証拠を使えないときは従来の導出へ落ちる。証拠の段の作業配列は、上の関数を出たところで返してあり、格子は
             // 1 つだけを使い回す(従来は証拠の段の格子を返してから同じ格子を作り直していた。それ以前はこの解析が自分の
             // 格子を作る間も証拠の段の格子を持ち続け、8K で約 400MB を二重に持っていた。点検 自-6)。
-            var fallback = AnalyzeCore(pixels, width, height, zone, excluded, maskW, maskH, ct, report, reuseGrid: hsv);
+            var fallback = AnalyzeCore(pixels, width, height, zone, excluded, maskW, maskH, ct, report, reuseGrid: hsv,
+                selections: selections);
             if (fallbackDiag != null) {
                 // 従来の導出は正規化した色(normalizedSample。正規化しなければクリックの色)の彩度で有彩・無彩を分け、
                 // 照合は適用後のサンプル(同じ色)で分ける。

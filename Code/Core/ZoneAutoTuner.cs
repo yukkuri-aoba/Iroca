@@ -301,7 +301,10 @@ namespace Iroca {
             }
         }
 
-        private static HsvGrid BuildHsvGrid(Color32* pixels, int w, int h, CancellationToken ct) {
+        // selections: 原本のハッシュを引く・覚える選択キャッシュ(ColorIndexLease.Acquire。自動調整の流れ専用。null 可)。
+        // ハッシュは色の表のキャッシュの鍵にだけ使い、格子の中身は変えない。
+        private static HsvGrid BuildHsvGrid(Color32* pixels, int w, int h, CancellationToken ct,
+            SelectionCache selections = null) {
             int stride = (w <= 2048) ? 1 : 2;
             int gw = (w + stride - 1) / stride, gh = (h + stride - 1) / stride;
             var grid = new HsvGrid { stride = stride, gw = gw, gh = gh, ct = ct };
@@ -320,7 +323,7 @@ namespace Iroca {
                     }
                 });
                 // 色ごとの照合の控えに使う色の番号(HsvGrid の説明)。表が作られなければ画素ごとに照合する。
-                grid.AttachColors(PixelProcessor.ColorIndexLease.Acquire(pixels, w, h, po));
+                grid.AttachColors(PixelProcessor.ColorIndexLease.Acquire(pixels, w, h, po, selections));
             } catch {
                 grid.Dispose();   // 取り消し。呼び出し側はまだ受け取っていない
                 throw;
@@ -376,10 +379,13 @@ namespace Iroca {
         /// 格子。渡せば作り直さずにこれを使う(証拠つきの解析が従来の導出へ落ちたとき。格子は画素と寸法だけで決まるので
         /// 中身は作り直したものと同じ)。持ち主は渡した側で、ここでは返さない。null なら今までどおり作って返す。
         /// </param>
+        /// <param name="selections">
+        /// 格子を作るときに原本のハッシュを引く・覚える選択キャッシュ(自動調整の流れ専用。<see cref="BuildHsvGrid"/>)。null 可。
+        /// </param>
         internal static TuneResult AnalyzeCore(Color32* pixels, int width, int height,
             ColorZone zone,
             bool* excluded, int maskW, int maskH, CancellationToken ct,
-            Action<float> report, HsvGrid reuseGrid = null) {
+            Action<float> report, HsvGrid reuseGrid = null, SelectionCache selections = null) {
             // 進捗は「解析ステップの通過点」を単調増加で報告する。各ステップの実時間は
             // テクスチャ次第で読めないため、割合はステップ数ベースの目安。null 可(テスト等)。
             void Progress(float v) { report?.Invoke(v); }
@@ -402,7 +408,7 @@ namespace Iroca {
 
                 // 全走査が共有する HSV 格子を 1 回だけ並列で作る(以降のパスは表引きするだけ)。渡された格子があれば
                 // それを使い、返すのは渡した側(built は null のままで、using は何もしない)。
-                using var built = reuseGrid == null ? BuildHsvGrid(pixels, width, height, ct) : null;
+                using var built = reuseGrid == null ? BuildHsvGrid(pixels, width, height, ct, selections) : null;
                 var hsv = reuseGrid ?? built;
                 Progress(0.30f);
 

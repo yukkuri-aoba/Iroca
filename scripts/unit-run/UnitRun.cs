@@ -2063,6 +2063,159 @@ namespace Iroca.UnitRun {
             Check.Equal(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection), "強さの領域が残っていない");
         }
 
+        // ─────────────── 選択キャッシュの引き取り(SelectionCache.TryAdopt) ───────────────
+        // 自動調整の漏れの確かめで回した選択を、塗る側(プレビューの確定段・ハーネスのセッション)のキャッシュへ写さずに移す口。
+        // 世代・原本のハッシュ・寸法が合わなければ引き取らないこと、引き取った後は元が持たないこと、引き取った項目がそのまま
+        // 引けること(強さも後段の範囲も)、元を返しても引き取った側は生きていることを見る。
+
+        private const int AdoptW = 7, AdoptH = 5;
+
+        private static float[] AdoptStrength(int seed) {
+            var rng = new Random(seed);
+            var s = new float[AdoptW * AdoptH];
+            for (int i = 0; i < s.Length; i++) {
+                s[i] = (float)rng.NextDouble();
+            }
+            return s;
+        }
+
+        private static readonly SelectionCache.PostBox s_adoptBox = new SelectionCache.PostBox {
+            Has = true, MinX = 1, MinY = 2, MaxX = 5, MaxY = 4,
+        };
+
+        private static unsafe void AdoptStore(SelectionCache c, string zoneId, string key, float[] s, int w = AdoptW, int h = AdoptH) {
+            fixed (float* p = s) {
+                c.StoreFrom(zoneId, key, p, s_adoptBox, null, null, 0, 0, w, h);
+            }
+        }
+
+        // 引けたら強さと後段の範囲を返す(引けなければ null)。
+        private static unsafe float[] AdoptRead(SelectionCache c, string zoneId, string key, out SelectionCache.PostBox box) {
+            var dst = new float[AdoptW * AdoptH];
+            fixed (float* p = dst) {
+                return c.TryCopy(zoneId, key, AdoptW, AdoptH, p, null, null, null, out box) ? dst : null;
+            }
+        }
+
+        public static void SelectionCacheAdopt_MovesEntriesAndOutlivesSource() {
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection);
+            var s = AdoptStrength(1);
+            using (var to = new SelectionCache()) {
+                int epoch = to.Epoch;
+                var from = new SelectionCache();
+                try {
+                    AdoptStore(from, "z", "k", s);
+                    Check.True(to.TryAdopt(from, epoch, AdoptW, AdoptH), "引き取れる");
+                    Check.True(AdoptRead(from, "z", "k", out _) == null, "引き取った後、元は持たない");
+                } finally {
+                    from.Dispose();
+                }
+                var got = AdoptRead(to, "z", "k", out var box);
+                Check.True(got != null, "元を返しても、引き取った側で引ける");
+                Check.True(MemoryMarshal.AsBytes(got.AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(s.AsSpan())), "強さがビットまで同じ");
+                Check.True(box.Has && box.MinX == 1 && box.MinY == 2 && box.MaxX == 5 && box.MaxY == 4, "後段の範囲も同じ");
+                Check.True(AdoptRead(to, "z", "other", out _) == null, "鍵が違えば当たらない");
+            }
+            Check.Equal(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection), "強さの領域が残っていない");
+        }
+
+        public static void SelectionCacheAdopt_ReplacesSameZone() {
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection);
+            var older = AdoptStrength(2);
+            var newer = AdoptStrength(3);
+            using (var to = new SelectionCache())
+            using (var from = new SelectionCache()) {
+                AdoptStore(to, "z", "old", older);
+                int epoch = to.Epoch;
+                AdoptStore(from, "z", "new", newer);
+                Check.True(to.TryAdopt(from, epoch, AdoptW, AdoptH), "引き取れる");
+                Check.True(AdoptRead(to, "z", "old", out _) == null, "同じゾーンの前の項目は差し替わる");
+                var got = AdoptRead(to, "z", "new", out _);
+                Check.True(got != null && got.SequenceEqual(newer), "引き取った項目が引ける");
+            }
+            Check.Equal(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection), "強さの領域が残っていない");
+        }
+
+        public static void SelectionCacheAdopt_RefusesAfterClear() {
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection);
+            using (var to = new SelectionCache())
+            using (var from = new SelectionCache()) {
+                int epoch = to.Epoch;
+                AdoptStore(from, "z", "k", AdoptStrength(4));
+                to.Clear();   // 始めた後に原本が替わったかもしれない
+                Check.True(!to.TryAdopt(from, epoch, AdoptW, AdoptH), "世代が違えば引き取らない");
+                Check.True(AdoptRead(to, "z", "k", out _) == null, "引き取っていない");
+                Check.True(AdoptRead(from, "z", "k", out _) != null, "元に残る");
+            }
+            Check.Equal(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection), "強さの領域が残っていない");
+        }
+
+        public static void SelectionCacheAdopt_RefusesDifferentSourceHash() {
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection);
+            using (var to = new SelectionCache())
+            using (var from = new SelectionCache()) {
+                int epoch = to.Epoch;
+                to.StoreSourceHash(AdoptW, AdoptH, 0x1111UL, to.Epoch);
+                from.StoreSourceHash(AdoptW, AdoptH, 0x2222UL, from.Epoch);
+                AdoptStore(from, "z", "k", AdoptStrength(5));
+                Check.True(!to.TryAdopt(from, epoch, AdoptW, AdoptH), "原本のハッシュが違えば引き取らない");
+                Check.True(AdoptRead(from, "z", "k", out _) != null, "元に残る");
+                from.StoreSourceHash(AdoptW, AdoptH, 0x1111UL, from.Epoch);
+                Check.True(to.TryAdopt(from, epoch, AdoptW, AdoptH), "同じハッシュなら引き取る");
+            }
+            Check.Equal(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection), "強さの領域が残っていない");
+        }
+
+        public static void SelectionCacheAdopt_RefusesOtherSizes() {
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection);
+            using (var to = new SelectionCache())
+            using (var from = new SelectionCache()) {
+                int epoch = to.Epoch;
+                AdoptStore(from, "z", "k", new float[(AdoptW + 1) * AdoptH], AdoptW + 1, AdoptH);
+                Check.True(!to.TryAdopt(from, epoch, AdoptW, AdoptH), "寸法の違う項目しか無ければ引き取らない");
+                AdoptStore(from, "y", "k", AdoptStrength(6));
+                to.StoreSourceHash(AdoptW + 1, AdoptH, 0x3333UL, to.Epoch);
+                Check.True(!to.TryAdopt(from, epoch, AdoptW, AdoptH), "引き取る側の原本の寸法が違えば引き取らない");
+            }
+            using (var to = new SelectionCache())
+            using (var from = new SelectionCache()) {
+                int epoch = to.Epoch;
+                AdoptStore(from, "z", "k", new float[(AdoptW + 1) * AdoptH], AdoptW + 1, AdoptH);
+                AdoptStore(from, "y", "k", AdoptStrength(7));
+                Check.True(to.TryAdopt(from, epoch, AdoptW, AdoptH), "寸法の合う項目だけ引き取る");
+                Check.True(AdoptRead(to, "y", "k", out _) != null, "合う項目は引ける");
+                Check.True(!to.TryGet("z", "k", AdoptW + 1, AdoptH), "合わない項目は引き取らない");
+                Check.True(from.TryGet("z", "k", AdoptW + 1, AdoptH), "合わない項目は元に残る");
+            }
+            Check.Equal(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection), "強さの領域が残っていない");
+        }
+
+        public static void SelectionCacheAdopt_RefusesDisposedOrSampled() {
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection);
+            var disposed = new SelectionCache();
+            int epoch = disposed.Epoch;
+            disposed.Dispose();
+            using (var from = new SelectionCache()) {
+                AdoptStore(from, "z", "k", AdoptStrength(8));
+                Check.True(!disposed.TryAdopt(from, epoch, AdoptW, AdoptH), "破棄した側へは引き取らない");
+                Check.True(AdoptRead(from, "z", "k", out _) != null, "元に残る");
+                using (var sampled = SelectionCache.ForSamples(new[] { 0, 1 })) {
+                    Check.True(!sampled.TryAdopt(from, sampled.Epoch, AdoptW, AdoptH), "標本だけの作りへは引き取らない");
+                }
+                using (var to = new SelectionCache()) {
+                    Check.True(!to.TryAdopt(to, to.Epoch, AdoptW, AdoptH), "自分からは引き取らない");
+                    Check.True(!to.TryAdopt(null, to.Epoch, AdoptW, AdoptH), "null からは引き取らない");
+                }
+            }
+            using (var to = new SelectionCache()) {
+                var gone = new SelectionCache();
+                AdoptStore(gone, "z", "k", AdoptStrength(9));
+                gone.Dispose();
+                Check.True(!to.TryAdopt(gone, to.Epoch, AdoptW, AdoptH), "破棄した元からは引き取らない");
+            }
+            Check.Equal(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection), "強さの領域が残っていない");
+        }
+
         // ─────────────── UV の地図: 作る間も 2 バイトで持つ道(UvChartMap.BuildBaked) ───────────────
         // BuildBaked は、島が 65535 未満ならラスタと距離を 2 バイトで持って描き・にじみ代を割り当てる。結果(各画素の持ち主・
         // 半径の外を落とすこと・同じ距離のときの持ち主の決まり方)が、4 バイトの道(Build → AssignPaddingBaked)と、

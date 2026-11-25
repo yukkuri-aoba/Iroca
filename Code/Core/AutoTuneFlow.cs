@@ -131,6 +131,11 @@ namespace Iroca {
         NativeBools _evidence;
         LeakState _leak;
         NativeBools _leakExclusion;
+        // 流れ専用の選択キャッシュ(作るのも返すのもこの流れ。プレビューのキャッシュは背景へ渡さない)。解析が原本のハッシュを
+        // 覚え、漏れの塊探しの選択(SimulateSelection)がそれを使う(全画素のハッシュを 1 回で済ませる)。keepSelection なら塊探しの
+        // 選択も保存し、終わった後に HandOverSelection で塗る側のキャッシュへ引き渡す。そうでなければハッシュだけを覚える作り
+        // (標本 0 個の ForSamples。選択は保存しない)。Dispose・HandOverSelection・ReleaseSelection で返す。
+        SelectionCache _selections;
         Stage _stage = Stage.Created;
         AutoTuneStep _current;
 
@@ -138,10 +143,14 @@ namespace Iroca {
         /// zoneCopy は調整するゾーンの写し(解析の間に変わらないもの)。pixels は作業解像度の原本(下原点。参照を足して持つ)。
         /// excluded(除外。true = 除外。null = 無し)・masks(選択を回すときのマスク。null = 無し)は引き取る。
         /// checkLeaks = false なら漏れの確かめをしない(ハーネスの --autotune。前から確かめない口なので。製品は常に true)。
+        /// keepSelection = true なら、漏れの塊探しで回した選択を流れ専用の選択キャッシュへ保存し、終わった後に
+        /// <see cref="HandOverSelection"/> で塗る側へ引き渡せるようにする(引き渡す先がある呼び手だけが立てる。保存の間、選択 1 本ぶん
+        /// — 4K で 64MB — を持つ)。
         /// </summary>
         public AutoTuneFlow(ColorZone zoneCopy, NativePixels pixels, NativeBools excluded, int maskW, int maskH,
-                            in RecolorSettings settings, MaskSnapshot masks, bool checkLeaks = true) {
+                            in RecolorSettings settings, MaskSnapshot masks, bool checkLeaks = true, bool keepSelection = false) {
             _checkLeaks = checkLeaks;
+            _selections = keepSelection && checkLeaks ? new SelectionCache() : SelectionCache.ForSamples(Array.Empty<int>());
             _zone = zoneCopy;
             _pixels = pixels.AddRef();
             _excluded = excluded;
@@ -331,7 +340,7 @@ namespace Iroca {
                 _excluded = null;   // 除外は解析だけが使うので渡しきる
                 return AutoTuneWork.ForAnalysis(_pixels.AddRef(), _evidence?.AddRef(), EvidenceWidth, EvidenceHeight,
                     _evidence != null ? _masks?.AddRef() : null, excluded, _zone, _mw, _mh, in _settings, packEvidence,
-                    _checkLeaks);
+                    _checkLeaks, _selections);
             }
             Expect(Stage.Leak);
             var lk = _leak;
@@ -425,12 +434,42 @@ namespace Iroca {
             lk?.Release();
         }
 
-        /// <summary>持ち物を全部返す(外す範囲も)。何度呼んでもよい。</summary>
+        /// <summary>持ち物を全部返す(外す範囲・流れ専用の選択キャッシュも)。何度呼んでもよい。</summary>
         public void Dispose() {
             ReleaseWork();
             var e = _leakExclusion;
             _leakExclusion = null;
             e?.Release();
+            ReleaseSelection();
+        }
+
+        /// <summary>
+        /// 漏れの塊探しで回した選択を、塗る側の選択キャッシュ <paramref name="to"/> へ引き渡す(製品の窓とハーネスが、結果を
+        /// ゾーンへ当てた後に呼ぶ。<see cref="SelectionCache.TryAdopt"/>)。expectedEpoch は、この流れを始める前に読んだ to の
+        /// 世代(<see cref="SelectionCache.Epoch"/>)。to は、この流れに渡した原本と同じ画素・同じ寸法で塗るキャッシュであること。
+        /// 引き渡せたら true。終わっていない(Done でない)・保存していない・世代や原本のハッシュが合わないなどで引き渡さなければ false
+        /// (塗る側は今までどおり計算し直す)。どちらでも流れ専用のキャッシュはここで返す(2 回目からは何もしない)。
+        /// 引き渡した選択を使うかは、塗る側の鍵(ゾーンの値・全体設定・マスクの寸法)と除外の比べ直しが決める。
+        /// </summary>
+        public bool HandOverSelection(SelectionCache to, int expectedEpoch) {
+            var own = _selections;
+            _selections = null;
+            if (own == null) {
+                return false;
+            }
+            try {
+                return _stage == Stage.Done && to != null
+                    && to.TryAdopt(own, expectedEpoch, TextureWidth, TextureHeight);
+            } finally {
+                own.Dispose();
+            }
+        }
+
+        /// <summary>流れ専用の選択キャッシュを返す(引き渡さずに終えるとき。何度呼んでもよい)。</summary>
+        public void ReleaseSelection() {
+            var own = _selections;
+            _selections = null;
+            own?.Dispose();
         }
 
         void BeginAnalysis(NativeBools evidence, int evW, int evH, string conventionalReason) {
@@ -707,12 +746,16 @@ namespace Iroca {
         readonly RecolorSettings _settings;
         readonly bool _packEvidence;
         readonly bool _checkLeaks;
+        // 流れ専用の選択キャッシュ(持ち主は流れ。参照の数を持たない作りで、流れが途中で返しても、返した後の保存・引きは何もしない
+        // だけ — SelectionCache の世代と破棄の確かめ)。解析の段だけが使う。
+        readonly SelectionCache _selections;
 
         AutoTuneWork(AutoTuneWorkKind kind, NativePixels px, NativeBools ev, int evW, int evH, MaskSnapshot masks,
                      NativeBools excluded, ColorZone zone, int mw, int mh, in RecolorSettings settings, bool packEvidence,
                      NativeBools sel, NativeBools[] coarse, NativeBools[] fine, bool[] coarseFlood, bool[] fineFlood, int w, int h,
-                     bool checkLeaks, ZoneAutoTuner.LeakVerdict[] coarseVerdicts = null) {
+                     bool checkLeaks, ZoneAutoTuner.LeakVerdict[] coarseVerdicts = null, SelectionCache selections = null) {
             _kind = kind;
+            _selections = selections;
             _checkLeaks = checkLeaks;
             _px = px;
             _ev = ev;
@@ -736,9 +779,10 @@ namespace Iroca {
         }
 
         internal static AutoTuneWork ForAnalysis(NativePixels px, NativeBools ev, int evW, int evH, MaskSnapshot masks,
-            NativeBools excluded, ColorZone zone, int mw, int mh, in RecolorSettings settings, bool packEvidence, bool checkLeaks)
+            NativeBools excluded, ColorZone zone, int mw, int mh, in RecolorSettings settings, bool packEvidence, bool checkLeaks,
+            SelectionCache selections = null)
             => new AutoTuneWork(AutoTuneWorkKind.Analysis, px, ev, evW, evH, masks, excluded, zone, mw, mh, in settings,
-                packEvidence, null, null, null, null, null, 0, 0, checkLeaks);
+                packEvidence, null, null, null, null, null, 0, 0, checkLeaks, null, selections);
 
         // coarseVerdicts: 判定の段で、測る段が同じ自動の提案を測った判定(無ければ null で、判定の段が測る)。
         internal static AutoTuneWork ForLeakStep(bool judge, NativePixels px, NativeBools ev, NativeBools sel,
@@ -767,14 +811,15 @@ namespace Iroca {
                 bool* excludedPtr = _excluded != null ? _excluded.Ptr : null;
                 outcome.Result = _ev != null
                     ? ZoneAutoTuner.AnalyzeWithEvidenceCore(_px.Ptr, _px.Width, _px.Height, _zone,
-                        _ev.Ptr, _evW, _evH, excludedPtr, _mw, _mh, ct, report)
-                    : ZoneAutoTuner.AnalyzeCore(_px.Ptr, _px.Width, _px.Height, _zone, excludedPtr, _mw, _mh, ct, report);
+                        _ev.Ptr, _evW, _evH, excludedPtr, _mw, _mh, ct, report, _selections)
+                    : ZoneAutoTuner.AnalyzeCore(_px.Ptr, _px.Width, _px.Height, _zone, excludedPtr, _mw, _mh, ct, report,
+                        selections: _selections);
                 // 適用後も持つ証拠(再現データ用)は 1bit/画素に詰めたもの。再現データを書き出せる環境でだけ控える。
                 outcome.EvidencePacked = _packEvidence ? MaskSnapshot.Pack(_ev) : null;   // null は null
                 if (_ev != null && _checkLeaks) {
                     // 確かめの失敗は自動調整を失敗にしない(取り消しだけは全体を止める)。
                     try {
-                        ProbeLeaks(_px, _ev, _evW, _evH, _zone, in _settings, _masks, ct, outcome);
+                        ProbeLeaks(_px, _ev, _evW, _evH, _zone, in _settings, _masks, ct, outcome, _selections);
                     } catch (Exception e) when (!(e is OperationCanceledException)) {
                         outcome.Discard();
                         outcome.Blobs = null;
@@ -796,7 +841,8 @@ namespace Iroca {
         // 回し(PixelProcessor.SimulateSelection)、証拠の外に塗られた塊を探す(ZoneAutoTuner.FindLeakBlobs)。
         // 確かめるのは証拠を使って導けたときだけ(従来の導出へ落ちたら、証拠は導出の根拠でない)。
         static void ProbeLeaks(NativePixels px, NativeBools evidence, int evW, int evH, ColorZone zone,
-            in RecolorSettings settings, MaskSnapshot masks, CancellationToken ct, AutoTuneWorkResult outcome) {
+            in RecolorSettings settings, MaskSnapshot masks, CancellationToken ct, AutoTuneWorkResult outcome,
+            SelectionCache selections) {
             if (!AutoTuneFlow.UsedEvidenceOf(outcome.Result)) {
                 return;
             }
@@ -811,7 +857,9 @@ namespace Iroca {
             outcome.Result.ApplyTo(tuned);
             var sel = NativeBools.AllocateUninitialized(w, h);
             try {
-                PixelProcessor.SimulateSelection(px.Ptr, w, h, tuned, in settings, masks, sel.Ptr, null, ct);
+                // selections は解析が同じ原本で作った流れ専用のキャッシュ(解析が覚えた原本のハッシュを使い、keepSelection なら
+                // この選択を通常の塗りと同じ所で保存する)。返す選択は渡さないときとビット単位で同じ(SimulateSelection の説明)。
+                PixelProcessor.SimulateSelection(px.Ptr, w, h, tuned, in settings, masks, sel.Ptr, null, ct, selections);
                 outcome.Blobs = ZoneAutoTuner.FindLeakBlobs(sel.Ptr, evidence.Ptr, w, h, ct);
                 if (outcome.Blobs.Length > 0) {
                     outcome.Selection = sel;   // 確かめが済むまでフローが持つ

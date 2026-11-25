@@ -66,6 +66,10 @@
     <!-- UV の地図(作る間も 2 バイトで持つ道と、4 バイトの道・焼き込まない道の突き合わせ)。 -->
     <Compile Include="..\..\Code\Core\UvChartMap.cs" />
     <Compile Include="..\..\Code\Core\NativeBools.cs" />
+    <!-- 選択キャッシュの引き取り(自動調整の漏れの確かめで回した選択を、塗る側のキャッシュへ写さずに移す。SelectionCache.TryAdopt)。 -->
+    <Compile Include="..\..\Code\Core\SelectionCache.cs" />
+    <Compile Include="..\..\Code\Core\NativeBitMask.cs" />
+    <Compile Include="..\..\Code\Core\MaskSnapshot.cs" />
     <Compile Include="UnitRun.cs" />
   </ItemGroup>
 

@@ -214,9 +214,12 @@ namespace Iroca {
             /// 原本の色の表(キャッシュにあればそれ、無ければ作ってキャッシュへ入れる)の「画素 → 色の番号」を借りる。表を作らない
             /// とき(色の種類が多すぎる・<see cref="DebugCaptureHooks.DisablePalette"/>)は null。作った表は直後の選択(SimulateSelection・
             /// プレビュー)が同じキャッシュから引くので、作る手間は前へ移るだけ。
+            /// <paramref name="selectionCache"/> があれば、原本のハッシュをそこから引く・そこへ覚える(<see cref="GetOrBuildPalette"/>。
+            /// 自動調整は、続けて同じ原本で回す選択(SimulateSelection)へ同じキャッシュを渡し、全画素のハッシュを 1 回で済ませる)。
             /// </summary>
-            internal static ColorIndexLease Acquire(Color32* pixels, int w, int h, ParallelOptions po) {
-                var p = GetOrBuildPalette(pixels, w, h, po);
+            internal static ColorIndexLease Acquire(Color32* pixels, int w, int h, ParallelOptions po,
+                SelectionCache selectionCache = null) {
+                var p = GetOrBuildPalette(pixels, w, h, po, null, selectionCache);
                 return p == null ? null : new ColorIndexLease(p);
             }
 

@@ -128,15 +128,19 @@ namespace Iroca {
         /// <param name="retryAiError">
         /// 前の推論のエラーをなかったことにして試し直すか。何ゾーンもまとめて頼むときは最初の 1 回だけ(直らないエラーでゾーンごとに待たせない)。
         /// </param>
+        /// <param name="keepSelection">
+        /// 漏れの確かめで回した選択を、当てた後の塗りへ引き渡すために持つか(<see cref="Run.HandOverSelection"/>)。引き渡す先
+        /// (同じ原本で塗るプレビューの選択キャッシュ)がある呼び手だけが立てる。立てると、終わるまで選択 1 本ぶんを持つ。
+        /// </param>
         internal static Run Start(ColorZone zone, NativePixels pixels, string sourceKey,
             NativeBools excluded, int maskW, int maskH, in RecolorSettings settings, MaskSnapshot masks,
-            bool retryAiError = true) {
+            bool retryAiError = true, bool keepSelection = false) {
             zone.EnsureId();
             // 背景の解析には live の zone を直接渡さず、値等価コピーを渡す。解析中も Undo などでゾーンが変わり得るため、
             // live を渡すと sampleColor の変化で混成サンプルから無意味な tolerance を導出し得る。
             // 原本の参照はフロー(AutoTuneFlow)が自分で足して持つので、ここでは足さない(足すと 1 つ返し忘れる)。
             var run = new Run(zone.Clone(), pixels, sourceKey,
-                excluded, maskW, maskH, settings, masks) { _retryAiError = retryAiError };
+                excluded, maskW, maskH, settings, masks, keepSelection) { _retryAiError = retryAiError };
             run.Begin();
             return run;
         }
@@ -306,9 +310,10 @@ namespace Iroca {
             private double _leakDeadline;
 
             internal Run(ColorZone zone, NativePixels pixels, string sourceKey,
-                NativeBools excluded, int maskW, int maskH, in RecolorSettings settings, MaskSnapshot masks) {
+                NativeBools excluded, int maskW, int maskH, in RecolorSettings settings, MaskSnapshot masks,
+                bool keepSelection = false) {
                 // 原本の参照はフローが足して持つ(終わったら返す)。
-                _flow = new AutoTuneFlow(zone, pixels, excluded, maskW, maskH, in settings, masks);
+                _flow = new AutoTuneFlow(zone, pixels, excluded, maskW, maskH, in settings, masks, keepSelection: keepSelection);
                 _sourceKey = sourceKey;
                 TextureWidth = pixels.Width;
                 TextureHeight = pixels.Height;
@@ -434,7 +439,12 @@ namespace Iroca {
 
             /// <summary>止める(待ちも解析も確かめも)。背景の計算は次のステップの間で抜ける。</summary>
             public void Cancel() {
-                if (Status == Status.Done || Status == Status.Failed) {
+                if (Status == Status.Done) {
+                    // 終わった後に当てずにやめた: 引き渡すはずだった選択を返す(外す範囲は呼び出し側の決まりのまま)。
+                    _flow.ReleaseSelection();
+                    return;
+                }
+                if (Status == Status.Failed) {
                     return;
                 }
                 _cts.Cancel();
@@ -476,12 +486,24 @@ namespace Iroca {
                 return region;
             }
 
-            /// <summary>外す範囲を返す(当て終えた・当てずにやめたら呼ぶ。2 回目からは何もしない)。</summary>
+            /// <summary>
+            /// 外す範囲と、引き渡さなかった選択(<see cref="HandOverSelection"/>)を返す(当て終えた・当てずにやめたら呼ぶ。
+            /// 2 回目からは何もしない)。
+            /// </summary>
             public void ReleaseLeakExclusion() {
                 var e = LeakExclusion;
                 LeakExclusion = null;
                 e?.Release();
+                _flow.ReleaseSelection();
             }
+
+            /// <summary>
+            /// 漏れの確かめで回した選択を、塗る側の選択キャッシュへ引き渡す(<see cref="Status.Done"/> で、結果をゾーンへ当てた後。
+            /// メインスレッド)。中身は Core の <see cref="AutoTuneFlow.HandOverSelection"/>(ハーネスも同じ関数を呼ぶ)。
+            /// expectedEpoch は始める前に読んだ to の世代。引き渡さなくても何も起きない(塗る側が計算し直すだけ)。
+            /// </summary>
+            internal bool HandOverSelection(SelectionCache to, int expectedEpoch)
+                => Status == Status.Done && _flow.HandOverSelection(to, expectedEpoch);
 
             /// <summary>再現データ用の入力(<see cref="Status.Done"/> のとき)。</summary>
             public Input ToInput() => new Input {

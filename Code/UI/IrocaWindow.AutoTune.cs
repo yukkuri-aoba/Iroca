@@ -31,6 +31,41 @@ namespace Iroca {
 
         [System.NonSerialized] private PickTune _pickTune;
 
+        // 自動調整の漏れの確かめで回した選択を、当てた後のプレビュー(確定段)へ引き渡す先(AutoTuneService.Run.HandOverSelection)。
+        // 始めたときのプレビューの選択キャッシュとその世代・原本(参照は足さない。同じものかを比べるだけ)。原本がプレビューの原本
+        // そのもの(trueSource)のときだけ作る。当てるときに 1 回だけ使う(_autoTune と対。取り消し・失敗では捨てる)。
+        private sealed class SelectionHandoff {
+            public SelectionCache cache;
+            public int epoch;
+            public NativePixels source;
+        }
+
+        [System.NonSerialized] private SelectionHandoff _autoTuneHandoff;
+
+        // 引き渡す先を控える(始める前に呼ぶ。世代は選択を作り始める前に読む)。原本がプレビューの原本でなければ null。
+        private SelectionHandoff PlanSelectionHandoff(bool trueSource, NativePixels pixels) {
+            var cache = trueSource ? _previewView?.Pipeline?.Selection : null;
+            if (cache == null) {
+                return null;
+            }
+            return new SelectionHandoff { cache = cache, epoch = cache.Epoch, source = pixels };
+        }
+
+        // 当てた後(ゾーンの値と外す範囲を書いた後、次のプレビューの作り直しより前)に、漏れの確かめで回した選択をプレビューの
+        // 選択キャッシュへ引き渡す。今もプレビューが同じキャッシュ・同じ原本・同じ寸法で塗るときだけ(違えば何もしない)。
+        // 世代と原本のハッシュは Core(SelectionCache.TryAdopt)が確かめ、使うかは塗る側の鍵と除外の比べ直しが決める。
+        private void HandOverAutoTuneSelection(AutoTuneService.Run run) {
+            var h = _autoTuneHandoff;
+            _autoTuneHandoff = null;
+            var pipeline = _previewView?.Pipeline;
+            if (h == null || pipeline == null || !ReferenceEquals(pipeline.Selection, h.cache)
+                || !ReferenceEquals(pipeline.TrueSource, h.source)
+                || pipeline.TrueSourceW != run.TextureWidth || pipeline.TrueSourceH != run.TextureHeight) {
+                return;
+            }
+            run.HandOverSelection(h.cache, h.epoch);
+        }
+
         // スポイトでクリックしたら、その場で自動調整までかけてから塗るか(Preferences の「いろか」。既定はオン。2026-11-23 ユーザー決定)。
         // オフなら、クリックしてすぐ新しいゾーンの許容範囲の初期値で塗る(「自動調整」はボタンで)。
         private static bool? s_autoTuneOnPick;
@@ -146,12 +181,14 @@ namespace Iroca {
                 // 除外マスクとマスクのスナップショットの持ち主は自動調整になる(終わったら返す)。スナップショットは、漏れの確かめで
                 // 導いた値の選択をプレビューと同じ設定・マスクで回すのに使う。
                 NativeBools excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
+                var handoff = PlanSelectionHandoff(trueSource, pixels);
                 var run = AutoTuneService.Start(zone, pixels, key, excluded, mw, mh,
-                    RecolorSettings.From(Session), BuildMaskSnapshot());
+                    RecolorSettings.From(Session), BuildMaskSnapshot(), keepSelection: handoff != null);
                 if (run.Status == AutoTuneService.Status.Failed) {
                     NotifyAutoTuneFailure(run);
                     return;
                 }
+                _autoTuneHandoff = handoff;
                 if (run.ConventionalReason == AutoTuneService.ReasonNoSamplePosition) {
                     ShowNotification(new GUIContent(Localization.AutoTuneNoSamplePosition));
                 }
@@ -237,13 +274,15 @@ namespace Iroca {
             try {
                 string key = trueSource && _previewView != null ? _previewView.TrueSourceCacheKey() : null;
                 NativeBools excluded = BuildCombinedExclusionForZone(tuneZone, out int mw, out int mh);
+                var handoff = PlanSelectionHandoff(trueSource, pixels);
                 var run = AutoTuneService.Start(tuneZone, pixels, key, excluded, mw, mh,
-                    RecolorSettings.From(Session), BuildMaskSnapshot());
+                    RecolorSettings.From(Session), BuildMaskSnapshot(), keepSelection: handoff != null);
                 if (run.Status == AutoTuneService.Status.Failed) {
                     NotifyPickWithoutTune(PickSkipReason(run), repick);
                     return false;
                 }
                 _autoTune = run;
+                _autoTuneHandoff = handoff;
                 _pickTune = new PickTune {
                     newZone = repick ? null : tuneZone,
                     zoneId = repick ? existing.id : null,
@@ -313,6 +352,7 @@ namespace Iroca {
             } finally {
                 leak?.Release();
             }
+            HandOverAutoTuneSelection(run);
             RecordAppliedAutoTune(run, zone, leakApplied, leakResult);
             if (index >= 0) {
                 SetCurrentZoneIndex(index);
@@ -476,6 +516,7 @@ namespace Iroca {
                     return;
                 case AutoTuneService.Status.Failed:
                     StopAutoTuneTick();
+                    _autoTuneHandoff = null;
                     if (pick != null) {
                         FinishPickWithoutTune(run, pick);
                     } else {
@@ -535,6 +576,7 @@ namespace Iroca {
             } finally {
                 leak?.Release();
             }
+            HandOverAutoTuneSelection(run);
             RecordAppliedAutoTune(run, targetZone, leakApplied, leakResult);
         }
 
@@ -599,6 +641,7 @@ namespace Iroca {
                 return;
             }
             StopAutoTuneTick();
+            _autoTuneHandoff = null;
             run.Cancel();
         }
 

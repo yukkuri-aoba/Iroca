@@ -359,6 +359,10 @@ namespace Iroca {
             public readonly List<ColorZone> Zones;
             public readonly SettingsCfg Settings;
             public readonly MaskWorkspace Masks = new MaskWorkspace();
+            // 塗る(Paint)ときの選択キャッシュ(窓のプレビューの確定段と同じ持ち越し: 次の塗りで、選択に効く入力が同じゾーンは選択を
+            // 写して使う)。自動調整の漏れの確かめで回した選択も、窓と同じ Core の口(AutoTuneFlow.HandOverSelection)で引き取る。
+            // 原本(Original・Source)はセッションの間変わらないので Clear しない。Dispose で返す。
+            public readonly SelectionCache Selections = new SelectionCache();
             // マスクの寸法の画素(寸法が原本と違うとき、提案を写した後に AA 包含をやり直すのに読む。製品の窓の SourceTexture)。
             public NativePixels MaskPixels;
             public SamProposalSource Sam;
@@ -398,8 +402,10 @@ namespace Iroca {
                 int asked0 = Sam.Asked.Count;
                 Sam.CountIndex = asked0;   // evidence.count に出す最初の問いだけ数える
                 var excluded = Masks.CombinedExclusion(z.id);
+                // 引き渡す先の世代は、選択を作り始める前に読む(窓の PlanSelectionHandoff と同じ)。
+                int selectionEpoch = Selections.Epoch;
                 var flow = new AutoTuneFlow(z.Clone(), Source, excluded, Masks.Width, Masks.Height,
-                    Settings.ToRecolorSettings(), Masks.ToSnapshot());
+                    Settings.ToRecolorSettings(), Masks.ToSnapshot(), keepSelection: true);
                 string failure = null;
                 string evidenceDiag = null;
                 try {
@@ -435,6 +441,8 @@ namespace Iroca {
                                 excl.Release();
                             }
                         }
+                        // 値と外す範囲を当てた後、漏れの確かめで回した選択を次の塗りへ引き渡す(窓と同じ Core の関数)。
+                        flow.HandOverSelection(Selections, selectionEpoch);
                     } else {
                         failure = flow.Failure + (flow.Error != null ? ": " + flow.Error.Message : "");
                     }
@@ -565,7 +573,7 @@ namespace Iroca {
                 var px = (Color32[])Original.Clone();
                 var snap = Masks.ToSnapshot();
                 try {
-                    ProcessZones(px, W, H, snap, Zones, Settings);
+                    ProcessZones(px, W, H, snap, Zones, Settings, Selections);
                 } finally {
                     snap.Release();
                 }
@@ -610,6 +618,7 @@ namespace Iroca {
 
             public void Dispose() {
                 Sam?.Release();
+                Selections.Dispose();
                 Source.Release();
                 MaskPixels?.Release();
                 Masks.Clear();

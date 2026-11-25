@@ -356,6 +356,86 @@ namespace Iroca {
             }
         }
 
+        /// <summary>
+        /// 今の世代(<see cref="Clear"/>・<see cref="Dispose"/> のたびに進む)。<see cref="TryAdopt"/> の expectedEpoch に、引き取る
+        /// 選択を作り始める前に読んだ値を渡す(その後に Clear された = 原本が替わったかもしれないなら引き取らない)。
+        /// </summary>
+        internal int Epoch {
+            get {
+                lock (_gate) {
+                    return _epoch;
+                }
+            }
+        }
+
+        /// <summary>
+        /// <paramref name="from"/> が保存した選択(寸法が w×h のもの)を、写さずに持ち主ごと引き取る(自動調整の漏れの確かめが
+        /// 回した選択を、後の塗りで使う。<see cref="AutoTuneFlow.HandOverSelection"/>)。引き取った項目は from から消え、同じゾーンの
+        /// 項目があれば差し替える。引き取らないとき(false): どちらかが標本だけの作り・引き取る側が破棄済みか世代が
+        /// <paramref name="expectedEpoch"/> と違う(Clear された)・from が破棄済み・どちらかが覚えた原本のハッシュが w×h 以外の
+        /// 寸法のもの・両方がハッシュを覚えていて値が違う・引き取る項目が無い。引き取った項目を使うかは、今までどおり塗る側の鍵と
+        /// 除外の比べ直し(<see cref="TryCopy"/>)が決めるので、項目の中身の正しさは保存したときと同じ契約。
+        /// lock は 1 つずつ取る(両方を同時に持たない)ので、互いに引き取り合ってもデッドロックしない。
+        /// 引き取らなかった項目は from に残り、from の <see cref="Dispose"/> で解放される。
+        /// </summary>
+        internal bool TryAdopt(SelectionCache from, int expectedEpoch, int w, int h) {
+            if (from == null || ReferenceEquals(from, this) || _samples != null || from._samples != null) {
+                return false;
+            }
+            bool hasHash;
+            ulong hash;
+            lock (_gate) {
+                if (_disposed || _epoch != expectedEpoch) {
+                    return false;
+                }
+                if (_hasSourceHash && (_sourceW != w || _sourceH != h)) {
+                    return false;
+                }
+                hasHash = _hasSourceHash;
+                hash = _sourceHash;
+            }
+            List<KeyValuePair<string, Entry>> taken = null;
+            lock (from._gate) {
+                if (from._disposed) {
+                    return false;
+                }
+                if (from._hasSourceHash && (from._sourceW != w || from._sourceH != h)) {
+                    return false;
+                }
+                if (hasHash && from._hasSourceHash && from._sourceHash != hash) {
+                    return false;
+                }
+                foreach (var kv in from._byZone) {
+                    if (kv.Value.W == w && kv.Value.H == h) {
+                        (taken ??= new List<KeyValuePair<string, Entry>>()).Add(kv);
+                    }
+                }
+                if (taken == null) {
+                    return false;
+                }
+                // 辞書から外すだけ(辞書の分の参照は、そのまま引き取る側の辞書の分になる)。
+                foreach (var kv in taken) {
+                    from._byZone.Remove(kv.Key);
+                }
+            }
+            lock (_gate) {
+                // 引き取る間に Clear・Dispose されていたら、引き取った項目を返して何もしない。
+                if (_disposed || _epoch != expectedEpoch) {
+                    foreach (var kv in taken) {
+                        Detach(kv.Value);
+                    }
+                    return false;
+                }
+                foreach (var kv in taken) {
+                    if (_byZone.TryGetValue(kv.Key, out var old)) {
+                        Detach(old);
+                    }
+                    _byZone[kv.Key] = kv.Value;
+                }
+            }
+            return true;
+        }
+
         public void Clear() {
             lock (_gate) {
                 _epoch++;
