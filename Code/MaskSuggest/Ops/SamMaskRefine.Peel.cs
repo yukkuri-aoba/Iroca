@@ -46,56 +46,40 @@ namespace Iroca {
             if (!TryMaskBounds(mask, w, h, po, out int x0, out int y0, out int x1, out int y1)) {
                 return;
             }
+            // 細い成分の有無は、外接矩形を 1px 広げただけの矩形で先に確かめる(たいていの提案は細くないので、ここで戻る)。
+            // 答えは広い矩形と同じ: 広い矩形が 1px の矩形からはみ出すのは、1px の矩形の辺がマスク外の 1 列(1 行)に
+            // なっている側だけ(画像の端で切れた側は、広い矩形も同じ端で切れる)。成分の分け方と run の長さは
+            // マスク画素だけで決まり、矩形の外の画素は 4 近傍の連結に関わらない。distIn は正確な L1 距離で、
+            // 広い矩形にだけあるマスク外の画素 q は、1px の矩形へ寄せた点(その辺のマスク外の列・行の上)より
+            // 近くならないので、マスク画素の distIn も同じ値になる。細さの判定が読むのはこの 3 つだけ。
+            int tx0 = Mathf.Max(0, x0 - 1), ty0 = Mathf.Max(0, y0 - 1);
+            int tx1 = Mathf.Min(w - 1, x1 + 1), ty1 = Mathf.Min(h - 1, y1 + 1);
             int margin = PeelRectMargin(d);
             x0 = Mathf.Max(0, x0 - margin); y0 = Mathf.Max(0, y0 - margin);
             x1 = Mathf.Min(w - 1, x1 + margin); y1 = Mathf.Min(h - 1, y1 + margin);
+            if (tx0 != x0 || ty0 != y0 || tx1 != x1 || ty1 != y1) {
+                using (var probe = new WorkScratch()) {
+                    ThinComponents(probe, mask, w, tx0, ty0, tx1 - tx0 + 1, ty1 - ty0 + 1, d, po, token,
+                                   out var probeRuns, out _, out _, out _, out bool probeAnyThin);
+                    probeRuns.Dispose();
+                    if (!probeAnyThin) {
+                        return;
+                    }
+                }
+            }
             int bw = x1 - x0 + 1, bh = y1 - y0 + 1;
             int ox = x0, oy = y0;   // ラムダ用の写し
             // 外接矩形の大きさの作業配列(提案が大きいと画像全体に近い)はプールから借りる。
             using var scratch = new WorkScratch();
 
-            // 行ごとの連(マスク画素の横並び。右端を含む)と、その連結成分(RunLabeler。矩形の左上が (0, 0))。
-            using var runs = RunLabeler.Label(mask, w, ox, oy, bw, bh, po, token);
-            int nRuns = runs.Count;
+            // 細い成分があった(か、2 つの矩形が同じで先の確かめを飛ばした)ので、広い矩形で数え直す
+            // (以降の処理は広い矩形の添字で動く)。
+            var thin = ThinComponents(scratch, mask, w, ox, oy, bw, bh, d, po, token,
+                                      out var runsOut, out int* runComp, out int[] area, out bool* local, out bool anyThin);
+            using var runs = runsOut;
+            int nComp = thin.Length;
             int[] runFirst = runs.RowStart;
-            int* runX0 = runs.X0, runX1 = runs.X1, runRoot = runs.Root;
-            // 成分の番号(0 = マスク外。1 から、成分の最初の画素の順)。
-            int* runComp = scratch.Int(nRuns, clear: false);   // 下のループが全 run に書く
-            int nComp = 1;
-            for (int r = 0; r < nRuns; r++) {
-                runComp[r] = runRoot[r] == r ? nComp++ : runComp[runRoot[r]];
-            }
-
-            // 細さ: 境界から d 以内の画素の割合。矩形の外はすべてマスク外なので、距離は矩形の中だけで
-            // 求めれば同じ。
-            bool* local = scratch.Bool(bw * bh, clear: false);   // 下で全行を写す
-            Parallel.For(0, bh, po, ly =>
-                new System.ReadOnlySpan<bool>(mask + (ly + oy) * w + ox, bw).CopyTo(new System.Span<bool>(local + ly * bw, bw)));
-            var distIn = DistanceToOpposite(scratch, local, bw, bh, inside: true, token);
-            int* runBand = scratch.Int(nRuns, clear: false);   // 下のループが全 run に書く
-            Parallel.For(0, bh, po, ly => {
-                for (int r = runFirst[ly]; r < runFirst[ly + 1]; r++) {
-                    int n = 0, row = ly * bw;
-                    for (int lx = runX0[r]; lx <= runX1[r]; lx++) {
-                        if (distIn[row + lx] <= d) {
-                            n++;
-                        }
-                    }
-                    runBand[r] = n;
-                }
-            });
-            var area = new int[nComp];
-            var band = new int[nComp];
-            for (int r = 0; r < nRuns; r++) {
-                area[runComp[r]] += runX1[r] - runX0[r] + 1;
-                band[runComp[r]] += runBand[r];
-            }
-            var thin = new bool[nComp];
-            bool anyThin = false;
-            for (int c = 1; c < nComp; c++) {
-                thin[c] = band[c] >= ThinBandFracMin * area[c];
-                anyThin |= thin[c];
-            }
+            int* runX0 = runs.X0, runX1 = runs.X1;
             if (!anyThin) {
                 return;
             }
@@ -348,6 +332,66 @@ namespace Iroca {
                         queue[tail++] = ni;
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// mask の矩形 (ox, oy, bw, bh) の中の連結成分と、その細さ(境界から d 以内の画素が ThinBandFracMin 以上)。
+        /// 戻り値は成分ごとの細さ(添字 0 = マスク外。長さが成分の数 + 1)。runs は呼ぶ側が Dispose する。
+        /// runComp(run ごとの成分の番号)・local(矩形の中のマスクの写し)は scratch から借りる。
+        /// 矩形の外にマスク画素が無いこと(外接矩形を広げた矩形であること)が前提。
+        /// </summary>
+        static bool[] ThinComponents(WorkScratch scratch, bool* mask, int w, int ox, int oy, int bw, int bh, int d,
+                                     ParallelOptions po, CancellationToken token,
+                                     out RunLabels runs, out int* runComp, out int[] area, out bool* local,
+                                     out bool anyThin) {
+            // 行ごとの連(マスク画素の横並び。右端を含む)と、その連結成分(RunLabeler。矩形の左上が (0, 0))。
+            runs = RunLabeler.Label(mask, w, ox, oy, bw, bh, po, token);
+            try {
+                int nRuns = runs.Count;
+                int[] runFirst = runs.RowStart;
+                int* runX0 = runs.X0, runX1 = runs.X1, runRoot = runs.Root;
+                // 成分の番号(0 = マスク外。1 から、成分の最初の画素の順)。
+                int* comp = runComp = scratch.Int(nRuns, clear: false);   // 下のループが全 run に書く
+                int nComp = 1;
+                for (int r = 0; r < nRuns; r++) {
+                    comp[r] = runRoot[r] == r ? nComp++ : comp[runRoot[r]];
+                }
+
+                // 細さ: 境界から d 以内の画素の割合。矩形の外はすべてマスク外なので、距離は矩形の中だけで
+                // 求めれば同じ。
+                bool* loc = local = scratch.Bool(bw * bh, clear: false);   // 下で全行を写す
+                Parallel.For(0, bh, po, ly =>
+                    new System.ReadOnlySpan<bool>(mask + (ly + oy) * w + ox, bw).CopyTo(new System.Span<bool>(loc + ly * bw, bw)));
+                var distIn = DistanceToOpposite(scratch, loc, bw, bh, inside: true, token);
+                int* runBand = scratch.Int(nRuns, clear: false);   // 下のループが全 run に書く
+                Parallel.For(0, bh, po, ly => {
+                    for (int r = runFirst[ly]; r < runFirst[ly + 1]; r++) {
+                        int n = 0, row = ly * bw;
+                        for (int lx = runX0[r]; lx <= runX1[r]; lx++) {
+                            if (distIn[row + lx] <= d) {
+                                n++;
+                            }
+                        }
+                        runBand[r] = n;
+                    }
+                });
+                area = new int[nComp];
+                var band = new int[nComp];
+                for (int r = 0; r < nRuns; r++) {
+                    area[comp[r]] += runX1[r] - runX0[r] + 1;
+                    band[comp[r]] += runBand[r];
+                }
+                var thin = new bool[nComp];
+                anyThin = false;
+                for (int c = 1; c < nComp; c++) {
+                    thin[c] = band[c] >= ThinBandFracMin * area[c];
+                    anyThin |= thin[c];
+                }
+                return thin;
+            } catch {
+                runs.Dispose();
+                throw;
             }
         }
 
