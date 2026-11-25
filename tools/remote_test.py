@@ -236,14 +236,30 @@ def snapshot(repo: Path, tmpdir: Path) -> str:
     return commit
 
 
+def _present_commits(repo: Path, shas: list[str]) -> list[str]:
+    """shas のうち手元のリポジトリにあるコミット(1 回の cat-file --batch-check で調べる)。"""
+    if not shas:
+        return []
+    r = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch-check"], capture_output=True,
+                       input="".join(s + "\n" for s in shas).encode())
+    return [ln.split()[0] for ln in r.stdout.decode(errors="replace").splitlines() if ln.endswith(" commit")
+            or " commit " in ln]
+
+
 def make_bundle(repo: Path, commit: str, remote_has: str | None, out: Path,
-                extra_refs: list[str] | tuple = ()) -> Path | None:
+                extra_refs: list[str] | tuple = (), remote_bases: list[str] | tuple = ()) -> Path | None:
     if remote_has == commit and not extra_refs:
         return None
-    excl = []
-    if remote_has and subprocess.run(["git", "-C", str(repo), "cat-file", "-e", remote_has + "^{commit}"],
-                                     capture_output=True).returncode == 0:
-        excl = ["^" + remote_has]
+    # 相手が持つコミットのうち手元にあるものを除外にする。前回のスナップショット(remote_has)が手元に無い(別の複製・
+    # worktree から送った)ときも、その祖先の本物のコミット(remote_bases)で差分だけ送る(2026-11-25。無いと履歴を
+    # 丸ごと送っていた)。
+    present = _present_commits(repo, [c for c in (remote_has, *remote_bases) if c])
+    excl = ["^" + c for c in present]
+    # 前回のスナップショットの木も除外に入れる。スナップショットは今回の祖先ではないので、コミットを ^ で渡しただけでは
+    # git が木の中身を「相手にある」と数えず、追跡されていない大きなファイル(dev_safe の _spike など)を毎回送り直して
+    # いた(2026-11-25、変更 5 ファイルで 160MB → 木を足して 6KB)。
+    if remote_has and remote_has in present:
+        excl.append("^" + git(repo, "rev-parse", remote_has + "^{tree}"))
     try:
         git(repo, "bundle", "create", "-q", str(out), SNAP_REF, *extra_refs, *excl)
     except RuntimeError as e:
@@ -557,7 +573,7 @@ def _prepare(t: Transport, run_id: str, argv: list[str], fetch: list[str], env_e
     for key, repo in (("main", REPO), ("dev_safe", DEV_SAFE)):
         commit = snapshot(repo, tmpdir)
         bundle = make_bundle(repo, commit, info["repos"].get(key), tmpdir / f"{key}.bundle",
-                             dll_refs if key == "main" else ())
+                             dll_refs if key == "main" else (), (info.get("bases") or {}).get(key) or ())
         if bundle is not None:
             size = bundle.stat().st_size
             log(f"{key}: {commit[:10]} を送ります（{size / 1e6:.1f} MB）")

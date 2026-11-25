@@ -133,6 +133,16 @@ def _rev(repo: Path, ref: str) -> str | None:
     return r.stdout.decode().strip() or None if r.returncode == 0 else None
 
 
+def _bases(repo: Path, n: int = 20) -> list[str]:
+    """前回のスナップショットの first-parent の祖先(呼び手の HEAD だった本物のコミット)を新しい順に n 個。
+    スナップショットそのものが呼び手に無い(別の複製・worktree から送った)とき、呼び手はこの中で手元にあるものを
+    バンドルの除外に使う(無いと履歴を丸ごと送っていた。2026-11-25、dev_safe で 160MB)。"""
+    if not (repo / ".git").exists():
+        return []
+    r = git(repo, "rev-list", "--first-parent", f"--max-count={n}", LAST_REF + "^", check=False)
+    return r.stdout.decode().split() if r.returncode == 0 else []
+
+
 def _dotnet_version() -> str | None:
     exe = shutil.which("dotnet")
     if exe is None:
@@ -222,6 +232,7 @@ def cmd_info(argv: list[str]) -> int:
         "desktop_sessions": _desktop_sessions(),
         "models": bool(models and models.is_dir() and any(models.glob("*.onnx"))),
         "repos": {"main": _rev(MAIN, LAST_REF), "dev_safe": _rev(DEV_SAFE, LAST_REF)},
+        "bases": {"main": _bases(MAIN), "dev_safe": _bases(DEV_SAFE)},
         "busy": _lock_busy(),
         "slot": SLOT,
         "slot_ready": (MAIN / ".git").exists(),
