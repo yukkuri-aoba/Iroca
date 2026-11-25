@@ -7,6 +7,15 @@ using UnityEngine;
 
 namespace Iroca {
     internal static unsafe partial class PixelProcessor {
+        /// <summary>照合のループが色ごとに配る値(色の表の番号ごとに 1 つ。<see cref="RunSelection"/> の中だけで使う)。</summary>
+        private struct PalMatchEntry {
+            public float Strength;
+            public float Pot;
+            public float Conf;
+            /// <summary>量子化のならし(TryQuantSmoothedColor)の対象になりうる色か(<see cref="QuantSmoothMayApply"/>)。</summary>
+            public bool QuantMay;
+        }
+
         /// <summary>
         /// 選択(照合 → 彩度の天井・閉領域の中性 → ハイライト → 連結成分 → 穴埋め → 境界回復 → ぼかし →
         /// 選択キャッシュへの保存)。ProcessPixelsArrayCore から中身を書き換えずに切り出したもの(0.4.0 の計画の 3-7a)。
@@ -86,32 +95,51 @@ namespace Iroca {
                 // ColorPick のマッチは画素の色(と色から求めた HSV)だけで決まる(位置を見るのは
                 // Rect モードだけ)ので、色の表があれば色ごとに 1 回だけ求めて配る。
                 // 色の数の長さ(ノイズの多い 4K で数百万色)なので、Mono のヒープに作らずプールから借りる。
-                float* palStrength = null, palPot = null, palConf = null;
+                // 色ごとの値は 1 色 1 つの構造体(16 バイト: strength・pot・conf・量子化のならしの対象になりうるか)に
+                // まとめる。画素ごとに 3 本の配列を別々に引いていたのを、1 回の引きにする(入る値は以前と同じ)。
+                PalMatchEntry* palMatch = null;
                 try {
                     if (palette != null && zone.mode == SelectionMode.ColorPick) {
                         int pc = palette.Count;
-                        palStrength = s_floatPool.Rent(pc);
-                        palPot = s_floatPool.Rent(pc);
-                        palConf = s_floatPool.Rent(pc);
+                        palMatch = (PalMatchEntry*)s_bytePool.Rent(checked(pc * sizeof(PalMatchEntry)));
                         Color32* pCol = palette.Colors;
                         float* pH = palette.H, pS = palette.S, pV = palette.V;
-                        float* outS = palStrength, outPot = palPot, outConf = palConf;
+                        PalMatchEntry* outMatch = palMatch;
+                        float quantTol = zone.tolerance;
                         ForEachPaletteChunk(pc, po, (k0, k1) => {
                             for (int k = k0; k < k1; k++) {
                                 matcher.GetMatchScoresPrecomputedHSV(pH[k], pS[k], pV[k], (Color)pCol[k],
                                     0, 0, w, h, out float ks, out float kp, out float kc);
-                                outS[k] = ks;
-                                outPot[k] = kp;
-                                outConf[k] = kc;
+                                PalMatchEntry* o = outMatch + k;
+                                o->Strength = ks;
+                                o->Pot = kp;
+                                o->Conf = kc;
+                                // ならしの早抜けは画素の色と許容幅だけで決まる(TryQuantSmoothedColor が最初に呼ぶのと
+                                // 同じ関数で、近傍も位置も見ない)。対象外の色の画素では、ならしは必ず false なので、
+                                // 近傍を読まずに表の値を使う(以前もその画素は表の値になっていた)。
+                                o->QuantMay = QuantSmoothMayApply(pCol[k], quantTol);
                             }
                         });
                     }
                     int* palIdxMatch = palette != null ? palette.Index : null;
+                    // 除外の立っていないマスクの行に当たる作業行では、画素ごとの除外の判定を飛ばす(ReapplyExclusion と
+                    // 同じ行の印。印の無い行には除外の画素が 1 つも無いので、IsExcludedAt は必ず false)。
+                    bool[] exRows = null;
+                    if (maskColOf != null) {
+                        exRows = new bool[maskH];
+                        int exWords = MaskWordCount(maskW, maskH);
+                        for (int wi = 0; wi < exWords; wi++) {
+                            if ((MaskWord(commonMask, wi) | MaskWord(zoneMask, wi)) != 0UL) {
+                                MarkMaskRows(exRows, wi, maskW, maskH);
+                            }
+                        }
+                    }
                     Parallel.For(0, h, po, y => {
                         int rowOff = y * w;
+                        bool rowMayExclude = exRows != null && exRows[maskRowBase[y] / maskW];
                         for (int x = 0; x < w; x++) {
                             int i = rowOff + x;
-                            if (IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask)) {
+                            if (rowMayExclude && IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask)) {
                                 strengthLocal[i] = 0f;
                                 if (highlightPotLocal != null) {
                                     highlightPotLocal[i] = 0f;
@@ -123,14 +151,15 @@ namespace Iroca {
                             }
 
                             float s, hPot, mc;
+                            PalMatchEntry* pm = palMatch != null ? palMatch + palIdxMatch[i] : null;
                             if (zone.mode == SelectionMode.ColorPick
+                                && (pm == null || pm->QuantMay)
                                 && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc)) {
                                 Color.RGBToHSV(qc, out float qh, out float qs, out float qv);
                                 matcher.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x, y, w, h,
                                     out s, out hPot, out mc);
-                            } else if (palStrength != null) {
-                                int k = palIdxMatch[i];
-                                s = palStrength[k]; hPot = palPot[k]; mc = palConf[k];
+                            } else if (pm != null) {
+                                s = pm->Strength; hPot = pm->Pot; mc = pm->Conf;
                             } else {
                                 matcher.GetMatchScoresPrecomputedHSV(pixH[HsvSlot(pixIdx, i)], pixS[HsvSlot(pixIdx, i)], pixV[HsvSlot(pixIdx, i)], (Color)originalPixels[i], x, y, w, h, out s, out hPot, out mc);
                             }
@@ -144,14 +173,8 @@ namespace Iroca {
                         }
                     });
                 } finally {
-                    if (palStrength != null) {
-                        s_floatPool.Return(palStrength);
-                    }
-                    if (palPot != null) {
-                        s_floatPool.Return(palPot);
-                    }
-                    if (palConf != null) {
-                        s_floatPool.Return(palConf);
+                    if (palMatch != null) {
+                        s_bytePool.Return((byte*)palMatch);
                     }
                 }
                 _sub.Mark(SpMatchLoop);

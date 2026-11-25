@@ -24,9 +24,7 @@ namespace Iroca {
         private static bool TryQuantSmoothedColor(Color32* px, int x, int y, int w, int h, float tolerance,
             out Color color) {
             Color32 c = px[y * w + x];
-            // 1 階調で HSV の彩度が許容幅以上に動く(彩度の刻み 1/(255·V) > tolerance)ほど暗い画素だけ
-            int vmax = Math.Max(c.r, Math.Max(c.g, c.b));
-            if (vmax * tolerance >= 1f) {
+            if (!QuantSmoothMayApply(c, tolerance)) {
                 color = default;
                 return false;
             }
@@ -60,6 +58,19 @@ namespace Iroca {
             float inv = 1f / (255f * n);
             color = new Color(sr * inv, sg * inv, sb * inv, c.a / 255f);
             return true;
+        }
+
+        /// <summary>
+        /// 量子化のならし(<see cref="TryQuantSmoothedColor"/>)の対象になりうるか: 1 階調で HSV の彩度が許容幅以上に動く
+        /// (彩度の刻み 1/(255·V) > tolerance)ほど暗い画素だけ。画素の色(RGB)と許容幅だけで決まるので、照合のループは
+        /// 色の表があれば色ごとに前もって求める。
+        /// インライン化を止めて、画素ごとの判定(TryQuantSmoothedColor の中)と色ごとの前計算が同じ機械語で
+        /// float の積と比較をするようにする(呼ぶ場所ごとに JIT が float の途中の精度を変えても、答えが分かれない)。
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool QuantSmoothMayApply(Color32 c, float tolerance) {
+            int vmax = Math.Max(c.r, Math.Max(c.g, c.b));
+            return !(vmax * tolerance >= 1f);
         }
 
         /// <summary>
