@@ -273,14 +273,21 @@ namespace Iroca {
                 && width >= MinTextureDim && height >= MinTextureDim
                 && evidence != null && evW > 0 && evH > 0;
             string fallbackDiag = null;
+            // HSV 格子(と色の表の借り物)はここで持ち、証拠を使えず従来の導出へ落ちたときはそのまま渡す。格子は画素と寸法
+            // だけで決まり(BuildHsvGrid)、従来の導出も同じ画素・寸法・ct で作るので、作り直した格子と同じ中身になる。
+            // 証拠の段が false で戻る道(芯が少ない・ドメインが足りない／汚染)は、どれも格子の値・控え(HueGate・色ごとの
+            // 控え)・格子の作業配列に触れる前に戻る(TryAnalyzeWithEvidenceInner の説明)ので、渡す格子は作りたてと同じ状態。
+            // 取り消し・例外のときも using がここで 1 回だけ返す(従来の導出は渡された格子を返さない)。
+            using var hsv = canAnalyze ? BuildHsvGrid(pixels, width, height, ct) : null;
             if (canAnalyze && TryAnalyzeWithEvidenceInner(pixels, width, height, zone,
-                    evidence, evW, evH, excluded, maskW, maskH, ct, report,
+                    evidence, evW, evH, excluded, maskW, maskH, hsv, ct, report,
                     out var result, out fallbackDiag)) {
                 return result;
             }
-            // 証拠を使えないときは従来の導出へ落ちる。証拠の段の HSV 格子と作業配列は、上の関数を出たところで
-            // 返してある(従来はこの解析が自分の格子を作る間も持ち続け、8K で約 400MB を二重に持っていた。点検 自-6)。
-            var fallback = AnalyzeCore(pixels, width, height, zone, excluded, maskW, maskH, ct, report);
+            // 証拠を使えないときは従来の導出へ落ちる。証拠の段の作業配列は、上の関数を出たところで返してあり、格子は
+            // 1 つだけを使い回す(従来は証拠の段の格子を返してから同じ格子を作り直していた。それ以前はこの解析が自分の
+            // 格子を作る間も証拠の段の格子を持ち続け、8K で約 400MB を二重に持っていた。点検 自-6)。
+            var fallback = AnalyzeCore(pixels, width, height, zone, excluded, maskW, maskH, ct, report, reuseGrid: hsv);
             if (fallbackDiag != null) {
                 // 従来の導出は正規化した色(normalizedSample。正規化しなければクリックの色)の彩度で有彩・無彩を分け、
                 // 照合は適用後のサンプル(同じ色)で分ける。
@@ -307,18 +314,21 @@ namespace Iroca {
 
         /// <summary>
         /// 証拠つきの解析の証拠の段。証拠で導けたら true と結果を返す。使えなければ false で、fallbackDiag に
-        /// 従来の導出へ落ちた理由(診断。null なら書かない)を返す。HSV 格子と作業配列はこの関数の中で持ち、出るときに返す。
+        /// 従来の導出へ落ちた理由(診断。null なら書かない)を返す。作業配列はこの関数の中で持ち、出るときに返す。
+        /// HSV 格子 hsv は呼び手が持つ(false のとき、呼び手が従来の導出へそのまま渡す)。そのため false で戻る道は、
+        /// どれも格子へ書く前(格子の値・HueGate の控え・色ごとの控え・hsv.scratch の借り物のどれにも触れる前)に戻ること。
+        /// 今の false の道は 2 つ(芯の列が MinNearSampleCount 未満・ドメインが足りない／汚染)で、そこまでに格子を読むのは
+        /// 正規化(TryNormalizeSample)とドメイン(BuildEvidenceDomain)の読み取りだけ。
         /// </summary>
         private static bool TryAnalyzeWithEvidenceInner(Color32* pixels, int width, int height,
             ColorZone zone,
             bool* evidence, int evW, int evH,
-            bool* excluded, int maskW, int maskH, CancellationToken ct,
+            bool* excluded, int maskW, int maskH, HsvGrid hsv, CancellationToken ct,
             System.Action<float> report, out TuneResult result, out string fallbackDiag) {
             fallbackDiag = null;
             void Progress(float v) { report?.Invoke(v); }
 
             result = BuildHeuristicDefault();
-            using var hsv = BuildHsvGrid(pixels, width, height, ct);
             // 証拠の解像度の作業配列(芯・収縮の作業・証拠の外)。読むのは下の正規化と縁クリックの救済のループまでなので、
             // 格子(hsv)と別に借り、ループを抜けたところで返す(格子に持たせると、導出・閉ループ検証の間も持ち続け、
             // 8K の証拠で 3 本 約 200MB)。途中で抜けたとき(早抜け・取り消し)は using が返す(Dispose は 2 回呼んでよい)。

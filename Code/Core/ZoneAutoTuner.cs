@@ -371,10 +371,15 @@ namespace Iroca {
         /// <summary>
         /// 解析の本体。excluded は maskW*maskH 要素以上を、解析が返るまで保つこと(null = マスク無し)。
         /// </summary>
+        /// <param name="reuseGrid">
+        /// 同じ pixels・width・height・ct で <see cref="BuildHsvGrid"/> が作り、まだ何も控えていない(作りたてと同じ状態の)
+        /// 格子。渡せば作り直さずにこれを使う(証拠つきの解析が従来の導出へ落ちたとき。格子は画素と寸法だけで決まるので
+        /// 中身は作り直したものと同じ)。持ち主は渡した側で、ここでは返さない。null なら今までどおり作って返す。
+        /// </param>
         internal static TuneResult AnalyzeCore(Color32* pixels, int width, int height,
             ColorZone zone,
             bool* excluded, int maskW, int maskH, CancellationToken ct,
-            Action<float> report) {
+            Action<float> report, HsvGrid reuseGrid = null) {
             // 進捗は「解析ステップの通過点」を単調増加で報告する。各ステップの実時間は
             // テクスチャ次第で読めないため、割合はステップ数ベースの目安。null 可(テスト等)。
             void Progress(float v) { report?.Invoke(v); }
@@ -395,8 +400,10 @@ namespace Iroca {
                 bool useMask = HasUsableMask(excluded, maskW, maskH);
                 bool* clusterMask = useMask ? excluded : null;
 
-                // 全走査が共有する HSV 格子を 1 回だけ並列で作る(以降のパスは表引きするだけ)。
-                using var hsv = BuildHsvGrid(pixels, width, height, ct);
+                // 全走査が共有する HSV 格子を 1 回だけ並列で作る(以降のパスは表引きするだけ)。渡された格子があれば
+                // それを使い、返すのは渡した側(built は null のままで、using は何もしない)。
+                using var built = reuseGrid == null ? BuildHsvGrid(pixels, width, height, ct) : null;
+                var hsv = reuseGrid ?? built;
                 Progress(0.30f);
 
                 // ── スポイト位置の正規化 ──
