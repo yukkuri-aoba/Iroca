@@ -175,42 +175,45 @@ namespace Iroca {
                     try {
                         var runX0C = runX0; var runX1C = runX1;
                         var rReach = runReach; var rWithin = runWithin; var rInBand = runInBand;
+                        // 3 つの判定は、どれも画素の H/S/V(= 色。表があれば色の番号で引く)とゾーンの定数だけで決まり、
+                        // 互いの結果で対象を絞らない(どれも run の全画素を数える)。そこで run の画素を 1 回だけなめ、
+                        // 画素ごとに添字を 1 回求めて 3 つの数を同時に数える。述語の式は以前のまま、数は整数なので、
+                        // 数える回数を 3 回から 1 回にしても同じ数になる。
                         Parallel.For(0, bh, ccPo, ly => {
                             int grb = (ly + minY) * w + minX;
                             for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++) {
                                 int x0 = runX0C[k], x1 = runX1C[k];
-                                if (useValueFloor) {
-                                    int n = 0;
-                                    for (int lx = x0; lx <= x1; lx++) {
-                                        if (pixV[HsvSlot(pixIdx, grb + lx)] >= shadowValueFloor) {
-                                            n++;
+                                int nReach = 0, nWithin = 0, nInBand = 0;
+                                for (int lx = x0; lx <= x1; lx++) {
+                                    int slot = HsvSlot(pixIdx, grb + lx);
+                                    if (useValueFloor && pixV[slot] >= shadowValueFloor) {
+                                        nReach++;
+                                    }
+                                    if (useSatCeil && pixS[slot] <= partSatCeiling) {
+                                        nWithin++;
+                                    }
+                                    if (useHueBand) {
+                                        if (pixS[slot] < hueMinSat) {
+                                            nInBand++;   // 色相が不安定 = 反証にしない
+                                        } else {
+                                            float hd = Mathf.Abs(pixH[slot] - sampleH);
+                                            if (hd > 0.5f) {
+                                                hd = 1f - hd;
+                                            }
+                                            if (hd < partHueBand) {
+                                                nInBand++;
+                                            }
                                         }
                                     }
-                                    rReach[k] = n;
+                                }
+                                if (useValueFloor) {
+                                    rReach[k] = nReach;
                                 }
                                 if (useSatCeil) {
-                                    int n = 0;
-                                    for (int lx = x0; lx <= x1; lx++) {
-                                        if (pixS[HsvSlot(pixIdx, grb + lx)] <= partSatCeiling) {
-                                            n++;
-                                        }
-                                    }
-                                    rWithin[k] = n;
+                                    rWithin[k] = nWithin;
                                 }
                                 if (useHueBand) {
-                                    int n = 0;
-                                    for (int lx = x0; lx <= x1; lx++) {
-                                        int gi = grb + lx;
-                                        if (pixS[HsvSlot(pixIdx, gi)] < hueMinSat) { n++; continue; }   // 色相が不安定 = 反証にしない
-                                        float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, gi)] - sampleH);
-                                        if (hd > 0.5f) {
-                                            hd = 1f - hd;
-                                        }
-                                        if (hd < partHueBand) {
-                                            n++;
-                                        }
-                                    }
-                                    rInBand[k] = n;
+                                    rInBand[k] = nInBand;
                                 }
                             }
                         });
