@@ -325,11 +325,30 @@ namespace Iroca {
             using var evScratch = new WorkScratch();
             Progress(0.25f);
 
-            // ── 証拠芯(収縮後)の格子リスト ──
+            // ── 証拠芯(収縮後)の格子リスト と、正規化の母集団(証拠の中で除外の外の格子の点)の列 ──
             ct.ThrowIfCancellationRequested();
             bool* core = ErodeMask(evScratch, evidence, evW, evH, EvErodeR, ct);
-            var coreList = CollectGridIndices(pixels, width, height, hsv, core, evW, evH,
-                excluded, maskW, maskH);
+            // 正規化の母集団の列(格子の番号 gi を格子の行の順に並べたもの)。以前は証拠の解像度の「証拠の外 ∪ 除外」の
+            // bool を埋め、正規化が全格子をなめてそれを引いて飛ばしていた。列は同じ点を同じ順に持つので、正規化の和は
+            // 同じ点を同じ順に足し、結果はビットまで同じ(Normalize.cs の TryNormalizeFromPopulation の説明)。
+            // 利用者の除外マスクは、証拠と同じ寸法でも違う寸法でも、寸法が正のときだけ母集団から外す(以前の「証拠の外」へ
+            // 重ねる場合と 2 枚目の除外として渡す場合は、どちらも除外マスクの寸法で格子から引く同じ式)。寸法が 0 なら
+            // 以前と同じく無視する。
+            bool* popExcluded = excluded != null && maskW > 0 && maskH > 0 ? excluded : null;
+            int* evPoints = evScratch.Int(hsv.gw * hsv.gh, clear: false);
+            List<GridPt> coreList;
+            int evPointCount;
+            if (popExcluded == excluded) {
+                // 芯の列と同じ除外なので、1 回の走査でまとめて作る。
+                coreList = new List<GridPt>();
+                evPointCount = CollectEvidencePoints(pixels, width, height, hsv, evidence, core, evW, evH,
+                    excluded, maskW, maskH, evPoints, coreList);
+            } else {
+                coreList = CollectGridIndices(pixels, width, height, hsv, core, evW, evH,
+                    excluded, maskW, maskH);
+                evPointCount = CollectEvidencePoints(pixels, width, height, hsv, evidence, null, evW, evH,
+                    null, 0, 0, evPoints, null);
+            }
             if (coreList.Count < EvMinErodedPixels) {
                 // 芯が細すぎる(細ベルト等) → 収縮なしの生セグメントで再試行
                 coreList = CollectGridIndices(pixels, width, height, hsv, evidence, evW, evH,
@@ -341,38 +360,8 @@ namespace Iroca {
             }
             Progress(0.40f);
 
-            // 「証拠の中だけ」を見るための除外マスク(非証拠画素 ∪ 実際の除外)。
-            int evLen = evW * evH;
-            bool* notEvidence = evScratch.Bool(evLen, clear: false);
-            // 利用者の除外マスクも母集団から外す。証拠と同じ寸法なら「証拠の外」へ重ね、違う寸法なら 2 枚目の除外として
-            // 正規化へ渡す(2026-11-13 まで、寸法が違うと無視していた: 辺が 8192 を超えるテクスチャや、保存したマスクが今の
-            // テクスチャと違う解像度のとき、除外した所の色が地色の母集団に入っていた)。
-            bool* alsoExcluded = null;
-            int alsoW = 0, alsoH = 0;
-            bool* overlay = null;   // 「証拠の外」へ重ねる除外(証拠と同じ寸法のとき)
-            if (excluded != null && maskW > 0 && maskH > 0) {
-                if (maskW == evW && maskH == evH) {
-                    overlay = excluded;
-                } else {
-                    alsoExcluded = excluded;
-                    alsoW = maskW;
-                    alsoH = maskH;
-                }
-            }
-            // 画素ごとに自分の画素だけを書く(!証拠 ∨ 除外)ので、行ごとに並列に回しても逐次と同じ値になる。
-            Parallel.For(0, evH, CoreParallelism.Options(ct), y => {
-                int row = y * evW;
-                int end = row + evW;
-                if (overlay != null) {
-                    for (int i = row; i < end; i++) {
-                        notEvidence[i] = !evidence[i] | overlay[i];
-                    }
-                } else {
-                    for (int i = row; i < end; i++) {
-                        notEvidence[i] = !evidence[i];
-                    }
-                }
-            });
+            // 利用者の除外マスクも母集団から外す(上の evPoints。2026-11-13 まで、寸法が違うと無視していた: 辺が 8192 を
+            // 超えるテクスチャや、保存したマスクが今のテクスチャと違う解像度のとき、除外した所の色が地色の母集団に入っていた)。
 
             // ── 1. 地色 = スポイト位置の正規化を「母集団 = セグメント」で行う ──
             // 面積最頻の色をそのまま地色にすると、面積最大の暗部やベタ塗りに落ちる(実測: ゴーグル
@@ -402,9 +391,9 @@ namespace Iroca {
             bool chromatic, contaminated;
             while (true) {
                 rep = click.sampleColor;
-                if (TryNormalizeSample(pixels, width, height, click, notEvidence, evW, evH, hsv,
+                if (TryNormalizeSample(pixels, width, height, click, null, 0, 0, hsv,
                         out Color normalized, out clickT, edgeBypass: true, tintedChromatic: tintRetry,
-                        alsoExcluded: alsoExcluded, alsoW: alsoW, alsoH: alsoH)) {
+                        points: evPoints, pointCount: evPointCount)) {
                     rep = normalized;
                 }
                 Color.RGBToHSV(rep, out repH, out repS, out repV);
@@ -453,7 +442,7 @@ namespace Iroca {
                 tintRetry = true;
                 retryDiag = " tint";
             }
-            // 芯(core)と証拠の外(notEvidence)を読むのはここまで。以降(導出・閉ループ検証)で同じ大きさを借りる所は、
+            // 芯(core)と正規化の母集団の列(evPoints)を読むのはここまで。以降(導出・閉ループ検証)で同じ大きさを借りる所は、
             // 返した塊を使い回す。
             evScratch.Dispose();
             var aZone = zone.Clone();
@@ -697,6 +686,44 @@ namespace Iroca {
                 }
             }
             return list;
+        }
+
+        // 証拠の中で除外の外にある不透明な格子の点の番号(gi)を、格子の行の順(CollectGridIndices と同じ順)に
+        // pointsOut(gw*gh 要素以上)へ書き、数を返す。coreOut が null でなければ、同じ走査で芯(core。証拠と同じ寸法)の
+        // 格子の列(CollectGridIndices(core, …, excluded, …) と同じ中身・同じ順)も足す。点ごとの条件は CollectGridIndices と
+        // 同じ(不透明 → マスク → 除外の順に見る。除外を引くのは芯か証拠に入る点だけ)。
+        private static int CollectEvidencePoints(Color32* pixels, int w, int h, HsvGrid hsv,
+            bool* evidence, bool* core, int evW, int evH, bool* excluded, int maskW, int maskH,
+            int* pointsOut, List<GridPt> coreOut) {
+            int n = 0;
+            int stride = hsv.stride;
+            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
+            var mkl = GridMaskLookup.Build(evidence, evW, evH, w, h, stride, hsv.gw, hsv.gh);   // evidence は必ずある
+            for (int y = 0, gy = 0; y < h; y += stride, gy++) {
+                int rowStart = y * w;
+                int grow = gy * hsv.gw;
+                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
+                    if (pixels[rowStart + x].a < PixelProcessor.OpaqueAlphaMin) {
+                        continue;
+                    }
+                    int mi = mkl.Row[gy] + mkl.Col[gx];
+                    bool inEvidence = evidence[mi];
+                    bool inCore = coreOut != null && core[mi];
+                    if (!inEvidence && !inCore) {
+                        continue;
+                    }
+                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
+                        continue;
+                    }
+                    if (inCore) {
+                        coreOut.Add(new GridPt { x = x, y = y, gi = grow + gx });
+                    }
+                    if (inEvidence) {
+                        pointsOut[n++] = grow + gx;
+                    }
+                }
+            }
+            return n;
         }
 
         // 証拠ドメイン = 芯のうち「地色と同じ素材の同じ陰影ランプ」とみなせる画素。

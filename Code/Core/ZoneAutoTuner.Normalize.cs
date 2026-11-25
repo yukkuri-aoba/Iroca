@@ -91,11 +91,13 @@ namespace Iroca {
         /// </summary>
         /// <param name="tintedChromatic">true なら、色味の乗ったグレーのクリックも有彩の手順で寄せる
         /// (証拠つき導出の寄せ直しだけが渡す。NormTintedChromaticPopFrac の説明参照)。</param>
+        /// <param name="points">null でなければ、母集団を全格子でなくこの格子の点の列(番号 gi。格子の行の順)から取る
+        /// (証拠つき導出が、証拠の中で除外の外の点を渡す。TryNormalizeFromPopulation の説明)。このとき excluded は見ない。</param>
         private static bool TryNormalizeSample(
             Color32* pixels, int w, int h, ColorZone zone,
             bool* excluded, int maskW, int maskH, HsvGrid hsv, out Color normalized,
             out float clickT, bool edgeBypass = false, bool tintedChromatic = false,
-            bool* alsoExcluded = null, int alsoW = 0, int alsoH = 0) {
+            int* points = null, int pointCount = 0) {
             normalized = zone.sampleColor;
             clickT = -1f;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
@@ -122,7 +124,7 @@ namespace Iroca {
                     sH, sS, sV, useHueBand: false, satFloor: 0f, satCeil: AchromaClusterSatMax,
                     satBinSpan: AchromaClusterSatMax,
                     satBins: NormAchromaSatBins, valBins: NormAchromaValBins, edgeBypass,
-                    out normalized, out clickT, alsoExcluded: alsoExcluded, alsoW: alsoW, alsoH: alsoH);
+                    out normalized, out clickT, points: points, pointCount: pointCount);
             }
 
             if (sS < AchromaSampleSatMax) {
@@ -134,7 +136,7 @@ namespace Iroca {
                     sH, sS, sV, useHueBand: true, satFloor: AchromaSampleSatMax, satCeil: float.MaxValue,
                     satBinSpan: 1f, satBins: NormSatBins, valBins: NormValBins, edgeBypass,
                     out normalized, out clickT, minPopFrac: NormTintedChromaticPopFrac,
-                    alsoExcluded: alsoExcluded, alsoW: alsoW, alsoH: alsoH);
+                    points: points, pointCount: pointCount);
             }
 
             // 無彩画素は Unity の RGBToHSV が hue=0 へ丸めるため、暖色クリックへ大量に誤混入する。
@@ -143,7 +145,7 @@ namespace Iroca {
             return TryNormalizeFromPopulation(pixels, w, h, zone, excluded, maskW, maskH, hsv,
                 sH, sS, sV, useHueBand: true, satFloor: satFloor, satCeil: float.MaxValue,
                 satBinSpan: 1f, satBins: NormSatBins, valBins: NormValBins, edgeBypass,
-                out normalized, out clickT, alsoExcluded: alsoExcluded, alsoW: alsoW, alsoH: alsoH);
+                out normalized, out clickT, points: points, pointCount: pointCount);
         }
 
         /// <summary>
@@ -153,13 +155,16 @@ namespace Iroca {
         /// <param name="minPopFrac">0 より大きいとき、母集団が除外されていない不透明画素のこの割合に満たなければ
         /// 寄せない。また明度のつながりをクリックの明度でなく母集団の最頻の明度から取る(クリックが母集団の
         /// 外に居る、色味の乗ったグレーの寄せ直し用)。</param>
+        /// <param name="points">null でなければ、全格子をなめる代わりにこの列の点(格子の番号 gi。格子の行の順・同じ点は
+        /// 1 回)だけを見る。列の点は、どれも不透明で母集団から外す除外の外にあること(作る側が確かめる)。excluded は見ない。
+        /// 全格子をなめて「列に無い点を飛ばす」のと同じ点を同じ順に見るので、数も double の和もビットまで同じになる。</param>
         private static bool TryNormalizeFromPopulation(
             Color32* pixels, int w, int h, ColorZone zone,
             bool* excluded, int maskW, int maskH, HsvGrid hsv,
             float sH, float sS, float sV, bool useHueBand, float satFloor, float satCeil,
             float satBinSpan, int satBins, int valBins, bool edgeBypass, out Color normalized,
             out float clickT, float minPopFrac = 0f,
-            bool* alsoExcluded = null, int alsoW = 0, int alsoH = 0) {
+            int* points = null, int pointCount = 0) {
             normalized = zone.sampleColor;
             clickT = -1f;
 
@@ -175,32 +180,25 @@ namespace Iroca {
             int opaque = 0;                      // 除外されていない不透明画素(minPopFrac の分母)
 
             int stride = hsv.stride;
-            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
-            // 2 枚目の除外(寸法が 1 枚目と違ってよい)。証拠つきの正規化が、証拠の外(1 枚目)と、証拠と寸法の違う
-            // 利用者の除外マスク(2 枚目)の両方を母集団から外すのに使う。無ければ null。
-            var ml2 = alsoW > 0 && alsoH > 0
-                ? GridMaskLookup.Build(alsoExcluded, alsoW, alsoH, w, h, stride, hsv.gw, hsv.gh) : null;
-            for (int y = 0, gy = 0; y < h; y += stride, gy++) {
-                int rowStart = y * w;
-                int grow = gy * hsv.gw;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++) {
-                    Color32 c = pixels[rowStart + x];
-                    if (c.a < PixelProcessor.OpaqueAlphaMin) {
-                        continue;
+            if (points != null) {
+                // 点の列をなめる(証拠つきの導出)。下の全格子のループと同じ本体を、同じ点・同じ順に回す。格子の行は
+                // 番号の昇順に並ぶので、行の先頭の番号を進めながら求める(点ごとの割り算をしない)。
+                int gw = hsv.gw;
+                int pgy = 0, rowGi = 0;
+                for (int k = 0; k < pointCount; k++) {
+                    int gi = points[k];
+                    while (gi >= rowGi + gw) {
+                        pgy++;
+                        rowGi += gw;
                     }
-                    if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
-                        continue;
-                    }
-                    if (ml2 != null && alsoExcluded[ml2.Row[gy] + ml2.Col[gx]]) {
-                        continue;
-                    }
+                    Color32 c = pixels[pgy * stride * w + (gi - rowGi) * stride];
                     opaque++;
-                    float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
+                    float pH = hsv.h[gi], pS = hsv.s[gi], pV = hsv.v[gi];
                     if (pS < satFloor) {
-                        continue;         // クリックより淡い側（＝別素材/脱彩の裾）を除外
+                        continue;
                     }
                     if (pS >= satCeil) {
-                        continue;         // 有彩の別素材を除外（無彩クリック時のみ有効な上限）
+                        continue;
                     }
                     if (useHueBand) {
                         float hd = Mathf.Abs(pH - sH);
@@ -208,7 +206,7 @@ namespace Iroca {
                             hd = 1f - hd;
                         }
                         if (hd >= AutoToneHueBand) {
-                            continue; // 別色相パーツを除外
+                            continue;
                         }
                     }
 
@@ -221,6 +219,48 @@ namespace Iroca {
                     sumB[i] += c.b / 255f;
                     vHist[vb]++;
                     total++;
+                }
+            } else {
+                var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, hsv.gw, hsv.gh);
+                for (int y = 0, gy = 0; y < h; y += stride, gy++) {
+                    int rowStart = y * w;
+                    int grow = gy * hsv.gw;
+                    for (int x = 0, gx = 0; x < w; x += stride, gx++) {
+                        Color32 c = pixels[rowStart + x];
+                        if (c.a < PixelProcessor.OpaqueAlphaMin) {
+                            continue;
+                        }
+                        if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) {
+                            continue;
+                        }
+                        opaque++;
+                        float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
+                        if (pS < satFloor) {
+                            continue;         // クリックより淡い側（＝別素材/脱彩の裾）を除外
+                        }
+                        if (pS >= satCeil) {
+                            continue;         // 有彩の別素材を除外（無彩クリック時のみ有効な上限）
+                        }
+                        if (useHueBand) {
+                            float hd = Mathf.Abs(pH - sH);
+                            if (hd > 0.5f) {
+                                hd = 1f - hd;
+                            }
+                            if (hd >= AutoToneHueBand) {
+                                continue; // 別色相パーツを除外
+                            }
+                        }
+
+                        int sb = Mathf.Clamp((int)(pS / satBinSpan * SB), 0, SB - 1);
+                        int vb = Mathf.Clamp((int)(pV * VB), 0, VB - 1);
+                        int i = sb * VB + vb;
+                        cnt[i]++;
+                        sumR[i] += c.r / 255f;
+                        sumG[i] += c.g / 255f;
+                        sumB[i] += c.b / 255f;
+                        vHist[vb]++;
+                        total++;
+                    }
                 }
             }
             if (total < AutoToneMinPixels) {
