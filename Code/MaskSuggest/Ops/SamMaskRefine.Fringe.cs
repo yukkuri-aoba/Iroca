@@ -130,36 +130,53 @@ namespace Iroca {
             //   ・mask なら i が非 mask なので distIn[j] <= strandHalf
             // を必ず満たす。よって下の帯の外は「読まれない」ことが厳密に言え、false のまま
             // 残しても出力は変わらない。房は境界近傍にしか出ないので実効面積は典型 1 割未満。
+            //
+            // 窓の合計(sr・sg・sb・n)と窓の中の有効なモードの並びはセル (gx, gy) だけで決まり、画素の色に依らない。
+            // そこで行の中で同じセルが続く間は 1 回だけ集計して使い回し、画素ごとには「有効なモードとの距離の最小」
+            // だけを求める。合計は同じ値の整数の和、モードの走査の順(yy→xx)と比較 `<` も以前と同じなので、
+            // minD・n・平均は以前とビット同一になる。
             int fringeBand = reach + strandHalf;
+            int fringeWindowCells = (2 * FringeWindowRadius + 1) * (2 * FringeWindowRadius + 1);
             bool* far = scratch.Bool(w * h, clear: true);
             bool* nearBg = scratch.Bool(w * h, clear: true);
             Parallel.For(0, h, po, y => {
                 int gy = y / d, row = y * w;
                 int gy0 = Mathf.Max(0, gy - FringeWindowRadius), gy1 = Mathf.Min(gh - 1, gy + FringeWindowRadius);
+                int* modeList = stackalloc int[fringeWindowCells];
+                int modeLen = 0;
+                int cachedGx = -1;
+                long sr = 0, sg = 0, sb = 0; int n = 0;
                 for (int x = 0; x < w; x++) {
                     int i = row + x;
                     if (mask[i] ? distIn[i] > strandHalf : distOut[i] > fringeBand) {
                         continue;
                     }
                     int gx = x / d;
-                    int gx0 = Mathf.Max(0, gx - FringeWindowRadius), gx1 = Mathf.Min(gw - 1, gx + FringeWindowRadius);
+                    if (gx != cachedGx) {
+                        cachedGx = gx;
+                        int gx0 = Mathf.Max(0, gx - FringeWindowRadius), gx1 = Mathf.Min(gw - 1, gx + FringeWindowRadius);
+                        sr = 0; sg = 0; sb = 0; n = 0;
+                        modeLen = 0;
+                        for (int yy = gy0; yy <= gy1; yy++) {
+                            int gr = yy * gw;
+                            for (int xx = gx0; xx <= gx1; xx++) {
+                                int g = gr + xx, o = g * 3;
+                                sr += sum[o]; sg += sum[o + 1]; sb += sum[o + 2]; n += cnt[g];
+                                if (cellValid[g]) {
+                                    modeList[modeLen++] = o;
+                                }
+                            }
+                        }
+                    }
                     var c = pixelsBottomUp[i];
-                    long sr = 0, sg = 0, sb = 0; int n = 0;
                     double minD = double.MaxValue;
-                    for (int yy = gy0; yy <= gy1; yy++) {
-                        int gr = yy * gw;
-                        for (int xx = gx0; xx <= gx1; xx++) {
-                            int g = gr + xx, o = g * 3;
-                            sr += sum[o]; sg += sum[o + 1]; sb += sum[o + 2]; n += cnt[g];
-                            if (!cellValid[g]) {
-                                continue;
-                            }
-                            double dr = c.r - cellMean[o], dg = c.g - cellMean[o + 1],
-                                   db = c.b - cellMean[o + 2];
-                            double dd = dr * dr + dg * dg + db * db;
-                            if (dd < minD) {
-                                minD = dd;
-                            }
+                    for (int k = 0; k < modeLen; k++) {
+                        int o = modeList[k];
+                        double dr = c.r - cellMean[o], dg = c.g - cellMean[o + 1],
+                               db = c.b - cellMean[o + 2];
+                        double dd = dr * dr + dg * dg + db * db;
+                        if (dd < minD) {
+                            minD = dd;
                         }
                     }
                     if (n < MinSamples) { nearBg[i] = true; continue; } // bg 不明 → 育てない側に倒す
