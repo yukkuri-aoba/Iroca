@@ -609,13 +609,16 @@ namespace Iroca {
             int selCount = 0;
             bool anyCand = false;
             var mergeGate = new object();
+            // 全画素が不透明(α ≥ OpaqueAlphaMin)と分かっていれば(hsv.AllOpaque)、下の `α < OpaqueAlphaMin` はどの画素でも
+            // 偽なので α を読まない(判定の結果は同じ)。
+            bool allOpaque = hsv.AllOpaque;
             Parallel.For(0, h, po,
                 () => (hist: new int[256], sel: 0, cand: false),
                 (y, _, local) => {
                     int rowOff = y * w;
                     for (int x = 0; x < w; x++) {
                         int i = rowOff + x;
-                        if (pixels[i].a < OpaqueAlphaMin) {
+                        if (!allOpaque && pixels[i].a < OpaqueAlphaMin) {
                             continue;
                         }
                         if (strength[i] > matchThr) {
@@ -790,12 +793,15 @@ namespace Iroca {
 
             // 前提: 色味のわずかに残った未選択の明るい画素(これが無ければ穴の輪郭は出ない)。選択画素の数も取る。
             int selCount = 0, anyCand = 0;
+            // 全画素が不透明(α ≥ OpaqueAlphaMin)と分かっていれば(hsv.AllOpaque)、下の `α < OpaqueAlphaMin` はどの画素でも
+            // 偽なので α を読まない(判定の結果は同じ)。
+            bool allOpaque = hsv.AllOpaque;
             Parallel.For(0, h, po, () => 0, (y, _, sel) => {
                 int rowOff = y * w;
                 bool cand = false;
                 for (int x = 0; x < w; x++) {
                     int i = rowOff + x;
-                    if (pixels[i].a < OpaqueAlphaMin) {
+                    if (!allOpaque && pixels[i].a < OpaqueAlphaMin) {
                         continue;
                     }
                     if (strength[i] > ColorZone.MatchStrengthFloor) { sel++; continue; }

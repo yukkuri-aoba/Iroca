@@ -16,9 +16,16 @@ namespace Iroca {
         internal readonly struct PixelHsv {
             internal readonly float* H, S, V;
             internal readonly int* Index;   // null = H/S/V が画素ごと
+            /// <summary>
+            /// 元画素(この HSV を求めた画素)の α がどれも OpaqueAlphaMin 以上と分かっているか。真なら、選択の段は
+            /// `α &gt;= OpaqueAlphaMin`(いつも真)・`α &lt; OpaqueAlphaMin`(いつも偽)の判定で α を読まなくてよい。
+            /// false は「分からない」(今までどおり α を読む)。真を入れるのは、同じ元画素から作った色の表の
+            /// <see cref="ColorPalette.MinAlpha"/> で確かめた所だけ。
+            /// </summary>
+            internal readonly bool AllOpaque;
 
-            internal PixelHsv(float* h, float* s, float* v, int* index) {
-                H = h; S = s; V = v; Index = index;
+            internal PixelHsv(float* h, float* s, float* v, int* index, bool allOpaque = false) {
+                H = h; S = s; V = v; Index = index; AllOpaque = allOpaque;
             }
 
         }

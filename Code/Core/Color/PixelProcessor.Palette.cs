@@ -29,6 +29,9 @@ namespace Iroca {
             // Mono のヒープにその分が残っていた)。最後の参照が外れたときに解放する。
             internal int* Index;
             internal float* H, S, V;
+            // 表の色(= 画像の全画素の色)の α の最小。表を作るときに色を並べながら求める(作った後は変えない)。
+            // 「α が OpaqueAlphaMin 未満の画素が 1 つも無い」は MinAlpha >= OpaqueAlphaMin と同じ(PixelHsv.AllOpaque へ渡す)。
+            internal byte MinAlpha;
             // 番号 → OkLab.RgbToOklab(byte 版) の L と、C = sqrt(a²+b²)。EnsureOklab で初めて要るときに作る
             // (ヒープの外。L と C を Count ずつ並べた _oklabMem が持つ。0.4.0 の 3-12 で管理配列から移した)。
             internal float* OkL, OkC;
@@ -372,6 +375,7 @@ namespace Iroca {
                 colorsMem = new NativeBuffer((long)count * sizeof(Color32), NativeUsage.Palette);
                 Color32* colors = (Color32*)colorsMem.Ptr;
                 int n = 0;
+                byte minAlpha = byte.MaxValue;   // 色の α の最小(どの画素の色も表にあるので、全画素の α の最小と同じ)
                 for (int s = 0; s < capacity; s++) {
                     long v = slots[s];
                     if (v == 0) {
@@ -380,6 +384,9 @@ namespace Iroca {
                     uint key = (uint)(v - 1);
                     slotToId[s] = n;
                     colors[n++] = new Color32((byte)key, (byte)(key >> 8), (byte)(key >> 16), (byte)(key >> 24));
+                    if ((byte)(key >> 24) < minAlpha) {
+                        minAlpha = (byte)(key >> 24);
+                    }
                 }
                 hsvMem = new NativeBuffer(3L * count * sizeof(float), NativeUsage.Palette);
                 float* hh = (float*)hsvMem.Ptr, ss = hh + count, vv = ss + count;
@@ -400,7 +407,7 @@ namespace Iroca {
                 });
 
                 sub?.Mark(SpPaletteRemap);
-                built = new ColorPalette(count, colorsMem, indexMem, hsvMem);
+                built = new ColorPalette(count, colorsMem, indexMem, hsvMem) { MinAlpha = minAlpha };
                 return built;
             } finally {
                 // ハッシュ表とスロット → 番号の対応は、作れたときも返す(表は持たない)。

@@ -81,7 +81,11 @@ namespace Iroca {
             // 不透明な選択が 1 つも無いとき(全部が半透明のテクスチャなど)は、何も絞らずに返す。下の「離れた半透明を外す」
             // 段(DropDetachedTranslucent)も走らないが、これは仕様: 残す基準になる不透明な成分が無いので、半透明の島は
             // どれも外さない(外すと、全部が半透明の素材で、離れた同じ色の島がまとめて落ちる)。
-            if (!TryComputeMatchedBBox(strength, px, w, h, 0f,
+            // 全画素が不透明(α ≥ OpaqueAlphaMin)と分かっていれば(hsv.AllOpaque。px と同じ元画素から作った色の表で確かめた)、
+            // この関数の α の判定(`α >= OpaqueAlphaMin` はいつも真、`α < OpaqueAlphaMin` はいつも偽)を読まずに決める。
+            // 外接矩形は px = null(α を見ない)で同じ答え。
+            bool allOpaque = hsv.AllOpaque;
+            if (!TryComputeMatchedBBox(strength, allOpaque ? null : px, w, h, 0f,
                     out int minX, out int minY, out int maxX, out int maxY, ct)) {
                 return; // 不透明なマッチが皆無
             }
@@ -108,9 +112,9 @@ namespace Iroca {
                     int n = 0, lx = 0;
                     while (lx < bw) {
                         int gi = grb + lx;
-                        if (!(strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin)) { lx++; continue; }
+                        if (!(strength[gi] > 0f && (allOpaque || px[gi].a >= OpaqueAlphaMin))) { lx++; continue; }
                         int s0 = lx;
-                        while (lx < bw && strength[grb + lx] > 0f && px[grb + lx].a >= OpaqueAlphaMin) {
+                        while (lx < bw && strength[grb + lx] > 0f && (allOpaque || px[grb + lx].a >= OpaqueAlphaMin)) {
                             lx++;
                         }
                         if (rx0 != null) { rx0[n] = s0; rx1[n] = lx - 1; }
@@ -312,8 +316,12 @@ namespace Iroca {
                 }
                 runs.Dispose();
             }
-            DropDetachedTranslucent(strength, px, w, h,
-                seedX >= 0 ? seedX : anchorX, seedX >= 0 ? seedY : anchorY, ct);
+            // 半透明の選択画素(strength > 0 かつ α < OpaqueAlphaMin)を外す段は、全画素が不透明なら対象が 1 画素も無く、
+            // 最初の数え上げで 0 個になってそのまま戻る(ほかには何も書かない)ので、全画素の走査ごと飛ばす。
+            if (!allOpaque) {
+                DropDetachedTranslucent(strength, px, w, h,
+                    seedX >= 0 ? seedX : anchorX, seedX >= 0 ? seedY : anchorY, ct);
+            }
         }
 
         /// <summary>

@@ -376,7 +376,10 @@ namespace Iroca {
                         }
                     });
                 }
-                var hsv = new PixelHsv(pixH, pixS, pixV, pixIdx);
+                // 色の表は originalPixels から作った(上の GetOrBuildPalette)ので、その α の最小が OpaqueAlphaMin 以上なら
+                // originalPixels の全画素が不透明(選択の段はこの hsv と originalPixels を組で受け取る)。表が無ければ分からない。
+                var hsv = new PixelHsv(pixH, pixS, pixV, pixIdx,
+                    allOpaque: palette != null && palette.MinAlpha >= OpaqueAlphaMin);
                 _phaseTicks[PhHsv] += Stopwatch.GetTimestamp() - _tp;
 
                 debug?.BeginCapture(w, h);
