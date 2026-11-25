@@ -373,6 +373,9 @@ namespace Iroca {
                     Console.SetError(TextWriter.Null);
                     DebugCaptureHooks.ParallelismOverride = parallelism;
                     DebugCaptureHooks.DisablePalette = disablePalette;
+                    // 計測の内訳を出す口(--zones・--session が購読する)を外す。外さないと依頼のたびに購読が重なり、
+                    // 次の依頼で PHASE の行が重複して出ていた(2026-11-25)。購読していない依頼では何もしない。
+                    DebugCaptureHooks.OnPerfReport -= WritePerfPhases;
                 }
                 if (!fatal) {
                     PixelProcessor.ReleaseWorkBuffers();
@@ -395,6 +398,22 @@ namespace Iroca {
             // --serve: 1 行 1 件の依頼を同じプロセスで続けて処理する(テストの起動の固定費を省く。RunServe の説明)。
             if (args.Length == 1 && args[0] == "--serve") {
                 return RunServe();
+            }
+
+            // 並列テスト実行時にスレッド数を絞れるようにする(既定=未設定=製品と同じ
+            // CoreParallelism.Default)。設定したときだけ効くので、通常実行の挙動は変わらない。
+            // 2026-11-25 まで、この読み込みは --sam-propose・--oneshot・--script の分岐より後にあり、ワンショット系は
+            // 並列のテストでも既定のスレッド数(コア数 − 2)で走っていた。
+            var threadsEnv = Environment.GetEnvironmentVariable("IROCA_HARNESS_THREADS");
+            if (!string.IsNullOrEmpty(threadsEnv)
+                && int.TryParse(threadsEnv, out int threads) && threads > 0) {
+                DebugCaptureHooks.ParallelismOverride = threads;
+            }
+
+            // IROCA_NO_PALETTE=1: 色の表を作らず、全部の段を画素ごとの計算で回す(色の表あり・なしの
+            // パリティ検査用。scripts/golden/test_palette_parity.py)。設定したときだけ効く。
+            if (Environment.GetEnvironmentVariable("IROCA_NO_PALETTE") == "1") {
+                DebugCaptureHooks.DisablePalette = true;
             }
 
             // --selkey-audit: 入力画像不要の特別モード(選択キャッシュキーの網羅性監査)。
@@ -479,20 +498,6 @@ namespace Iroca {
             // <outPrefix>_raster.raw / _owner.raw / _dist.raw(int32、行 0 = 下端)と要約 JSON を出す。
             if (args.Length >= 6 && args[0] == "--uvcharts") {
                 return RunUvCharts(args[1], args[2], int.Parse(args[3]), int.Parse(args[4]), args[5]);
-            }
-
-            // 並列テスト実行時にスレッド数を絞れるようにする(既定=未設定=製品と同じ
-            // CoreParallelism.Default)。設定したときだけ効くので、通常実行の挙動は変わらない。
-            var threadsEnv = Environment.GetEnvironmentVariable("IROCA_HARNESS_THREADS");
-            if (!string.IsNullOrEmpty(threadsEnv)
-                && int.TryParse(threadsEnv, out int threads) && threads > 0) {
-                DebugCaptureHooks.ParallelismOverride = threads;
-            }
-
-            // IROCA_NO_PALETTE=1: 色の表を作らず、全部の段を画素ごとの計算で回す(色の表あり・なしの
-            // パリティ検査用。scripts/golden/test_palette_parity.py)。設定したときだけ効く。
-            if (Environment.GetEnvironmentVariable("IROCA_NO_PALETTE") == "1") {
-                DebugCaptureHooks.DisablePalette = true;
             }
 
             // --leak-probe / --leak-judge: 自動調整の後の漏れの確かめ(ZoneAutoTuner.Leak.cs)を、AI の提案を外から渡して回す。

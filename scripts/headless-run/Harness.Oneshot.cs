@@ -57,6 +57,7 @@ namespace Iroca {
             private readonly bool _mirror;
             private readonly string _cache;
             private readonly float[] _givenFull;
+            private OrtSamInference _ai;
             public readonly List<(AutoTuneAsk ask, SamProposalDiag diag, int count)> Asked = new List<(AutoTuneAsk, SamProposalDiag, int)>();
             public string FullEmbeddingOrigin;
             // 自動調整の提案が届いたとき(--emit-dir が書く。範囲は読むだけ)。
@@ -90,7 +91,9 @@ namespace Iroca {
                     qu = Round9(u);
                     qv = Round9(1.0 - v);
                 }
-                var ai = new OrtSamInference(_models, _sam, _cache, _givenFull);
+                // 推論の口はこのソース(画像 1 枚)で 1 つを使い回す(製品もテクスチャごとに 1 つ)。問いごとに作ると、全体の
+                // 埋め込みを控えから引くたびに 4K → 1024 の縮小と入力の SHA-256 をやり直していた(2026-11-25)。
+                var ai = _ai ??= new OrtSamInference(_models, _sam, _cache, _givenFull);
                 var p = SamProposalFlow.RunSynchronously(ai, _sam, "harness", qu, qv, g, use, ct, out diag);
                 FullEmbeddingOrigin ??= ai.FullEmbeddingOrigin;
                 if (_mirror) {
