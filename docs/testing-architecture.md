@@ -483,6 +483,14 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
   `-n 8 --dist loadfile`（8 並列が上限。2026-11-12 に 4 から上げた。dev_safe のテストを含む実行では、論理コア数の半分と
   空きメモリに収まる数まで自動で減る。下の「並列数は…自動的に減る」。`loadfile` はモジュール単位の割り当てで、これを外すと
   module スコープ fixture が各ワーカーで再実行されて逆に遅くなる）。直列に戻すなら `-n 0`。CI は `ci.yml` が `-n 4` を渡す。
+  **重いファイルだけ塊に分ける**（2026-11-25〜）: `loadfile` は 1 ファイルを 1 ワーカーに固めるので、1 ファイルが平均より長いと
+  そのワーカーだけ最後まで走る（C# を変えた直後の FULL で `test_autotune_evidence.py` 350 秒・`test_recolor_quality_gate.py` 315 秒、
+  ほかは 188〜207 秒）。`dev_safe/Tests/conftest.py` の `pytest_xdist_make_scheduler` が `LoadFileScheduling` を継承し、表
+  `_SPLIT_FILES` のファイルだけ nodeid の crc32 を塊数で割った余りで 4 塊に分けて別ワーカーへ配る（ほかは今のファイル単位。
+  台帳・ファイル名は動かさない）。分けたいファイルが増えたら表に足す。`-p no:xdist`・`-n 0` では何もしない。
+  `IROCA_XDIST_SPLIT=0` で従来のファイル単位に戻る。G83・同じ DLL・実行キャッシュを効かせない FULL で 695 → 555 秒
+  （分けないと 2 ファイルのワーカーが 692・584 秒、ほかは約 500〜520 秒で待っていた）。温まった状態（約 100 秒）では
+  もともと釣り合っていて、差は実行ごとの揺れの範囲。
 
 ### 変更から回すテストを選ぶ（`tools/test_select.py`。2026-11-23〜）
 
