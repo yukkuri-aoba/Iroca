@@ -256,7 +256,8 @@ namespace Iroca {
             // 照合(ColorZone.Matcher。ColorPick)の結果は、画素の色(照合へ渡す 0〜1 の色)と、その色から格子が求めた HSV
             // だけで決まる(どちらも RGB だけの関数で、x, y・マスクは読まない)。同じ RGBA の画素は色の表で同じ番号になるので、
             // 番号ごとに 1 回だけ照合して覚えた結果を配れば、画素ごとに照合したときとビット単位で同じ判定になる。
-            // 照合へ渡す HSV は今までどおり格子の値(番号の最初の画素で求めたもの)で、表の HSV は使わない。
+            // 照合へ渡す HSV は格子の値(番号の最初の画素の格子の点の値)。表があるとき格子は表の HSV から埋める(BuildHsvGrid)が、
+            // 表の HSV は同じ RGB に同じ RGBToHSV を当てた値なので、点ごとに求めた値とビット単位で同じ。
             // 格子の点は 4K で 255〜420 万、色の種類は 1.3 万〜9.6 万なので、照合の回数は数十分の 1 になる。
             // 表が無いとき(色の種類が多すぎる・DisablePalette)は colorId が null で、画素ごとに照合する。
             /// <summary>画素(y * w + x)→ 色の番号(色の表の Index)。表が無ければ null。</summary>
@@ -303,6 +304,12 @@ namespace Iroca {
 
         // selections: 原本のハッシュを引く・覚える選択キャッシュ(ColorIndexLease.Acquire。自動調整の流れ専用。null 可)。
         // ハッシュは色の表のキャッシュの鍵にだけ使い、格子の中身は変えない。
+        // 色の表を先に借り、借りられたら格子の点の HSV を表の H・S・V(番号 → 値)から写す(点ごとに RGBToHSV を呼ばない)。
+        // 表の値は、その色を (Color)Color32 にして Color.RGBToHSV へ渡した結果(PixelProcessor.Palette.cs の TryBuildPalette)。
+        // 格子が点ごとに渡す new Color(r/255f, g/255f, b/255f, 1f) とは α だけが違い、(Color)Color32 の r・g・b も同じ r/255f で、
+        // RGBToHSV は α を読まないので、同じ float が入る(Unity の DLL で 1677 万色すべて一致を確かめた。プレビューの処理も
+        // 表の HSV と画素ごとの RGBToHSV を同じものとして使っている。PixelProcessor.ProcessPixelsArrayCore)。
+        // 表が無いとき(色の種類が多すぎる・DisablePalette)は今までどおり点ごとに求める。
         private static HsvGrid BuildHsvGrid(Color32* pixels, int w, int h, CancellationToken ct,
             SelectionCache selections = null) {
             int stride = (w <= 2048) ? 1 : 2;
@@ -313,17 +320,32 @@ namespace Iroca {
             grid.v = grid.scratch.Float(gw * gh, clear: false);
             var po = CoreParallelism.Options(ct);
             try {
+                // 色ごとの照合の控えに使う色の番号(HsvGrid の説明)。表が作られなければ画素ごとに照合する。
+                // 借りたらすぐ格子に持たせる(以降で取り消されても Dispose が返す)。
+                var colors = PixelProcessor.ColorIndexLease.Acquire(pixels, w, h, po, selections);
+                grid.AttachColors(colors);
+                int* colorId = colors != null ? colors.Index : null;
+                float* tH = colors != null ? colors.H : null;
+                float* tS = colors != null ? colors.S : null;
+                float* tV = colors != null ? colors.V : null;
                 Parallel.For(0, gh, po, gy => {
                     int row = (gy * stride) * w;
                     int grow = gy * gw;
-                    for (int gx = 0; gx < gw; gx++) {
-                        Color32 c = pixels[row + gx * stride];
-                        Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
-                            out grid.h[grow + gx], out grid.s[grow + gx], out grid.v[grow + gx]);
+                    if (colorId != null) {
+                        for (int gx = 0; gx < gw; gx++) {
+                            int k = colorId[row + gx * stride];
+                            grid.h[grow + gx] = tH[k];
+                            grid.s[grow + gx] = tS[k];
+                            grid.v[grow + gx] = tV[k];
+                        }
+                    } else {
+                        for (int gx = 0; gx < gw; gx++) {
+                            Color32 c = pixels[row + gx * stride];
+                            Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
+                                out grid.h[grow + gx], out grid.s[grow + gx], out grid.v[grow + gx]);
+                        }
                     }
                 });
-                // 色ごとの照合の控えに使う色の番号(HsvGrid の説明)。表が作られなければ画素ごとに照合する。
-                grid.AttachColors(PixelProcessor.ColorIndexLease.Acquire(pixels, w, h, po, selections));
             } catch {
                 grid.Dispose();   // 取り消し。呼び出し側はまだ受け取っていない
                 throw;

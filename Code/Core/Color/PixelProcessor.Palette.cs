@@ -203,11 +203,19 @@ namespace Iroca {
             internal readonly int Count;
             /// <summary>画素(y * w + x)→ 色の番号。Dispose するまで読める。</summary>
             internal readonly int* Index;
+            /// <summary>
+            /// 番号 → Color.RGBToHSV((Color)色) の H・S・V(長さ <see cref="Count"/> ずつ)。Dispose するまで読める。値は色だけで決まり、
+            /// 同じ色を画素ごとに RGBToHSV へ渡した値とビット単位で同じ(<see cref="ColorPalette"/>)。
+            /// </summary>
+            internal readonly float* H, S, V;
 
             private ColorIndexLease(ColorPalette palette) {
                 _palette = palette;
                 Count = palette.Count;
                 Index = palette.Index;
+                H = palette.H;
+                S = palette.S;
+                V = palette.V;
             }
 
             /// <summary>
