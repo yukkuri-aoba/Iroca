@@ -144,7 +144,36 @@ namespace Iroca {
         // ─── raw 規約([int32 w][int32 h][payload]、行 0 = 下端)の読み書き ───
         // 画像は RGBA 4 バイト/画素、マスクは 1 バイト/画素(非 0 = true)。
         // 寸法の検査が要る呼び出し元は ReadRaw で読んで検査してから ToColor32 / ToBoolMask へ渡す。
+        //
+        // 速い道(2026-11-25): 画素・マスクを 1 要素ずつ詰め直さず、配列のバイト列へそのまま写す(4K の読み書きで数百 ms かかっていた)。
+        // 書くバイト列・作る値は 1 要素ずつの道と同じ。長さが足りない・寸法が負などの異常な入力は、例外の種類と出る所を今と同じに
+        // するため、1 要素ずつの道(…Slow)へ回す。
+
+        // Color32 が r,g,b,a の順の 4 バイトなら true(UnityEngine の Color32 は明示レイアウト。違えば 1 画素ずつの道を使う)。
+        private static readonly bool s_color32IsRgbaBytes = CheckColor32Layout();
+
+        private static bool CheckColor32Layout() {
+            if (System.Runtime.CompilerServices.Unsafe.SizeOf<Color32>() != 4) {
+                return false;
+            }
+            var probe = new[] { new Color32(1, 2, 3, 4) };
+            var b = System.Runtime.InteropServices.MemoryMarshal.AsBytes(probe.AsSpan());
+            return b[0] == 1 && b[1] == 2 && b[2] == 3 && b[3] == 4;
+        }
+
+        // bool のバイト列が 0/1 だけか(0/1 以外のバイトが bool に入ると mask[a] != mask[b] の比較が狂うので、そのときは写さない)。
+        private static bool IsZeroOne(ReadOnlySpan<byte> bytes) => bytes.IndexOfAnyExcept((byte)0, (byte)1) < 0;
+
         private static Color32[] ToColor32(byte[] rgba, int len) {
+            if (!s_color32IsRgbaBytes || len < 0 || rgba == null || rgba.Length < (long)len * 4) {
+                return ToColor32Slow(rgba, len);
+            }
+            var pixels = new Color32[len];
+            rgba.AsSpan(0, len * 4).CopyTo(System.Runtime.InteropServices.MemoryMarshal.AsBytes(pixels.AsSpan()));
+            return pixels;
+        }
+
+        private static Color32[] ToColor32Slow(byte[] rgba, int len) {
             var pixels = new Color32[len];
             for (int i = 0; i < len; i++) {
                 pixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
@@ -153,11 +182,44 @@ namespace Iroca {
         }
 
         private static (int w, int h, Color32[] pixels) ReadRgbaRaw(string path) {
-            var (w, h, rgba) = ReadRaw(path, 4);
-            return (w, h, ToColor32(rgba, w * h));
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read);
+            using var br = new BinaryReader(fs);
+            int w = br.ReadInt32();
+            int h = br.ReadInt32();
+            int len = w * h;
+            int count = len * 4;
+            // 寸法が負・桁あふれ・Color32 の並びが違うときは、今の道(ReadBytes → 1 画素ずつ)のまま読む。
+            if (!s_color32IsRgbaBytes || w < 0 || h < 0 || (long)w * h * 4 != count) {
+                return (w, h, ToColor32Slow(br.ReadBytes(count), len));
+            }
+            // BinaryReader.ReadInt32 は 4 バイトずつだけ読む(先読みしない)ので、続きは fs からそのまま読める。
+            var pixels = new Color32[len];
+            var span = System.Runtime.InteropServices.MemoryMarshal.AsBytes(pixels.AsSpan());
+            int read = 0;
+            while (read < count) {
+                int n = fs.Read(span.Slice(read));
+                if (n <= 0) {
+                    break;
+                }
+                read += n;
+            }
+            if (read < count) {
+                // 画素が足りない: 今の道と同じく、読めた分から 1 画素ずつ詰めて同じ例外を出す。
+                return (w, h, ToColor32Slow(span.Slice(0, read).ToArray(), len));
+            }
+            return (w, h, pixels);
         }
 
         private static bool[] ToBoolMask(byte[] bytes, int len) {
+            if (len < 0 || bytes == null || bytes.Length < len || !IsZeroOne(bytes.AsSpan(0, len))) {
+                return ToBoolMaskSlow(bytes, len);
+            }
+            var mask = new bool[len];
+            bytes.AsSpan(0, len).CopyTo(System.Runtime.InteropServices.MemoryMarshal.AsBytes(mask.AsSpan()));
+            return mask;
+        }
+
+        private static bool[] ToBoolMaskSlow(byte[] bytes, int len) {
             var mask = new bool[len];
             for (int i = 0; i < mask.Length; i++) {
                 mask[i] = bytes[i] != 0;
@@ -174,7 +236,16 @@ namespace Iroca {
             using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
             using var bw = new BinaryWriter(fs);
             bw.Write(w); bw.Write(h);
-            var bytes = new byte[w * h];
+            int len = w * h;
+            if (len >= 0 && mask != null && mask.Length >= len) {
+                var src = System.Runtime.InteropServices.MemoryMarshal.AsBytes(mask.AsSpan(0, len));
+                // bool[] は普通 0/1 だが、ネイティブから写した配列に 0/1 以外が入りうる(今の道は非 0 を 1 にして書く)。
+                if (IsZeroOne(src)) {
+                    bw.Write(src);
+                    return;
+                }
+            }
+            var bytes = new byte[len];
             for (int i = 0; i < bytes.Length; i++) {
                 bytes[i] = mask[i] ? (byte)1 : (byte)0;
             }
@@ -377,19 +448,20 @@ namespace Iroca {
                     // 次の依頼で PHASE の行が重複して出ていた(2026-11-25)。購読していない依頼では何もしない。
                     DebugCaptureHooks.OnPerfReport -= WritePerfPhases;
                 }
-                if (!fatal) {
-                    PixelProcessor.ReleaseWorkBuffers();
-                    // 依頼の間に大きい配列(4096² で 64MB 級)を持ち越さない(常駐の分だけワーカーのメモリが増えないように)
-                    System.Runtime.GCSettings.LargeObjectHeapCompactionMode =
-                        System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-                    GC.Collect();
-                }
+                // 応答は後片付けの前に返す(呼び手を後片付けの間待たせない。2026-11-25)。応答の中身は上の finally までで
+                // そろっていて、後片付けの間の Console は捨て先(TextWriter.Null)なので、応答は変わらない。
                 protocolOut.WriteLine(JsonSerializer.Serialize(new {
                     rc, @out = outBuf.ToString(), err = errBuf.ToString(), fatal,
                 }));
                 if (fatal) {
                     return 1;
                 }
+                // 次の依頼を読むのはこの後なので、次の依頼は今までどおり後片付けが済んだ状態から始まる。
+                PixelProcessor.ReleaseWorkBuffers();
+                // 依頼の間に大きい配列(4096² で 64MB 級)を持ち越さない(常駐の分だけワーカーのメモリが増えないように)
+                System.Runtime.GCSettings.LargeObjectHeapCompactionMode =
+                    System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                GC.Collect();
             }
             return 0;
         }
@@ -1020,6 +1092,14 @@ namespace Iroca {
             using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
             using var bw = new BinaryWriter(fs);
             bw.Write(w); bw.Write(h);
+            // Color32 の並びが r,g,b,a なら配列のバイト列をそのまま書く(1 画素ずつ詰めた 64MB の写しを作らない)。
+            int len = w * h;
+            // 寸法が負・桁あふれ・配列が短いときは今の道(例外の種類と出る所を同じに保つ)。
+            if (s_color32IsRgbaBytes && w >= 0 && h >= 0 && (long)w * h * 4 <= int.MaxValue
+                && pixels != null && pixels.Length >= len) {
+                bw.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(pixels.AsSpan(0, len)));
+                return;
+            }
             var outBytes = new byte[w * h * 4];
             for (int i = 0; i < w * h; i++) {
                 outBytes[i * 4] = pixels[i].r; outBytes[i * 4 + 1] = pixels[i].g;
