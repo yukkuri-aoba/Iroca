@@ -307,8 +307,41 @@ namespace Iroca {
                                                   System.Threading.CancellationToken token) {
             int cOff = channel * LowRes * LowRes;
 
-            // 256 から 1024 のキャンバス全域へ補間する。
+            // 正になりうる所だけ補間する(出力はビット同一)。
+            // 補間は 2 段とも a + (b - a) * f(0 ≤ f ≤ 1)を横・縦に重ねた形で、しきい値は `> 0`。
+            // 「> 0 でない値」(0 以下・-inf・NaN)どうしをこの式で混ぜても > 0 にならない:
+            //   有限で a ≤ 0・b ≤ 0 なら、b ≥ a のとき b - a ≤ -a なので丸めても fl(b - a) ≤ -a、fl(fl(b - a)·f) ≤ -a、
+            //   a + それ ≤ 0(丸めは単調で、-a・0 は表せる)。b < a のときは足すのが 0 以下なので和は a 以下。
+            //   -inf・NaN を含むと結果は -inf か NaN(inf·0・inf - inf は NaN)で、どちらも > 0 でない。
+            // よって、補間に使う標本がどれも > 0 でない画素は、2 段とも > 0 でない(= false)。
+            // 256 の段で > 0 の標本の外接矩形を求め、それに標本が掛かる 1024 の画素の範囲(U)、U に標本が掛かる元の
+            // 寸法の画素の範囲(T)を順に求める。T の外は false を書き、T の中は以前と同じ式で計算する。T の中の画素が
+            // 読む 1024 の画素(範囲 C。U を高々 1 画素広げたもの)は、以前と同じ式・同じ入力で計算するので同じ値になる。
+            // 範囲を決める添字は、補間で使う添字と同じ式で求める。
             const int S = SamImageOps.InputSize;
+            int lx0 = LowRes, ly0 = LowRes, lx1 = -1, ly1 = -1;
+            for (int y = 0; y < LowRes; y++) {
+                int row = cOff + y * LowRes;
+                for (int x = 0; x < LowRes; x++) {
+                    if (logits[row + x] > 0f) {
+                        if (x < lx0) {
+                            lx0 = x;
+                        }
+                        if (x > lx1) {
+                            lx1 = x;
+                        }
+                        if (y < ly0) {
+                            ly0 = y;
+                        }
+                        if (y > ly1) {
+                            ly1 = y;
+                        }
+                    }
+                }
+            }
+
+            // 256 から 1024 の補間の添字。縦も同じ式なので、縦の範囲(下の U の行)もこの表で決める
+            // (補間そのものの縦の添字は、以前のとおり行の中で求める)。
             float scale1 = LowRes / (float)S;
             var x0s = new int[S]; var x1s = new int[S]; var fxs = new float[S];
             for (int x = 0; x < S; x++) {
@@ -322,44 +355,101 @@ namespace Iroca {
                 int x0 = (int)sx;
                 x0s[x] = x0; x1s[x] = Mathf.Min(x0 + 1, LowRes - 1); fxs[x] = sx - x0;
             }
-            // 行ごとに独立な bilinear(書き込みは自行のみ)なので行並列で決定的
-            var po = SamMaskRefine.MakeParallelOptions(token);
-            Parallel.For(0, S, po, y => {
-                float sy = (y + 0.5f) * scale1 - 0.5f;
+            // 有効領域から元テクスチャ寸法への補間の添字。
+            float scaleX = newW / (float)texW, scaleY = newH / (float)texH;
+            var cx0 = new int[texW]; var cx1 = new int[texW]; var cfx = new float[texW];
+            for (int x = 0; x < texW; x++) {
+                float sx = (x + 0.5f) * scaleX - 0.5f;
+                if (sx < 0f) {
+                    sx = 0f;
+                }
+                if (sx > newW - 1) {
+                    sx = newW - 1;
+                }
+                int x0 = (int)sx;
+                cx0[x] = x0; cx1[x] = Mathf.Min(x0 + 1, newW - 1); cfx[x] = sx - x0;
+            }
+            var cy0 = new int[texH]; var cy1 = new int[texH];
+            for (int y = 0; y < texH; y++) {
+                float sy = (y + 0.5f) * scaleY - 0.5f;
                 if (sy < 0f) {
                     sy = 0f;
                 }
-                if (sy > LowRes - 1) {
-                    sy = LowRes - 1;
+                if (sy > newH - 1) {
+                    sy = newH - 1;
                 }
-                int y0 = (int)sy; int y1 = Mathf.Min(y0 + 1, LowRes - 1);
-                float fy = sy - y0;
-                int r0 = cOff + y0 * LowRes, r1 = cOff + y1 * LowRes, dr = y * S;
-                for (int x = 0; x < S; x++) {
-                    float a = logits[r0 + x0s[x]] + (logits[r0 + x1s[x]] - logits[r0 + x0s[x]]) * fxs[x];
-                    float b = logits[r1 + x0s[x]] + (logits[r1 + x1s[x]] - logits[r1 + x0s[x]]) * fxs[x];
-                    up[dr + x] = a + (b - a) * fy;
-                }
-            });
+                int y0 = (int)sy;
+                cy0[y] = y0; cy1[y] = Mathf.Min(y0 + 1, newH - 1);
+            }
 
-            // 有効領域を元テクスチャ寸法へ補間し、下原点へ戻す(全画素に書く)。
+            // U: 標本の組 [lo, hi] が > 0 の範囲に掛かる 1024 の画素。T: 標本の組が U に掛かる元の寸法の画素。
+            // 掛からない画素は組の 2 つが同じ側の外にある(lo ≤ hi)ので、標本はどれも範囲の外。
+            // 添字の計算が 2 か所(範囲を決める表と、補間する行のラムダ)にあり、Mono は float の式の途中を倍精度のまま
+            // 持ち回ることがあるので、端で 1 ずれても範囲が足りるように U・T・C を 1 ずつ広げる(画像・キャンバスの端で
+            // クランプ)。広げた分も以前と同じ式で計算するだけなので、出力は変わらない。
+            int ux0 = S, ux1 = -1, uy0 = S, uy1 = -1;
+            if (lx1 >= 0) {
+                SpanTouching(x0s, x1s, S, lx0, lx1, out ux0, out ux1);
+                SpanTouching(x0s, x1s, S, ly0, ly1, out uy0, out uy1);
+            }
+            int tx0 = texW, tx1 = -1, ty0 = texH, ty1 = -1;
+            if (ux1 >= 0 && uy1 >= 0) {
+                ux0 = Mathf.Max(0, ux0 - 1); ux1 = Mathf.Min(S - 1, ux1 + 1);
+                uy0 = Mathf.Max(0, uy0 - 1); uy1 = Mathf.Min(S - 1, uy1 + 1);
+                SpanTouching(cx0, cx1, texW, ux0, ux1, out tx0, out tx1);
+                SpanTouching(cy0, cy1, texH, uy0, uy1, out ty0, out ty1);
+            }
+            bool anyT = tx1 >= 0 && ty1 >= 0;
+
+            // C: T の中の画素が読む 1024 の画素の範囲(T・C とも 1 ずつ広げる)。
+            int ex0 = S, ex1 = -1, ey0 = S, ey1 = -1;
+            if (anyT) {
+                tx0 = Mathf.Max(0, tx0 - 1); tx1 = Mathf.Min(texW - 1, tx1 + 1);
+                ty0 = Mathf.Max(0, ty0 - 1); ty1 = Mathf.Min(texH - 1, ty1 + 1);
+                for (int x = tx0; x <= tx1; x++) {
+                    ex0 = Mathf.Min(ex0, cx0[x]); ex1 = Mathf.Max(ex1, cx1[x]);
+                }
+                for (int y = ty0; y <= ty1; y++) {
+                    ey0 = Mathf.Min(ey0, cy0[y]); ey1 = Mathf.Max(ey1, cy1[y]);
+                }
+                ex0 = Mathf.Max(0, ex0 - 1); ex1 = Mathf.Min(S - 1, ex1 + 1);
+                ey0 = Mathf.Max(0, ey0 - 1); ey1 = Mathf.Min(S - 1, ey1 + 1);
+            }
+
+            // 行ごとに独立な bilinear(書き込みは自行のみ)なので行並列で決定的。C の外は書かない(後段も読まない)。
+            var po = SamMaskRefine.MakeParallelOptions(token);
+            if (anyT) {
+                int cx0C = ex0, cx1C = ex1;   // ラムダ用の写し
+                Parallel.For(ey0, ey1 + 1, po, y => {
+                    float sy = (y + 0.5f) * scale1 - 0.5f;
+                    if (sy < 0f) {
+                        sy = 0f;
+                    }
+                    if (sy > LowRes - 1) {
+                        sy = LowRes - 1;
+                    }
+                    int y0 = (int)sy; int y1 = Mathf.Min(y0 + 1, LowRes - 1);
+                    float fy = sy - y0;
+                    int r0 = cOff + y0 * LowRes, r1 = cOff + y1 * LowRes, dr = y * S;
+                    for (int x = cx0C; x <= cx1C; x++) {
+                        float a = logits[r0 + x0s[x]] + (logits[r0 + x1s[x]] - logits[r0 + x0s[x]]) * fxs[x];
+                        float b = logits[r1 + x0s[x]] + (logits[r1 + x1s[x]] - logits[r1 + x0s[x]]) * fxs[x];
+                        up[dr + x] = a + (b - a) * fy;
+                    }
+                });
+            }
+
+            // 有効領域を元テクスチャ寸法へ補間し、下原点へ戻す(全画素に書く。T の外は false)。
             var result = NativeBools.AllocateUninitialized(texW, texH);
             try {
                 bool* mask = result.Ptr;
-                float scaleX = newW / (float)texW, scaleY = newH / (float)texH;
-                var cx0 = new int[texW]; var cx1 = new int[texW]; var cfx = new float[texW];
-                for (int x = 0; x < texW; x++) {
-                    float sx = (x + 0.5f) * scaleX - 0.5f;
-                    if (sx < 0f) {
-                        sx = 0f;
-                    }
-                    if (sx > newW - 1) {
-                        sx = newW - 1;
-                    }
-                    int x0 = (int)sx;
-                    cx0[x] = x0; cx1[x] = Mathf.Min(x0 + 1, newW - 1); cfx[x] = sx - x0;
-                }
+                int ttx0 = tx0, ttx1 = tx1, tty0 = ty0, tty1 = ty1;   // ラムダ用の写し
                 Parallel.For(0, texH, po, y => {
+                    int dstRow = (texH - 1 - y) * texW; // 上原点 y → 下原点行
+                    if (!anyT || y < tty0 || y > tty1) {
+                        new System.Span<bool>(mask + dstRow, texW).Clear();
+                        return;
+                    }
                     float sy = (y + 0.5f) * scaleY - 0.5f;
                     if (sy < 0f) {
                         sy = 0f;
@@ -370,8 +460,13 @@ namespace Iroca {
                     int y0 = (int)sy; int y1 = Mathf.Min(y0 + 1, newH - 1);
                     float fy = sy - y0;
                     int r0 = y0 * S, r1 = y1 * S;
-                    int dstRow = (texH - 1 - y) * texW; // 上原点 y → 下原点行
-                    for (int x = 0; x < texW; x++) {
+                    if (ttx0 > 0) {
+                        new System.Span<bool>(mask + dstRow, ttx0).Clear();
+                    }
+                    if (ttx1 < texW - 1) {
+                        new System.Span<bool>(mask + dstRow + ttx1 + 1, texW - 1 - ttx1).Clear();
+                    }
+                    for (int x = ttx0; x <= ttx1; x++) {
                         float a = up[r0 + cx0[x]] + (up[r0 + cx1[x]] - up[r0 + cx0[x]]) * cfx[x];
                         float b = up[r1 + cx0[x]] + (up[r1 + cx1[x]] - up[r1 + cx0[x]]) * cfx[x];
                         mask[dstRow + x] = (a + (b - a) * fy) > 0f;
@@ -385,6 +480,22 @@ namespace Iroca {
                 throw;
             }
             return result;
+        }
+
+        /// <summary>
+        /// 補間の標本の組 [lo[i], hi[i]] が範囲 [a, b] に掛かる i の最小と最大(無ければ first = n・last = -1)。
+        /// </summary>
+        static void SpanTouching(int[] lo, int[] hi, int n, int a, int b, out int first, out int last) {
+            first = n;
+            last = -1;
+            for (int i = 0; i < n; i++) {
+                if (lo[i] <= b && hi[i] >= a) {
+                    if (i < first) {
+                        first = i;
+                    }
+                    last = i;
+                }
+            }
         }
     }
 }
