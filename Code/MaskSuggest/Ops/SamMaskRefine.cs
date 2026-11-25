@@ -288,43 +288,55 @@ namespace Iroca {
         }
 
         /// <summary>
-        /// inside=true: mask 内の各画素について最も近い mask 外画素までの L1 距離(外は 0)。
-        /// inside=false: 逆。分離型 city-block 距離変換:
+        /// 各画素から、自分と違う側(mask の値が違う画素)の最も近い画素までの L1 距離。mask の画素では
+        /// 「最も近い mask 外画素まで」(distIn)、mask 外の画素では「最も近い mask 画素まで」(distOut)になる。
+        /// 分離型 city-block 距離変換:
         ///   行パス(行内 1D 距離)→ 列パス(min over y' of rowDist + |y-y'| を前進/後退走査で合成)。
         /// 旧 2 パスチャンファー(左下前進/右上後退)と厳密に同値(どちらも正確な L1)だが、
         /// 行パスは行単位・列パスは列レンジ単位で並列化できる(いずれも決定的)。
+        /// <para>
+        /// 以前は片側ずつ(inside=true/false)2 本を作り、反対側の画素には 0 を書いていた。1 本の版は、各画素で
+        /// 「自分の側の版」と同じ値になる: 片側の版で反対側の画素は 0 のまま変わらず(行パスで 0 を書き、列パスの候補は
+        /// 1 以上なので書き換わらない)、そこから伝わる値はいつも 0 + 1 = 1 だった。1 本の版は、隣が違う側なら候補を
+        /// 1 にし、同じ側なら隣の値 + 1 にする。走査の順・比較・Inf の扱い(行に反対側が無ければ Inf のまま、
+        /// Inf + 1 は書かない)は片側の版と同じなので、行パス・前進・後退の各段のあとで、どの画素も自分の側の版と
+        /// 同じ値を持つ(段ごとの帰納)。反対側が 1 つも無い(全部 mask・全部 mask 外)なら、どちらの版も全画素 Inf。
+        /// 画像の端は反対側と扱わない(どちらの版も)。
+        /// 片側の版と違うのは「反対側の画素」の値だけ(以前は 0)なので、読む側は自分の側の画素だけを読むか、
+        /// 反対側を 0 として読む所では mask で 0 に置き換える。
+        /// </para>
         /// </summary>
         /// <remarks>mask は w*h 個(提案のマスクか作業配列)。結果は scratch から借りる(全画素に書く)。
-        /// 距離は ushort で持つ(int の半分。精密化は 1 回に最大 13 本作るので、作業配列の山に効く)。本当の距離は
+        /// 距離は ushort で持つ(int の半分。精密化は 1 回に何本も作るので、作業配列の山に効く)。本当の距離は
         /// 画像の辺の和(16384² でも 32766)を超えないので、反対側が無いことを表す Inf = 65535 とは混ざらない。
         /// 呼び出し側の判定(&gt; d・&lt;= d、d は数百まで)は、以前の Inf = 2^28 と同じ答えになる。</remarks>
-        internal static ushort* DistanceToOpposite(WorkScratch scratch, bool* mask, int w, int h, bool inside,
+        internal static ushort* DistanceToOpposite(WorkScratch scratch, bool* mask, int w, int h,
                                                 System.Threading.CancellationToken token = default) {
             const int Inf = ushort.MaxValue;
             ushort* dist = (ushort*)scratch.Byte(w * h * sizeof(ushort), clear: false);
             var po = MakeParallelOptions(token);
 
-            // 行パス: 各行の左右走査で「同じ行内の最近接反対側画素」までの距離(無ければ Inf)
+            // 行パス: 各行の左右走査で「同じ行内の最近接反対側画素」までの距離(無ければ Inf)。
+            // 片側の版では反対側の画素で run = 0 にし、次の自分の側の画素で 1 にしていた。ここでは左(右)の隣が
+            // 違う側なら run = 1 にする(同じ値)。行の端の画素は隣が無いので、片側の版の始まりと同じ Inf。
             Parallel.For(0, h, po, y => {
                 int row = y * w;
                 int run = Inf;
                 for (int x = 0; x < w; x++) {
                     int i = row + x;
-                    if (mask[i] == inside) {
-                        if (run < Inf) {
-                            run++;
-                        }
-                        dist[i] = (ushort)run;
-                    } else {
-                        run = 0;
-                        dist[i] = 0;
+                    if (x > 0 && mask[i - 1] != mask[i]) {
+                        run = 1;
+                    } else if (run < Inf) {
+                        run++;
                     }
+                    dist[i] = (ushort)run;
                 }
                 run = Inf;
                 for (int x = w - 1; x >= 0; x--) {
                     int i = row + x;
-                    if (dist[i] == 0) { run = 0; continue; }
-                    if (run < Inf) {
+                    if (x < w - 1 && mask[i + 1] != mask[i]) {
+                        run = 1;
+                    } else if (run < Inf) {
                         run++;
                     }
                     if (run < dist[i]) {
@@ -334,7 +346,9 @@ namespace Iroca {
             });
 
             // 列パス: x を並列度ぶんの連続レンジに分け、各レンジで y 前進/後退走査
-            // (行メジャー配列で連続アクセスになり、列単位分割よりキャッシュ効率が良い)
+            // (行メジャー配列で連続アクセスになり、列単位分割よりキャッシュ効率が良い)。
+            // 片側の版では、上(下)の隣が反対側なら隣の値は 0 で候補は 1 だった。ここでは隣が違う側なら候補を 1 にし、
+            // 同じ側なら隣の値 + 1(隣の値はその段までの自分の側の版の値と同じ)にする。
             int dop = System.Math.Max(1, po.MaxDegreeOfParallelism);
             int chunk = (w + dop - 1) / dop;
             Parallel.For(0, dop, po, p => {
@@ -345,7 +359,7 @@ namespace Iroca {
                 for (int y = 1; y < h; y++) {
                     int row = y * w, prev = row - w;
                     for (int x = x0; x < x1; x++) {
-                        int v = dist[prev + x] + 1;
+                        int v = mask[prev + x] != mask[row + x] ? 1 : dist[prev + x] + 1;
                         if (v < dist[row + x]) {
                             dist[row + x] = (ushort)v;
                         }
@@ -354,7 +368,7 @@ namespace Iroca {
                 for (int y = h - 2; y >= 0; y--) {
                     int row = y * w, next = row + w;
                     for (int x = x0; x < x1; x++) {
-                        int v = dist[next + x] + 1;
+                        int v = mask[next + x] != mask[row + x] ? 1 : dist[next + x] + 1;
                         if (v < dist[row + x]) {
                             dist[row + x] = (ushort)v;
                         }

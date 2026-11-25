@@ -99,7 +99,9 @@ namespace Iroca {
 
             // 地色: マスクから d より離れた画素(確信外側)のセル単位モード(SnapBoundary と同じ粗グリッド・同じ
             // セルの位置)。矩形の外にマスク画素は無いので、マスクからの距離は矩形の中だけで求めれば同じ。
-            var distOut = DistanceToOpposite(scratch, local, bw, bh, inside: false, token);
+            // 反対側までの距離はマスク画素ではマスク外までの距離になるが、以前(片側の版)はマスク画素を 0 として
+            // 「d 以内 → 飛ばす」に入れていた。ここでは local(この時点ではマスクの写し)で先に飛ばす(同じ答え)。
+            var distOut = DistanceToOpposite(scratch, local, bw, bh, token);
             long* sumOut = scratch.Long(gw * gh * 4, clear: true);
             int* cntOut = scratch.Int(gw * gh, clear: true);
             int gy0r = oy / d, gy1r = (oy + bh - 1) / d;
@@ -108,7 +110,7 @@ namespace Iroca {
                 for (int y = yStart; y < yEnd; y++) {
                     int lrow = (y - oy) * bw;
                     for (int lx = 0; lx < bw; lx++) {
-                        if (distOut[lrow + lx] <= d) {
+                        if (local[lrow + lx] || distOut[lrow + lx] <= d) {
                             continue;
                         }
                         int x = lx + ox;
@@ -130,13 +132,16 @@ namespace Iroca {
                     local[row + lx] = thin[label[row + lx]];
                 }
             });
-            var distThin = DistanceToOpposite(scratch, local, bw, bh, inside: false, token);
+            // 細い成分の画素は、以前(片側の版)は距離 0 だった。1 本の版ではそこに「細くない画素までの距離」が入るので、
+            // 読む 2 か所(near と地の起点)では local(細い成分の印。この 2 か所の間は変えない)で 0 に置き換える。
+            var distThin = DistanceToOpposite(scratch, local, bw, bh, token);
             bool* near = scratch.Bool(bw * bh, clear: false);   // 下で全画素に書く
             Parallel.For(0, bh, po, ly => {
                 int row = ly * bw;
                 for (int lx = 0; lx < bw; lx++) {
                     int li = row + lx;
-                    near[li] = distThin[li] <= reach && (label[li] == 0 || thin[label[li]]);
+                    int dt = local[li] ? 0 : distThin[li];
+                    near[li] = dt <= reach && (label[li] == 0 || thin[label[li]]);
                 }
             });
 
@@ -182,7 +187,7 @@ namespace Iroca {
             int* queue = scratch.Int(bw * bh, clear: false);   // 積んだ所だけ読む
             int head = 0, tail = 0;
             for (int li = 0; li < bw * bh; li++) {
-                if (!near[li] || distThin[li] < reach) {
+                if (!near[li] || (local[li] ? 0 : distThin[li]) < reach) {
                     continue;
                 }
                 ground[li] = true;
@@ -363,7 +368,8 @@ namespace Iroca {
                 bool* loc = local = scratch.Bool(bw * bh, clear: false);   // 下で全行を写す
                 Parallel.For(0, bh, po, ly =>
                     new System.ReadOnlySpan<bool>(mask + (ly + oy) * w + ox, bw).CopyTo(new System.Span<bool>(loc + ly * bw, bw)));
-                var distIn = DistanceToOpposite(scratch, loc, bw, bh, inside: true, token);
+                // 反対側までの距離 1 本。読むのは run(マスク画素)の上だけなので、マスク外までの距離(distIn)として読める。
+                var distIn = DistanceToOpposite(scratch, loc, bw, bh, token);
                 int* runBand = scratch.Int(nRuns, clear: false);   // 下のループが全 run に書く
                 Parallel.For(0, bh, po, ly => {
                     for (int r = runFirst[ly]; r < runFirst[ly + 1]; r++) {

@@ -32,8 +32,10 @@ namespace Iroca {
             // 画像全体の大きさの作業配列(距離 2 本・印 3 本、4K で計 112MB)は作業配列のプールから借りる
             // (毎クリック new すると Mono のヒープが膨らみ、縮まない)。抜けるときにまとめて返す。
             using var scratch = new WorkScratch();
-            var distOut = DistanceToOpposite(scratch, mask, w, h, inside: false, token);
-            var distIn = DistanceToOpposite(scratch, mask, w, h, inside: true, token);
+            // 反対側までの距離 1 本(mask の画素では distIn、外の画素では distOut)。下で読むのはどれも mask[i] で
+            // 分けた自分の側の画素だけ(mask は房のフラッドまで変えない)なので、2 本の版と同じ値を読む。
+            var distOut = DistanceToOpposite(scratch, mask, w, h, token);
+            var distIn = distOut;
             var po = MakeParallelOptions(token);
 
             // 局所背景色 = mask 直外の確信領域(distOut>d)を粗グリッド集計 → 各画素 5x5 グリッド窓合算平均。

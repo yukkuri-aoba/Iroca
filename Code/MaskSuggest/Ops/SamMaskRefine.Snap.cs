@@ -24,8 +24,10 @@ namespace Iroca {
 
             // 境界からの深さはセパラブルな L1 距離変換で求める(作業配列は ExtendFringe と同じくプールから)。
             using var scratch = new WorkScratch();
-            var distIn = DistanceToOpposite(scratch, mask, w, h, inside: true, token);   // mask 内→外境界までの距離
-            var distOut = DistanceToOpposite(scratch, mask, w, h, inside: false, token); // mask 外→内境界までの距離
+            // 反対側までの距離 1 本。mask の画素では内→外境界まで(distIn)、外の画素では外→内境界まで(distOut)。
+            // 下で読むのはどれも mask0(= この時点の mask の写し)で分けた自分の側の画素だけなので、2 本の版と同じ値を読む。
+            var distIn = DistanceToOpposite(scratch, mask, w, h, token);
+            var distOut = distIn;
 
             // 再分類は元マスクのスナップショットに対して行う(書き換える順序に結果が依らないようにする。並列でも決定的)。
             bool* mask0 = scratch.CopyOf(mask, w * h);

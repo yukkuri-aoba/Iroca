@@ -198,8 +198,11 @@ namespace Iroca {
         static int IncludeAaTransitionPass(bool* mask, Color32* pixelsBottomUp, int w, int h, int d,
                                            System.Threading.CancellationToken token = default) {
             using var scratch = new WorkScratch();
-            var distIn = DistanceToOpposite(scratch, mask, w, h, inside: true, token);
-            var distOut = DistanceToOpposite(scratch, mask, w, h, inside: false, token);
+            // 反対側までの距離 1 本(mask の画素では distIn、外の画素では distOut)。下で読むのはどれも mask[i] で
+            // 分けた自分の側の画素だけ(再分類のループで mask[i] を書くのは自分の反復だけで、読むのはその前)なので、
+            // 2 本の版と同じ値を読む。
+            var distIn = DistanceToOpposite(scratch, mask, w, h, token);
+            var distOut = distIn;
 
             // 確信領域の局所色統計(SnapBoundary と同じ粗グリッド集計・現マスク基準)。
             // 外側統計は近傍(d 超)と遠方(2d 超)の 2 系統を持ち、判定はユニオン(どちらかの
