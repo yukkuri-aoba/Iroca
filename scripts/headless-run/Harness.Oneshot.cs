@@ -58,7 +58,11 @@ namespace Iroca {
             private readonly string _cache;
             private readonly float[] _givenFull;
             private OrtSamInference _ai;
+            // count(範囲の画素数)は出力へ出る問いでだけ数え、ほかは -1(4K で 1 件約 10ms かかるため)。出るのは
+            // asks.json(CountAll)と、自動調整 1 回の最初の問い(EditSession.AutoTune の evidence.count。CountIndex)だけ。
             public readonly List<(AutoTuneAsk ask, SamProposalDiag diag, int count)> Asked = new List<(AutoTuneAsk, SamProposalDiag, int)>();
+            public bool CountAll;
+            public int CountIndex = -1;
             public string FullEmbeddingOrigin;
             // 自動調整の提案が届いたとき(--emit-dir が書く。範囲は読むだけ)。
             public Action<AutoTuneAsk, NativeBools> OnAutoTuneProposal;
@@ -146,7 +150,9 @@ namespace Iroca {
                     MaskSuggestUse.Evidence, ct, out var diag);
                 var mask = p.mask;
                 p.mask = null;   // 範囲の参照は受け取った側へ渡す
-                Asked.Add((ask, diag, mask.CountTrue()));
+                // 数えるのは範囲を自動調整へ渡す前(渡した後は書き換え・解放されうる)。
+                bool count = CountAll || Asked.Count == CountIndex;
+                Asked.Add((ask, diag, count ? mask.CountTrue() : -1));
                 OnAutoTuneProposal?.Invoke(ask, mask);
                 return new AutoTuneProposal(mask, p.width, p.height, p.floodWarning);
             }
@@ -390,6 +396,7 @@ namespace Iroca {
                 var leak = new Dictionary<string, object>();
                 var evidence = new Dictionary<string, object>();
                 int asked0 = Sam.Asked.Count;
+                Sam.CountIndex = asked0;   // evidence.count に出す最初の問いだけ数える
                 var excluded = Masks.CombinedExclusion(z.id);
                 var flow = new AutoTuneFlow(z.Clone(), Source, excluded, Masks.Width, Masks.Height,
                     Settings.ToRecolorSettings(), Masks.ToSnapshot());
@@ -432,6 +439,7 @@ namespace Iroca {
                         failure = flow.Failure + (flow.Error != null ? ": " + flow.Error.Message : "");
                     }
                 } finally {
+                    Sam.CountIndex = -1;
                     flow.Dispose();
                 }
                 return new Dictionary<string, object> {
@@ -738,6 +746,7 @@ namespace Iroca {
             }
             s.Sam = new SamProposalSource(m, s.Source, o.Mirror, o.Cache, o.ReadEmbedding());
             if (emit != null) {
+                s.Sam.CountAll = true;   // asks.json に全部の count を出す
                 s.Sam.OnAutoTuneProposal = (ask, mask) => {
                     string name = ask.Kind == AutoTuneAskKind.Evidence ? "evidence.raw"
                         : $"leak_{ask.Blob}_{(ask.Fine ? "fine" : "auto")}.raw";
