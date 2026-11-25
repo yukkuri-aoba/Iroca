@@ -338,7 +338,8 @@ namespace Iroca {
             bool judge = lk.FinePhase;
             return AutoTuneWork.ForLeakStep(judge, _pixels.AddRef(), _evidence.AddRef(), lk.Selection.AddRef(),
                 AddRefAll(lk.Coarse), judge ? AddRefAll(lk.Fine) : null,
-                (bool[])lk.CoarseFlood.Clone(), (bool[])lk.FineFlood.Clone(), TextureWidth, TextureHeight);
+                (bool[])lk.CoarseFlood.Clone(), (bool[])lk.FineFlood.Clone(), TextureWidth, TextureHeight,
+                judge ? lk.CoarseVerdicts : null);
         }
 
         /// <summary>
@@ -382,6 +383,7 @@ namespace Iroca {
             if (!r.Judged) {
                 // 自動の提案を測り終えた: 細かい提案が要る塊(外す側に入った塊)だけ、同じ点で頼み直す。
                 _leak.NeedsFine = r.NeedsFine;
+                _leak.CoarseVerdicts = r.CoarseVerdicts;
                 if (Array.IndexOf(_leak.NeedsFine, true) < 0) {
                     return Finish();   // 外す側に入った塊が無い(細かい提案が無いと外さない)
                 }
@@ -570,6 +572,8 @@ namespace Iroca {
             public readonly NativeBools[] Coarse, Fine;
             public readonly bool[] CoarseFlood, FineFlood;
             public bool[] NeedsFine;
+            // 自動の提案を測った判定(塊ごと)。判定の計算へ渡し、同じ提案を測り直さない(Coarse は細かい段で書き換わらない)。
+            public ZoneAutoTuner.LeakVerdict[] CoarseVerdicts;
             // false = 自動の提案を集める、true = 細かい提案を集める。
             public bool FinePhase;
             // 次に頼む塊の番号(段の中で、前から順に)。
@@ -668,6 +672,8 @@ namespace Iroca {
         // 漏れの段
         public bool Judged;
         public bool[] NeedsFine;
+        /// <summary>自動の提案を測った判定(測る段だけ。判定の段へ渡して測り直しを省く)。</summary>
+        public ZoneAutoTuner.LeakVerdict[] CoarseVerdicts;
         public NativeBools Exclusion;
         public int ExcludedParts, ExcludedPixels;
 
@@ -695,6 +701,7 @@ namespace Iroca {
         NativeBools _sel;
         NativeBools[] _coarse, _fine;
         readonly bool[] _coarseFlood, _fineFlood;
+        readonly ZoneAutoTuner.LeakVerdict[] _coarseVerdicts;
         readonly ColorZone _zone;
         readonly int _evW, _evH, _mw, _mh, _w, _h;
         readonly RecolorSettings _settings;
@@ -704,7 +711,7 @@ namespace Iroca {
         AutoTuneWork(AutoTuneWorkKind kind, NativePixels px, NativeBools ev, int evW, int evH, MaskSnapshot masks,
                      NativeBools excluded, ColorZone zone, int mw, int mh, in RecolorSettings settings, bool packEvidence,
                      NativeBools sel, NativeBools[] coarse, NativeBools[] fine, bool[] coarseFlood, bool[] fineFlood, int w, int h,
-                     bool checkLeaks) {
+                     bool checkLeaks, ZoneAutoTuner.LeakVerdict[] coarseVerdicts = null) {
             _kind = kind;
             _checkLeaks = checkLeaks;
             _px = px;
@@ -723,6 +730,7 @@ namespace Iroca {
             _fine = fine;
             _coarseFlood = coarseFlood;
             _fineFlood = fineFlood;
+            _coarseVerdicts = coarseVerdicts;
             _w = w;
             _h = h;
         }
@@ -732,10 +740,12 @@ namespace Iroca {
             => new AutoTuneWork(AutoTuneWorkKind.Analysis, px, ev, evW, evH, masks, excluded, zone, mw, mh, in settings,
                 packEvidence, null, null, null, null, null, 0, 0, checkLeaks);
 
+        // coarseVerdicts: 判定の段で、測る段が同じ自動の提案を測った判定(無ければ null で、判定の段が測る)。
         internal static AutoTuneWork ForLeakStep(bool judge, NativePixels px, NativeBools ev, NativeBools sel,
-            NativeBools[] coarse, NativeBools[] fine, bool[] coarseFlood, bool[] fineFlood, int w, int h)
+            NativeBools[] coarse, NativeBools[] fine, bool[] coarseFlood, bool[] fineFlood, int w, int h,
+            ZoneAutoTuner.LeakVerdict[] coarseVerdicts = null)
             => new AutoTuneWork(judge ? AutoTuneWorkKind.JudgeLeaks : AutoTuneWorkKind.MeasureLeaks, px, ev, 0, 0, null, null,
-                null, 0, 0, default, false, sel, coarse, fine, coarseFlood, fineFlood, w, h, false);
+                null, 0, 0, default, false, sel, coarse, fine, coarseFlood, fineFlood, w, h, false, coarseVerdicts);
 
         public AutoTuneWorkKind Kind => _kind;
 
@@ -820,14 +830,16 @@ namespace Iroca {
                 var props = Proposals(_coarse, _coarseFlood);
                 if (!judge) {
                     o.NeedsFine = new bool[props.Length];
+                    o.CoarseVerdicts = new ZoneAutoTuner.LeakVerdict[props.Length];
                     for (int k = 0; k < props.Length; k++) {
-                        o.NeedsFine[k] = ZoneAutoTuner.MeasureLeakProposal(_px.Ptr, _sel.Ptr, _ev.Ptr, _w, _h, props[k], ct)
-                            .NeedsFine;
+                        o.CoarseVerdicts[k] = ZoneAutoTuner.MeasureLeakProposal(_px.Ptr, _sel.Ptr, _ev.Ptr, _w, _h, props[k], ct);
+                        o.NeedsFine[k] = o.CoarseVerdicts[k].NeedsFine;
                     }
                 } else {
                     o.Exclusion = NativeBools.AllocateUninitialized(_w, _h);
                     var verdicts = ZoneAutoTuner.JudgeLeaks(_px.Ptr, _sel.Ptr, _ev.Ptr, _w, _h, props,
-                        Proposals(_fine, _fineFlood), o.Exclusion.Ptr, out int excludedPixels, ct);
+                        Proposals(_fine, _fineFlood), o.Exclusion.Ptr, out int excludedPixels, ct,
+                        coarseVerdicts: _coarseVerdicts);
                     foreach (var v in verdicts) {
                         if (v.Decision == ZoneAutoTuner.LeakDecision.Exclude) {
                             o.ExcludedParts++;

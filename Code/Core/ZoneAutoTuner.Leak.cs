@@ -285,9 +285,14 @@ namespace Iroca {
         /// </summary>
         /// <param name="excludedPixels">除外マスクの画素数(塊どうしの重なりは 1 回)。</param>
         /// <param name="thresholds">判定の閾値。省略で製品の閾値(<see cref="LeakThresholds.Default"/>)。テストの掃引だけが渡す。</param>
+        /// <param name="coarseVerdicts">
+        /// 同じ入力(同じ pixels・selected・evidence・proposals、同じ閾値)で <see cref="MeasureLeakProposal"/> が塊ごとに
+        /// 返した判定(proposals と同じ並び)。渡せば自動の提案を測り直さずにこれを使う(測るのは整数の数え上げだけなので、
+        /// 同じ入力なら測り直しても同じ値になる)。null なら測る。
+        /// </param>
         internal static LeakVerdict[] JudgeLeaks(Color32* pixels, bool* selected, bool* evidence, int w, int h,
             LeakProposal[] proposals, LeakProposal[] fineProposals, bool* excludeOut, out int excludedPixels,
-            CancellationToken ct = default, LeakThresholds? thresholds = null) {
+            CancellationToken ct = default, LeakThresholds? thresholds = null, LeakVerdict[] coarseVerdicts = null) {
             var th = thresholds ?? LeakThresholds.Default;
             CheckLeakArgs(selected, evidence, w, h);
             if (pixels == null) {
@@ -302,11 +307,17 @@ namespace Iroca {
             if (fineProposals != null && fineProposals.Length != proposals.Length) {
                 throw new ArgumentException("fineProposals の長さが proposals と違います", nameof(fineProposals));
             }
+            if (coarseVerdicts != null && coarseVerdicts.Length != proposals.Length) {
+                throw new ArgumentException("coarseVerdicts の長さが proposals と違います", nameof(coarseVerdicts));
+            }
             var po = CoreParallelism.Options(ct);
             var verdicts = new LeakVerdict[proposals.Length];
             for (int b = 0; b < proposals.Length; b++) {
                 ct.ThrowIfCancellationRequested();
-                var v = MeasureCoarse(pixels, selected, evidence, w, h, proposals[b], po, th);
+                // 測り終えた判定は値の写し(構造体)で受け、下で書き換えても渡された配列は変えない。
+                var v = coarseVerdicts != null
+                    ? coarseVerdicts[b]
+                    : MeasureCoarse(pixels, selected, evidence, w, h, proposals[b], po, th);
                 if (v.Decision == LeakDecision.Keep && fineProposals != null) {
                     var fine = fineProposals[b];
                     if (fine.Mask != null && !fine.Flood) {
@@ -384,9 +395,15 @@ namespace Iroca {
             // [0] |P2| [1] |P2 ∩ 証拠| [2] |P2 ∩ 選択| [3] 輪郭の組 [4] 継ぎ目の組
             var total = new long[5];
             object gate = new object();
-            Parallel.For(0, h, po, () => new long[5], (y, _, local) => {
+            // 数に入るのは P2 の画素 i(と、右・上の隣 j も P2 のときの組)だけなので、P2 の外接矩形の外は数に寄与しない。
+            // 矩形の中だけを走査しても、どの数も同じ整数になる(隣 j は i の右・上で、j も P2 なら矩形の中。画像の端の
+            // 判定は画像の座標のまま)。矩形は 8 バイトずつ空を飛ばして求める(全画素を 1 バイトずつ見るより安い)。
+            if (!MaskRegionEdit.RegionBounds(p2, w, h, out int bx0, out int by0, out int bx1, out int by1)) {
+                bx0 = by0 = bx1 = by1 = 0;   // 空: どの数も 0(下の走査は 1 行も回らない)
+            }
+            Parallel.For(by0, by1, po, () => new long[5], (y, _, local) => {
                 int rowOff = y * w;
-                for (int x = 0; x < w; x++) {
+                for (int x = bx0; x < bx1; x++) {
                     int i = rowOff + x;
                     if (!p2[i]) {
                         continue;
@@ -488,14 +505,20 @@ namespace Iroca {
             return total;
         }
 
-        // |mask| と |mask ∩ selected|。
+        // |mask| と |mask ∩ selected|。数えるのは mask の画素だけなので、mask の外接矩形の中だけを走査する
+        // (矩形の外に mask の画素は無く、どちらの数にも寄与しない。整数の和なので分け方にも依らない)。
         private static void CountMaskAndSelected(bool* mask, bool* selected, int w, int h, ParallelOptions po,
             out long count, out long countSelected) {
             long n = 0, nSel = 0;
             object gate = new object();
-            Parallel.For(0, h, po, () => (n: 0L, s: 0L), (y, _, local) => {
+            if (!MaskRegionEdit.RegionBounds(mask, w, h, out int bx0, out int by0, out int bx1, out int by1)) {
+                count = 0;
+                countSelected = 0;
+                return;
+            }
+            Parallel.For(by0, by1, po, () => (n: 0L, s: 0L), (y, _, local) => {
                 int rowOff = y * w;
-                for (int x = 0; x < w; x++) {
+                for (int x = bx0; x < bx1; x++) {
                     int i = rowOff + x;
                     if (mask[i]) {
                         local.n++;
